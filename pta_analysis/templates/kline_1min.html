@@ -371,32 +371,27 @@
         if (chanResult && chanResult.echarts) {
             var e = chanResult.echarts;
 
-            // 笔 - markLine渲染（只显示可见范围内的标记）
+            // 笔 - 用line series渲染（每笔两条线段）
             if (e.bi_markline && e.bi_markline.length > 0) {
                 var vr = getVisibleRange();
-                chanMarkData.bi = e.bi_markline
-                    .filter(function(m) {
-                        // 笔的起点或终点在可见范围内
-                        return (m.xAxis >= vr.start && m.xAxis <= vr.end) ||
-                               (m.xAxis2 >= vr.start && m.xAxis2 <= vr.end) ||
-                               (m.xAxis < vr.start && m.xAxis2 > vr.end);
-                    })
-                    .map(function(m) {
-                        return {
-                            xAxis: idxToTime(m.xAxis), yAxis: m.yAxis,
-                            xAxis2: idxToTime(m.xAxis2), yAxis2: m.yAxis2,
-                            lineStyle: { color: m.lineStyle && m.lineStyle.color || '#f36', width: 3 }
-                        };
-                    });
+                var biFiltered = e.bi_markline.filter(function(m) {
+                    return (m.xAxis >= vr.start && m.xAxis <= vr.end) ||
+                           (m.xAxis2 >= vr.start && m.xAxis2 <= vr.end) ||
+                           (m.xAxis < vr.start && m.xAxis2 > vr.end);
+                });
+                var biSeriesData = [];
+                biFiltered.forEach(function(m) {
+                    var color = (m.lineStyle && m.lineStyle.color) || '#f36';
+                    biSeriesData.push([idxToTime(m.xAxis), m.yAxis]);
+                    biSeriesData.push([idxToTime(m.xAxis2), m.yAxis2]);
+                    biSeriesData.push({ value: [idxToTime(m.xAxis2), m.yAxis2], symbol: 'none' });
+                });
                 series.push({
                     name: '笔', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
-                    data: [],
-                    markLine: {
-                        silent: true,
-                        symbol: ['none', 'none'],
-                        lineStyle: { width: 3 },
-                        data: chanLayers.bi ? chanMarkData.bi : []
-                    },
+                    data: chanLayers.bi ? biSeriesData : [],
+                    symbol: 'none',
+                    lineStyle: { color: '#f36', width: 2, opacity: 0.9 },
+                    connectNulls: false,
                     z: 3
                 });
             }

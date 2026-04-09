@@ -985,12 +985,11 @@ def api_kline_indicators():
 # ==================== 启动应用 ====================
 
 # ==================== 缠论分析 API ====================
-from chan_analysis.engine import KLine, full_chan_analysis
-import chan_wrapper as cw
+import chan_core_wrapper as cw
 
 @app.route('/api/chan/analysis')
 def api_chan_analysis():
-    """缠论完整分析API - 使用chan.py引擎"""
+    """缠论完整分析API - 使用 chan_core 引擎"""
     period = request.args.get('period', '1min')
     try:
         result = cw.get_chan_result(period)
