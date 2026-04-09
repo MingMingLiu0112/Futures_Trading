@@ -54,6 +54,9 @@ TASK_COMPLETION_SUMMARY.md
 vnpy_deploy/deploy.log
 vnpy_deploy/data/
 
+# External reference (chan.py framework - do not commit large binary/models)
+chan_py_external/
+
 # pta-platform
 pta-platform/data/
 pta-platform/backend/data/

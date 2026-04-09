@@ -9,7 +9,7 @@ def chan_analysis(period='1min'):
     """
     try:
         sys.path.insert(0, '/home/admin/.openclaw/workspace/codeman/pta_analysis')
-        sys.path.insert(0, '/home/admin/.openclaw/workspace/vnpy_tqsdk/src')
+        sys.path.insert(0, '/home/admin/.openclaw/workspace/Futures_Trading/vnpy_tqsdk_gateway')
         from tqsdk.data_source import TqDataSource
     except ImportError:
         return {'error': 'tqsdk未安装', 'period': period}

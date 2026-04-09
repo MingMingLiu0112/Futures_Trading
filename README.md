@@ -19,6 +19,7 @@ Futures_Trading/
 │   ├── scripts/               # 运维脚本
 │   └── chan_analysis/         # 缠论引擎
 │
+├── chan_py_external/          # 外部参考：chan.py框架（来自Vespa314/chan.py）
 ├── vnpy_docker/               # vnpy Docker 部署配置
 ├── vnpy_web/                  # vnpy Web 仪表盘
 ├── vnpy_deploy/               # vnpy 一键部署脚本
