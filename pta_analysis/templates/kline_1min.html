@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PTA 1分钟K线 - 专业图表</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0a0a0a; color: #ccc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+        .header { display: flex; align-items: center; padding: 10px 15px; background: #111; border-bottom: 1px solid #222; gap: 12px; }
+        .title { color: #e94560; font-size: 1.1rem; font-weight: 600; }
+        .price { font-size: 1.3rem; font-weight: 700; color: #fff; }
+        .price.up { color: #f44; }
+        .price.down { color: #0a8; }
+        .change { font-size: 0.85rem; color: #888; }
+        .period-select { margin-left: auto; display: flex; gap: 5px; }
+        .period-select select { background: #222; color: #ccc; border: 1px solid #444; padding: 4px 8px; border-radius: 4px; }
+        .btn-sm { background: #222; color: #ccc; border: 1px solid #444; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
+        .btn-sm:hover { background: #333; }
+        .btn-sm.active { background: #e94560; color: #fff; border-color: #e94560; }
+        .chan-toggle { display: flex; gap: 4px; margin-left: 8px; }
+        .chan-toggle .btn-sm { padding: 3px 7px; font-size: 0.72rem; }
+        .chan-toggle .btn-sm.on { background: #e94560; color: #fff; border-color: #e94560; }
+        #chart { width: 100%; height: calc(100vh - 120px); background: #111; }
+        #loading { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); background: rgba(0,0,0,0.85); color: #fff; padding: 20px 30px; border-radius: 8px; z-index: 9999; font-size: 0.95rem; }
+        .chan-badges { display: flex; gap: 8px; font-size: 0.75rem; }
+        .badge { padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+        .badge-bi { background: rgba(243,70,101,0.2); color: #f36; }
+        .badge-seg { background: rgba(255,217,61,0.2); color: #ffd93d; }
+        .badge-zs { background: rgba(233,69,96,0.2); color: #e94560; }
+        .badge-bs { background: rgba(8,153,129,0.2); color: #089981; }
+        .footer { padding: 6px 15px; background: #0d0d0d; border-top: 1px solid #1a1a1a; font-size: 0.72rem; color: #555; display: flex; justify-content: space-between; }
+    </style>
+</head>
+<body>
+    <div id="loading">数据加载中...</div>
+
+    <div class="header">
+        <span class="title">PTA 1分钟K线</span>
+        <span id="price" class="price">--</span>
+        <span id="change" class="change">--</span>
+        <div class="chan-badges">
+            <span class="badge badge-bi" id="bi-count">笔: -</span>
+            <span class="badge badge-seg" id="seg-count">线段: -</span>
+            <span class="badge badge-zs" id="zs-count">中枢: -</span>
+            <span class="badge badge-bs" id="bs-count">买卖: -</span>
+        </div>
+        <div class="period-select">
+            <select id="period" onchange="changePeriod(this.value)">
+                <option value="1min" selected>1分钟</option>
+                <option value="5min">5分钟</option>
+                <option value="15min">15分钟</option>
+                <option value="30min">30分钟</option>
+                <option value="60min">60分钟</option>
+                <option value="1day">日线</option>
+            </select>
+            <div class="chan-toggle">
+                <button class="btn-sm" id="btn-bi" onclick="toggleLayer('bi')">笔</button>
+                <button class="btn-sm" id="btn-seg" onclick="toggleLayer('seg')">线段</button>
+                <button class="btn-sm" id="btn-zs" onclick="toggleLayer('zs')">中枢</button>
+                <button class="btn-sm" id="btn-bs" onclick="toggleLayer('bs')">买卖</button>
+            </div>
+            <div class="chan-toggle" style="margin-left:4px;">
+                <button class="btn-sm" id="btn-ma" onclick="toggleIndicator('ma')">均线</button>
+                <button class="btn-sm" id="btn-macd" onclick="toggleIndicator('macd')">MACD</button>
+                <button class="btn-sm" id="btn-kdj" onclick="toggleIndicator('kdj')">KDJ</button>
+            </div>
+            <button class="btn-sm" id="btn-auto-refresh" onclick="toggleAutoRefresh()">暂停</button>
+        </div>
+    </div>
+
+    <div id="chart"></div>
+
+    <div class="footer">
+        <span>自动刷新每10秒</span>
+        <span id="update-time">--</span>
+    </div>
+
+    <script src="/static/js/echarts.min.js"></script>
+    <script>
+    var chart = null;
+    var rawData = [];
+    var chanData = null;
+    var currentPeriod = '1min';
+    var autoRefreshInterval = null;
+    var autoRefreshSec = 10;
+    var chanLayers = { bi: false, seg: false, zs: false, bs: false };
+    var indicatorLayers = { ma: false, macd: true, kdj: true };
+    var currentOption = null;
+    // 保存原始markLine数据用于toggle
+    var chanMarkData = { bi: [], seg: [], zs: [], bs: [] };
+
+    function init() {
+        chart = echarts.init(document.getElementById('chart'));
+        loadData();
+        window.addEventListener('resize', function() { chart.resize(); });
+        startAutoRefresh();
+    }
+
+    function startAutoRefresh() {
+        if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+        autoRefreshInterval = setInterval(loadData, autoRefreshSec * 1000);
+        document.getElementById('btn-auto-refresh').textContent = '暂停';
+        document.getElementById('btn-auto-refresh').classList.add('active');
+    }
+
+    function stopAutoRefresh() {
+        if (autoRefreshInterval) { clearInterval(autoRefreshInterval); autoRefreshInterval = null; }
+        document.getElementById('btn-auto-refresh').textContent = '自动刷新';
+        document.getElementById('btn-auto-refresh').classList.remove('active');
+    }
+
+    function toggleAutoRefresh() {
+        if (autoRefreshInterval) stopAutoRefresh(); else startAutoRefresh();
+    }
+
+    function toggleIndicator(ind) {
+        indicatorLayers[ind] = !indicatorLayers[ind];
+        document.getElementById('btn-' + ind).classList.toggle('on', indicatorLayers[ind]);
+        if (!currentOption || !currentOption.series) return;
+        // 显示/隐藏指标对应的series
+        var indMap = {
+            'ma': ['MA5', 'MA10', 'MA20'],
+            'macd': ['MACD', 'DIF', 'DEA'],
+            'kdj': ['K', 'D', 'J']
+        };
+        var showNames = indMap[ind] || [];
+        for (var i = 0; i < currentOption.series.length; i++) {
+            var s = currentOption.series[i];
+            if (showNames.indexOf(s.name) >= 0) {
+                s.show = indicatorLayers[ind];
+            }
+        }
+        chart.setOption(currentOption, false);
+    }
+
+    function toggleLayer(layer) {
+        chanLayers[layer] = !chanLayers[layer];
+        document.getElementById('btn-' + layer).classList.toggle('on', chanLayers[layer]);
+        if (!currentOption || !currentOption.series) return;
+
+        // 找到各series并更新数据
+        for (var i = 0; i < currentOption.series.length; i++) {
+            var s = currentOption.series[i];
+            if (s.name === '笔' && s.markLine) {
+                // 笔用markLine，切换markLine.data
+                s.markLine.data = chanLayers.bi ? chanMarkData.bi : [];
+            } else if (s.name === '线段') {
+                s.data = chanLayers.seg ? chanMarkData.seg : [];
+            } else if (s.name === '中枢' && s.markArea) {
+                s.markArea.data = chanLayers.zs ? chanMarkData.zs : [];
+            } else if (s.name === '买卖点') {
+                s.data = chanLayers.bs ? chanMarkData.bs : [];
+            }
+        }
+        // 用merge模式更新
+        chart.setOption(currentOption, false);
+    }
+
+    function changePeriod(p) {
+        currentPeriod = p;
+        // clear chan cache
+        loadData();
+    }
+
+    // 将笔/线段/中枢的K线索引转为实际时间字符串（ECharts category轴必须用字符串）
+    function idxToTime(idx) {
+        idx = Math.min(Math.max(Math.round(idx), 0), rawData.length - 1);
+        return rawData[idx] ? rawData[idx].time : (rawData[0] ? rawData[0].time : '');
+    }
+
+    // 计算可见范围的K线索引（用于只显示可见范围内的缠论标记）
+    // 默认显示最后30%的数据：start=70, end=100
+    function getVisibleRange() {
+        var total = rawData.length;
+        if (total === 0) return { start: 0, end: total - 1 };
+        // dataZoom默认75-100%，显示最后25%
+        var startIdx = Math.floor(total * 0.75);
+        var endIdx = total - 1;
+        return { start: startIdx, end: endIdx };
+    }
+
+    async function loadData() {
+        try {
+            var [klineResp, chanResp] = await Promise.all([
+                fetch('/api/kline/data?period=' + currentPeriod),
+                fetch('/api/chan/analysis?period=' + currentPeriod)
+            ]);
+            var klineResult = await klineResp.json();
+            var chanResult = await chanResp.json();
+
+            if (!klineResult.data || klineResult.data.length === 0) {
+                document.getElementById('loading').textContent = '无数据: ' + (klineResult.error || 'unknown');
+                return;
+            }
+
+            rawData = klineResult.data;
+            chanData = chanResult;
+            renderChart(klineResult, chanResult);
+            updateChanBadges(chanResult);
+            updatePrice(klineResult);
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('update-time').textContent = '更新: ' + new Date().toLocaleTimeString();
+        } catch(e) {
+            document.getElementById('loading').textContent = '加载失败: ' + e.message;
+        }
+    }
+
+    function updatePrice(result) {
+        var el = document.getElementById('price');
+        var changeEl = document.getElementById('change');
+        var price = (result.current_price) || 0;
+        var change = result.change || 0;
+        var pct = result.change_pct || 0;
+        var cls = change >= 0 ? 'up' : 'down';
+        el.className = 'price ' + cls;
+        el.textContent = price.toFixed(1);
+        changeEl.textContent = (change >= 0 ? '+' : '') + change.toFixed(1) + ' (' + (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%)';
+        changeEl.className = 'change ' + cls;
+    }
+
+    function updateChanBadges(result) {
+        if (!result.stats) return;
+        var s = result.stats;
+        document.getElementById('bi-count').textContent = '笔: ' + (s.bi_count || 0);
+        document.getElementById('seg-count').textContent = '线段: ' + (s.seg_count || 0);
+        document.getElementById('zs-count').textContent = '中枢: ' + (s.zs_count || 0);
+        document.getElementById('bs-count').textContent = '买卖: ' + (s.bs_count || 0);
+    }
+
+    function calcMA(data, period, closeIdx) {
+        var result = [];
+        for (var i = 0; i < data.length; i++) {
+            if (i < period - 1) { result.push('-'); }
+            else {
+                var sum = 0;
+                for (var j = 0; j < period; j++) { sum += data[i - j][closeIdx]; }
+                result.push(+(sum / period).toFixed(2));
+            }
+        }
+        return result;
+    }
+
+    function calcMACD(closes) {
+        function ema(arr, n) {
+            var k = 2 / (n + 1);
+            var result = [];
+            for (var i = 0; i < arr.length; i++) {
+                if (i === 0) { result.push(arr[i]); }
+                else { result.push(arr[i] * k + result[i-1] * (1 - k)); }
+            }
+            return result;
+        }
+        var ema12 = ema(closes, 12);
+        var ema26 = ema(closes, 26);
+        var diff = [];
+        for (var i = 0; i < closes.length; i++) { diff.push(ema12[i] - ema26[i]); }
+        var dea = ema(diff, 9);
+        var bars = [];
+        for (var i = 0; i < diff.length; i++) {
+            bars.push((diff[i] - dea[i]) * 2);
+        }
+        return { diff: diff, dea: dea, bars: bars };
+    }
+
+    function calcKDJ(data) {
+        var n = 9, m1 = 3, m2 = 3;
+        var k = [], d = [];
+        var rsv = [];
+        for (var i = 0; i < data.length; i++) {
+            if (i < n - 1) { k.push(50); d.push(50); rsv.push(50); continue; }
+            var high = Math.max.apply(null, data.slice(i-n+1, i+1).map(function(x){return x[2];}));
+            var low = Math.min.apply(null, data.slice(i-n+1, i+1).map(function(x){return x[3];}));
+            rsv.push(high === low ? 50 : (data[i][1] - low) / (high - low) * 100);
+            k.push((rsv[i] * m1 + (k[i-1] || 50) * (m1-1)) / m1);
+            d.push((k[i] * m2 + (d[i-1] || 50) * (m2-1)) / m2);
+        }
+        var j = [];
+        for (var i = 0; i < k.length; i++) { j.push(3 * k[i] - 2 * d[i]); }
+        return { k: k, d: d, j: j };
+    }
+
+    function renderChart(klineResult, chanResult) {
+        var data = rawData;
+        var timeData = data.map(function(d) { return d.time; });
+        var ohlcData = data.map(function(d) { return [d.open, d.close, d.low, d.high]; });
+        var volData = data.map(function(d) { return d.volume || 0; });
+
+        // 计算指标
+        var ma5 = calcMA(ohlcData, 5, 1);
+        var ma10 = calcMA(ohlcData, 10, 1);
+        var ma20 = calcMA(ohlcData, 20, 1);
+        var macd = calcMACD(ohlcData.map(function(d){return d[1];}));
+        var kdj = calcKDJ(ohlcData);
+
+        // 基础K线配置
+        var baseOption = {
+            backgroundColor: '#111',
+            animation: false,
+            tooltip: { trigger: 'axis', axisPointer: { type: 'cross' }, backgroundColor: 'rgba(30,30,30,0.95)', borderColor: '#333', textStyle: { color: '#ccc' } },
+            legend: { show: true, top: 3, inactiveColor: '#555', textStyle: { color: '#aaa' },
+                      data: ['K线','MACD','DIF','DEA','K','D','J'] },
+            grid: [
+                { left: '8%', right: '5%', top: '12%', height: '50%' },
+                { left: '8%', right: '5%', top: '68%', height: '12%' },
+                { left: '8%', right: '5%', top: '84%', height: '12%' }
+            ],
+            xAxis: [
+                { type: 'category', data: timeData, gridIndex: 0, boundaryGap: false, axisLine: { lineStyle: { color: '#333' } }, axisLabel: { color: '#666', fontSize: 10 }, axisTick: { show: false }, splitLine: { show: false } },
+                { type: 'category', data: timeData, gridIndex: 1, boundaryGap: false, axisLine: { lineStyle: { color: '#333' } }, axisLabel: { show: false }, axisTick: { show: false }, splitLine: { show: false }, position: 'bottom' },
+                { type: 'category', data: timeData, gridIndex: 2, boundaryGap: false, axisLine: { lineStyle: { color: '#333' } }, axisLabel: { show: false }, axisTick: { show: false }, splitLine: { show: false } }
+            ],
+            yAxis: [
+                { type: 'value', gridIndex: 0, scale: true, axisLine: { lineStyle: { color: '#333' } }, axisLabel: { color: '#666' }, splitLine: { lineStyle: { color: '#1a1a1a' } } },
+                { type: 'value', gridIndex: 1, scale: true, axisLine: { lineStyle: { color: '#333' } }, axisLabel: { color: '#666' }, splitLine: { show: false } },
+                { type: 'value', gridIndex: 2, scale: true, axisLine: { lineStyle: { color: '#333' } }, axisLabel: { color: '#666' }, splitLine: { show: false } }
+            ],
+            dataZoom: [
+                { type: 'inside', xAxisIndex: [0, 1, 2], start: 75, end: 100 },
+                { type: 'slider', xAxisIndex: [0, 1, 2], bottom: 2, height: 18, borderColor: '#333', backgroundColor: '#1a1a1a', fillerColor: 'rgba(233,69,96,0.2)', handleStyle: { color: '#e94560' }, textStyle: { color: '#666' }, start: 75, end: 100 }
+            ],
+            series: []
+        };
+
+        var series = [
+            // K线
+            { name: 'K线', type: 'candlestick', xAxisIndex: 0, yAxisIndex: 0,
+              data: ohlcData,
+              itemStyle: { color: '#f44', color0: '#0a8', borderColor: '#f44', borderColor0: '#0a8' }
+            },
+            // MA5 (默认隐藏)
+            { name: 'MA5', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
+              data: ma5, smooth: true, lineStyle: { color: '#f44', width: 1 }, symbol: 'none',
+              z: 2, show: false
+            },
+            // MA10 (默认隐藏)
+            { name: 'MA10', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
+              data: ma10, smooth: true, lineStyle: { color: '#4f4', width: 1 }, symbol: 'none',
+              z: 2, show: false
+            },
+            // MA20 (默认隐藏)
+            { name: 'MA20', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
+              data: ma20, smooth: true, lineStyle: { color: '#44f', width: 1 }, symbol: 'none',
+              z: 2, show: false
+            },
+            // MACD (默认显示)
+            { name: 'MACD', type: 'bar', xAxisIndex: 1, yAxisIndex: 1,
+              data: macd.bars.map(function(v){ return v >= 0 ? v : '-'; }),
+              itemStyle: { color: function(p){ return macd.bars[p.dataIndex] >= 0 ? '#f44' : '#0a8'; } },
+              barWidth: '60%', show: true
+            },
+            { name: 'DIF', type: 'line', xAxisIndex: 1, yAxisIndex: 1,
+              data: macd.diff, lineStyle: { color: '#ff6b6b', width: 1 }, symbol: 'none', show: true
+            },
+            { name: 'DEA', type: 'line', xAxisIndex: 1, yAxisIndex: 1,
+              data: macd.dea, lineStyle: { color: '#4ecdc4', width: 1 }, symbol: 'none', show: true
+            },
+            // KDJ (默认显示)
+            { name: 'K', type: 'line', xAxisIndex: 2, yAxisIndex: 2,
+              data: kdj.k.map(function(v){ return +v.toFixed(2); }), lineStyle: { color: '#ff6b6b', width: 1 }, symbol: 'none', show: true
+            },
+            { name: 'D', type: 'line', xAxisIndex: 2, yAxisIndex: 2,
+              data: kdj.d.map(function(v){ return +v.toFixed(2); }), lineStyle: { color: '#4ecdc4', width: 1 }, symbol: 'none', show: true
+            },
+            { name: 'J', type: 'line', xAxisIndex: 2, yAxisIndex: 2,
+              data: kdj.j.map(function(v){ return +v.toFixed(2); }), lineStyle: { color: '#ffd93d', width: 1 }, symbol: 'none', show: true
+            },
+        ];
+
+        // 添加缠论层
+        if (chanResult && chanResult.echarts) {
+            var e = chanResult.echarts;
+
+            // 笔 - markLine渲染（只显示可见范围内的标记）
+            if (e.bi_markline && e.bi_markline.length > 0) {
+                var vr = getVisibleRange();
+                chanMarkData.bi = e.bi_markline
+                    .filter(function(m) {
+                        // 笔的起点或终点在可见范围内
+                        return (m.xAxis >= vr.start && m.xAxis <= vr.end) ||
+                               (m.xAxis2 >= vr.start && m.xAxis2 <= vr.end) ||
+                               (m.xAxis < vr.start && m.xAxis2 > vr.end);
+                    })
+                    .map(function(m) {
+                        return {
+                            xAxis: idxToTime(m.xAxis), yAxis: m.yAxis,
+                            xAxis2: idxToTime(m.xAxis2), yAxis2: m.yAxis2,
+                            lineStyle: { color: m.lineStyle && m.lineStyle.color || '#f36', width: 3 }
+                        };
+                    });
+                series.push({
+                    name: '笔', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
+                    data: [],
+                    markLine: {
+                        silent: true,
+                        symbol: ['none', 'none'],
+                        lineStyle: { width: 3 },
+                        data: chanLayers.bi ? chanMarkData.bi : []
+                    },
+                    z: 3
+                });
+            }
+
+            // 线段 - 用line series（只显示可见范围内）
+            if (e.seg_markline && e.seg_markline.length > 0) {
+                var vr = getVisibleRange();
+                var segFiltered = e.seg_markline.filter(function(m) {
+                    return (m.xAxis >= vr.start && m.xAxis <= vr.end) ||
+                           (m.xAxis2 >= vr.start && m.xAxis2 <= vr.end) ||
+                           (m.xAxis < vr.start && m.xAxis2 > vr.end);
+                });
+                chanMarkData.seg = [];
+                segFiltered.forEach(function(m) {
+                    chanMarkData.seg.push([idxToTime(m.xAxis), m.yAxis]);
+                    chanMarkData.seg.push([idxToTime(m.xAxis2), m.yAxis2]);
+                    chanMarkData.seg.push({ value: [idxToTime(m.xAxis2), m.yAxis2], symbol: 'none' });
+                });
+                series.push({
+                    name: '线段', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
+                    data: chanLayers.seg ? chanMarkData.seg : [],
+                    symbol: 'none',
+                    lineStyle: { color: '#ffd93d', width: 3 },
+                    z: 4
+                });
+            }
+
+            // 中枢 - markArea（只显示可见范围内）
+            if (e.zs_markarea && e.zs_markarea.length > 0) {
+                var vr = getVisibleRange();
+                chanMarkData.zs = [];
+                e.zs_markarea
+                    .filter(function(m) {
+                        return (m.xAxis >= vr.start && m.xAxis <= vr.end) ||
+                               (m.xAxis2 >= vr.start && m.xAxis2 <= vr.end) ||
+                               (m.xAxis < vr.start && m.xAxis2 > vr.end);
+                    })
+                    .forEach(function(m) {
+                        chanMarkData.zs.push([
+                            { xAxis: idxToTime(m.xAxis), yAxis: m.yAxis,
+                              itemStyle: { color: 'rgba(233,69,96,0.08)', borderColor: '#e94560', borderWidth: 1, borderType: 'dashed' } },
+                            { xAxis: idxToTime(m.xAxis2), yAxis: m.yAxis2 }
+                        ]);
+                    });
+                series.push({
+                    name: '中枢', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
+                    data: [],
+                    markArea: { silent: true, data: chanLayers.zs ? chanMarkData.zs : [] },
+                    z: 1
+                });
+            }
+
+            // 买卖点 - scatter（只显示可见范围内）
+            if (e.bs_scatter && e.bs_scatter.length > 0) {
+                var vr = getVisibleRange();
+                chanMarkData.bs = e.bs_scatter
+                    .filter(function(s) {
+                        return s.value[0] >= vr.start && s.value[0] <= vr.end;
+                    })
+                    .map(function(s) {
+                        return {
+                            value: [idxToTime(s.value[0]), s.value[1]],
+                            symbol: 'circle', symbolSize: 12,
+                            itemStyle: { color: s.itemStyle ? s.itemStyle.color : '#ff6b6b' },
+                            label: { show: true, formatter: s.label ? s.label.formatter : '', color: '#fff', fontSize: 9, position: 'top' }
+                        };
+                    });
+                series.push({
+                    name: '买卖点', type: 'scatter', xAxisIndex: 0, yAxisIndex: 0,
+                    data: chanLayers.bs ? chanMarkData.bs : [],
+                    z: 10
+                });
+            }
+        }
+
+        baseOption.series = series;
+        currentOption = baseOption;
+
+        // Initialize button states (all off = pure K-line view)
+        document.getElementById('btn-bi').classList.toggle('on', chanLayers.bi);
+        document.getElementById('btn-seg').classList.toggle('on', chanLayers.seg);
+        document.getElementById('btn-zs').classList.toggle('on', chanLayers.zs);
+        document.getElementById('btn-bs').classList.toggle('on', chanLayers.bs);
+        document.getElementById('btn-ma').classList.toggle('on', indicatorLayers.ma);
+        document.getElementById('btn-macd').classList.toggle('on', indicatorLayers.macd);
+        document.getElementById('btn-kdj').classList.toggle('on', indicatorLayers.kdj);
+
+        chart.setOption(baseOption, true);
+    }
+
+    window.addEventListener('load', init);
+    </script>
+</body>
+</html>

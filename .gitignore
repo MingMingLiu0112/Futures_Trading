@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+.env
+.venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+cron_*.log
+*.log.*
+
+# OpenClaw system files (workspace config, NOT project files)
+memory/
+HEARTBEAT.md
+SOUL.md
+TOOLS.md
+USER.md
+IDENTITY.md
+AGENTS.md
+BOOTSTRAP.md
+agents/
+
+# PTA Analysis specific
+pta_analysis/__pycache__/
+pta_analysis/scripts/__pycache__/
+pta_analysis/chan_analysis/__pycache__/
+pta_analysis/data/*.db
+pta_analysis/data/*.db-journal
+pta_analysis/static/volatility_analysis.json
+pta_analysis/eastmoney_check.log
+pta_analysis/report.log
+
+#缠论迭代日志
+ITERATION_LOG.md
+TASK_COMPLETION_SUMMARY.md
+
+# Git (preserve submodule .git)
+futures_options/.git/

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>PTA K线 - 最小化测试</title>
+    <script>var echarts = { version: "5.4.3" };</script>
+</head>
+<body style="background:#111;color:#fff;font-family:sans-serif;">
+    <h2 id="s1" style="color:#0f0;">1. 页面打开</h2>
+    <h2 id="s2" style="color:#f00;">2. ECharts检查...</h2>
+    <h2 id="s3" style="color:#f00;">3. API检查...</h2>
+    <h2 id="s4" style="color:#f00;">4. 图表渲染...</h2>
+    <div id="chart" style="width:90vw;height:60vh;border:1px solid #333;margin:10px 0;"></div>
+    <div id="log" style="background:#000;padding:10px;font-size:12px;max-height:100px;overflow:auto;"></div>
+    <script>
+        function log(m){ document.getElementById('log').innerHTML += '<div>'+m+'</div>'; }
+        log('脚本执行');
+
+        // 检查ECharts
+        if (typeof echarts !== 'undefined' && echarts.version) {
+            document.getElementById('s2').style.color='#0f0';
+            document.getElementById('s2').textContent='2. ECharts: OK ('+echarts.version+')';
+            log('ECharts版本: '+echarts.version);
+        } else {
+            document.getElementById('s2').style.color='#f00';
+            document.getElementById('s2').textContent='2. ECharts: FAILED';
+            log('ECharts未定义!');
+        }
+
+        // 加载K线数据
+        log('开始请求/api/kline/data...');
+        fetch('/api/kline/data?period=1min')
+            .then(r=>r.json())
+            .then(d=>{
+                document.getElementById('s3').style.color='#0f0';
+                document.getElementById('s3').textContent='3. API: OK ('+d.data.length+'条)';
+                log('K线数据: '+d.data.length+'条, 当前价:'+d.current_price);
+
+                // 渲染图表
+                if (typeof echarts !== 'undefined' && echarts.init) {
+                    try {
+                        var chart = echarts.init(document.getElementById('chart'));
+                        var times = d.data.slice(-50).map(x=>x.time.substr(-8));
+                        var closes = d.data.slice(-50).map(x=>x.close);
+                        chart.setOption({
+                            title:{text:'PTA K线 ('+d.data.length+'条)',textStyle:{color:'#fff'}},
+                            backgroundColor:'#111',
+                            tooltip:{trigger:'axis'},
+                            xAxis:{type:'category',data:times,axisLine:{lineStyle:{color:'#444'}}},
+                            yAxis:{type:'value',scale:true,axisLine:{lineStyle:{color:'#444'}}},
+                            series:[{
+                                type:'line',
+                                data:closes,
+                                smooth:true,
+                                lineStyle:{color:'#e94560'},
+                                areaStyle:{color:'rgba(233,69,96,0.2)'}
+                            }]
+                        });
+                        document.getElementById('s4').style.color='#0f0';
+                        document.getElementById('s4').textContent='4. 图表: 渲染成功!';
+                        log('图表渲染成功!');
+                    } catch(e) {
+                        document.getElementById('s4').style.color='#f00';
+                        document.getElementById('s4').textContent='4. 图表: '+e.message;
+                        log('图表错误: '+e.message);
+                    }
+                } else {
+                    log('无法渲染: echarts.init不存在');
+                }
+            })
+            .catch(e=>{
+                document.getElementById('s3').style.color='#f00';
+                document.getElementById('s3').textContent='3. API: '+e.message;
+                log('API错误: '+e.message);
+            });
+    </script>
+</body>
+</html>

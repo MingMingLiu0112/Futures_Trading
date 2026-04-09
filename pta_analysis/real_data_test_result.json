@@ -1,0 +1,323 @@
+{
+  "data_info": {
+    "kline_count": 500,
+    "date_range": [
+      "2026-04-01 00:00:00",
+      "2026-04-01 08:19:00"
+    ],
+    "price_range": [
+      4959.701642710314,
+      5239.882391937391
+    ]
+  },
+  "analysis_result": {
+    "level": "1min",
+    "bis_count": 22,
+    "segments_count": 3,
+    "zhongshus_count": 1,
+    "buy_sell_points_count": 0,
+    "signals": [],
+    "bis": [
+      {
+        "idx": 0,
+        "start_idx": 13,
+        "end_idx": 17,
+        "start_price": 5030.316961931697,
+        "end_price": 5066.111940862464,
+        "high": 5066.111940862464,
+        "low": 5030.316961931697,
+        "direction": "up",
+        "length": 5
+      },
+      {
+        "idx": 1,
+        "start_idx": 41,
+        "end_idx": 46,
+        "start_price": 5084.925880019565,
+        "end_price": 5127.89207638039,
+        "high": 5127.89207638039,
+        "low": 5084.925880019565,
+        "direction": "up",
+        "length": 6
+      },
+      {
+        "idx": 2,
+        "start_idx": 64,
+        "end_idx": 68,
+        "start_price": 5137.465360044764,
+        "end_price": 5116.896870475863,
+        "high": 5137.465360044764,
+        "low": 5116.896870475863,
+        "direction": "down",
+        "length": 5
+      },
+      {
+        "idx": 3,
+        "start_idx": 103,
+        "end_idx": 107,
+        "start_price": 5114.482507323109,
+        "end_price": 5073.445407328971,
+        "high": 5114.482507323109,
+        "low": 5073.445407328971,
+        "direction": "down",
+        "length": 5
+      },
+      {
+        "idx": 4,
+        "start_idx": 126,
+        "end_idx": 132,
+        "start_price": 5058.975940373331,
+        "end_price": 5026.758737649115,
+        "high": 5058.975940373331,
+        "low": 5026.758737649115,
+        "direction": "down",
+        "length": 7
+      },
+      {
+        "idx": 5,
+        "start_idx": 149,
+        "end_idx": 153,
+        "start_price": 5012.13380250208,
+        "end_price": 4979.368519865389,
+        "high": 5012.13380250208,
+        "low": 4979.368519865389,
+        "direction": "down",
+        "length": 5
+      },
+      {
+        "idx": 6,
+        "start_idx": 166,
+        "end_idx": 170,
+        "start_price": 4991.277430417353,
+        "end_price": 4967.995017100749,
+        "high": 4991.277430417353,
+        "low": 4967.995017100749,
+        "direction": "down",
+        "length": 5
+      },
+      {
+        "idx": 7,
+        "start_idx": 175,
+        "end_idx": 185,
+        "start_price": 4986.986719961009,
+        "end_price": 4959.701642710314,
+        "high": 4986.986719961009,
+        "low": 4959.701642710314,
+        "direction": "down",
+        "length": 11
+      },
+      {
+        "idx": 8,
+        "start_idx": 187,
+        "end_idx": 192,
+        "start_price": 4963.062014249367,
+        "end_price": 4985.603992589875,
+        "high": 4987.723272026678,
+        "low": 4963.062014249367,
+        "direction": "up",
+        "length": 6
+      },
+      {
+        "idx": 9,
+        "start_idx": 195,
+        "end_idx": 200,
+        "start_price": 4959.8616163872075,
+        "end_price": 4997.172593040433,
+        "high": 4997.172593040433,
+        "low": 4959.8616163872075,
+        "direction": "up",
+        "length": 6
+      },
+      {
+        "idx": 10,
+        "start_idx": 211,
+        "end_idx": 218,
+        "start_price": 5014.186082408996,
+        "end_price": 5009.556635988072,
+        "high": 5022.81725143751,
+        "low": 4990.6868799721315,
+        "direction": "down",
+        "length": 8
+      },
+      {
+        "idx": 11,
+        "start_idx": 247,
+        "end_idx": 254,
+        "start_price": 5073.373606954584,
+        "end_price": 5121.609354999165,
+        "high": 5121.609354999165,
+        "low": 5073.373606954584,
+        "direction": "up",
+        "length": 8
+      },
+      {
+        "idx": 12,
+        "start_idx": 255,
+        "end_idx": 259,
+        "start_price": 5106.026160247958,
+        "end_price": 5145.589921330187,
+        "high": 5145.589921330187,
+        "low": 5106.026160247958,
+        "direction": "up",
+        "length": 5
+      },
+      {
+        "idx": 13,
+        "start_idx": 260,
+        "end_idx": 264,
+        "start_price": 5121.64346742975,
+        "end_price": 5149.796751987384,
+        "high": 5149.796751987384,
+        "low": 5121.64346742975,
+        "direction": "up",
+        "length": 5
+      },
+      {
+        "idx": 14,
+        "start_idx": 265,
+        "end_idx": 272,
+        "start_price": 5137.058138500914,
+        "end_price": 5176.364573664239,
+        "high": 5176.364573664239,
+        "low": 5137.058138500914,
+        "direction": "up",
+        "length": 8
+      },
+      {
+        "idx": 15,
+        "start_idx": 277,
+        "end_idx": 284,
+        "start_price": 5161.032249094799,
+        "end_price": 5191.0909260653325,
+        "high": 5191.0909260653325,
+        "low": 5161.032249094799,
+        "direction": "up",
+        "length": 8
+      },
+      {
+        "idx": 16,
+        "start_idx": 297,
+        "end_idx": 305,
+        "start_price": 5207.102707217415,
+        "end_price": 5231.872388457747,
+        "high": 5231.872388457747,
+        "low": 5206.841850809996,
+        "direction": "up",
+        "length": 9
+      },
+      {
+        "idx": 17,
+        "start_idx": 331,
+        "end_idx": 337,
+        "start_price": 5234.276626430095,
+        "end_price": 5209.440520749895,
+        "high": 5234.276626430095,
+        "low": 5209.440520749895,
+        "direction": "down",
+        "length": 7
+      },
+      {
+        "idx": 18,
+        "start_idx": 387,
+        "end_idx": 394,
+        "start_price": 5130.057297831556,
+        "end_price": 5097.834454508372,
+        "high": 5130.057297831556,
+        "low": 5097.834454508372,
+        "direction": "down",
+        "length": 8
+      },
+      {
+        "idx": 19,
+        "start_idx": 406,
+        "end_idx": 411,
+        "start_price": 5076.081066168487,
+        "end_price": 5096.450461342928,
+        "high": 5096.450461342928,
+        "low": 5076.081066168487,
+        "direction": "up",
+        "length": 6
+      },
+      {
+        "idx": 20,
+        "start_idx": 451,
+        "end_idx": 457,
+        "start_price": 5074.0479501837035,
+        "end_price": 5114.019150932067,
+        "high": 5114.019150932067,
+        "low": 5074.0479501837035,
+        "direction": "up",
+        "length": 7
+      },
+      {
+        "idx": 21,
+        "start_idx": 465,
+        "end_idx": 471,
+        "start_price": 5102.608266761147,
+        "end_price": 5137.163906202201,
+        "high": 5137.163906202201,
+        "low": 5102.608266761147,
+        "direction": "up",
+        "length": 7
+      }
+    ],
+    "segments": [
+      {
+        "idx": 0,
+        "start_bi_idx": 2,
+        "end_bi_idx": 7,
+        "start_price": 5137.465360044764,
+        "end_price": 4959.701642710314,
+        "high": 5137.465360044764,
+        "low": 4959.701642710314,
+        "direction": "down",
+        "bis_count": 6,
+        "is_confirmed": true
+      },
+      {
+        "idx": 1,
+        "start_bi_idx": 11,
+        "end_bi_idx": 16,
+        "start_price": 5073.373606954584,
+        "end_price": 5231.872388457747,
+        "high": 5231.872388457747,
+        "low": 5073.373606954584,
+        "direction": "up",
+        "bis_count": 6,
+        "is_confirmed": true
+      },
+      {
+        "idx": 2,
+        "start_bi_idx": 19,
+        "end_bi_idx": 21,
+        "start_price": 5076.081066168487,
+        "end_price": 5137.163906202201,
+        "high": 5137.163906202201,
+        "low": 5074.0479501837035,
+        "direction": "up",
+        "bis_count": 3,
+        "is_confirmed": true
+      }
+    ],
+    "zhongshus": [
+      {
+        "idx": 0,
+        "start_seg_idx": 0,
+        "end_seg_idx": 2,
+        "gg": 5137.163906202201,
+        "dd": 5074.0479501837035,
+        "zg": 5105.605928192952,
+        "zd": 5105.605928192952,
+        "direction": "up",
+        "type": "consolidation",
+        "level": "1min",
+        "overlap_range": [
+          5074.0479501837035,
+          5137.163906202201
+        ],
+        "segments_count": 3
+      }
+    ],
+    "buy_sell_points": []
+  }
+}

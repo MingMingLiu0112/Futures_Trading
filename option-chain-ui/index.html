@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PTA期权链T型显示</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --secondary-color: #3498db;
+            --call-color: #27ae60;
+            --put-color: #e74c3c;
+            --neutral-color: #f39c12;
+            --light-bg: #f8f9fa;
+            --dark-bg: #2c3e50;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f7fa;
+            color: #333;
+            padding-top: 20px;
+            padding-bottom: 40px;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: white;
+            padding: 25px 0;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .option-chain-container {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            margin-bottom: 30px;
+        }
+        
+        .strike-price {
+            font-weight: bold;
+            font-size: 1.1rem;
+            color: var(--primary-color);
+            border-bottom: 2px solid #eee;
+            padding-bottom: 8px;
+            margin-bottom: 15px;
+        }
+        
+        .call-option {
+            background: rgba(39, 174, 96, 0.1);
+            border-left: 4px solid var(--call-color);
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+        }
+        
+        .put-option {
+            background: rgba(231, 76, 60, 0.1);
+            border-left: 4px solid var(--put-color);
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+        }
+        
+        .option-field {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+            font-size: 0.9rem;
+        }
+        
+        .field-label {
+            color: #666;
+            font-weight: 500;
+        }
+        
+        .field-value {
+            font-weight: 600;
+        }
+        
+        .positive {
+            color: var(--call-color);
+        }
+        
+        .negative {
+            color: var(--put-color);
+        }
+        
+        .neutral {
+            color: var(--neutral-color);
+        }
+        
+        .t-shape-layout {
+            display: flex;
+            gap: 30px;
+            margin-top: 20px;
+        }
+        
+        .calls-section, .puts-section {
+            flex: 1;
+        }
+        
+        .section-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: var(--primary-color);
+            margin-bottom: 15px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #eee;
+        }
+        
+        .controls {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            margin-bottom: 30px;
+        }
+        
+        .stats-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            margin-bottom: 20px;
+        }
+        
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            margin: 10px 0;
+        }
+        
+        .stat-label {
+            color: #666;
+            font-size: 0.9rem;
+        }
+        
+        @media (max-width: 768px) {
+            .t-shape-layout {
+                flex-direction: column;
+                gap: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header text-center">
+            <h1><i class="fas fa-chart-line me-2"></i>PTA期权链T型显示</h1>
+            <p class="mb-0">实时期权数据：价格、持仓量变化、成交量变化、隐波变化、希腊字母</p>
+        </div>
+        
+        <div id="root"></div>
+        
+        <div class="row mt-4">
+            <div class="col-md-12">
+                <div class="text-center text-muted">
+                    <p><i class="fas fa-info-circle me-2"></i>数据来源：天勤量化 | 更新时间：<span id="update-time">--:--:--</span></p>
+                    <p>© 2026 PTA期货分析平台 - 期权链T型显示组件</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script type="module" src="/src/main.tsx"></script>
+    
+    <script>
+        // 更新时间显示
+        function updateTime() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('zh-CN');
+            document.getElementById('update-time').textContent = timeStr;
+        }
+        
+        updateTime();
+        setInterval(updateTime, 1000);
+    </script>
+</body>
+</html>

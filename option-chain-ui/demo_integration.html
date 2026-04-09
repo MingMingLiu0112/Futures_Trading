@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PTA平台 - 期权链集成演示</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root {
+            --pta-primary: #1a237e;
+            --pta-secondary: #3949ab;
+            --pta-accent: #5c6bc0;
+            --pta-success: #43a047;
+            --pta-danger: #e53935;
+            --pta-warning: #ffb300;
+        }
+        
+        body {
+            font-family: 'Microsoft YaHei', 'Segoe UI', sans-serif;
+            background-color: #f5f7fa;
+        }
+        
+        .pta-header {
+            background: linear-gradient(135deg, var(--pta-primary), var(--pta-secondary));
+            color: white;
+            padding: 20px 0;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        
+        .pta-nav {
+            background-color: white;
+            border-bottom: 1px solid #e0e0e0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        
+        .pta-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        
+        .pta-card {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            margin-bottom: 25px;
+            border: 1px solid #e8e8e8;
+        }
+        
+        .pta-card-header {
+            background-color: #f8f9fa;
+            border-bottom: 2px solid var(--pta-accent);
+            padding: 15px 20px;
+            border-radius: 10px 10px 0 0;
+            font-weight: 600;
+            color: var(--pta-primary);
+        }
+        
+        .pta-card-body {
+            padding: 20px;
+        }
+        
+        .integration-demo {
+            border: 3px dashed var(--pta-accent);
+            background-color: rgba(92, 107, 192, 0.05);
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
+        .integration-method {
+            background: white;
+            border-left: 4px solid;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 6px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        
+        .method-iframe {
+            border-left-color: var(--pta-success);
+        }
+        
+        .method-component {
+            border-left-color: var(--pta-warning);
+        }
+        
+        .method-micro {
+            border-left-color: var(--pta-danger);
+        }
+        
+        .code-block {
+            background-color: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            overflow-x: auto;
+            margin: 15px 0;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .status-active {
+            background-color: var(--pta-success);
+            animation: pulse 2s infinite;
+        }
+        
+        .status-inactive {
+            background-color: #ccc;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .feature-list li {
+            margin-bottom: 8px;
+            padding-left: 5px;
+        }
+        
+        .feature-list li i {
+            color: var(--pta-success);
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <!-- PTA平台头部 -->
+    <header class="pta-header">
+        <div class="pta-container">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <h1 class="mb-2">
+                        <i class="fas fa-chart-line me-2"></i>
+                        PTA期货分析平台
+                    </h1>
+                    <p class="mb-0 opacity-75">专业期货分析工具 - 缠论技术分析 + 期权数据监控</p>
+                </div>
+                <div class="col-md-4 text-end">
+                    <div class="d-inline-block bg-white text-dark px-3 py-2 rounded">
+                        <i class="fas fa-clock me-2 text-primary"></i>
+                        <span id="current-time">--:--:--</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+    
+    <!-- 导航栏 -->
+    <nav class="pta-nav">
+        <div class="pta-container">
+            <ul class="nav">
+                <li class="nav-item">
+                    <a class="nav-link active" href="#">
+                        <i class="fas fa-home me-1"></i>首页
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#">
+                        <i class="fas fa-chart-bar me-1"></i>缠论分析
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#">
+                        <i class="fas fa-exchange-alt me-1"></i>期权监控
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#">
+                        <i class="fas fa-calculator me-1"></i>策略回测
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#">
+                        <i class="fas fa-cog me-1"></i>系统设置
+                    </a>
+                </li>
+            </ul>
+        </div>
+    </nav>
+    
+    <!-- 主内容区 -->
+    <main class="pta-container mt-4">
+        <div class="row">
+            <!-- 左侧菜单 -->
+            <div class="col-md-3">
+                <div class="pta-card">
+                    <div class="pta-card-header">
+                        <i class="fas fa-bars me-2"></i>功能菜单
+                    </div>
+                    <div class="pta-card-body">
+                        <div class="list-group">
+                            <a href="#" class="list-group-item list-group-item-action active">
+                                <i class="fas fa-exchange-alt me-2"></i>期权链监控
+                            </a>
+                            <a href="#" class="list-group-item list-group-item-action">
+                                <i class="fas fa-chart-line me-2"></i>价格走势
+                            </a>
+                            <a href="#" class="list-group-item list-group-item-action">
+                                <i class="fas fa-balance-scale me-2"></i>希腊字母分析
+                            </a>
+                            <a href="#" class="list-group-item list-group-item-action">
+                                <i class="fas fa-wave-square me-2"></i>隐波曲面
+                            </a>
+                            <a href="#" class="list-group-item list-group-item-action">
+                                <i class="fas fa-calculator me-2"></i>策略计算器
+                            </a>
+                            <a href="#" class="list-group-item list-group-item-action">
+                                <i class="fas fa-history me-2"></i>历史数据
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="pta-card">
+                    <div class="pta-card-header">
+                        <i class="fas fa-info-circle me-2"></i>系统状态
+                    </div>
+                    <div class="pta-card-body">
+                        <div class="mb-3">
+                            <span class="status-indicator status-active"></span>
+                            <strong>数据服务</strong>
+                            <span class="float-end text-success">正常</span>
+                        </div>
+                        <div class="mb-3">
+                            <span class="status-indicator status-active"></span>
+                            <strong>期权API</strong>
+                            <span class="float-end text-success">正常</span>
+                        </div>
+                        <div class="mb-3">
+                            <span class="status-indicator status-active"></span>
+                            <strong>缠论分析</strong>
+                            <span class="float-end text-success">正常</span>
+                        </div>
+                        <div class="mb-0">
+                            <span class="status-indicator status-active"></span>
+                            <strong>实时推送</strong>
+                            <span class="float-end text-success">正常</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 主内容 -->
+            <div class="col-md-9">
+                <!-- 页面标题 -->
+                <div class="pta-card">
+                    <div class="pta-card-body">
+                        <h2 class="mb-3">
+                            <i class="fas fa-exchange-alt me-2 text-primary"></i>
+                            期权链T型显示组件集成演示
+                        </h2>
+                        <p class="text-muted mb-0">
+                            展示如何将React期权链组件集成到现有PTA分析平台中
+                        </p>
+                    </div>
+                </div>
+                
+                <!-- 集成演示区域 -->
+                <div class="pta-card">
+                    <div class="pta-card-header">
+                        <i class="fas fa-plug me-2"></i>组件集成演示
+                    </div>
+                    <div class="pta-card-body">
+                        <div class="integration-demo">
+                            <h4 class="mb-3">
+                                <i class="fas fa-play-circle me-2 text-success"></i>
+                                期权链T型显示组件 (实时运行)
+                            </h4>
+                            
+                            <!-- 这里应该是实际的组件 -->
+                            <div class="alert alert-info">
+                                <i class="fas fa-info-circle me-2"></i>
+                                <strong>组件预览区域</strong>
+                                <p class="mb-0 mt-2">
+                                    在实际集成中，这里将显示完整的期权链T型组件。
+                                    组件包含以下简化字段：
+                                </p>
+                                <ul class="mt-2 mb-0">
+                                    <li>价格及涨跌幅</li>
+                                    <li>持仓量变化百分比</li>
+                                    <li>成交量变化百分比</li>
+                                    <li>隐波绝对值变化</li>
+                                    <li>希腊字母当前值 (Delta, Gamma, Theta, Vega, Rho)</li>
+                                </ul>
+                            </div>
+                            
+                            <!-- 模拟组件界面 -->
+                            <div class="border rounded p-3 mb-3">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <div>
+                                        <span class="badge bg-success me-2">看涨期权</span>
+                                        <span class="badge bg-danger">看跌期权</span>
+                                    </div>
+                                    <div class="text-muted small">
+                                        <i class="fas fa-sync-alt me-1"></i>自动刷新: 开启
+                                    </div>
+                                </div>
+                                
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="border-start border-success border-3 ps-3 mb-3">
+                                            <h6 class="text-success mb-2">
+                                                <i class="fas fa-arrow-up me-1"></i>TA605C6900
+                                            </h6>
+                                            <div class="row small">
+                                                <div class="col-6">价格: <strong>85.50</strong> <span class="text-success">(+2.5%)</span></div>
+                                                <div class="col-6">持仓变化: <span class="text-success">+5.2%</span></div>
+                                                <div class="col-6">成交变化: <span class="text-success">+8.3%</span></div>
+                                                <div class="col-6">隐波变化: <span class="text-warning">+0.012</span></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="col-md-6">
+                                        <div class="border-start border-danger border-3 ps-3 mb-3">
+                                            <h6 class="text-danger mb-2">
+                                                <i class="fas fa-arrow-down me-1"></i>TA605P6900
+                                            </h6>
+                                            <div class="row small">
+                                                <div class="col-6">价格: <strong>45.20</strong> <span class="text-danger">(-1.2%)</span></div>
+                                                <div class="col-6">持仓变化: <span class="text-danger">-3.8%</span></div>
+                                                <div class="col-6">成交变化: <span class="text-success">+4.5%</span></div>
+                                                <div class="col-6">隐波变化: <span class="text-warning">-0.008</span></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="text-center">
+                                    <button class="btn btn-outline-primary btn-sm">
+                                        <i class="fas fa-expand me-1"></i>查看完整组件
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <p class="text-muted small mb-0">
+                                <i class="fas fa-lightbulb me-1"></i>
+                                这是一个简化的预览。实际组件支持完整交互、排序、筛选和实时更新功能。
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 集成方法 -->
+                <div class="pta-card">
+                    <div class="pta-card-header">
+                        <i class="fas fa-code me-2"></i>集成方法
+                    </div>
+                    <div class="pta-card-body">
+                        <div class="integration-method method-iframe">
+                            <h5 class="mb-2">
+                                <i class="fas fa-window-maximize me-2"></i>
+                                方法一：iframe嵌入 (推荐)
+                            </h5>
+                            <p class="text-muted mb-2">将组件作为独立应用部署，通过iframe嵌入到PTA平台。</p>
+                            <div class="code-block">
+&lt;!-- 在PTA平台页面中添加 --&gt;<br>
+&lt;div class="option-chain-container"&gt;<br>
+&nbsp;&nbsp;&lt;iframe <br>
+&nbsp;&nbsp;&nbsp;&nbsp;src="/static/option-chain/index.html"<br>
+&nbsp;&nbsp;&nbsp;&nbsp;width="100%" <br>
+&nbsp;&nbsp;&nbsp;&nbsp;height="800px"<br>
+&nbsp;&nbsp;&nbsp;&nbsp;frameborder="0"<br>
+&nbsp;&nbsp;&nbsp;&nbsp;scrolling="no"<br>
+&nbsp;&nbsp;&gt;&lt;/iframe&gt;<br>
+&lt;/div&gt;
+                            </div>
+                            <div class="text-end">
+                                <span class="badge bg-success">简单</span>
+                                <span class="badge bg-info">独立部署</span>
+                                <span class="badge bg-secondary">低风险</span>
+                            </div>
+                        </div>
+                        
+                        <div class="integration-method method-component">
+                            <h5 class="mb-2">
+                                <i class="fas fa-puzzle-piece me-2"></i>
+                                方法二：组件直接集成
+                            </h5>
+                            <p class="text-muted mb-2">将React组件直接集成到PTA平台的前端代码中。</p>
+                            <div class="code-block">
+// 在PTA平台的React组件中<br>
+import OptionChain from './components/OptionChain';<br>
+import MarketStats from './components/MarketStats';<br>
+<br>
+function PTAOptionPage() {<br>
+&nbsp;&nbsp;const [optionData, setOptionData] = useState([]);<br>
+&nbsp;&nbsp;<br>
+&nbsp;&nbsp;return (<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&lt;div&gt;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&lt;MarketStats stats={stats} /&gt;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&lt;OptionChain data={optionData} /&gt;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&lt;/div&gt;<br>
+&nbsp;&nbsp;);<br>
+}
+                            </div>
+                            <div class="text-end">
+                                <span class="badge bg-warning">中等复杂度</span>
+                                <span class="badge bg-primary">无缝集成</span>
+                                <span class="badge bg-success">高性能</span>
+                            </div>
+                        </div>
+                        
+                        <div class="integration-method method-micro">
+                            <h5 class="mb-2">
+                                <i class="fas fa-microchip me-2"></i>
+                                方法三：微前端架构
+                            </h5>
+                            <p class="text-muted mb-2">使用微前端框架（如qiankun）集成，实现技术栈完全独立。</p>
+                            <div class="code-block">
+// 主应用注册子应用<br>
+registerMicroApps([<br>
+&nbsp;&nbsp;{<br>
+&nbsp;&nbsp;&nbsp;&nbsp;name: 'option-chain',<br>
+&nbsp;&nbsp;&nbsp;&nbsp;entry: '//localhost:3000',<br>
+&nbsp;&nbsp;&nbsp;&nbsp;container: '#option-chain-container',<br>
+&nbsp;&nbsp;&nbsp;&nbsp;activeRule: '/options/chain'<br>
+&nbsp;&nbsp;}<br>
+]);                            </div>
+                            <div class="text-end">
+                                <span class="badge bg-danger">复杂</span>
+                                <span class="badge bg-info">技术独立</span>
+                                <span class="badge bg-success">可扩展</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 功能特性 -->
+                <div class="pta-card">
+                    <div class="pta-card-header">
+                        <i class="fas fa-star me-2"></i>组件特性
+                    </div>
+                    <div class="pta-card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <ul class="feature-list">
+                                    <li><i class="fas fa-check-circle"></i> T型布局：左侧看涨，右侧看跌</li>
+                                    <li><i class="fas fa-check-circle"></i> 简化字段：价格、持仓量变化%、成交量变化%、隐波变化、希腊字母</li>
+                                    <li><i class="fas fa-check-circle"></i> 实时数据更新（支持WebSocket）</li>
+                                    <li><i class="fas fa-check-circle"></i> 交互式控制面板</li>
+                                    <li><i class="fas fa-check-circle"></i> 平值期权自动高亮</li>
+                                </ul>
+                            </div>
+                            <div class="col-md-6">
+                                <ul class="feature-list">
+                                    <li><i class="fas fa-check-circle"></i> 多种排序方式（行权价、成交量、持仓量、隐波）</li>
+                                    <li><i class="fas fa-check-circle"></i> 字段显示/隐藏控制</li>
+                                    <li><i class="fas fa-check-circle"></i> 响应式设计（支持移动端）</li>
+                                    <li><i class="fas fa-check-circle"></i> 市场统计面板</li>
+                                    <li><i class="fas fa-check-circle"></i> 与PTA平台数据无缝对接</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 快速开始 -->
+                <div class="pta-card">
+                    <div class="pta-card-header">
+                        <i class="fas fa-rocket me-2"></i>快速开始
+                    </div>
+                    <div class="pta-card-body">
+                        <div class="alert alert-success">
+                            <h5><i class="fas fa-download me-2"></i>安装与运行</h5>
+                            <ol class="mb-0">
+                                <li>下载组件代码到PTA平台目录</li>
+                                <li>运行安装脚本：<code>./start.sh</code></li>
+                                <li>选择选项1启动开发服务器</li>
+                                <li>访问 <a href="http://localhost:3000" target="_blank">http://localhost:3000</a> 查看组件</li>
+                                <li>按照集成指南进行部署</li>
+                            </ol>
+                        </div>
+                        
+                        <div class="alert alert-info mt-3">
+                            <h5><i class="fas fa-database me-2"></i>数据对接</h5>
+                            <p class="mb-2">组件支持多种数据源：</p>
+                            <ul class="mb-0">
+                                <li><strong>模拟数据</strong>：用于开发和测试</li>
+                                <li><strong>PTA平台API</strong>：连接现有数据源</li>
+                                <li><strong>天勤量化API</strong>：实时市场数据</li>
+                                <li><strong>自定义数据源</strong>：通过配置文件对接</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+    
+    <!-- 页脚 -->
+    <footer class="pta-header mt-5">
+        <div class="pta-container">
+            <div class="row">
+                <div class="col-md-6">
+                    <h5 class="mb-3">
+                        <i class="fas fa-question-circle me-2"></i>技术支持
+                    </h5>
+                    <p class="mb-2 opacity-75">
+                        如有集成问题，请参考：
+                    </p>
+                    <ul class="list-unstyled opacity-75">
+                        <li><i class="fas fa-file-alt me-2"></i> <a href="INTEGRATION_GUIDE.md" class="text-white">集成指南</a></li>
+                        <li><i class="fas fa-book me-2"></i> <a href="README.md" class="text-white">README文档</a></li>
+                        <li><i class="fas fa-code me-2"></i> <a href="#" class="text-white">API文档</a></li>
+                    </ul>
+                </div>
+                <div class="col-md-6 text-end">
+                    <h5 class="mb-3">
+                        <i class="fas fa-copyright me-2"></i>PTA期货分析平台
+                    </h5>
+                    <p class="mb-2 opacity-75">
+                        期权链T型显示组件 v1.0
+                    </p>
+                    <p class="mb-0 opacity-75">
+                        基于React + TypeScript开发
+                    </p>
+                </div>
+            </div>
+        </div>
+    </footer>
+    
+    <script>
+        // 更新时间显示
+        function updateTime() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('zh-CN');
+            document.getElementById('current-time').textContent = timeStr;
+        }
+        
+        updateTime();
+        setInterval(updateTime, 1000);
+        
+        // 模拟组件交互
+        document.querySelectorAll('.btn-outline-primary').forEach(btn => {
+            btn.addEventListener('click', function() {
+                alert('在实际组件中，这里将展开完整的期权链T型显示界面。\n\n包含：\n• 完整的看涨/看跌期权列表\n• 实时数据更新\n• 交互式控制面板\n• 市场统计信息');
+            });
+        });
+        
+        // 导航菜单交互
+        document.querySelectorAll('.nav-link').forEach(link => {
+            link.addEventListener('click', function(e) {
+                e.preventDefault();
+                if (!this.classList.contains('active')) {
+                    document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+                    this.classList.add('active');
+                }
+            });
+        });
+    </script>
+</body>
+</html>

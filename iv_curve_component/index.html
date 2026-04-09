@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>隐含波动率曲线 (IV Curve) 分析工具</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 30px;
+            display: grid;
+            grid-template-columns: 1fr 350px;
+            gap: 30px;
+        }
+
+        .chart-container {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+            position: relative;
+        }
+
+        .chart-container h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .chart-container h2 i {
+            color: #667eea;
+        }
+
+        .controls {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+        }
+
+        .controls h3 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.3rem;
+        }
+
+        .control-group {
+            margin-bottom: 25px;
+        }
+
+        .control-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 500;
+        }
+
+        select, input[type="range"] {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        select:focus, input[type="range"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .slider-value {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 5px;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .button-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        button {
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+
+        .analysis-panel {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+            margin-top: 30px;
+            grid-column: 1 / -1;
+        }
+
+        .analysis-panel h3 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.3rem;
+        }
+
+        .analysis-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+        }
+
+        .analysis-card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            border-left: 4px solid #667eea;
+        }
+
+        .analysis-card h4 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 1.1rem;
+        }
+
+        .analysis-card p {
+            color: #666;
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+
+        .analysis-card .value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #667eea;
+            margin: 10px 0;
+        }
+
+        .legend {
+            display: flex;
+            gap: 20px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+        }
+
+        .animation-controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+            align-items: center;
+        }
+
+        .animation-controls button {
+            padding: 8px 16px;
+            font-size: 13px;
+        }
+
+        .status-bar {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 10px;
+            font-size: 14px;
+            display: none;
+        }
+
+        @media (max-width: 1024px) {
+            .content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .content {
+                padding: 20px;
+            }
+            
+            .analysis-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📈 隐含波动率曲线 (IV Curve) 分析工具</h1>
+            <p>双曲线对比 | 曲线移动分析 | 实时可视化</p>
+        </div>
+
+        <div class="content">
+            <div class="chart-container">
+                <h2><i>📊</i> IV 曲线对比图</h2>
+                <div style="position: relative; height: 500px;">
+                    <canvas id="ivChart"></canvas>
+                </div>
+                <div class="legend" id="chartLegend"></div>
+                <div class="animation-controls">
+                    <button onclick="startAnimation()" class="btn-primary">▶️ 播放动画</button>
+                    <button onclick="pauseAnimation()" class="btn-secondary">⏸️ 暂停</button>
+                    <button onclick="resetAnimation()" class="btn-secondary">🔄 重置</button>
+                    <span style="margin-left: auto; color: #666; font-size: 14px;">
+                        动画速度: <input type="range" id="animationSpeed" min="1" max="10" value="5" style="width: 100px;">
+                    </span>
+                </div>
+            </div>
+
+            <div class="controls">
+                <h3>⚙️ 控制面板</h3>
+                
+                <div class="control-group">
+                    <label for="symbolSelect">选择品种</label>
+                    <select id="symbolSelect">
+                        <option value="TA">PTA (TA)</option>
+                        <option value="CU">铜 (CU)</option>
+                        <option value="AU">黄金 (AU)</option>
+                        <option value="AG">白银 (AG)</option>
+                        <option value="RU">橡胶 (RU)</option>
+                        <option value="SC">原油 (SC)</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label for="expirySelect">到期月份</label>
+                    <select id="expirySelect">
+                        <option value="current">当月合约</option>
+                        <option value="next">次月合约</option>
+                        <option value="quarter">季度合约</option>
+                        <option value="half">半年合约</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label for="timeRange">时间范围 (天)</label>
+                    <input type="range" id="timeRange" min="1" max="30" value="7">
+                    <div class="slider-value">
+                        <span>1天</span>
+                        <span id="timeRangeValue">7天</span>
+                        <span>30天</span>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label for="strikeRange">行权价范围 (%)</label>
+                    <input type="range" id="strikeRange" min="80" max="120" value="90">
+                    <div class="slider-value">
+                        <span>80%</span>
+                        <span id="strikeRangeValue">90%</span>
+                        <span>120%</span>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label>显示选项</label>
+                    <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
+                        <label style="display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" id="showPreviousDay" checked> 显示前日收盘曲线
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" id="showRealTime" checked> 显示实时曲线
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" id="showSmile" checked> 显示微笑曲线
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" id="showMovement" checked> 显示曲线移动
+                        </label>
+                    </div>
+                </div>
+
+                <div class="button-group">
+                    <button onclick="loadData()" class="btn-primary">🔄 加载数据</button>
+                    <button onclick="exportChart()" class="btn-secondary">📥 导出图表</button>
+                </div>
+
+                <div class="control-group" style="margin-top: 30px;">
+                    <label>曲线移动分析</label>
+                    <div style="display: flex; gap: 10px; margin-top: 10px;">
+                        <button onclick="analyzeVerticalShift()" class="btn-secondary" style="flex: 1;">📏 垂直移动</button>
+                        <button onclick="analyzeHorizontalShift()" class="btn-secondary" style="flex: 1;">↔️ 水平移动</button>
+                        <button onclick="analyzeTwist()" class="btn-secondary" style="flex: 1;">🌀 扭曲分析</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="analysis-panel">
+                <h3>📊 曲线移动分析结果</h3>
+                <div class="analysis-grid" id="analysisResults">
+                    <!-- 分析结果将通过JavaScript动态填充 -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="status-bar" id="statusBar">状态信息</div>
+
+    <script src="iv-curve.js"></script>
+</body>
+</html>

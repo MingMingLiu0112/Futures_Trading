@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>ECharts测试</title>
+</head>
+<body>
+    <h2>服务器时间: <span id="time"></span></h2>
+    <h2>ECharts状态: <span id="estatus"></span></h2>
+    <h2>API K线: <span id="apistatus"></span></h2>
+    <div id="chart" style="width:900px;height:500px;border:1px solid #ccc;margin:10px 0;"></div>
+    <div id="log" style="font-size:12px;background:#eee;padding:10px;max-height:150px;overflow:auto;"></div>
+
+    <script src="/static/js/echarts.min.js"></script>
+    <script>
+        document.getElementById('time').textContent = new Date().toLocaleString();
+        var log = function(msg) {
+            var el = document.createElement('div');
+            el.textContent = msg;
+            document.getElementById('log').appendChild(el);
+        };
+
+        log('1. Page loaded');
+        log('ECharts available: ' + (typeof echarts !== 'undefined'));
+
+        if (typeof echarts === 'undefined') {
+            document.getElementById('estatus').textContent = '失败! ECharts未加载';
+            log('ERROR: ECharts CDN加载失败!');
+        } else {
+            document.getElementById('estatus').textContent = '成功';
+            log('2. ECharts loaded, initializing...');
+
+            var myChart = echarts.init(document.getElementById('chart'));
+            log('3. Chart initialized');
+
+            var option = {
+                title: { text: 'PTA K线测试' },
+                tooltip: {},
+                xAxis: { type: 'category', data: ['周一','周二','周三','周四','周五'] },
+                yAxis: { type: 'value' },
+                series: [{
+                    type: 'line',
+                    data: [820, 932, 901, 934, 1290]
+                }]
+            };
+
+            myChart.setOption(option);
+            log('4. Chart rendered!');
+            document.getElementById('log').style.color = 'green';
+        }
+
+        log('5. Fetching K-line API...');
+        fetch('/api/kline/data?period=1min')
+            .then(r => r.json())
+            .then(d => {
+                log('API返回: ' + d.data.length + ' 条K线');
+                document.getElementById('apistatus').textContent = d.data.length + ' 条K线 (' + d.source + ')';
+                log('current_price: ' + d.current_price);
+            })
+            .catch(e => {
+                log('API错误: ' + e.message);
+                document.getElementById('apistatus').textContent = '错误: ' + e.message;
+                document.getElementById('apistatus').style.color = 'red';
+            });
+    </script>
+</body>
+</html>

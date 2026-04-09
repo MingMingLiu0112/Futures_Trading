@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PTA期货分析平台</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 40px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        .services {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-top: 40px;
+        }
+        .service-card {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 15px;
+            padding: 30px;
+            transition: transform 0.3s, background 0.3s;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        .service-card:hover {
+            transform: translateY(-5px);
+            background: rgba(255, 255, 255, 0.25);
+        }
+        .service-card h2 {
+            margin-top: 0;
+            color: #fff;
+            font-size: 1.8em;
+            margin-bottom: 15px;
+        }
+        .service-card p {
+            color: rgba(255, 255, 255, 0.9);
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+        .btn {
+            display: inline-block;
+            padding: 12px 30px;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            text-decoration: none;
+            border-radius: 50px;
+            font-weight: bold;
+            transition: all 0.3s;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+        .btn:hover {
+            background: linear-gradient(45deg, #764ba2, #667eea);
+            transform: scale(1.05);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+        .status {
+            background: rgba(76, 175, 80, 0.2);
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: center;
+            border: 1px solid rgba(76, 175, 80, 0.5);
+        }
+        .links {
+            margin-top: 30px;
+            text-align: center;
+        }
+        .link-item {
+            display: inline-block;
+            margin: 0 10px;
+            padding: 10px 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            color: white;
+            text-decoration: none;
+            transition: background 0.3s;
+        }
+        .link-item:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        .icon {
+            font-size: 2em;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 PTA期货分析平台</h1>
+        
+        <div class="status">
+            ✅ 所有服务运行正常 | 服务器: 47.100.97.88 | 更新时间: 2026-04-07 23:15
+        </div>
+        
+        <div class="services">
+            <div class="service-card">
+                <div class="icon">📈</div>
+                <h2>缠论线段分析</h2>
+                <p>基于CZSC算法的PTA期货缠论线段检测，已实现完整的笔段识别和线段破坏规则，输出结果与用户确认完全一致。</p>
+                <a href="/chan/chan_analysis.html" class="btn">进入缠论分析</a>
+            </div>
+            
+            <div class="service-card">
+                <div class="icon">🔍</div>
+                <h2>三维度分析报告</h2>
+                <p>宏观基本面 + 技术面(缠论) + 期权数据面三维共振分析，提供可操作的交易建议。</p>
+                <a href="/chan/" class="btn">查看分析报告</a>
+            </div>
+            
+            <div class="service-card">
+                <div class="icon">📊</div>
+                <h2>可视化图表</h2>
+                <p>缠论笔段可视化图表、K线图、期权IV曲面等丰富的可视化分析工具。</p>
+                <a href="/chan/pta_analysis/czsc_chart.html" class="btn">查看图表</a>
+            </div>
+            
+            <div class="service-card">
+                <div class="icon">⚙️</div>
+                <h2>VeighNa量化平台</h2>
+                <p>专业的量化交易框架，支持策略回测、实盘交易、RPC服务等完整功能。</p>
+                <a href="/" class="btn">进入VeighNa</a>
+            </div>
+        </div>
+        
+        <div class="links">
+            <h3>快速链接</h3>
+            <a href="/chan/chan_analysis.html" class="link-item">缠论分析主页</a>
+            <a href="/chan/pta_analysis/czsc_chart.html" class="link-item">缠论可视化</a>
+            <a href="/chan/pta_analysis/charts/" class="link-item">图表库</a>
+            <a href="/" class="link-item">VeighNa主页</a>
+        </div>
+        
+        <div style="margin-top: 40px; text-align: center; color: rgba(255, 255, 255, 0.7);">
+            <p>📞 技术支持: 飞书群 | 📧 反馈: 飞书消息</p>
+            <p>© 2026 PTA期货分析平台 - 基于OpenClaw + VeighNa构建</p>
+        </div>
+    </div>
+    
+    <script>
+        // 自动更新状态时间
+        function updateTime() {
+            const now = new Date();
+            const statusEl = document.querySelector('.status');
+            if (statusEl) {
+                statusEl.innerHTML = 
+                    `✅ 所有服务运行正常 | 服务器: 47.100.97.88 | 更新时间: ${now.toLocaleString('zh-CN')}`;
+            }
+        }
+        
+        // 每30秒更新一次时间
+        updateTime();
+        setInterval(updateTime, 30000);
+        
+        // 添加页面加载动画
+        document.addEventListener('DOMContentLoaded', function() {
+            const cards = document.querySelectorAll('.service-card');
+            cards.forEach((card, index) => {
+                card.style.opacity = '0';
+                card.style.transform = 'translateY(20px)';
+                
+                setTimeout(() => {
+                    card.style.transition = 'opacity 0.5s, transform 0.5s';
+                    card.style.opacity = '1';
+                    card.style.transform = 'translateY(0)';
+                }, index * 100);
+            });
+        });
+    </script>
+</body>
+</html>

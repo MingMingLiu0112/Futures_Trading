@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>ECharts Test</title>
+    <script src="https://cdn.bootcdn.net/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
+</head>
+<body>
+    <div id="chart" style="width:800px;height:400px;border:1px solid red"></div>
+    <div id="info"></div>
+    <script>
+        document.getElementById('info').innerHTML = 'ECharts loaded: ' + (typeof echarts !== 'undefined' ? 'YES' : 'NO');
+        if (typeof echarts !== 'undefined') {
+            var chart = echarts.init(document.getElementById('chart'));
+            chart.setOption({
+                xAxis: { type: 'category', data: ['Mon','Tue','Wed','Thu','Fri'] },
+                yAxis: { type: 'value' },
+                series: [{ type: 'line', data: [120, 200, 150, 80, 70] }]
+            });
+            document.getElementById('info').innerHTML += '<br>Chart rendered!';
+        } else {
+            document.getElementById('info').innerHTML += '<br>FAILED to load ECharts';
+        }
+    </script>
+</body>
+</html>

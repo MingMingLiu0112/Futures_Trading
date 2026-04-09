@@ -1,0 +1,144 @@
+/* 自定义样式补充 */
+.atm-highlight {
+  position: relative;
+  border-width: 3px !important;
+  box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.3) !important;
+  animation: pulse 2s infinite;
+}
+
+.atm-highlight::before {
+  content: "ATM";
+  position: absolute;
+  top: -10px;
+  right: 10px;
+  background: #3498db;
+  color: white;
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: bold;
+  z-index: 1;
+}
+
+.concentration-highlight {
+  position: relative;
+  border-width: 3px !important;
+  box-shadow: 0 0 0 2px rgba(255, 193, 7, 0.3) !important;
+  animation: pulse-gold 2s infinite;
+}
+
+.concentration-highlight::before {
+  content: "高密集";
+  position: absolute;
+  top: -10px;
+  left: 10px;
+  background: #ffc107;
+  color: #212529;
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: bold;
+  z-index: 1;
+}
+
+@keyframes pulse-gold {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(255, 193, 7, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 193, 7, 0);
+  }
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(52, 152, 219, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(52, 152, 219, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(52, 152, 219, 0);
+  }
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+  .option-fields .row {
+    margin-left: -5px;
+    margin-right: -5px;
+  }
+  
+  .option-fields .col-4,
+  .option-fields .col-6 {
+    padding-left: 5px;
+    padding-right: 5px;
+  }
+}
+
+/* 加载动画 */
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.fa-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* 工具提示样式 */
+[data-tooltip] {
+  position: relative;
+  cursor: help;
+}
+
+[data-tooltip]:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  z-index: 1000;
+  margin-bottom: 5px;
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* 打印样式 */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  
+  .option-chain-container {
+    box-shadow: none !important;
+    border: 1px solid #ddd !important;
+  }
+}

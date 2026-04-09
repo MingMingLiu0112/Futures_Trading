@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PTA期货多时间级别MACD测试</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f7fa;
+            padding: 20px;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #2c3e50, #3498db);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .card {
+            border: none;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            margin-bottom: 20px;
+        }
+        
+        .card-header {
+            background-color: white;
+            border-bottom: 2px solid #eee;
+            font-weight: 600;
+            padding: 15px 20px;
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin-bottom: 20px;
+        }
+        
+        .period-btn.active {
+            background-color: #3498db;
+            color: white;
+            border-color: #3498db;
+        }
+        
+        .indicator-value {
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+        
+        .text-success { color: #27ae60 !important; }
+        .text-danger { color: #e74c3c !important; }
+        
+        .loading {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255,255,255,0.8);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .loading.show {
+            display: flex;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <!-- 头部 -->
+        <div class="header">
+            <h1><i class="fas fa-chart-line me-2"></i>PTA期货多时间级别MACD测试</h1>
+            <p class="mb-0">支持1、5、15、30、60分钟级别的MACD计算和面积值分析</p>
+        </div>
+        
+        <!-- 控制栏 -->
+        <div class="card">
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h5>时间周期</h5>
+                        <div class="btn-group mb-3">
+                            <button class="btn btn-outline-primary period-btn active" data-period="1min">
+                                <i class="fas fa-clock me-1"></i>1分钟
+                            </button>
+                            <button class="btn btn-outline-primary period-btn" data-period="5min">
+                                <i class="fas fa-clock me-1"></i>5分钟
+                            </button>
+                            <button class="btn btn-outline-primary period-btn" data-period="15min">
+                                <i class="fas fa-clock me-1"></i>15分钟
+                            </button>
+                            <button class="btn btn-outline-primary period-btn" data-period="30min">
+                                <i class="fas fa-clock me-1"></i>30分钟
+                            </button>
+                            <button class="btn btn-outline-primary period-btn" data-period="60min">
+                                <i class="fas fa-clock me-1"></i>60分钟
+                            </button>
+                        </div>
+                        
+                        <button id="refresh-data" class="btn btn-success">
+                            <i class="fas fa-sync-alt me-1"></i>刷新数据
+                        </button>
+                        
+                        <button id="load-all-macd" class="btn btn-info ms-2">
+                            <i class="fas fa-layer-group me-1"></i>加载所有周期MACD
+                        </button>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <h5>价格信息</h5>
+                        <div class="row">
+                            <div class="col-6">
+                                <div class="mb-2">
+                                    <small class="text-muted">当前价格</small>
+                                    <div class="indicator-value" id="current-price">--</div>
+                                </div>
+                                <div class="mb-2">
+                                    <small class="text-muted">涨跌</small>
+                                    <div>
+                                        <span id="price-change">--</span>
+                                        <span id="price-change-pct">--</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="mb-2">
+                                    <small class="text-muted">当前周期</small>
+                                    <div id="current-period">1分钟</div>
+                                </div>
+                                <div class="mb-2">
+                                    <small class="text-muted">数据数量</small>
+                                    <div id="data-count">--</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 图表区域 -->
+        <div class="row">
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-chart-candlestick me-2"></i>
+                        <span id="chart-title">PTA期货1分钟K线图</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="kline-chart"></canvas>
+                        </div>
+                        <div class="chart-container" style="height: 150px;">
+                            <canvas id="volume-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-lg-4">
+                <!-- MACD指标 -->
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-wave-square me-2"></i>MACD指标
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <h6>当前值</h6>
+                            <div class="row mb-2">
+                                <div class="col-6">
+                                    <small class="text-muted">MACD</small>
+                                    <div class="indicator-value" id="macd-value">--</div>
+                                </div>
+                                <div class="col-6">
+                                    <small class="text-muted">状态</small>
+                                    <div>
+                                        <span class="badge" id="macd-state">--</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row mb-2">
+                                <div class="col-6">
+                                    <small class="text-muted">DIF</small>
+                                    <div id="macd-dif">--</div>
+                                </div>
+                                <div class="col-6">
+                                    <small class="text-muted">DEA</small>
+                                    <div id="macd-dea">--</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <h6>面积分析</h6>
+                            <div class="row mb-2">
+                                <div class="col-6">
+                                    <small class="text-muted">正面积</small>
+                                    <div id="macd-area-positive">--</div>
+                                </div>
+                                <div class="col-6">
+                                    <small class="text-muted">负面积</small>
+                                    <div id="macd-area-negative">--</div>
+                                </div>
+                            </div>
+                            <div class="mb-2">
+                                <small class="text-muted">面积比例</small>
+                                <div id="macd-area-ratio">--</div>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <h6>参数设置</h6>
+                            <div class="row g-2 mb-3">
+                                <div class="col-4">
+                                    <label class="form-label small">快线</label>
+                                    <input type="number" id="macd-fast" class="form-control form-control-sm" value="12" min="1" max="50">
+                                </div>
+                                <div class="col-4">
+                                    <label class="form-label small">慢线</label>
+                                    <input type="number" id="macd-slow" class="form-control form-control-sm" value="26" min="1" max="100">
+                                </div>
+                                <div class="col-4">
+                                    <label class="form-label small">信号线</label>
+                                    <input type="number" id="macd-signal" class="form-control form-control-sm" value="9" min="1" max="50">
+                                </div>
+                            </div>
+                            <div class="d-grid gap-2">
+                                <button id="apply-indicators" class="btn btn-primary btn-sm">
+                                    <i class="fas fa-check me-1"></i>应用参数
+                                </button>
+                                <button id="reset-indicators" class="btn btn-outline-secondary btn-sm">
+                                    <i class="fas fa-undo me-1"></i>重置默认
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <button id="toggle-macd-area" class="btn btn-outline-info w-100 mb-3">
+                            <i class="fas fa-chart-area me-1"></i>显示MACD面积
+                        </button>
+                        
+                        <div id="macd-areas-list">
+                            <!-- 面积列表将通过JavaScript动态生成 -->
+                            <div class="text-muted text-center py-3">加载中...</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 所有周期MACD -->
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <i class="fas fa-layer-group me-2"></i>所有周期MACD对比
+                    </div>
+                    <div class="card-body">
+                        <div id="all-periods-macd">
+                            <div class="text-muted text-center py-3">点击"加载所有周期MACD"查看</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 通知区域 -->
+        <div id="notification-area" style="position: fixed; top: 20px; right: 20px; z-index: 9999;"></div>
+        
+        <!-- 加载动画 -->
+        <div id="loading" class="loading">
+            <div class="text-center">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">加载中...</span>
+                </div>
+                <div class="mt-2" id="loading-text">加载中...</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- JavaScript -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 工具函数
+        function showNotification(message, type = 'info') {
+            const notificationArea = document.getElementById('notification-area');
+            const alertClass = {
+                'success': 'alert-success',
+                'info': 'alert-info',
+                'warning': 'alert-warning',
+                'danger': 'alert-danger'
+            }[type] || 'alert-info';
+            
+            const notification = document.createElement('div');
+            notification.className = `alert ${alertClass} alert-dismissible fade show`;
+            notification.style.cssText = 'min-width: 300px; margin-bottom: 10px;';
+            notification.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            notificationArea.appendChild(notification);
+            
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.remove();
+                }
+            }, 3000);
+        }
+        
+        function showLoading(text = '加载中...') {
+            const loading = document.getElementById('loading');
+            const loadingText = document.getElementById('loading-text');
+            loadingText.textContent = text;
+            loading.classList.add('show');
+        }
+        
+        function hideLoading() {
+            const loading = document.getElementById('loading');
+            loading.classList.remove('show');
+        }
+        
+        // 加载多时间级别MACD JavaScript
+        const script = document.createElement('script');
+        script.src = '/static/js/kline_multiperiod_macd.js';
+        script.onload = function() {
+            console.log('多时间级别MACD功能已加载');
+            initKlineChart();
+        };
+        script.onerror = function() {
+            console.error('加载多时间级别MACD功能失败');
+            showNotification('加载功能失败，请检查网络连接', 'danger');
+        };
+        document.head.appendChild(script);
+        
+        // 手动绑定加载所有周期MACD按钮
+        document.getElementById('load-all-macd').addEventListener('click', function() {
+            if (typeof loadAllPeriodsMACD === 'function') {
+                loadAllPeriodsMACD();
+            } else {
+                showNotification('功能未完全加载，请刷新页面', 'warning');
+            }
+        });
+    </script>
+</body>
+</html>

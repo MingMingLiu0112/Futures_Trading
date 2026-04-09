@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PTA期货波动锥与隐波分析</title>
+    
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <style>
+        :root {
+            --primary-color: #3498db;
+            --success-color: #2ecc71;
+            --warning-color: #f39c12;
+            --danger-color: #e74c3c;
+            --info-color: #17a2b8;
+        }
+        
+        body {
+            background-color: #f8f9fa;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .navbar-brand {
+            font-weight: bold;
+            font-size: 1.5rem;
+        }
+        
+        .card {
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            border: none;
+        }
+        
+        .card-header {
+            background-color: white;
+            border-bottom: 2px solid var(--primary-color);
+            font-weight: bold;
+            font-size: 1.2rem;
+        }
+        
+        .stat-card {
+            text-align: center;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .stat-value {
+            font-size: 2rem;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .stat-label {
+            font-size: 0.9rem;
+            color: #6c757d;
+        }
+        
+        .signal-card {
+            border-left: 4px solid;
+            padding-left: 15px;
+            margin-bottom: 10px;
+        }
+        
+        .signal-high {
+            border-left-color: var(--danger-color);
+        }
+        
+        .signal-medium {
+            border-left-color: var(--warning-color);
+        }
+        
+        .signal-low {
+            border-left-color: var(--info-color);
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 400px;
+            width: 100%;
+        }
+        
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 200px;
+            font-size: 1.2rem;
+            color: #6c757d;
+        }
+        
+        .loading-spinner {
+            width: 3rem;
+            height: 3rem;
+        }
+        
+        .percentile-badge {
+            font-size: 1rem;
+            padding: 5px 15px;
+            border-radius: 20px;
+        }
+        
+        .refresh-btn {
+            cursor: pointer;
+            transition: transform 0.3s;
+        }
+        
+        .refresh-btn:hover {
+            transform: rotate(180deg);
+        }
+        
+        .time-info {
+            font-size: 0.85rem;
+            color: #6c757d;
+            font-style: italic;
+        }
+        
+        .interpretation-box {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        
+        .interpretation-low {
+            background-color: rgba(46, 204, 113, 0.1);
+            border-left: 4px solid var(--success-color);
+        }
+        
+        .interpretation-normal {
+            background-color: rgba(243, 156, 18, 0.1);
+            border-left: 4px solid var(--warning-color);
+        }
+        
+        .interpretation-high {
+            background-color: rgba(231, 76, 60, 0.1);
+            border-left: 4px solid var(--danger-color);
+        }
+        
+        .data-table th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+        }
+        
+        .footer {
+            margin-top: 30px;
+            padding: 20px 0;
+            border-top: 1px solid #dee2e6;
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-chart-line text-primary me-2"></i>
+                PTA期货波动分析平台
+            </a>
+            <div class="d-flex align-items-center">
+                <span class="me-3 time-info" id="current-time"></span>
+                <button class="btn btn-outline-primary btn-sm" onclick="refreshAllData()">
+                    <i class="fas fa-sync-alt"></i> 刷新
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <!-- 顶部统计卡片 -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card stat-card bg-light">
+                    <div class="stat-value" id="current-iv">--</div>
+                    <div class="stat-label">当前隐含波动率</div>
+                    <div class="mt-2">
+                        <span class="badge" id="iv-level-badge">--</span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card bg-light">
+                    <div class="stat-value" id="iv-percentile">--</div>
+                    <div class="stat-label">历史百分位</div>
+                    <div class="mt-2">
+                        <small>基于250天历史数据</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card bg-light">
+                    <div class="stat-value" id="short-term-hv">--</div>
+                    <div class="stat-label">20天历史波动率</div>
+                    <div class="mt-2">
+                        <small id="hv-ratio-text">--</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card bg-light">
+                    <div class="stat-value" id="signal-count">0</div>
+                    <div class="stat-label">交易信号</div>
+                    <div class="mt-2">
+                        <small id="last-update">--</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 主要图表区域 -->
+        <div class="row">
+            <!-- 波动锥图表 -->
+            <div class="col-lg-6">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-chart-area me-2"></i>历史波动锥</span>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="downloadChart('cone')">
+                            <i class="fas fa-download"></i>
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="coneChart"></canvas>
+                        </div>
+                        <div class="mt-3">
+                            <small class="text-muted">显示不同时间窗口的历史波动率分布，当前值用红色方块标记</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- IV分布图表 -->
+            <div class="col-lg-6">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-chart-bar me-2"></i>隐含波动率分布</span>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="downloadChart('iv-distribution')">
+                            <i class="fas fa-download"></i>
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="ivDistributionChart"></canvas>
+                        </div>
+                        <div class="mt-3">
+                            <small class="text-muted">显示ATM期权隐含波动率的历史分布，当前值用红色竖线标记</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 分析和信号区域 -->
+        <div class="row mt-4">
+            <!-- IV百分位解释 -->
+            <div class="col-lg-4">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-info-circle me-2"></i>IV百分位分析
+                    </div>
+                    <div class="card-body">
+                        <div id="interpretation-box" class="interpretation-box">
+                            <div class="loading">
+                                <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+                                加载中...
+                            </div>
+                        </div>
+                        <div class="mt-3">
+                            <h6>IV百分位含义：</h6>
+                            <ul class="list-unstyled">
+                                <li><span class="badge bg-success me-2">0-20%</span> 极低 - 适合买入期权</li>
+                                <li><span class="badge bg-info me-2">20-40%</span> 偏低 - 考虑买入期权</li>
+                                <li><span class="badge bg-warning me-2">40-60%</span> 正常 - 中性策略</li>
+                                <li><span class="badge bg-warning me-2">60-80%</span> 偏高 - 考虑卖出期权</li>
+                                <li><span class="badge bg-danger me-2">80-100%</span> 极高 - 适合卖出期权</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 交易信号 -->
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-bullhorn me-2"></i>交易策略建议</span>
+                        <span class="badge bg-primary" id="signals-count-badge">0个信号</span>
+                    </div>
+                    <div class="card-body">
+                        <div id="signals-container">
+                            <div class="loading">
+                                <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+                                加载交易信号...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 详细数据表格 -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-table me-2"></i>详细波动率数据
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-hover data-table">
+                                <thead>
+                                    <tr>
+                                        <th>时间窗口(天)</th>
+                                        <th>当前值(%)</th>
+                                        <th>历史均值(%)</th>
+                                        <th>最小值(%)</th>
+                                        <th>最大值(%)</th>
+                                        <th>25%分位(%)</th>
+                                        <th>75%分位(%)</th>
+                                        <th>标准差(%)</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="volatility-table-body">
+                                    <tr>
+                                        <td colspan="8" class="text-center">
+                                            <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+                                            加载数据...
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 页脚 -->
+        <div class="footer text-center">
+            <p>PTA期货波动锥与隐波分析系统 &copy; 2024</p>
+            <p class="mb-0">数据更新频率: 5分钟 | 最后更新: <span id="last-refresh">--</span></p>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS Bundle with Popper -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- 主应用脚本 -->
+    <script>
+        // 全局变量
+        let coneChart = null;
+        let ivDistributionChart = null;
+        let lastRefreshTime = null;
+        
+        // API端点配置
+        const API_BASE = '/api/volatility';
+        
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            updateCurrentTime();
+            setInterval(updateCurrentTime, 1000);
+            loadAllData();
+            setInterval(loadAllData, 300000); // 每5分钟自动刷新
+        });
+        
+        // 更新当前时间
+        function updateCurrentTime() {
+            const now = new Date();
+            document.getElementById('current-time').textContent = 
+                now.toLocaleString('zh-CN', { 
+                    year: 'numeric', 
+                    month: '2-digit', 
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: false
+                });
+        }
+        
+        // 加载所有数据
+        async function loadAllData() {
+            try {
+                showLoading();
+                
+                // 并行加载所有数据
+                const [summaryData, coneData, ivData, signalsData] = await Promise.all([
+                    fetchData('/summary'),
+                    fetchData('/cone'),
+                    fetchData('/iv-percentile'),
+                    fetchData('/signals')
+                ]);
+                
+                // 更新UI
+                if (summaryData.success) {
+                    updateSummaryUI(summaryData.data);
+                }
+                
+                if (coneData.success) {
+                    updateConeChart(coneData);
+                    updateVolatilityTable(coneData);
+                }
+                
+                if (ivData.success) {
+                    updateIVUI(ivData);
+                    updateIVDistributionChart(ivData);
+                }
+                
+                if (signalsData.success) {
+                    updateSignalsUI(signalsData);
+                }
+                
+                lastRefreshTime = new Date();
+                document.getElementById('last-refresh').textContent = 
+                    lastRefreshTime.toLocaleString('zh-CN', { 
+                        hour: '2-digit', 
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: false
+                    });
+                
+                hideLoading();
+                
+            } catch (error) {
+                console.error('加载数据失败:', error);
+                showError('数据加载失败，请检查网络连接或稍后重试');
+            }
+        }
+        
+        // 获取数据
+        async function fetchData(endpoint) {
+            const response = await fetch(API_BASE + endpoint);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return await response.json();
+        }
+        
+        // 更新摘要UI
+        function updateSummaryUI(data) {
+            // 更新IV相关数据
+            if (data.iv) {
+                document.getElementById('current-iv').textContent = 
+                    data.iv.current_iv ? data.iv.current_iv.toFixed(1) + '%' : '--';
+                document.getElementById('iv-percentile').textContent = 
+                    data.iv.percentile ? data.iv.percentile.toFixed(1) + '%' : '--';
+                
+                // 更新IV等级徽章
+                const badge = document.getElementById('iv-level-badge');
+                const interpretation = data.iv.interpretation;
+                if (interpretation) {
+                    badge.textContent = interpretation.level;
+                    badge.className = `badge bg-${interpretation.color}`;
+                }
+            }
+            
+            // 更新波动率数据
+            if (data.cone) {
+                const shortTerm = data.cone.summary.short_term;
+                const longTerm = data.cone.summary.long_term;
+                
+                document.getElementById('short-term-hv').textContent = 
+                    shortTerm ? shortTerm.toFixed(1) + '%' : '--';
+                
+                if (shortTerm && longTerm) {
+                    const ratio = (shortTerm / longTerm).toFixed(2);
+                    document.getElementById('hv-ratio-text').textContent = 
+                        `短期/长期比率: ${ratio}`;
+                }
+            }
+            
+            // 更新信号计数
+            if (data.signals) {
+                const count = data.signals.count || 0;
+                document.getElementById('signal-count').textContent = count;
+                document.getElementById('signals-count-badge').textContent = `${count}个信号`;
+            }
+        }
+        
+        // 更新波动锥图表
+        function updateConeChart(data) {
+            const ctx = document.getElementById('coneChart').getContext('2d');
+            
+            // 销毁旧图表
+            if (coneChart) {
+                coneChart.destroy();
+            }
+            
+            const windows = data.windows || [];
+            const chartData = data.data || [];
+            
+            // 准备数据
+            const means = chartData.map(d => d.mean);
+            const mins = chartData.map(d => d.min);
+            const maxs = chartData.map(d => d.max);
+            const q1s = chartData.map(d => d.q1);
+            const q3s = chartData.map(d => d.q3);
+            const currents = chartData.map(d => d.current);
+            
+            coneChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: windows.map(w => `${w}天`),
+                    datasets: [
+                        {
+                            label: '波动范围',
+                            data: maxs,
+                            borderColor: 'rgba(52, 152, 219, 0.3)',
+                            backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                            fill: '+1',
+                            pointRadius: 0
+                        },
+                        {
+                            label: '25%-75%分位',
+                            data: q3s,
+                            borderColor: 'rgba(149, 165, 166, 0.5)',
+                            backgroundColor: 'rgba(149, 165, 166, 0.2)',
+                            fill: '-1',
+                            pointRadius: 0
+                        },
+                        {
+                            label: '均值',
+                            data: means,
+                            borderColor: '#f39c12',
+                            backgroundColor: '#f39c12',
+                            borderWidth: 2,
+                            pointRadius: 4,
+                            pointBackgroundColor: '#f39c12'
+                        },
+                        {
+                            label: '当前值',
+                            data: currents,
+                            borderColor: '#e74c3c',
+                            backgroundColor: '#e74c3c',
+                            borderWidth: 3,
+                            pointRadius: 6,
+                            pointStyle: 'rect',
+                            pointBackgroundColor: '#e74c3c'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    if (context.parsed.y !== null) {
+                                        label += context.parsed.y.toFixed(1) + '%';
+                                    }
+                                    return label;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: '时间窗口（天）'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: '年化波动率（%）'
+                            },
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+        
+        // 更新IV分布图表
+        function updateIVDistributionChart(data) {
+            const ctx = document.getElementById('ivDistributionChart').getContext('2d');
+            
+            // 销毁旧图表
+            if (ivDistributionChart) {
+                ivDistributionChart.destroy();
+            }
+            
+            // 这里需要从服务器获取分布数据
+            // 暂时使用模拟数据
+            const stats = data.stats || {};
+            const currentIV = data.current_iv || 0;
+            
+            // 生成模拟分布数据
+            const mean = stats.mean || 20;
+            const std = stats.std || 5;
+            const min = stats.min || 10;
+            const max = stats.max || 40;
+            
+            // 创建正态分布数据
+            const labels = [];
+            const distribution = [];
+            const step = (max - min) / 50;
+            
+            for (let i = min; i <= max; i += step) {
+                labels.push(i.toFixed(1));
+                // 正态分布PDF
+                const pdf = (1 / (std * Math.sqrt(2 * Math.PI))) * 
+                           Math.exp(-0.5 * Math.pow((i - mean) / std, 2));
+                distribution.push(pdf * 100); // 缩放以便显示
+            }
+            
+            ivDistributionChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'IV分布',
+                            data: distribution,
+                            backgroundColor: 'rgba(52, 152, 219, 0.7)',
+                            borderColor: 'rgba(52, 152, 219, 1)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: '当前IV',
+                            data: Array(labels.length).fill(null),
+                            type: 'line',
+                            borderColor: '#e74c3c',
+                            borderWidth: 3,
+                            pointRadius: 0,
+                            fill: false
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        },
+                        annotation: {
+                            annotations: {
+                                line1: {
+                                    type: 'line',
+                                    xMin: currentIV,
+                                    xMax: currentIV,
+                                    borderColor: '#e74c3c',
+                                    borderWidth: 3,
+                                    label: {
+                                        content: `当前: ${currentIV.toFixed(1)}%`,
+                                        enabled: true,
+                                        position: 'end'
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: '隐含波动率（%）'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: '概率密度'
+                            },
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+            
+            // 添加当前IV线
+            const chart = ivDistributionChart;
+            chart.data.datasets[1].data = chart.data.labels.map((label, index) => {
+                const value = parseFloat(label);
+                return Math.abs(value - currentIV) < step ? distribution[index] : null;
+            });
+            chart.update();
+        }
+        
+        // 更新IV UI
+        function updateIVUI(data) {
+            const interpretation = data.interpretation;
+            if (!interpretation) return;
+            
+            const box = document.getElementById('interpretation-box');
+            let boxClass = 'interpretation-normal';
+            
+            if (interpretation.level.includes('低')) {
+                boxClass = 'interpretation-low';
+            } else if (interpretation.level.includes('高')) {
+                boxClass = 'interpretation-high';
+            }
+            
+            box.innerHTML = `
+                <div class="${boxClass} interpretation-box">
+                    <h5><i class="fas fa-chart-line me-2"></i>${interpretation.level}波动水平</h5>
+                    <p class="mb-2">${interpretation.description}</p>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <strong>建议:</strong>
+                        <span class="badge bg-${interpretation.color}">${interpretation.recommendation}</span>
+                    </div>
+                    <div class="mt-2">
+                        <small>置信度: ${interpretation.confidence}</small>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // 更新波动率表格
+        function updateVolatilityTable(data) {
+            const tbody = document.getElementById('volatility-table-body');
+            const chartData = data.data || [];
+            
+            if (chartData.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="8" class="text-center text-muted">
+                            暂无数据
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+            
+            let html = '';
+            chartData.forEach(item => {
+                html += `
+                    <tr>
+                        <td><strong>${item.window}天</strong></td>
+                        <td><span class="text-primary fw-bold">${item.current ? item.current.toFixed(1) : '--'}</span></td>
+                        <td>${item.mean ? item.mean.toFixed(1) : '--'}</td>
+                        <td>${item.min ? item.min.toFixed(1) : '--'}</td>
+                        <td>${item.max ? item.max.toFixed(1) : '--'}</td>
+                        <td>${item.q1 ? item.q1.toFixed(1) : '--'}</td>
+                        <td>${item.q3 ? item.q3.toFixed(1) : '--'}</td>
+                        <td>${item.std ? item.std.toFixed(1) : '--'}</td>
+                    </tr>
+                `;
+            });
+            
+            tbody.innerHTML = html;
+        }
+        
+        // 更新交易信号UI
+        function updateSignalsUI(data) {
+            const container = document.getElementById('signals-container');
+            const signals = data.signals || [];
+            
+            if (signals.length === 0) {
+                container.innerHTML = `
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        当前没有明确的交易信号
+                    </div>
+                `;
+                return;
+            }
+            
+            let html = '';
+            signals.forEach((signal, index) => {
+                let signalClass = 'signal-medium';
+                if (signal.confidence === '高') {
+                    signalClass = 'signal-high';
+                } else if (signal.confidence === '低') {
+                    signalClass = 'signal-low';
+                }
+                
+                html += `
+                    <div class="signal-card ${signalClass}">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <h6 class="mb-1">
+                                    <span class="badge bg-secondary me-2">${signal.type}</span>
+                                    ${signal.signal}
+                                </h6>
+                                <p class="mb-1">${signal.recommendation}</p>
+                            </div>
+                            <div>
+                                <span class="badge bg-${getConfidenceColor(signal.confidence)}">
+                                    置信度: ${signal.confidence}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            container.innerHTML = html;
+        }
+        
+        // 获取置信度颜色
+        function getConfidenceColor(confidence) {
+            switch(confidence) {
+                case '高': return 'danger';
+                case '中': return 'warning';
+                case '低': return 'info';
+                default: return 'secondary';
+            }
+        }
+        
+        // 刷新所有数据
+        function refreshAllData() {
+            // 显示刷新动画
+            const refreshBtn = event.target.closest('button');
+            if (refreshBtn) {
+                const icon = refreshBtn.querySelector('i');
+                icon.className = 'fas fa-spinner fa-spin';
+                
+                loadAllData().finally(() => {
+                    icon.className = 'fas fa-sync-alt';
+                });
+            } else {
+                loadAllData();
+            }
+        }
+        
+        // 下载图表
+        function downloadChart(type) {
+            let url = '';
+            switch(type) {
+                case 'cone':
+                    url = API_BASE + '/chart/cone';
+                    break;
+                case 'iv-distribution':
+                    url = API_BASE + '/chart/iv-distribution';
+                    break;
+            }
+            
+            if (url) {
+                window.open(url, '_blank');
+            }
+        }
+        
+        // 显示加载状态
+        function showLoading() {
+            // 可以添加全局加载指示器
+        }
+        
+        // 隐藏加载状态
+        function hideLoading() {
+            // 移除全局加载指示器
+        }
+        
+        // 显示错误
+        function showError(message) {
+            // 可以添加错误提示
+            console.error(message);
+        }
+        
+        // 工具函数：格式化数字
+        function formatNumber(num, decimals = 2) {
+            if (num === null || num === undefined) return '--';
+            return num.toFixed(decimals);
+        }
+    </script>
+</body>
+</html>

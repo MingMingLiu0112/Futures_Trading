@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多品种期货分析平台</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --secondary-color: #3498db;
+            --success-color: #27ae60;
+            --warning-color: #f39c12;
+            --danger-color: #e74c3c;
+            --light-bg: #f8f9fa;
+            --dark-bg: #2c3e50;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f7fa;
+            color: #333;
+            padding-top: 20px;
+            padding-bottom: 40px;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: white;
+            padding: 25px 0;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .variety-selector {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 25px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+        
+        .variety-card {
+            border: none;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-align: center;
+            background-color: #f8f9fa;
+            border: 2px solid transparent;
+        }
+        
+        .variety-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .variety-card.active {
+            border-color: var(--secondary-color);
+            background-color: rgba(52, 152, 219, 0.1);
+        }
+        
+        .variety-icon {
+            font-size: 1.8rem;
+            margin-bottom: 10px;
+        }
+        
+        .variety-name {
+            font-weight: 600;
+            font-size: 1rem;
+            margin-bottom: 5px;
+        }
+        
+        .variety-code {
+            font-size: 0.85rem;
+            color: #666;
+            background-color: rgba(0,0,0,0.05);
+            padding: 2px 8px;
+            border-radius: 10px;
+            display: inline-block;
+        }
+        
+        .card {
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            margin-bottom: 25px;
+            transition: transform 0.3s, box-shadow 0.3s;
+            height: 100%;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+        }
+        
+        .card-header {
+            background-color: white;
+            border-bottom: 2px solid #eee;
+            font-weight: 600;
+            font-size: 1.1rem;
+            padding: 15px 20px;
+            border-radius: 12px 12px 0 0 !important;
+        }
+        
+        .card-body {
+            padding: 20px;
+        }
+        
+        .price-large {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin: 10px 0;
+        }
+        
+        .price-change {
+            font-size: 1.2rem;
+            font-weight: 600;
+            padding: 5px 15px;
+            border-radius: 20px;
+            display: inline-block;
+        }
+        
+        .change-up {
+            background-color: rgba(39, 174, 96, 0.15);
+            color: var(--success-color);
+        }
+        
+        .change-down {
+            background-color: rgba(231, 76, 60, 0.15);
+            color: var(--danger-color);
+        }
+        
+        .change-neutral {
+            background-color: rgba(243, 156, 18, 0.15);
+            color: var(--warning-color);
+        }
+        
+        .stat-item {
+            padding: 15px;
+            background-color: var(--light-bg);
+            border-radius: 10px;
+            margin-bottom: 10px;
+        }
+        
+        .stat-label {
+            font-size: 0.9rem;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        
+        .stat-value {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: var(--primary-color);
+        }
+        
+        .contract-info {
+            background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        
+        .contract-label {
+            font-size: 0.85rem;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        
+        .contract-value {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--primary-color);
+        }
+        
+        .btn-action {
+            background: linear-gradient(135deg, var(--secondary-color), #2980b9);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        
+        .btn-action:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(52, 152, 219, 0.3);
+        }
+        
+        .refresh-btn {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            z-index: 1000;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--secondary-color), var(--primary-color));
+            color: white;
+            border: none;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            font-size: 1.5rem;
+        }
+        
+        .timestamp {
+            font-size: 0.85rem;
+            color: #888;
+            text-align: right;
+            margin-top: 10px;
+        }
+        
+        .signal-card {
+            border-left: 5px solid;
+        }
+        
+        .signal-buy {
+            border-left-color: var(--success-color) !important;
+        }
+        
+        .signal-sell {
+            border-left-color: var(--danger-color) !important;
+        }
+        
+        .signal-neutral {
+            border-left-color: var(--warning-color) !important;
+        }
+        
+        .signal-strength {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 15px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+        
+        .strength-strong {
+            background-color: rgba(39, 174, 96, 0.2);
+            color: var(--success-color);
+        }
+        
+        .strength-medium {
+            background-color: rgba(243, 156, 18, 0.2);
+            color: var(--warning-color);
+        }
+        
+        .strength-weak {
+            background-color: rgba(52, 152, 219, 0.2);
+            color: var(--secondary-color);
+        }
+        
+        @media (max-width: 768px) {
+            .price-large {
+                font-size: 2rem;
+            }
+            
+            .card {
+                margin-bottom: 15px;
+            }
+            
+            .variety-card {
+                padding: 10px;
+            }
+            
+            .variety-icon {
+                font-size: 1.5rem;
+            }
+        }
+        
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(255, 255, 255, 0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            display: none;
+        }
+        
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid var(--secondary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+    </div>
+    
+    <div class="container">
+        <!-- 头部 -->
+        <div class="header text-center">
+            <h1><i class="fas fa-exchange-alt me-2"></i>多品种期货分析平台</h1>
+            <p class="mb-0">一键切换品种 · 自动选择主力合约 · 期权数据印证</p>
+            <div class="timestamp">数据更新时间: {{ timestamp }}</div>
+        </div>
+        
+        <!-- 品种选择器 -->
+        <div class="variety-selector">
+            <h5 class="mb-3"><i class="fas fa-list me-2"></i>选择期货品种</h5>
+            <div class="row" id="varietyList">
+                {% for variety_code, variety in varieties.items() %}
+                <div class="col-6 col-md-3 col-lg-2 mb-3">
+                    <div class="variety-card {% if variety_code == current_variety %}active{% endif %}" 
+                         data-variety="{{ variety_code }}"
+                         onclick="switchVariety('{{ variety_code }}')"
+                         style="border-left-color: {{ variety.color }};">
+                        <div class="variety-icon" style="color: {{ variety.color }};">
+                            <i class="{{ variety.icon }}"></i>
+                        </div>
+                        <div class="variety-name">{{ variety.name }}</div>
+                        <div class="variety-code">{{ variety_code }}</div>
+                        <div class="small text-muted mt-2">{{ variety.exchange }}</div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        
+        <!-- 当前品种信息 -->
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div>
+                            <i class="{{ current_variety_info.icon }} me-2" style="color: {{ current_variety_info.color }};"></i>
+                            {{ current_variety_info.name }} ({{ current_variety }}) - 实时分析
+                        </div>
+                        <div class="small text-muted">
+                            交易所: {{ current_variety_info.exchange }}
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <!-- 合约信息 -->
+                        <div class="row mb-4">
+                            <div class="col-md-6">
+                                <div class="contract-info">
+                                    <div class="contract-label">主力合约</div>
+                                    <div class="contract-value">{{ variety_data.main_contract }}</div>
+                                    <div class="small text-muted mt-2">
+                                        合约单位: {{ current_variety_info.contract_size }}吨/手 · 
+                                        最小变动: {{ current_variety_info.tick_size }}{{ current_variety_info.unit }}
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="contract-info">
+                                    <div class="contract-label">最近月期权</div>
+                                    <div class="contract-value">
+                                        {% if variety_data.option_contract %}
+                                            {{ variety_data.option_contract }}
+                                        {% else %}
+                                            暂无期权数据
+                                        {% endif %}
+                                    </div>
+                                    <div class="small text-muted mt-2">
+                                        保证金率: {{ (current_variety_info.margin_rate * 100)|int }}% · 
+                                        交易所: {{ current_variety_info.exchange }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 价格信息 -->
+                        <div class="row">
+                            <div class="col-md-4 text-center">
+                                <div class="price-large" id="currentPrice">
+                                    {% if variety_data.last_price %}
+                                        {{ "%.2f"|format(variety_data.last_price) }}
+                                    {% else %}
+                                        N/A
+                                    {% endif %}
+                                </div>
+                                <div class="mb-3">
+                                    <span class="badge bg-secondary">{{ current_variety_info.unit }}</span>
+                                    <span class="badge bg-info">{{ variety_data.main_contract }}</span>
+                                </div>
+                                {% if variety_data.change_pct %}
+                                    {% set change_class = "change-up" if variety_data.change_pct > 0 else "change-down" if variety_data.change_pct < 0 else "change-neutral" %}
+                                    <div class="price-change {{ change_class }}" id="priceChange">
+                                        {% if variety_data.change_pct > 0 %}+{% endif %}{{ "%.2f"|format(variety_data.change_pct) }}%
+                                    </div>
+                                {% endif %}
+                            </div>
+                            
+                            <div class="col-md-8">
+                                <div class="row">
+                                    <div class="col-4">
+                                        <div class="stat-item">
+                                            <div class="stat-label">开盘</div>
+                                            <div class="stat-value" id="openPrice">
+                                                {% if variety_data.open %}
+                                                    {{ "%.2f"|format(variety_data.open) }}
+                                                {% else %}
+                                                    N/A
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-4">
+                                        <div class="stat-item">
+                                            <div class="stat-label">最高</div>
+                                            <div class="stat-value" id="highPrice">
+                                                {% if variety_data.high %}
+                                                    {{ "%.2f"|format(variety_data.high) }}
+                                                {% else %}
+                                                    N/A
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-4">
+                                        <div class="stat-item">
+                                            <div class="stat-label">最低</div>
+                                            <div class="stat-value" id="lowPrice">
+                                                {% if variety_data.low %}
+                                                    {{ "%.2f"|format(variety_data.low) }}
+                                                {% else %}
+                                                    N/A
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-6">
+                                        <div class="stat-item">
+                                            <div class="stat-label">成交量</div>
+                                            <div class="stat-value" id="volume">
+                                                {% if variety_data.volume %}
+                                                    {{ "{:,}".format(variety_data.volume) }}
+                                                {% else %}
+                                                    N/A
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-6">
+                                        <div class="stat-item">
+                                            <div class="stat-label">持仓量</div>
+                                            <div class="stat-value" id="openInterest">
+                                                {% if variety_data.open_interest %}
+                                                    {{ "{:,}".format(variety_data.open_interest) }}
+                                                {% else %}
+                                                    N/A
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 分析模块 -->
+        <div class="row">
+            <!-- 技术分析 -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-chart-line me-2"></i>技术分析
+                    </div>
+                    <div class="card-body">
+                        <div class="text-center py-4">
+                            <i class="fas fa-tools fa-2x text-muted mb-3"></i>
+                            <p class="text-muted">技术分析模块开发中...</p>
+                            <p class="small text-muted">将集成缠论分析、技术指标等功能</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 基本面分析 -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-industry me-2"></i>基本面分析
+                    </div>
+                    <div class="card-body">
+                        <div class="text-center py-4">
+                            <i class="fas fa-tools fa-2x text-muted mb-3"></i>
+                            <p class="text-muted">基本面分析模块开发中...</p>
+                            <p class="small text-muted">将集成产业数据、成本分析等功能</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 期权数据 -->
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-chart-bar me-2"></i>期权数据印证
+                    </div>
+                    <div class="card-body">
+                        <div class="text-center py-4">
+                            <i class="fas fa-tools fa-2x text-muted mb-3"></i>
+                            <p class="text-muted">期权数据模块开发中...</p>
+                            <p class="small text-muted">将集成PCR、IV、期权链等功能</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 功能按钮 -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body text-center">
+                        <h5 class="mb-4">平台功能</h5>
+                        <div class="row">
+                            <div class="col-md-3 mb-3">
+                                <button class="btn btn-action w-100" onclick="refreshData()">
+                                    <i class="fas fa-sync-alt me-2"></i>刷新数据
+                                </button>
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <a href="/" class="btn btn-outline-primary w-100">
+                                    <i class="fas fa-home me-2"></i>返回首页
+                                </a>
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <button class="btn btn-outline-secondary w-100" onclick="showVarietyConfig()">
+                                    <i class="fas fa-cog me-2"></i>品种配置
+                                </button>
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <a href="/api/variety/{{ current_variety }}" target="_blank" class="btn btn-outline-success w-100">
+                                    <i class="fas fa-code me-2"></i>API接口
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 刷新按钮 -->
+        <button class="refresh-btn" onclick="refreshData()">
+            <i class="fas fa-sync-alt"></i>
+        </button>
+        
+        <!-- 页脚 -->
+        <footer class="mt-5 text-center text-muted">
+            <p>多品种期货分析平台 · 数据仅供参考 · 投资有风险</p>
+            <p class="small">最后更新: {{ timestamp }}</p>
+        </footer>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 显示加载动画
+        function showLoading() {
+            document.getElementById('loadingOverlay').style.display = 'flex';
+        }
+        
+        // 隐藏加载动画
+        function hideLoading() {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }
+        
+        // 切换品种
+        function switchVariety(varietyCode) {
+            showLoading();
+            
+            // 更新UI
+            document.querySelectorAll('.variety-card').forEach(card => {
+                card.classList.remove('active');
+                if (card.dataset.variety === varietyCode) {
+                    card.classList.add('active');
+                }
+            });
+            
+            // 发送切换请求
+            fetch(`/api/variety/switch/${varietyCode}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // 重新加载页面
+                    location.reload();
+                } else {
+                    alert('切换品种失败: ' + (data.error || '未知错误'));
+                    hideLoading();
+                }
+            })
+            .catch(error => {
+                console.error('切换品种错误:', error);
+                alert('切换品种失败，请重试');
+                hideLoading();
+            });
+        }
+        
+        // 刷新数据
+        function refreshData() {
+            showLoading();
+            location.reload();
+        }
+        
+        // 显示品种配置
+        function showVarietyConfig() {
+            alert('品种配置功能开发中...');
+        }
+        
+        // 自动刷新页面（每30秒）
+        setTimeout(function() {
+            refreshData();
+        }, 30000);
+        
+        // 显示刷新提示
+        document.addEventListener('DOMContentLoaded', function() {
+            const refreshBtn = document.querySelector('.refresh-btn');
+            refreshBtn.addEventListener('click', function() {
+                this.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+                setTimeout(() => {
+                    this.innerHTML = '<i class="fas fa-sync-alt"></i>';
+                }, 1000);
+            });
+            
+            // 页面加载完成后隐藏加载动画
+            hideLoading();
+        });
+    </script>
+</body>
+</html>

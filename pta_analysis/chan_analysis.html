@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PTA缠论线段分析</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #4CAF50;
+            padding-bottom: 10px;
+        }
+        .section {
+            background: #f9f9f9;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            border-left: 4px solid #4CAF50;
+        }
+        .result {
+            background: #e8f5e9;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .bi-item {
+            padding: 8px;
+            margin: 5px 0;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .xd-item {
+            padding: 12px;
+            margin: 10px 0;
+            background: #e3f2fd;
+            border: 2px solid #2196F3;
+            border-radius: 6px;
+            font-weight: bold;
+        }
+        .status {
+            padding: 10px;
+            background: #4CAF50;
+            color: white;
+            border-radius: 5px;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .link {
+            display: inline-block;
+            padding: 10px 20px;
+            background: #2196F3;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 10px 5px;
+        }
+        .link:hover {
+            background: #0b7dda;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PTA期货缠论线段分析</h1>
+        
+        <div class="status">
+            ✅ 服务运行正常 | 端口: 8421 | 更新时间: 2026-04-07 23:10
+        </div>
+        
+        <div class="section">
+            <h2>📊 分析结果 (2026-04-03)</h2>
+            
+            <div class="result">
+                <h3>✅ 检测到3条线段 (与用户确认完全一致)</h3>
+                
+                <div class="xd-item">
+                    <strong>XD1↑ (上涨段)</strong><br>
+                    笔范围: bi1~bi3 (3笔)<br>
+                    时间: 09:01~09:58<br>
+                    价格: 6726 → 6922 (+196点)
+                </div>
+                
+                <div class="xd-item">
+                    <strong>XD2↓ (下跌段)</strong><br>
+                    笔范围: bi4~bi6 (3笔)<br>
+                    时间: 09:58~10:35<br>
+                    价格: 6922 → 6810 (-112点)
+                </div>
+                
+                <div class="xd-item">
+                    <strong>XD3↑ (上涨段)</strong><br>
+                    笔范围: bi7~bi16 (10笔)<br>
+                    时间: 10:35~14:54<br>
+                    价格: 6810 → 6948 (+138点)
+                </div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>🔍 算法核心规则</h2>
+            <ul>
+                <li><strong>笔端点规则</strong>: UP笔 start=首bar.low, end=末bar.high | DOWN笔 start=首bar.high, end=末bar.low</li>
+                <li><strong>线段破坏规则</strong>: 
+                    <ul>
+                        <li>DOWN破坏UP: cur.low < prev_opposite.low → 破坏成功</li>
+                        <li>UP破坏DOWN: cur.high > prev_opposite.high → 破坏成功</li>
+                        <li>破坏成功 → 前段结束，新段开始</li>
+                        <li>破坏失败 → 前段延续</li>
+                    </ul>
+                </li>
+            </ul>
+        </div>
+        
+        <div class="section">
+            <h2>📈 可视化图表</h2>
+            <p>缠论笔段可视化图表:</p>
+            <a class="link" href="/pta_analysis/czsc_chart.html" target="_blank">查看缠论图表</a>
+            <a class="link" href="/pta_analysis/charts/chan_bi_xd.png" target="_blank">查看PNG图像</a>
+        </div>
+        
+        <div class="section">
+            <h2>🔗 访问链接</h2>
+            <p>直接访问链接:</p>
+            <a class="link" href="http://38.113.126.181:8421/chan_analysis.html" target="_blank">http://38.113.126.181:8421/chan_analysis.html</a><br><br>
+            <a class="link" href="http://38.113.126.181:8421/pta_analysis/czsc_chart.html" target="_blank">缠论可视化图表</a>
+        </div>
+        
+        <div class="section">
+            <h2>📁 文件列表</h2>
+            <p>HTTP服务器根目录文件列表:</p>
+            <a class="link" href="http://38.113.126.181:8421/" target="_blank">浏览文件目录</a>
+        </div>
+    </div>
+    
+    <script>
+        // 自动更新访问链接为当前域名
+        document.addEventListener('DOMContentLoaded', function() {
+            const links = document.querySelectorAll('.link');
+            const currentHost = window.location.hostname;
+            const currentPort = window.location.port || '8421';
+            
+            links.forEach(link => {
+                if (link.href.includes('38.113.126.181')) {
+                    link.href = link.href.replace('38.113.126.181', currentHost);
+                }
+            });
+            
+            // 更新状态时间
+            const now = new Date();
+            document.querySelector('.status').innerHTML = 
+                `✅ 服务运行正常 | 端口: ${currentPort} | 更新时间: ${now.toLocaleString('zh-CN')}`;
+        });
+    </script>
+</body>
+</html>

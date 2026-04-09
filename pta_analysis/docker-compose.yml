@@ -1,0 +1,58 @@
+version: "3.8"
+
+# ============================================================
+# PTA Analysis - 全合一 Docker 环境
+# ============================================================
+# 单一容器包含: MySQL + Redis + FastAPI + vnpy + TQSdk
+# 架构: supervisord 管理多进程
+# ============================================================
+
+services:
+  pta:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pta-analysis
+    restart: unless-stopped
+
+    # 环境变量
+    environment:
+      - TZ=Asia/Shanghai
+      - PYTHONUNBUFFERED=1
+      - MYSQL_ROOT_PASSWORD=root_pass_2025
+      - MYSQL_DATABASE=pta_analysis
+
+    # 端口映射
+    ports:
+      - "8000:8000"   # FastAPI
+      - "3306:3306"   # MySQL
+      - "6379:6379"   # Redis
+
+    # 数据卷持久化
+    volumes:
+      - pta_data:/app/data
+      - pta_logs:/app/logs
+      - pta_cache:/app/cache
+      - pta_mysql:/var/lib/mysql
+
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "python", "/app/health_check.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
+volumes:
+  pta_data:
+  pta_logs:
+  pta_cache:
+  pta_mysql:

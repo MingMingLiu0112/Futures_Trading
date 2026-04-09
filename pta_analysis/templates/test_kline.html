@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PTA K线 - 诊断版</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0a; color: #ccc; }
+        #chart { width: 100%; height: 70vh; background: #111; }
+        #log { padding: 10px; font-size: 12px; background: #000; border-top: 1px solid #333; max-height: 200px; overflow-y: auto; }
+        .log-item { margin: 2px 0; }
+        .log-error { color: #f44; }
+        .log-success { color: #4f4; }
+        #loading { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); background: rgba(0,0,0,0.8); padding: 20px; border-radius: 8px; z-index: 9999; }
+    </style>
+</head>
+<body>
+    <div id="chart"></div>
+    <div id="log"></div>
+    <div id="loading">加载中...</div>
+
+    <script>
+    var logEl = document.getElementById('log');
+    var loadingEl = document.getElementById('loading');
+    var chart = null;
+
+    function addLog(msg, isError) {
+        var el = document.createElement('div');
+        el.className = 'log-item' + (isError ? ' log-error' : ' log-success');
+        el.textContent = new Date().toISOString().substr(11,8) + ' ' + msg;
+        logEl.appendChild(el);
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function hideLoading() {
+        loadingEl.style.display = 'none';
+    }
+
+    function initChart() {
+        try {
+            addLog('ECharts type: ' + typeof echarts);
+            addLog('echarts.init: ' + (typeof echarts !== 'undefined' ? 'OK' : 'FAILED'));
+            if (typeof echarts === 'undefined') {
+                addLog('ERROR: ECharts not loaded!', true);
+                return;
+            }
+            chart = echarts.init(document.getElementById('chart'));
+            addLog('ECharts initialized OK');
+        } catch(e) {
+            addLog('ECharts init error: ' + e.message, true);
+        }
+    }
+
+    function renderChart(klineData, chanData) {
+        try {
+            addLog('Rendering chart with ' + klineData.length + ' K-lines');
+
+            // Time data
+            var timeData = klineData.map(function(d) { return d.time; });
+
+            // OHLC data
+            var ohlcData = klineData.map(function(d) {
+                return [d.open, d.close, d.low, d.high];
+            });
+
+            // Volume
+            var volData = klineData.map(function(d) { return d.volume; });
+
+            var option = {
+                backgroundColor: '#111',
+                animation: false,
+                tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+                legend: { top: 5, data: ['K线', 'MA5', 'MA10', 'MA20'], textStyle: { color: '#ccc' } },
+                grid: [
+                    { left: '10%', right: '8%', top: '10%', height: '55%' },
+                    { left: '10%', right: '8%', top: '72%', height: '15%' }
+                ],
+                xAxis: [
+                    { type: 'category', data: timeData, gridIndex: 0, boundaryGap: false, axisLine: { lineStyle: { color: '#444' } }, axisLabel: { color: '#888', fontSize: 10 } },
+                    { type: 'category', data: timeData, gridIndex: 1, boundaryGap: false, axisLine: { lineStyle: { color: '#444' } }, axisLabel: { show: false } }
+                ],
+                yAxis: [
+                    { type: 'value', gridIndex: 0, scale: true, axisLine: { lineStyle: { color: '#444' } }, axisLabel: { color: '#888' }, splitLine: { lineStyle: { color: '#222' } } },
+                    { type: 'value', gridIndex: 1, scale: true, axisLine: { lineStyle: { color: '#444' } }, axisLabel: { color: '#888' }, splitLine: { show: false } }
+                ],
+                dataZoom: [
+                    { type: 'inside', xAxisIndex: [0, 1], start: 60, end: 100 },
+                    { type: 'slider', xAxisIndex: [0, 1], bottom: 5, height: 20 }
+                ],
+                series: [
+                    {
+                        name: 'K线',
+                        type: 'candlestick',
+                        xAxisIndex: 0,
+                        yAxisIndex: 0,
+                        data: ohlcData,
+                        itemStyle: { color: '#fc5', color0: '#0a8', borderColor: '#fc5', borderColor0: '#0a8' }
+                    },
+                    {
+                        name: 'MA5', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
+                        data: calcMA(ohlcData, 5, 1), smooth: true,
+                        lineStyle: { color: '#f44', width: 1 }, symbol: 'none'
+                    },
+                    {
+                        name: 'MA10', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
+                        data: calcMA(ohlcData, 10, 1), smooth: true,
+                        lineStyle: { color: '#4f4', width: 1 }, symbol: 'none'
+                    },
+                    {
+                        name: 'MA20', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
+                        data: calcMA(ohlcData, 20, 1), smooth: true,
+                        lineStyle: { color: '#44f', width: 1 }, symbol: 'none'
+                    },
+                    {
+                        name: '成交量',
+                        type: 'bar',
+                        xAxisIndex: 1,
+                        yAxisIndex: 1,
+                        data: volData,
+                        itemStyle: { color: '#339' }
+                    }
+                ]
+            };
+
+            chart.setOption(option, true);
+            addLog('Chart rendered successfully!', false);
+
+            // Add chan layers if available
+            if (chanData && chanData.echarts) {
+                addLog('Adding chan layers...');
+                addChanLayers(chanData, timeData, ohlcData);
+            }
+
+            hideLoading();
+        } catch(e) {
+            addLog('Render error: ' + e.message, true);
+            console.error(e);
+        }
+    }
+
+    function addChanLayers(chanData, timeData, ohlcData) {
+        try {
+            var e = chanData.echarts;
+            var biOpts = [];
+            if (e.bi_markline) {
+                e.bi_markline.forEach(function(m) {
+                    biOpts.push({
+                        xAxis: m.xAxis, yAxis: m.yAxis,
+                        xAxis2: m.xAxis2, yAxis2: m.yAxis2,
+                        lineStyle: m.lineStyle || { color: '#f36', width: 2 }
+                    });
+                });
+                addLog('Added ' + biOpts.length + ' bi lines');
+            }
+
+            chart.setOption({
+                series: [
+                    { name: 'K线' },
+                    { name: 'MA5' },
+                    { name: 'MA10' },
+                    { name: 'MA20' },
+                    { name: '成交量' },
+                    {
+                        name: '笔',
+                        type: 'line',
+                        data: [],
+                        markLine: { silent: true, symbol: ['none','none'], data: biOpts }
+                    }
+                ]
+            });
+            addLog('Chan layers added!');
+        } catch(e) {
+            addLog('Chan layers error: ' + e.message, true);
+        }
+    }
+
+    function calcMA(data, period, closeIdx) {
+        var result = [];
+        for (var i = 0; i < data.length; i++) {
+            if (i < period - 1) { result.push('-'); }
+            else {
+                var sum = 0;
+                for (var j = 0; j < period; j++) { sum += data[i - j][closeIdx]; }
+                result.push(+(sum / period).toFixed(2));
+            }
+        }
+        return result;
+    }
+
+    function loadData() {
+        addLog('Loading K-line data...');
+        fetch('/api/kline/data?period=1min')
+            .then(function(r) { return r.json(); })
+            .then(function(klineResult) {
+                addLog('K-line API: ' + (klineResult.data ? klineResult.data.length + ' records' : 'ERROR: ' + JSON.stringify(klineResult)));
+                if (!klineResult.data || klineResult.data.length === 0) {
+                    addLog('No K-line data!', true);
+                    hideLoading();
+                    return;
+                }
+                fetch('/api/chan/analysis?period=1min')
+                    .then(function(r) { return r.json(); })
+                    .then(function(chanResult) {
+                        addLog('Chan API: bi=' + (chanResult.stats ? chanResult.stats.bi_count : '?') +
+                               ' seg=' + (chanResult.stats ? chanResult.stats.seg_count : '?') +
+                               ' zs=' + (chanResult.stats ? chanResult.stats.zs_count : '?'));
+                        renderChart(klineResult.data, chanResult);
+                    })
+                    .catch(function(e) {
+                        addLog('Chan API error: ' + e.message, true);
+                        renderChart(klineResult.data, null);
+                    });
+            })
+            .catch(function(e) {
+                addLog('K-line API error: ' + e.message, true);
+                hideLoading();
+            });
+    }
+
+    window.addEventListener('load', function() {
+        addLog('Page loaded');
+        initChart();
+        loadData();
+    });
+    </script>
+</body>
+</html>

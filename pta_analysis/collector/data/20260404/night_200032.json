@@ -1,0 +1,8 @@
+{
+  "timestamp": "2026-04-04T20:00:30.034506",
+  "date": "20260404",
+  "session": "night",
+  "futures_error": "futures_zh_minute_sina() got an unexpected keyword argument 'adjust'",
+  "PX_error": "'<' not supported between instances of 'NoneType' and 'datetime.date'",
+  "Brent_error": "'str' object has no attribute 'str'"
+}

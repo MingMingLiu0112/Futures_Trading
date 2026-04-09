@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  option-chain-exporter:
+    build: .
+    container_name: option-chain-exporter
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./exports:/app/exports
+      - ./uploads:/app/uploads
+    environment:
+      - FLASK_ENV=production
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5000/api/health', timeout=2)"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
