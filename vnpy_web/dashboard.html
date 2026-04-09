@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PTA Dashboard - VeighNa</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { 
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+  background: #0d1117; color: #e6edf3; min-height: 100vh;
+}
+.header {
+  background: #161b22; border-bottom: 1px solid #30363d; padding: 12px 20px;
+  display: flex; align-items: center; gap: 20px; position: sticky; top: 0; z-index: 100;
+}
+.header h1 { color: #e94560; font-size: 16px; font-weight: 600; }
+.header .tag {
+  background: #238636; color: #fff; font-size: 11px; padding: 2px 8px; border-radius: 12px;
+}
+.header .info { font-size: 12px; color: #8b949e; margin-left: auto; }
+.main { display: grid; grid-template-columns: 1fr 280px; gap: 12px; padding: 12px; height: calc(100vh - 52px); }
+.left { display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
+.right { display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
+.panel {
+  background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 12px;
+}
+.panel-title { font-size: 12px; color: #8b949e; margin-bottom: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+.chart-container { flex: 1; min-height: 400px; }
+#kline-chart { width: 100%; height: 100%; }
+.controls { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+select, button {
+  background: #0d1117; color: #e6edf3; border: 1px solid #30363d;
+  padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;
+}
+select:hover, button:hover { border-color: #e94560; }
+button.active { background: #e94560; border-color: #e94560; color: #fff; }
+button:hover { background: #ff6b6b; }
+
+/* 持仓/订单面板 */
+.data-list { font-size: 12px; max-height: 200px; overflow-y: auto; }
+.data-row {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px;
+  padding: 6px 0; border-bottom: 1px solid #21262d; align-items: center;
+}
+.data-row.header { color: #8b949e; font-weight: 600; border-bottom: 1px solid #30363d; }
+.data-row.buy { color: #4ecca3; }
+.data-row.sell { color: #e94560; }
+.data-row .price { font-family: monospace; }
+.data-row .vol { text-align: right; color: #8b949e; }
+
+/* 快捷操作 */
+.trade-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+.trade-btn {
+  background: #238636; border: none; color: #fff; padding: 10px;
+  border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600;
+}
+.trade-btn.sell { background: #da3633; }
+.trade-btn:hover { opacity: 0.85; }
+.trade-btn:active { transform: scale(0.98); }
+
+/* 状态栏 */
+.status-bar {
+  display: flex; gap: 16px; font-size: 11px; color: #8b949e; margin-top: 8px;
+}
+.status-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 4px; }
+.status-dot.green { background: #4ecca3; }
+.status-dot.red { background: #e94560; }
+.status-dot.gray { background: #8b949e; }
+
+/* 滚动条 */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: #0d1117; }
+::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
+
+.symbol-info { display: flex; gap: 16px; margin-bottom: 8px; }
+.symbol-item { display: flex; flex-direction: column; }
+.symbol-item .label { font-size: 10px; color: #8b949e; }
+.symbol-item .value { font-size: 14px; font-weight: 600; font-family: monospace; }
+.symbol-item .value.up { color: #4ecca3; }
+.symbol-item .value.down { color: #e94560; }
+
+/* 加载动画 */
+.loading { text-align: center; color: #8b949e; padding: 40px; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>🌊 VeighNa Trader</h1>
+  <span class="tag">PTA</span>
+  <span class="tag" style="background:#1f6feb;">KQ.m@CZCE.TA</span>
+  <div class="info">
+    <span class="status-dot green"></span>系统正常
+    <span style="margin-left:12px">数据: 历史回测</span>
+  </div>
+</div>
+
+<div class="main">
+  <!-- 左侧：K线图 -->
+  <div class="left">
+    <div class="panel">
+      <div class="panel-title">K线图表</div>
+      <div class="controls">
+        <button class="active" onclick="setPeriod('1min')">1分钟</button>
+        <button onclick="setPeriod('5min')">5分钟</button>
+        <button onclick="setPeriod('15min')">15分钟</button>
+        <button onclick="setPeriod('30min')">30分钟</button>
+        <button onclick="setPeriod('60min')">60分钟</button>
+        <span style="margin-left:8px;font-size:11px;color:#8b949e" id="data-range"></span>
+      </div>
+      <div class="chart-container">
+        <div id="kline-chart"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 右侧：交易面板 -->
+  <div class="right">
+    <!-- 行情信息 -->
+    <div class="panel">
+      <div class="panel-title">行情信息</div>
+      <div class="symbol-info">
+        <div class="symbol-item">
+          <span class="label">最新价</span>
+          <span class="value" id="last-price">--</span>
+        </div>
+        <div class="symbol-item">
+          <span class="label">涨跌</span>
+          <span class="value" id="change-pct">--</span>
+        </div>
+        <div class="symbol-item">
+          <span class="label">成交量</span>
+          <span class="value" id="volume">--</span>
+        </div>
+      </div>
+      <div class="status-bar">
+        <span><span class="status-dot green"></span>数据加载</span>
+        <span id="bar-count">0 根K线</span>
+      </div>
+    </div>
+
+    <!-- 快捷下单 -->
+    <div class="panel">
+      <div class="panel-title">快捷交易</div>
+      <div style="font-size:12px;color:#8b949e;margin-bottom:8px">开仓/平仓（模拟）</div>
+      <div class="trade-btns">
+        <button class="trade-btn" onclick="sendOrder('buy')">↑ 做多</button>
+        <button class="trade-btn sell" onclick="sendOrder('sell')">↓ 做空</button>
+      </div>
+      <div style="margin-top:8px;font-size:11px;color:#8b949e">
+        注意：当前为回测模式，仅供演示
+      </div>
+    </div>
+
+    <!-- 当前持仓 -->
+    <div class="panel" style="flex:1">
+      <div class="panel-title">模拟持仓</div>
+      <div class="data-list">
+        <div class="data-row header">
+          <span>方向</span><span>价格</span><span class="vol">数量</span>
+        </div>
+        <div id="position-list">
+          <div style="color:#8b949e;padding:12px 0;text-align:center;font-size:12px">暂无持仓</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 最近交易 -->
+    <div class="panel">
+      <div class="panel-title">模拟交易记录</div>
+      <div class="data-list" style="max-height:150px">
+        <div id="trade-list">
+          <div style="color:#8b949e;padding:8px 0;text-align:center;font-size:12px">暂无交易</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let chart = null;
+let currentPeriod = '1min';
+let allData = [];
+let ma5 = [], ma10 = [], ma20 = [];
+
+function initChart() {
+  chart = echarts.init(document.getElementById('kline-chart'));
+  window.addEventListener('resize', () => chart.resize());
+}
+
+async function loadData() {
+  const apiBase = window.location.protocol === 'https:' ? 'https://vnpy.mingmingliu.cn' : '';
+  const url = `${apiBase}/api/kline?symbol=KQ.m@CZCE.TA&interval=${currentPeriod}&limit=1000`;
+  
+  try {
+    const resp = await fetch(url);
+    const data = await resp.json();
+    processData(data);
+  } catch (e) {
+    // fallback to local
+    const resp = await fetch(`/api/kline?symbol=KQ.m@CZCE.TA&interval=${currentPeriod}&limit=1000`);
+    const data = await resp.json();
+    processData(data);
+  }
+}
+
+function processData(raw) {
+  if (!raw || raw.length === 0) return;
+  
+  allData = raw.map(d => ({
+    time: d.datetime,
+    open: d.open,
+    high: d.high,
+    low: d.low,
+    close: d.close,
+    volume: d.volume
+  }));
+
+  // 计算MA
+  ma5 = calcMA(allData, 5);
+  ma10 = calcMA(allData, 10);
+  ma20 = calcMA(allData, 20);
+
+  updateMarketInfo();
+  renderChart();
+}
+
+function calcMA(data, period) {
+  return data.map((d, i) => {
+    if (i < period - 1) return null;
+    const sum = data.slice(i - period + 1, i + 1).reduce((a, b) => a + b.close, 0);
+    return +(sum / period).toFixed(2);
+  });
+}
+
+function updateMarketInfo() {
+  if (allData.length === 0) return;
+  const last = allData[allData.length - 1];
+  const first = allData[0];
+  const change = last.close - first.open;
+  const changePct = (change / first.open * 100).toFixed(2);
+  
+  document.getElementById('last-price').textContent = last.close.toFixed(0);
+  const changeEl = document.getElementById('change-pct');
+  changeEl.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(0)} (${changePct}%)`;
+  changeEl.className = `value ${change >= 0 ? 'up' : 'down'}`;
+  document.getElementById('volume').textContent = (last.volume / 10000).toFixed(1) + '万';
+  document.getElementById('bar-count').textContent = `${allData.length} 根K线 | ${currentPeriod}`;
+  
+  const startTime = new Date(allData[0].time).toLocaleString('zh-CN', {hour12:false});
+  const endTime = new Date(allData[allData.length-1].time).toLocaleString('zh-CN', {hour12:false});
+  document.getElementById('data-range').textContent = `${startTime} ~ ${endTime}`;
+}
+
+function renderChart() {
+  if (!chart) return;
+  
+  const option = {
+    backgroundColor: 'transparent',
+    animation: false,
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'cross' },
+      backgroundColor: '#161b22',
+      borderColor: '#30363d',
+      textStyle: { color: '#e6edf3', fontSize: 11 },
+      formatter: params => {
+        const candle = params.find(p => p.seriesType === 'candlestick');
+        if (!candle) return '';
+        const d = new Date(candle.axisValue).toLocaleString('zh-CN', {hour12:false});
+        return `<div style="font-size:11px">
+          <div style="margin-bottom:4px">${d}</div>
+          <div>开: ${candle.data[1]}</div>
+          <div>高: ${candle.data[2]}</div>
+          <div>低: ${candle.data[3]}</div>
+          <div style="color:${candle.data[0] <= candle.data[1] ? '#4ecca3' : '#e94560'}">收: ${candle.data[0]}</div>
+        </div>`;
+      }
+    },
+    axisPointer: {
+      link: [{ xAxisIndex: [0, 1] }],
+      label: { backgroundColor: '#161b22' }
+    },
+    grid: [{ left: 60, right: 12, top: 10, height: '60%' }, { left: 60, right: 12, top: '72%', height: '18%' }],
+    xAxis: [
+      { type: 'category', data: allData.map(d => d.time), gridIndex: 0, axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#8b949e', fontSize: 10 }, axisTick: { show: false } },
+      { type: 'category', data: allData.map(d => d.time), gridIndex: 1, axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { show: false }, axisTick: { show: false } }
+    ],
+    yAxis: [
+      { scale: true, gridIndex: 0, splitLine: { lineStyle: { color: '#21262d' } }, axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#8b949e', fontSize: 10 }, position: 'right' },
+      { scale: true, gridIndex: 1, splitLine: { show: false }, axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#8b949e', fontSize: 10 }, position: 'right' }
+    ],
+    dataZoom: [
+      { type: 'inside', xAxisIndex: [0, 1], start: 70, end: 100 },
+      { type: 'slider', xAxisIndex: [0, 1], height: 18, bottom: 0, borderColor: '#30363d', fillerColor: 'rgba(233,69,96,0.1)', handleStyle: { color: '#e94560' }, textStyle: { color: '#8b949e' } }
+    ],
+    series: [
+      {
+        name: 'K线',
+        type: 'candlestick',
+        data: allData.map(d => [d.open, d.close, d.low, d.high]),
+        xAxisIndex: 0, yAxisIndex: 0,
+        itemStyle: { color: '#4ecca3', color0: '#e94560', borderColor: '#4ecca3', borderColor0: '#e94560' }
+      },
+      {
+        name: 'MA5', type: 'line', data: ma5, smooth: true,
+        xAxisIndex: 0, yAxisIndex: 0,
+        lineStyle: { color: '#f5a623', width: 1 }, symbol: 'none'
+      },
+      {
+        name: 'MA10', type: 'line', data: ma10, smooth: true,
+        xAxisIndex: 0, yAxisIndex: 0,
+        lineStyle: { color: '#7b61ff', width: 1 }, symbol: 'none'
+      },
+      {
+        name: 'MA20', type: 'line', data: ma20, smooth: true,
+        xAxisIndex: 0, yAxisIndex: 0,
+        lineStyle: { color: '#00bcd4', width: 1 }, symbol: 'none'
+      },
+      {
+        name: '成交量',
+        type: 'bar',
+        data: allData.map(d => ({ value: d.volume, itemStyle: { color: d.close >= d.open ? 'rgba(78,204,163,0.5)' : 'rgba(233,69,96,0.5)' } })),
+        xAxisIndex: 1, yAxisIndex: 1
+      }
+    ]
+  };
+  
+  chart.setOption(option, { notMerge: true });
+}
+
+function setPeriod(period) {
+  currentPeriod = period;
+  document.querySelectorAll('.controls button').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  loadData();
+}
+
+async function sendOrder(direction) {
+  const price = allData[allData.length - 1].close;
+  const now = new Date().toLocaleString('zh-CN', {hour12:false});
+  const color = direction === 'buy' ? '#4ecca3' : '#e94560';
+  
+  const list = document.getElementById('trade-list');
+  if (list.querySelector('div[style]')) list.innerHTML = '';
+  
+  const row = document.createElement('div');
+  row.className = 'data-row ' + (direction === 'buy' ? 'buy' : 'sell');
+  row.style.marginBottom = '4px';
+  row.style.padding = '6px 0';
+  row.style.borderBottom = '1px solid #21262d';
+  row.innerHTML = `
+    <span>${direction === 'buy' ? '↑ 多' : '↓ 空'}</span>
+    <span class="price">${price.toFixed(0)}</span>
+    <span class="vol">1手</span>
+  `;
+  list.insertBefore(row, list.firstChild);
+  
+  // Update position
+  document.getElementById('position-list').innerHTML = `
+    <div class="data-row ${direction === 'buy' ? 'buy' : 'sell'}">
+      <span>${direction === 'buy' ? '↑ 多' : '↓ 空'}</span>
+      <span class="price">${price.toFixed(0)}</span>
+      <span class="vol">1手</span>
+    </div>
+  `;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  initChart();
+  loadData();
+});
+</script>
+</body>
+</html>

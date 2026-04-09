@@ -1,0 +1,68 @@
+# VeighNa core dependencies
+tzlocal>=5.3.1
+PySide6==6.8.2.1
+pyqtgraph>=0.13.7
+qdarkstyle>=3.2.3
+numpy>=2.2.3
+pandas>=2.2.3
+ta-lib>=0.6.4
+deap>=1.4.2
+pyzmq>=26.3.0
+plotly>=6.0.0
+tqdm>=4.67.1
+loguru>=0.7.3
+nbformat>=5.10.4
+
+# Alpha optional dependencies
+polars>=1.26.0
+scipy>=1.15.2
+alphalens-reloaded>=0.4.5
+scikit-learn>=1.6.1
+lightgbm>=4.6.0
+torch>=2.6.0
+pyarrow>=19.0.1
+
+# Database drivers
+vnpy_sqlite
+vnpy_mongodb
+vnpy_mysql
+
+# RPC and API services
+vnpy_rpcservice
+vnpy_restful
+vnpy_websocket
+
+# Gateways
+vnpy_ctp
+
+# Apps
+vnpy_ctastrategy
+vnpy_datamanager
+vnpy_backtesting
+vnpy_chartwizard
+vnpy_optionmaster
+vnpy_portfoliostrategy
+vnpy_spreadtrading
+vnpy_alerttrader
+vnpy_excelrtd
+vnpy_riskmanager
+vnpy_scripttrader
+vnpy_algostrategy
+vnpy_paperaccount
+
+# Web frameworks
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+flask>=3.0.0
+flask-cors>=4.0.0
+
+# Database connectors
+sqlalchemy>=2.0.0
+pymongo>=4.5.0
+pymysql>=1.1.0
+redis>=5.0.0
+
+# Utilities
+apscheduler>=6.0.0
+pydantic>=2.0.0
+python-multipart>=0.0.6

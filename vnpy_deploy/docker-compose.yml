@@ -1,0 +1,38 @@
+version: '3.8'
+services:
+  # vnpy_web主程序
+  vnpy-web:
+    image: vnpy/vnpy-web:beta
+    container_name: vnpy_web
+    ports:
+      - "5000:5000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - vnpy_data:/data
+    restart: unless-stopped
+    networks:
+      - vnpy_network
+
+  # Nginx反向代理
+  nginx:
+    image: nginx:alpine
+    container_name: vnpy_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - vnpy-web
+    restart: unless-stopped
+    networks:
+      - vnpy_network
+
+networks:
+  vnpy_network:
+    driver: bridge
+
+volumes:
+  vnpy_data:

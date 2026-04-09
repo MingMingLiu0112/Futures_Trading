@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: pta-redis
+    hostname: pta-redis
+    network_mode: host
+    volumes:
+      - pta-redis-data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+
+  backend:
+    build: ../backend
+    container_name: pta-backend
+    hostname: pta-backend
+    network_mode: host
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_HOST=localhost
+      - REDIS_PORT=6379
+      - VNPY_RPC_HOST=localhost
+      - VNPY_RPC_PORT=2014
+      - DATA_DIR=/app/data
+    volumes:
+      - ../data:/app/data
+    restart: unless-stopped
+
+  frontend:
+    build: ../frontend
+    container_name: pta-frontend
+    hostname: pta-frontend
+    network_mode: host
+    restart: unless-stopped
+
+volumes:
+  pta-redis-data:

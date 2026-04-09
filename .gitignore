@@ -50,5 +50,15 @@ pta_analysis/report.log
 ITERATION_LOG.md
 TASK_COMPLETION_SUMMARY.md
 
-# Git (preserve submodule .git)
+# vnpy_deploy
+vnpy_deploy/deploy.log
+vnpy_deploy/data/
+
+# pta-platform
+pta-platform/data/
+pta-platform/backend/data/
+
+# Git
 futures_options/.git/
+vnpy_tqsdk_gateway/.git/
+dukascopy_k_line_chart_frontend/.git/

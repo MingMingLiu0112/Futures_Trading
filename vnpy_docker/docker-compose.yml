@@ -1,0 +1,59 @@
+version: "3.8"
+
+services:
+  vnpy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vnpy_trader
+    restart: unless-stopped
+    ports:
+      - "2014:2014"   # RPC REP
+      - "4102:4102"   # RPC PUB
+      - "8765:8765"   # REST API
+    environment:
+      - VNPY_DATA_PATH=/app/data
+      - VNPY_LOG_PATH=/app/logs
+      - VNPY_RPC_REP_ADDRESS=tcp://0.0.0.0:2014
+      - VNPY_RPC_PUB_ADDRESS=tcp://0.0.0.0:4102
+      - VNPY_DATABASE=sqlite
+      - VNPY_WEB_PORT=8765
+      - HTTP_PROXY=http://host.docker.internal:7890
+      - HTTPS_PROXY=http://host.docker.internal:7890
+    volumes:
+      - vnpy_data:/app/data
+      - vnpy_logs:/app/logs
+      - vnpy_conf:/app/conf
+    command: rpc
+
+  # Optional: MongoDB for data storage
+  mongodb:
+    image: mongo:7
+    container_name: vnpy_mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      - MONGO_INITDB_DATABASE=vnpy
+
+  # Optional: MySQL for data storage
+  mysql:
+    image: mysql:8
+    container_name: vnpy_mysql
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=vnpy_pass
+      - MYSQL_DATABASE=vnpy
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+volumes:
+  vnpy_data:
+  vnpy_logs:
+  vnpy_conf:
+  mongodb_data:
+  mysql_data:

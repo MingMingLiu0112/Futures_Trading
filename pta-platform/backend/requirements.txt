@@ -1,0 +1,7 @@
+Flask==3.0.0
+gunicorn==21.2.0
+akshare==1.18.54
+redis==5.0.1
+numpy==1.26.3
+pandas==2.1.4
+werkzeug==3.0.1
