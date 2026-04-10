@@ -184,6 +184,142 @@
         .ws-disconnected {
             color: var(--danger-color);
         }
+        
+        /* ==================== 移动端适配 ==================== */
+        @media (max-width: 768px) {
+            /* 减小顶部内边距 */
+            body {
+                padding-top: 10px;
+                padding-bottom: 20px;
+            }
+            
+            /* 头部自适应 */
+            .header {
+                padding: 12px 0;
+                border-radius: 10px;
+                margin-bottom: 12px;
+            }
+            
+            /* 卡片自适应 */
+            .card {
+                border-radius: 8px;
+                margin-bottom: 12px;
+            }
+            
+            /* 减小标题字体 */
+            .header h4 {
+                font-size: 1rem;
+            }
+            
+            /* 时间周期按钮组移动端优化 */
+            .btn-time {
+                padding: 4px 8px;
+                font-size: 0.75rem;
+            }
+            
+            /* 参数设置区域移动端优化 */
+            .row.mt-3 .col-md-3 {
+                margin-bottom: 8px;
+            }
+            
+            /* 表单控件移动端优化 */
+            .form-select-sm, .form-control-sm {
+                font-size: 0.85rem;
+                padding: 4px 8px;
+            }
+            
+            /* 标签页移动端优化 */
+            .nav-tabs .nav-link {
+                padding: 6px 10px;
+                font-size: 0.85rem;
+            }
+            
+            /* 图表区域自适应 */
+            #chanChart {
+                height: 350px !important;
+            }
+            
+            /* 买卖点列表移动端优化 */
+            .bs-point {
+                padding: 8px 10px;
+            }
+            
+            /* 笔/线段列表移动端优化 */
+            .bi-item, .xd-item {
+                padding: 8px 12px;
+                font-size: 0.85rem;
+            }
+            
+            /* 缠论统计卡片移动端优化 */
+            .col-md-2 .card-body {
+                padding: 10px;
+            }
+            
+            /* 减小分型列表字体 */
+            .fenxing-item {
+                font-size: 0.8rem;
+                padding: 6px 8px;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            /* 超小屏幕进一步优化 */
+            body {
+                padding-top: 5px;
+            }
+            
+            .header {
+                padding: 10px 0;
+                margin-bottom: 8px;
+            }
+            
+            .header h4 {
+                font-size: 0.9rem;
+            }
+            
+            /* 时间周期按钮组横向滚动 */
+            .time-periods {
+                overflow-x: auto;
+                white-space: nowrap;
+                -webkit-overflow-scrolling: touch;
+            }
+            
+            .btn-time {
+                padding: 3px 6px;
+                font-size: 0.7rem;
+                min-width: 50px;
+            }
+            
+            /* 参数设置区域超小屏幕优化 */
+            .row.mt-3 .col-md-3 {
+                margin-bottom: 5px;
+            }
+            
+            /* 图表区域超小屏幕优化 */
+            #chanChart {
+                height: 300px !important;
+            }
+            
+            /* 缠论统计小卡片 */
+            .chan-stats-card .card-body {
+                padding: 8px;
+            }
+            
+            .chan-stats-card h5 {
+                font-size: 0.75rem;
+            }
+            
+            /* 买卖点列表超小屏幕 */
+            .bs-point {
+                padding: 6px 8px;
+                font-size: 0.8rem;
+            }
+            
+            /* 底部显示配置 */
+            #bsConfigDisplay {
+                font-size: 0.7rem;
+            }
+        }
     </style>
 </head>
 <body>
@@ -205,10 +341,10 @@
                 <div class="col-md-6">
                     <h5><i class="fas fa-calendar-alt me-2"></i>时间范围</h5>
                     <div class="btn-group" role="group">
-                        <button type="button" class="btn btn-outline-primary btn-time active" data-period="1d">今日</button>
-                        <button type="button" class="btn btn-outline-primary btn-time" data-period="3d">近3日</button>
-                        <button type="button" class="btn btn-outline-primary btn-time" data-period="1w">近1周</button>
-                        <button type="button" class="btn btn-outline-primary btn-time" data-period="1m">近1月</button>
+                        <button type="button" class="btn btn-outline-primary btn-time active" data-period="1min">1分钟</button>
+                        <button type="button" class="btn btn-outline-primary btn-time" data-period="5min">5分钟</button>
+                        <button type="button" class="btn btn-outline-primary btn-time" data-period="15min">15分钟</button>
+                        <button type="button" class="btn btn-outline-primary btn-time" data-period="60min">60分钟</button>
                     </div>
                 </div>
                 <div class="col-md-6">
@@ -231,6 +367,43 @@
                     </div>
                 </div>
             </div>
+            <!-- 参数设置 -->
+            <div class="row mt-3">
+                <div class="col-md-12">
+                    <h5><i class="fas fa-sliders-h me-2"></i>买卖点参数设置</h5>
+                    <div class="row">
+                        <div class="col-md-3">
+                            <label for="macdAlgo" class="form-label">MACD算法</label>
+                            <select class="form-select form-select-sm" id="macdAlgo">
+                                <option value="area" selected>面积(area)</option>
+                                <option value="peak">峰值(peak)</option>
+                                <option value="slope">斜率(slope)</option>
+                                <option value="amp">振幅(amp)</option>
+                                <option value="diff">差值(diff)</option>
+                                <option value="half">半面积(half)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="divergenceRate" class="form-label">背驰比率阈值</label>
+                            <input type="number" class="form-control form-control-sm" id="divergenceRate" 
+                                   placeholder="默认inf" step="0.01" min="0" max="1">
+                            <small class="text-muted">离开段/进入段 < 此值算背驰</small>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="maxBs2Rate" class="form-label">2买回落比率上限</label>
+                            <input type="number" class="form-control form-control-sm" id="maxBs2Rate" 
+                                   placeholder="默认0.9999" step="0.01" min="0" max="1" value="0.9999">
+                            <small class="text-muted">回落幅度/突破幅度上限</small>
+                        </div>
+                        <div class="col-md-3 d-flex align-items-end">
+                            <button class="btn btn-sm btn-primary" id="applyParams">
+                                <i class="fas fa-check me-1"></i>应用参数
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            </div>
         </div>
 
         <div class="row">
@@ -244,6 +417,10 @@
                             <span class="badge bg-success me-2">线段: <span id="xd-count">0</span></span>
                             <span class="badge bg-warning">中枢: <span id="zs-count">0</span></span>
                         </div>
+                    </div>
+                    <!-- 当前使用的买卖点配置 -->
+                    <div id="bsConfigDisplay" class="px-3 py-1 bg-light border-bottom text-center">
+                        <small class="text-muted">当前配置: <span class="text-info">加载中...</span></small>
                     </div>
                     <div class="card-body">
                         <div class="chart-container">
@@ -386,7 +563,7 @@
         // 全局变量
         let chanChartRenderer = null;
         let ws = null;
-        let currentPeriod = '1d';
+        let currentPeriod = '1min';
         
         // 初始化
         document.addEventListener('DOMContentLoaded', function() {
@@ -397,6 +574,11 @@
             
             // 刷新按钮事件
             document.getElementById('refreshSignals').addEventListener('click', function() {
+                loadChanData();
+            });
+            
+            // 应用参数按钮事件
+            document.getElementById('applyParams').addEventListener('click', function() {
                 loadChanData();
             });
         });
@@ -426,16 +608,37 @@
             });
         }
         
+        // 获取当前参数设置
+        function getBsConfigParams() {
+            const macdAlgo = document.getElementById('macdAlgo').value;
+            const divergenceRate = document.getElementById('divergenceRate').value;
+            const maxBs2Rate = document.getElementById('maxBs2Rate').value;
+            
+            let params = `macd_algo=${macdAlgo}`;
+            if (divergenceRate) {
+                params += `&divergence_rate=${divergenceRate}`;
+            }
+            if (maxBs2Rate) {
+                params += `&max_bs2_rate=${maxBs2Rate}`;
+            }
+            return params;
+        }
+        
         // 加载缠论数据
         function loadChanData() {
             showLoading(true);
             
-            fetch(`/api/chan_advanced?period=${currentPeriod}`)
+            const bsParams = getBsConfigParams();
+            fetch(`/api/chan_advanced?period=${currentPeriod}&${bsParams}`)
                 .then(response => response.json())
                 .then(data => {
                     updateUI(data);
                     renderChart(data);
                     showLoading(false);
+                    // 更新显示当前使用的配置
+                    if (data.bs_config) {
+                        updateBsConfigDisplay(data.bs_config);
+                    }
                 })
                 .catch(error => {
                     console.error('加载缠论数据失败:', error);
@@ -448,6 +651,20 @@
         function showLoading(show) {
             const overlay = document.getElementById('loadingOverlay');
             overlay.style.display = show ? 'flex' : 'none';
+        }
+        
+        // 更新买卖点配置显示
+        function updateBsConfigDisplay(config) {
+            const display = document.getElementById('bsConfigDisplay');
+            if (display && config) {
+                display.innerHTML = `
+                    <small class="text-muted">
+                        MACD算法: <span class="badge bg-info">${config.macd_algo}</span>
+                        | 背驰阈值: <span class="badge bg-warning">${config.divergence_rate === Infinity ? '∞' : config.divergence_rate}</span>
+                        | 2买上限: <span class="badge bg-success">${config.max_bs2_rate}</span>
+                    </small>
+                `;
+            }
         }
         
         // 更新UI
@@ -503,20 +720,19 @@
             
             let html = '';
             biList.forEach((bi, index) => {
-                const directionClass = bi.direction === 'up' ? 'bi-up' : 'bi-down';
-                const directionIcon = bi.direction === 'up' ? 'arrow-up' : 'arrow-down';
-                const directionText = bi.direction === 'up' ? '上升笔' : '下降笔';
+                const directionClass = bi.dir === 'up' ? 'bi-up' : 'bi-down';
+                const directionIcon = bi.dir === 'up' ? 'arrow-up' : 'arrow-down';
+                const directionText = bi.dir === 'up' ? '上升笔' : '下降笔';
+                const klCount = Math.abs(bi.end_idx - bi.begin_idx) + 1;
                 
                 html += `
                     <div class="bi-item ${directionClass}">
                         <div class="d-flex justify-content-between">
                             <span><i class="fas fa-${directionIcon} me-2"></i>${directionText} #${index + 1}</span>
-                            <small class="text-muted">${bi.length}根K线</small>
+                            <small class="text-muted">${klCount}根K线</small>
                         </div>
                         <div class="mt-1">
-                            <small>起点: ${bi.start_price} → 终点: ${bi.end_price}</small>
-                            <br>
-                            <small>幅度: ${bi.change_pct}% | 时间: ${bi.duration}</small>
+                            <small>起点: ${bi.begin_price} → 终点: ${bi.end_price}</small>
                         </div>
                     </div>
                 `;
@@ -534,21 +750,16 @@
             
             let html = '';
             xdList.forEach((xd, index) => {
-                const directionText = xd.direction === 'up' ? '上升线段' : '下降线段';
-                const directionColor = xd.direction === 'up' ? 'text-success' : 'text-danger';
+                const directionText = xd.dir === 'up' ? '上升线段' : '下降线段';
+                const directionColor = xd.dir === 'up' ? 'text-success' : 'text-danger';
                 
                 html += `
                     <div class="xd-item">
                         <div class="d-flex justify-content-between">
                             <span class="fw-bold ${directionColor}">${directionText} #${index + 1}</span>
-                            <small class="text-muted">${xd.bi_count}笔</small>
                         </div>
                         <div class="mt-2">
-                            <small>起点: ${xd.start_price} → 终点: ${xd.end_price}</small>
-                            <br>
-                            <small>幅度: ${xd.change_pct}% | 长度: ${xd.length}</small>
-                            <br>
-                            <small>包含笔: ${xd.bi_range}</small>
+                            <small>起点: ${xd.begin_price} → 终点: ${xd.end_price}</small>
                         </div>
                     </div>
                 `;
@@ -623,6 +834,73 @@
             
             // 渲染图表
             chanChartRenderer.initChart(data);
+            
+            // 备用：如果 ChanChartRenderer 不可用，使用简单渲染
+            if (typeof ChanChartRenderer === 'undefined') {
+                console.warn('ChanChartRenderer not found, using simple render');
+                renderSimpleChart(data);
+            }
+        }
+        
+        // 简单的备用图表渲染
+        function renderSimpleChart(data) {
+            const canvas = document.getElementById('chanChart');
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
+            const analysis = data.analysis || {};
+            const klines = data.klines || [];
+            
+            if (!ctx || klines.length === 0) return;
+            
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = 400;
+            
+            const prices = klines.map(k => [k.low, k.high]).flat();
+            const minPrice = Math.min(...prices);
+            const maxPrice = Math.max(...prices);
+            const priceRange = maxPrice - minPrice || 1;
+            
+            const candleWidth = canvas.width / klines.length;
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            klines.forEach((k, i) => {
+                const x = i * candleWidth;
+                const yHigh = (1 - (k.high - minPrice) / priceRange) * canvas.height;
+                const yLow = (1 - (k.low - minPrice) / priceRange) * canvas.height;
+                const yOpen = (1 - (k.open - minPrice) / priceRange) * canvas.height;
+                const yClose = (1 - (k.close - minPrice) / priceRange) * canvas.height;
+                
+                const color = k.close >= k.open ? '#e74c3c' : '#27ae60';
+                
+                ctx.strokeStyle = color;
+                ctx.beginPath();
+                ctx.moveTo(x + candleWidth/2, yHigh);
+                ctx.lineTo(x + candleWidth/2, yLow);
+                ctx.stroke();
+                
+                ctx.fillStyle = color;
+                const bodyTop = Math.min(yOpen, yClose);
+                const bodyHeight = Math.max(Math.abs(yClose - yOpen), 1);
+                ctx.fillRect(x, bodyTop, candleWidth - 1, bodyHeight);
+            });
+            
+            // 画笔
+            const biMarkline = analysis.bi_markline || [];
+            ctx.strokeStyle = '#3498db';
+            ctx.lineWidth = 2;
+            biMarkline.forEach(bi => {
+                const x1 = bi.xAxis * candleWidth;
+                const x2 = bi.xAxis2 * candleWidth;
+                const y1 = (1 - (bi.yAxis - minPrice) / priceRange) * canvas.height;
+                const y2 = (1 - (bi.yAxis2 - minPrice) / priceRange) * canvas.height;
+                
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.stroke();
+            });
         }
         
 

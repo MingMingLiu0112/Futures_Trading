@@ -852,6 +852,27 @@ def kline_page():
     except FileNotFoundError:
         return "K线图页面正在开发中，请稍后访问", 404
 
+@app.route('/chan/')
+def chan_page():
+    """缠论分析页面"""
+    try:
+        with open(os.path.join(WORKSPACE, 'templates', 'chan_web.html'), 'r', encoding='utf-8') as f:
+            content = f.read()
+        from flask import make_response
+        resp = make_response(content)
+        resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        resp.headers['Pragma'] = 'no-cache'
+        resp.headers['Expires'] = '0'
+        return resp
+    except FileNotFoundError:
+        return "缠论分析页面未找到", 404
+
+@app.route('/chan')
+def chan_page_redirect():
+    """缠论分析页面重定向"""
+    from flask import redirect
+    return redirect('/chan/')
+
 @app.route('/simple')
 def simple_page():
     """简化测试页面"""
@@ -989,15 +1010,142 @@ import chan_core_wrapper as cw
 
 @app.route('/api/chan/analysis')
 def api_chan_analysis():
-    """缠论完整分析API - 使用 chan_core 引擎"""
+    """缠论完整分析API - 使用 chan_core 引擎
+    
+    参数:
+        period: K线周期 ('1min', '5min', '15min', '30min', '60min', '1day')
+        macd_algo: MACD算法 ('area', 'peak', 'slope', 'amp', 'diff', 'half')
+        divergence_rate: 背驰比率阈值 (默认inf表示不限制)
+        max_bs2_rate: 2买回落比率上限 (默认0.9999)
+    """
     period = request.args.get('period', '1min')
+    
+    # 获取买卖点配置参数
+    macd_algo = request.args.get('macd_algo', 'area')
+    divergence_rate = request.args.get('divergence_rate', type=float)  # None表示默认
+    max_bs2_rate = request.args.get('max_bs2_rate', type=float)  # None表示默认
+    
+    # 构建bs_config
+    bs_config = {}
+    if macd_algo:
+        bs_config['macd_algo'] = macd_algo
+    if divergence_rate is not None:
+        bs_config['divergence_rate'] = divergence_rate
+    if max_bs2_rate is not None:
+        bs_config['max_bs2_rate'] = max_bs2_rate
+    
     try:
-        result = cw.get_chan_result(period)
+        result = cw.get_chan_result(period, **bs_config)
         return jsonify(result)
     except Exception as e:
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e), 'period': period})
+
+
+@app.route('/api/chan_advanced')
+def api_chan_advanced():
+    """缠论高级分析API - 支持自定义买卖点配置参数
+    
+    参数:
+        period: K线周期 ('1min', '5min', '15min', '30min', '60min', '1day')
+        macd_algo: MACD算法 ('area', 'peak', 'slope', 'amp', 'diff', 'half')
+        divergence_rate: 背驰比率阈值 (默认inf表示不限制)
+        max_bs2_rate: 2买回落比率上限 (默认0.9999)
+        
+    返回:
+        包含完整分析结果的字典
+    """
+    period = request.args.get('period', '1min')
+    
+    # 获取买卖点配置参数
+    macd_algo = request.args.get('macd_algo', 'area')
+    divergence_rate = request.args.get('divergence_rate', type=float)
+    max_bs2_rate = request.args.get('max_bs2_rate', type=float)
+    
+    # 构建bs_config
+    bs_config = {}
+    if macd_algo:
+        bs_config['macd_algo'] = macd_algo
+    if divergence_rate is not None:
+        bs_config['divergence_rate'] = divergence_rate
+    if max_bs2_rate is not None:
+        bs_config['max_bs2_rate'] = max_bs2_rate
+    
+    try:
+        result = cw.get_chan_result(period, **bs_config)
+        
+        # 转换为前端期望的格式
+        stats = result.get('stats', {})
+        bi_data = result.get('bi_markline', [])
+        seg_data = result.get('seg_markline', [])
+        zs_data = result.get('zs_data', [])
+        bs_data = result.get('bs_data', [])
+        
+        # 构建 signals 格式
+        signals = []
+        for bp in bs_data:
+            sig_type = 'buy' if 'buy' in bp.get('type', '') else 'sell'
+            signals.append({
+                'type': sig_type,
+                'text': f"{bp.get('type', '').upper()} @{bp.get('yAxis', 0):.2f}",
+                'time': result.get('klines', [{}])[bp.get('xAxis', 0)].get('time', '') if bp.get('xAxis', 0) < len(result.get('klines', [])) else '',
+                'price': bp.get('yAxis', 0)
+            })
+        
+        # 构建 bi_list 格式
+        bi_list = []
+        for bi in bi_data:
+            bi_list.append({
+                'idx': bi.get('idx', 0),
+                'dir': bi.get('dir', ''),
+                'begin_idx': bi.get('xAxis', 0),
+                'end_idx': bi.get('xAxis2', 0),
+                'begin_price': bi.get('yAxis', 0),
+                'end_price': bi.get('yAxis2', 0),
+                'is_sure': True
+            })
+        
+        # 构建 xd_list 格式
+        xd_list = []
+        for seg in seg_data:
+            xd_list.append({
+                'idx': seg.get('idx', 0),
+                'dir': seg.get('dir', ''),
+                'begin_idx': seg.get('xAxis', 0),
+                'end_idx': seg.get('xAxis2', 0),
+                'begin_price': seg.get('yAxis', 0),
+                'end_price': seg.get('yAxis2', 0)
+            })
+        
+        # 返回前端期望的格式
+        return jsonify({
+            'success': True,
+            'period': period,
+            'klines': result.get('klines', []),  # K线数据
+            'bi_count': stats.get('bi_count', 0),
+            'xd_count': stats.get('seg_count', 0),
+            'zhongshu_count': stats.get('zs_count', 0),
+            'bs_count': stats.get('bs_count', 0),
+            'current_price': stats.get('current_price', 0),
+            'last_time': stats.get('last_time', ''),
+            'signals': signals,
+            'bi_list': bi_list,
+            'xd_list': xd_list,
+            'bs_config': result.get('bs_config', {}),
+            'analysis': {
+                'bi_markline': bi_data,
+                'seg_markline': seg_data,
+                'zs_data': zs_data,
+                'bs_data': bs_data
+            }
+        })
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e), 'period': period})
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8424, debug=False)

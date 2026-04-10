@@ -30,6 +30,29 @@
         .badge-zs { background: rgba(233,69,96,0.2); color: #e94560; }
         .badge-bs { background: rgba(8,153,129,0.2); color: #089981; }
         .footer { padding: 6px 15px; background: #0d0d0d; border-top: 1px solid #1a1a1a; font-size: 0.72rem; color: #555; display: flex; justify-content: space-between; }
+        /* ==================== 移动端适配 ==================== */
+        @media (max-width: 768px) {
+            .header { flex-wrap: wrap; padding: 8px 10px; gap: 6px; }
+            .title { font-size: 0.95rem; }
+            .price { font-size: 1.1rem; }
+            .period-select { flex-wrap: wrap; gap: 4px; }
+            .period-select select { font-size: 0.75rem; padding: 3px 6px; }
+            .btn-sm { padding: 3px 6px; font-size: 0.7rem; }
+            .chan-toggle { flex-wrap: wrap; }
+            .chan-badges { gap: 4px; }
+            .badge { padding: 1px 6px; font-size: 0.65rem; }
+            #chart { height: calc(100vh - 160px) !important; }
+            .footer { font-size: 0.65rem; padding: 4px 10px; }
+        }
+        
+        @media (max-width: 480px) {
+            .header { padding: 6px 8px; }
+            .title { font-size: 0.85rem; }
+            .price { font-size: 1rem; }
+            .change { font-size: 0.75rem; }
+            #chart { height: calc(100vh - 180px) !important; }
+            .badge-seg, .badge-zs { display: none; }
+        }
     </style>
 </head>
 <body>
@@ -88,6 +111,8 @@
     var indicatorLayers = { ma: false, macd: true, kdj: true };
     var currentOption = null;
     // 保存原始markLine数据用于toggle
+    // 保存当前dataZoom范围，用于自动刷新后恢复浏览位置
+    var savedDataZoom = { start: 75, end: 100 };
     var chanMarkData = { bi: [], seg: [], zs: [], bs: [] };
 
     function init() {
@@ -182,6 +207,15 @@
 
     async function loadData() {
         try {
+            // 保存当前浏览位置，自动刷新后恢复
+            if (chart && currentOption) {
+                var storedZoom = chart.getOption().dataZoom;
+                if (storedZoom && storedZoom.length > 0) {
+                    savedDataZoom.start = storedZoom[0].start;
+                    savedDataZoom.end = storedZoom[0].end;
+                }
+            }
+            
             var [klineResp, chanResp] = await Promise.all([
                 fetch('/api/kline/data?period=' + currentPeriod),
                 fetch('/api/chan/analysis?period=' + currentPeriod)
@@ -197,6 +231,18 @@
             rawData = klineResult.data;
             chanData = chanResult;
             renderChart(klineResult, chanResult);
+            
+            // 恢复浏览位置
+            if (chart) {
+                chart.setOption({
+                    dataZoom: [
+                        { xAxisIndex: 0, start: savedDataZoom.start, end: savedDataZoom.end },
+                        { xAxisIndex: 1, start: savedDataZoom.start, end: savedDataZoom.end },
+                        { xAxisIndex: 2, start: savedDataZoom.start, end: savedDataZoom.end }
+                    ]
+                }, false);
+            }
+            
             updateChanBadges(chanResult);
             updatePrice(klineResult);
             document.getElementById('loading').style.display = 'none';
@@ -299,7 +345,7 @@
             animation: false,
             tooltip: { trigger: 'axis', axisPointer: { type: 'cross' }, backgroundColor: 'rgba(30,30,30,0.95)', borderColor: '#333', textStyle: { color: '#ccc' } },
             legend: { show: true, top: 3, inactiveColor: '#555', textStyle: { color: '#aaa' },
-                      data: ['K线','MACD','DIF','DEA','K','D','J'] },
+                      data: ['K线','MA5','MA10','MA20','MA60'] },
             grid: [
                 { left: '8%', right: '5%', top: '12%', height: '50%' },
                 { left: '8%', right: '5%', top: '68%', height: '12%' },

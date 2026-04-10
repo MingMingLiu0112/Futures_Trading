@@ -36,278 +36,16 @@ class KL:
     macd: float = 0.0  # 柱 = (dif - dea) * 2
 
 
+@dataclass
 class Bi:
-    """笔数据结构（增强版）
-    
-    新增功能：
-    - is_sure: 虚实线段标记（True=确定线段，False=待确认虚笔）
-    - sure_end: 确认结束位置列表（用于虚笔回退确认）
-    - MACD指标族: Cal_MACD_area/peak/slope/amp 等多种背驰算法
-    """
-    
-    def __init__(self, idx: int, dir: str, begin_idx: int, end_idx: int,
-                 begin_price: float, end_price: float, level: int = 1,
-                 is_sure: bool = True):
-        self.idx = idx
-        self.dir = dir
-        self.begin_idx = begin_idx
-        self.end_idx = end_idx
-        self.begin_price = begin_price
-        self.end_price = end_price
-        self.level = level
-        self._is_sure = is_sure
-        self._sure_end: list = []  # 确认结束位置列表
-        
-        # 父线段引用
-        self.parent_seg_idx: int = -1
-    
-    @property
-    def is_sure(self) -> bool:
-        """是否为确定笔（True）还是待确认虚笔（False）"""
-        return self._is_sure
-    
-    @property
-    def sure_end(self) -> list:
-        """确认结束位置列表"""
-        return self._sure_end
-    
-    def update_virtual_end(self, new_end_idx: int, new_end_price: float):
-        """更新虚笔结束位置（当市场发展导致笔尚未最终确认）
-        
-        Args:
-            new_end_idx: 新的结束K线索引
-            new_end_price: 新的结束价格
-        """
-        # 保存当前确认结束位置
-        self._sure_end.append((self.end_idx, self.end_price))
-        # 更新为新的虚结束位置
-        self.end_idx = new_end_idx
-        self.end_price = new_end_price
-        self._is_sure = False
-    
-    def restore_from_virtual_end(self, sure_end_idx: int, sure_end_price: float):
-        """从虚笔恢复到确认状态
-        
-        Args:
-            sure_end_idx: 确认的结束K线索引
-            sure_end_price: 确认的结束价格
-        """
-        self._is_sure = True
-        self.end_idx = sure_end_idx
-        self.end_price = sure_end_price
-        self._sure_end = []
-    
-    def append_sure_end(self, end_idx: int, end_price: float):
-        """追加确认结束位置"""
-        self._sure_end.append((end_idx, end_price))
-    
-    @property
-    def is_up(self) -> bool:
-        return self.dir == 'up'
-    
-    @property
-    def is_down(self) -> bool:
-        return self.dir == 'down'
-    
-    def get_begin_val(self) -> float:
-        """获取笔起点值（UP笔=low, DOWN笔=high）"""
-        return self.begin_price if self.is_up else self.begin_price
-    
-    def get_end_val(self) -> float:
-        """获取笔终点值（UP笔=high, DOWN笔=low）"""
-        return self.end_price if self.is_up else self.end_price
-    
-    def amp(self) -> float:
-        """计算笔的价格幅度"""
-        return abs(self.end_price - self.begin_price)
-    
-    def get_klc_cnt(self) -> int:
-        """计算笔包含的K线数量"""
-        return abs(self.end_idx - self.begin_idx) + 1
-    
-    # ==================== MACD指标族 ====================
-    # 参考 chan_py_external/Math/MACD.py 和 Bi.py 中的实现
-    
-    def Cal_MACD_area(self, kls: List['KL']) -> float:
-        """计算MACD面积（整段）
-        
-        MACD面积 = 笔区间内所有同向MACD柱的绝对值之和
-        背驰判断：离开中枢的笔MACD面积 < 进入中枢的笔面积
-        
-        Args:
-            kls: K线列表（含MACD指标）
-            
-        Returns:
-            MACD面积值
-        """
-        idx_start = min(self.begin_idx, self.end_idx)
-        idx_end = max(self.begin_idx, self.end_idx)
-        
-        area = 1e-7  # 避免除零
-        for kl in kls:
-            if idx_start <= kl.idx <= idx_end:
-                if self.is_up and kl.macd > 0:
-                    area += kl.macd
-                elif self.is_down and kl.macd < 0:
-                    area += abs(kl.macd)
-        return area
-    
-    def Cal_MACD_half(self, kls: List['KL'], is_reverse: bool = False) -> float:
-        """计算MACD半面积（前半段或后半段）
-        
-        Args:
-            kls: K线列表（含MACD指标）
-            is_reverse: False=前半段（从起点到峰值），True=后半段（从终点回溯到峰值）
-            
-        Returns:
-            MACD半面积值
-        """
-        idx_start = min(self.begin_idx, self.end_idx)
-        idx_end = max(self.begin_idx, self.end_idx)
-        kl_range = [kl for kl in kls if idx_start <= kl.idx <= idx_end]
-        
-        if not kl_range:
-            return 1e-7
-        
-        area = 1e-7
-        
-        if is_reverse:
-            # 后半段：从终点往回找同向MACD
-            begin_klu = kl_range[-1]  # 终点
-            peak_macd = begin_klu.macd
-            for kl in reversed(kl_range):
-                if kl.macd * peak_macd > 0:  # 同向
-                    area += abs(kl.macd)
-                else:
-                    break
-        else:
-            # 前半段：从起点往峰值找同向MACD
-            begin_klu = kl_range[0]  # 起点
-            peak_macd = begin_klu.macd
-            for kl in kl_range:
-                if kl.macd * peak_macd > 0:  # 同向
-                    area += abs(kl.macd)
-                else:
-                    break
-        
-        return area
-    
-    def Cal_MACD_peak(self, kls: List['KL']) -> float:
-        """计算MACD峰值（绝对值最大）
-        
-        Args:
-            kls: K线列表（含MACD指标）
-            
-        Returns:
-            MACD峰值（绝对值）
-        """
-        idx_start = min(self.begin_idx, self.end_idx)
-        idx_end = max(self.begin_idx, self.end_idx)
-        
-        peak = 1e-7
-        for kl in kls:
-            if idx_start <= kl.idx <= idx_end:
-                abs_macd = abs(kl.macd)
-                if abs_macd > peak:
-                    if self.is_up and kl.macd > 0:
-                        peak = abs_macd
-                    elif self.is_down and kl.macd < 0:
-                        peak = abs_macd
-        return peak
-    
-    def Cal_MACD_diff(self, kls: List['KL']) -> float:
-        """计算MACD差值（红绿柱最大值-最小值）
-        
-        Args:
-            kls: K线列表（含MACD指标）
-            
-        Returns:
-            MACD差值（_max - _min）
-        """
-        idx_start = min(self.begin_idx, self.end_idx)
-        idx_end = max(self.begin_idx, self.end_idx)
-        
-        macd_values = []
-        for kl in kls:
-            if idx_start <= kl.idx <= idx_end:
-                if self.is_up and kl.macd > 0:
-                    macd_values.append(kl.macd)
-                elif self.is_down and kl.macd < 0:
-                    macd_values.append(kl.macd)
-        
-        if not macd_values:
-            return 0.0
-        
-        return max(macd_values) - min(macd_values)
-    
-    def Cal_MACD_slope(self, kls: List['KL']) -> float:
-        """计算MACD斜率（基于价格变化）
-        
-        斜率 = (end_price - begin_price) / begin_price / k线数量
-        
-        Args:
-            kls: K线列表
-            
-        Returns:
-            MACD斜率值
-        """
-        kl_count = max(1, self.get_klc_cnt())
-        if self.is_up:
-            return (self.end_price - self.begin_price) / self.begin_price / kl_count
-        else:
-            return (self.begin_price - self.end_price) / self.begin_price / kl_count
-    
-    def Cal_MACD_amp(self, kls: List['KL']) -> float:
-        """计算MACD振幅比率
-        
-        UP笔: (end_high - begin_low) / begin_low
-        DOWN笔: (begin_high - end_low) / begin_high
-        
-        Args:
-            kls: K线列表
-            
-        Returns:
-            振幅比率
-        """
-        begin_klu = None
-        end_klu = None
-        for kl in kls:
-            if kl.idx == self.begin_idx:
-                begin_klu = kl
-            elif kl.idx == self.end_idx:
-                end_klu = kl
-        
-        if self.is_down:
-            if begin_klu and end_klu:
-                return (begin_klu.high - end_klu.low) / begin_klu.high
-            return self.amp() / self.begin_price
-        else:
-            if begin_klu and end_klu:
-                return (end_klu.high - begin_klu.low) / begin_klu.low
-            return self.amp() / self.begin_price
-    
-    def cal_macd_metric(self, kls: List['KL'], macd_algo: str = 'area') -> float:
-        """计算MACD指标（根据算法类型）
-        
-        Args:
-            kls: K线列表（含MACD指标）
-            macd_algo: 算法类型 ('area', 'peak', 'slope', 'amp', 'diff', 'half')
-            
-        Returns:
-            对应的MACD指标值
-        """
-        algo_map = {
-            'area': self.Cal_MACD_area,
-            'peak': self.Cal_MACD_peak,
-            'slope': self.Cal_MACD_slope,
-            'amp': self.Cal_MACD_amp,
-            'diff': self.Cal_MACD_diff,
-            'half': self.Cal_MACD_half,
-        }
-        func = algo_map.get(macd_algo, self.Cal_MACD_area)
-        if macd_algo == 'half':
-            return func(kls, is_reverse=False)
-        return func(kls)
+    """笔数据结构"""
+    idx: int           # 笔编号
+    dir: str           # 'up' 或 'down'
+    begin_idx: int     # 起始K线索引
+    end_idx: int       # 结束K线索引
+    begin_price: float  # 起始价格
+    end_price: float    # 结束价格
+    level: int = 1     # 级别（1=1分钟）
 
 
 @dataclass
@@ -1360,12 +1098,10 @@ def check_beichi(bi_in: Bi, bi_out: Bi, kls: List[KL],
     elif method == 'peak':
         idx_start = min(bi_in.begin_idx, bi_in.end_idx)
         idx_end = max(bi_in.begin_idx, bi_in.end_idx)
-        macd_values = [abs(kls[i].macd) for i in range(idx_start, min(idx_end + 1, len(kls))) if kls]
-        in_peak = max(macd_values) if macd_values else 1e-7
+        in_peak = max(abs(kls[i].macd) for i in range(idx_start, min(idx_end + 1, len(kls)))) if kls else 0
         idx_start = min(bi_out.begin_idx, bi_out.end_idx)
         idx_end = max(bi_out.begin_idx, bi_out.end_idx)
-        macd_values = [abs(kls[i].macd) for i in range(idx_start, min(idx_end + 1, len(kls))) if kls]
-        out_peak = max(macd_values) if macd_values else 1e-7
+        out_peak = max(abs(kls[i].macd) for i in range(idx_start, min(idx_end + 1, len(kls)))) if kls else 0
         in_metric = in_peak
         out_metric = out_peak
     elif method == 'slope':
@@ -1385,86 +1121,30 @@ def check_beichi(bi_in: Bi, bi_out: Bi, kls: List[KL],
 
 # ==================== 第七步：买卖点（严格买卖点标准） ====================
 
-# ==================== 严格买卖点配置参数（增强版）====================
-# 参考 chan_py_external/BuySellPoint/BSPointConfig.py
-
-class BSPointConfig:
-    """买卖点配置类（支持独立配置多空方向）
-    
-    新增参数：
-    - divergence_rate: 背驰比率阈值（离开段/进入段 < 此值才算背驰）
-    - max_bs2_rate: 2买回落比率上限（回落幅度/突破幅度 <= 此值）
-    - macd_algo: MACD算法类型 ('area', 'peak', 'slope', 'amp', 'diff', 'half')
-    """
-    
-    def __init__(self, **kwargs):
-        # 背驰判断：离开段指标 < divergence_rate * 进入段指标 才算背驰
-        # 注意：使用 None 表示无穷大（不限制），避免 JSON 序列化问题
-        self.divergence_rate = kwargs.get('divergence_rate', None)
-        
-        # 2买回落比率：回落幅度/突破幅度 <= max_bs2_rate
-        self.max_bs2_rate = kwargs.get('max_bs2_rate', 0.9999)
-        
-        # MACD算法类型
-        self.macd_algo = kwargs.get('macd_algo', 'area')
-        
-        # 原有参数
-        self.max_bs2_retrace_rate = kwargs.get('max_bs2_retrace_rate', 1.0)
-        self.min_bs3_break_ratio = kwargs.get('min_bs3_break_ratio', 0.3)
-        self.bs3_price_margin = kwargs.get('bs3_price_margin', 0.002)
-        self.beichi_threshold = kwargs.get('beichi_threshold', 0.8)
-        self.max_3buy_count = kwargs.get('max_3buy_count', 3)
-        self.max_3sell_count = kwargs.get('max_3sell_count', 3)
-        
-        # 验证
-        assert self.max_bs2_rate <= 1.0, "max_bs2_rate must be <= 1"
-    
-    def __repr__(self):
-        return (f"BSPointConfig(divergence_rate={self.divergence_rate}, "
-                f"max_bs2_rate={self.max_bs2_rate}, macd_algo={self.macd_algo})")
-
-
-# 全局默认配置（向后兼容）
-BSPointConfigDefault = {
-    'divergence_rate': None,  # 背驰比率阈值（None=无穷大=不使用）
-    'max_bs2_rate': 0.9999,           # 2买回落比率上限
-    'macd_algo': 'area',               # MACD算法
-    'max_bs2_retrace_rate': 1.0,
-    'min_bs3_break_ratio': 0.3,
-    'bs3_price_margin': 0.002,
-    'beichi_threshold': 0.8,
-    'max_3buy_count': 3,
-    'max_3sell_count': 3,
+# 严格买卖点配置参数
+BSPointConfig = {
+    'max_bs2_retrace_rate': 1.0,    # 2买：回落幅度/突破幅度 <= 1.0（回落不能超过前一UP笔幅度）
+    'min_bs3_break_ratio': 0.3,     # 3买：突破幅度/中枢区间 >= 0.3
+    'bs3_price_margin': 0.002,     # 3买：回落低点相对于中枢高点的容差（0.2%）
+    'beichi_threshold': 0.8,       # 背驰阈值：离开段/进入段 < 0.8
+    'max_3buy_count': 3,            # 最多3个3买
+    'max_3sell_count': 3,          # 最多3个3卖
 }
 
 
 def find_bs_points(bis: List[Bi], zss: List[ZS], kls: List[KL],
-                   config=None) -> List[BSPoint]:
-    """寻找买卖点 - 严格标准（增强版）
+                   config: Dict[str, Any] = None) -> List[BSPoint]:
+    """寻找买卖点 - 严格标准
     
     严格条件：
     - 1买：下跌背驰（MACD面积衰竭）+ 创新低后反弹
     - 2买：一买后，UP笔回落不破一买 + 回落形成底分型 + 回落幅度合理
     - 3买：突破中枢 + 突破幅度足够 + 回落形成底分型 + 回落不破中枢高点
     
-    新增参数（通过config传入）：
-    - divergence_rate: 背驰比率阈值（离开段/进入段 < 此值才算背驰）
-    - max_bs2_rate: 2买回落比率上限（回落幅度/突破幅度 <= 此值）
-    - macd_algo: MACD算法类型 ('area', 'peak', 'slope', 'amp', 'diff', 'half')
-    
     卖点反之
     """
-    # 处理config参数（兼容旧版dict和新版BSPointConfig）
     if config is None:
-        config = BSPointConfig(**BSPointConfigDefault)
-    elif isinstance(config, dict):
-        # 合并默认配置和传入配置
-        merged_config = {**BSPointConfigDefault, **config}
-        config = BSPointConfig(**merged_config)
-    
-    # 确保config是BSPointConfig对象
-    if not isinstance(config, BSPointConfig):
-        config = BSPointConfig(**BSPointConfigDefault)
+        config = BSPointConfig
     
     if len(bis) < 5 or not zss:
         return []
@@ -1517,15 +1197,13 @@ def find_bs_points(bis: List[Bi], zss: List[ZS], kls: List[KL],
             has_in_structure = prev_bi.dir == 'up' and _has_top_fx_in_bi(prev_bi, kls)
             
             # 条件3：MACD背驰判断：next_bi(离开段) vs curr_bi(进入段)
-            # 使用config中的macd_algo
-            is_beichi, ratio = check_beichi(curr_bi, next_bi, kls, method=config.macd_algo)
+            is_beichi, ratio = check_beichi(curr_bi, next_bi, kls, method='macd')
             
-            # 1买确认：创新低 + MACD背驰（使用config中的divergence_rate）
-            # divergence_rate为None表示无穷大（即不限制）
-            if is_beichi and (config.divergence_rate is None or ratio < config.divergence_rate):
+            # 1买确认：创新低 + MACD背驰
+            if is_beichi:
                 curr_kl = kls_dict.get(next_bi.end_idx)
                 if curr_kl:
-                    reason_parts = [f"MACD背驰(比率={ratio:.2f}, 算法={config.macd_algo})"]
+                    reason_parts = [f"MACD背驰(比率={ratio:.2f})"]
                     if has_in_structure:
                         reason_parts.append("进入段有顶分型")
                     bs_points.append(BSPoint(
@@ -1541,7 +1219,7 @@ def find_bs_points(bis: List[Bi], zss: List[ZS], kls: List[KL],
     # 1. 回落段必须是向下笔
     # 2. 回落段的低点不能跌破一买的位置（一买K线区间内）
     # 3. 回落段必须形成底分型（用 _has_bottom_fx_in_bi 验证）
-    # 4. 回落幅度/突破幅度 <= max_bs2_rate（不能回落太深）
+    # 4. 回落幅度/突破幅度 <= max_bs2_retrace_rate（不能回落太深）
     if bs_points and bs_points[0].type == '1buy':
         first_buy = bs_points[0]
         first_bi_obj = bis[first_buy.bi_idx]
@@ -1564,19 +1242,19 @@ def find_bs_points(bis: List[Bi], zss: List[ZS], kls: List[KL],
             retr_amp = _bi_amplitude(retr_bi)    # 回落幅度
             
             # 条件1：回落不破一买（允许0.2%误差）
-            if next_low < first_buy_low * (1 - config.bs3_price_margin):
+            if next_low < first_buy_low * (1 - config.get('bs3_price_margin', 0.002)):
                 continue
             
             # 条件2：回落段必须形成底分型（严格验证）
             if not _has_bottom_fx_in_bi(retr_bi, kls):
                 continue
             
-            # 条件3：回落幅度/突破幅度 <= max_bs2_rate
-            # 使用config中的max_bs2_rate代替max_bs2_retrace_rate
+            # 条件3：回落幅度/突破幅度 <= max_bs2_retrace_rate
+            # 如果突破幅度为0，跳过
             if break_amp <= 0:
                 continue
             retrace_rate = retr_amp / break_amp
-            if retrace_rate > config.max_bs2_rate:
+            if retrace_rate > config.get('max_bs2_retrace_rate', 1.0):
                 continue
             
             # 条件4：回落后的下一笔应该是UP（确认回落结束）
@@ -1586,7 +1264,7 @@ def find_bs_points(bis: List[Bi], zss: List[ZS], kls: List[KL],
                     bs_points.append(BSPoint(
                         idx=bs_idx, type='2buy', direction='long',
                         price=curr_kl.low, bi_idx=retr_bi.idx,
-                        reason=f"回落不破一买(回落率={retrace_rate:.2f}, max_bs2_rate={config.max_bs2_rate:.2f})"
+                        reason=f"回落不破一买(回落率={retrace_rate:.2f})"
                     ))
                     bs_idx += 1
                     break
@@ -1600,7 +1278,7 @@ def find_bs_points(bis: List[Bi], zss: List[ZS], kls: List[KL],
     # 5. 回落段必须形成底分型（验证回落有效性）
     break_count = 0
     for i in range(len(bis) - 1):
-        if break_count >= config.max_3buy_count:
+        if break_count >= config.get('max_3buy_count', 3):
             break
         bi = bis[i]
         next_bi = bis[i + 1]
@@ -1617,11 +1295,12 @@ def find_bs_points(bis: List[Bi], zss: List[ZS], kls: List[KL],
         
         # 条件2：突破幅度必须足够大（至少中枢区间的30%）
         break_range = bi_high - zs_high
-        if zs_range > 0 and break_range < zs_range * config.min_bs3_break_ratio:
+        if zs_range > 0 and break_range < zs_range * config.get('min_bs3_break_ratio', 0.3):
             continue
         
         # 条件3：回落不破中枢高点（允许0.2%误差）
-        if next_low < zs_high * (1 - config.bs3_price_margin):
+        price_margin = config.get('bs3_price_margin', 0.002)
+        if next_low < zs_high * (1 - price_margin):
             continue
         
         # 条件4：回落段必须形成底分型（严格验证）
@@ -1660,11 +1339,11 @@ def find_bs_points(bis: List[Bi], zss: List[ZS], kls: List[KL],
             has_in_structure = prev_bi.dir == 'down' and _has_bottom_fx_in_bi(prev_bi, kls)
             
             # MACD背驰判断
-            is_beichi, ratio = check_beichi(curr_bi, next_bi, kls, method=config.macd_algo)
-            if is_beichi and (config.divergence_rate is None or ratio < config.divergence_rate):
+            is_beichi, ratio = check_beichi(curr_bi, next_bi, kls, method='macd')
+            if is_beichi:
                 curr_kl = kls_dict.get(next_bi.end_idx)
                 if curr_kl:
-                    reason_parts = [f"MACD背驰(比率={ratio:.2f}, 算法={config.macd_algo})"]
+                    reason_parts = [f"MACD背驰(比率={ratio:.2f})"]
                     if has_in_structure:
                         reason_parts.append("进入段有底分型")
                     bs_points.append(BSPoint(
@@ -1697,18 +1376,18 @@ def find_bs_points(bis: List[Bi], zss: List[ZS], kls: List[KL],
                 retr_amp = _bi_amplitude(retr_bi)
                 
                 # 条件1：反弹不破一卖（允许0.2%误差）
-                if next_high > first_sell_price * (1 + config.bs3_price_margin):
+                if next_high > first_sell_price * (1 + price_margin):
                     continue
                 
                 # 条件2：反弹段必须形成顶分型
                 if not _has_top_fx_in_bi(retr_bi, kls):
                     continue
                 
-                # 条件3：反弹幅度/突破幅度 <= max_bs2_rate
+                # 条件3：反弹幅度/突破幅度 <= max_bs2_retrace_rate
                 if break_amp <= 0:
                     continue
                 retrace_rate = retr_amp / break_amp
-                if retrace_rate > config.max_bs2_rate:
+                if retrace_rate > config.get('max_bs2_retrace_rate', 1.0):
                     continue
                 
                 # 条件4：反弹后下一笔是DOWN
@@ -1725,9 +1404,9 @@ def find_bs_points(bis: List[Bi], zss: List[ZS], kls: List[KL],
     
     # -------- 3卖：严格化 --------
     break_count_sell = 0
-    price_margin = config.bs3_price_margin
+    price_margin = config.get('bs3_price_margin', 0.002)
     for i in range(len(bis) - 1):
-        if break_count_sell >= config.max_3sell_count:
+        if break_count_sell >= config.get('max_3sell_count', 3):
             break
         bi = bis[i]
         next_bi = bis[i + 1]
@@ -1744,7 +1423,7 @@ def find_bs_points(bis: List[Bi], zss: List[ZS], kls: List[KL],
         
         # 条件2：跌破幅度必须足够大
         break_range = zs_low - bi_low
-        if zs_range > 0 and break_range < zs_range * config.min_bs3_break_ratio:
+        if zs_range > 0 and break_range < zs_range * config.get('min_bs3_break_ratio', 0.3):
             continue
         
         # 条件3：反弹不破中枢低点

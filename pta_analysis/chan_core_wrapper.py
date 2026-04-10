@@ -7,7 +7,7 @@ from chan_core import (
     kl_to_kls, merge_include, find_fenxing,
     build_bi, build_seg, build_zs, find_bs_points,
     aggregate_klines_fixed, aggregate_by_bi, multi_level_analysis,
-    analyze_level
+    analyze_level, BSPointConfig, BSPointConfigDefault
 )
 
 # 全局缓存
@@ -84,13 +84,17 @@ def _kls_to_dict(kls):
     } for k in kls]
 
 
-def get_chan_result(period='1min', level=1):
+def get_chan_result(period='1min', level=1, **bs_config):
     """缠论分析主入口 - 兼容 chan_wrapper 接口
     
     Args:
         period: K线周期 ('1min', '5min', '15min', '30min', '60min', '1day')
         level: 分析级别 (1=原始/单级别, 2/3/4=多级别聚合分析)
                当 level > 1 时，返回包含多级别分析结果的字典
+        **bs_config: 买卖点配置参数
+            - macd_algo: MACD算法 ('area', 'peak', 'slope', 'amp', 'diff', 'half')
+            - divergence_rate: 背驰比率阈值 (默认inf)
+            - max_bs2_rate: 2买回落比率上限 (默认0.9999)
         
     Returns:
         单级别(默认): 兼容原接口的结果字典
@@ -108,7 +112,9 @@ def get_chan_result(period='1min', level=1):
             ...
         }
     """
-    cache_key = f"pta_{period}_level{level}_{id(period)}"
+    # 将bs_config参数转换为字符串作为缓存key的一部分
+    bs_config_str = "_".join(f"{k}={v}" for k, v in sorted(bs_config.items())) if bs_config else ""
+    cache_key = f"pta_{period}_level{level}_{bs_config_str}_{id(period)}"
     now = time.time()
     
     if cache_key in _cache:
@@ -160,7 +166,13 @@ def get_chan_result(period='1min', level=1):
         bis = build_bi(mkls, fxs, min_k=4, small_bi_points=30)
         segs = build_seg(bis)
         zss = build_zs(segs)
-        bs_points = find_bs_points(bis, zss, mkls)
+        
+        # 构建买卖点配置
+        if bs_config:
+            config = BSPointConfig(**{**BSPointConfigDefault, **bs_config})
+        else:
+            config = BSPointConfig(**BSPointConfigDefault)
+        bs_points = find_bs_points(bis, zss, mkls, config)
         
         bi_markline = _build_markline_from_bis(bis)
         seg_markline = _build_markline_from_segs(segs)
@@ -179,6 +191,11 @@ def get_chan_result(period='1min', level=1):
                 'bs_count': len(bs_points),
                 'current_price': kl_data[-1]['close'] if kl_data else 0,
                 'last_time': kl_data[-1]['time'] if kl_data else ''
+            },
+            'bs_config': {
+                'macd_algo': config.macd_algo,
+                'divergence_rate': config.divergence_rate,
+                'max_bs2_rate': config.max_bs2_rate
             },
             'bi_markline': bi_markline,
             'seg_markline': seg_markline,
