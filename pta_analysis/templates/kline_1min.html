@@ -28,8 +28,7 @@
         /* 主布局 - 垂直方向 */
         .main-container { display: flex; flex-direction: column; height: calc(100vh - 90px); }
         .chart-container { flex: 1; min-height: 300px; overflow: hidden; }
-        #chart { width: 100%; height: 100%; background: #111; overflow: hidden; position: relative; }
-        #chart canvas + div { display: none !important; }
+        #chart { width: 100%; height: 100%; background: #111; overflow: hidden; }
         
         /* 下方策略面板 */
         .strategy-panel { background: #111; border-top: 1px solid #222; overflow: hidden; display: flex; flex-direction: column; }
@@ -572,14 +571,6 @@
             chanData = chanResult;
             renderChart(klineResult, chanResult);
             
-            if (chart) {
-                chart.setOption({
-                    dataZoom: [
-                        { type: 'inside', xAxisIndex: [0, 1, 2], start: savedDataZoom.start, end: savedDataZoom.end }
-                    ]
-                }, false);
-            }
-            
             updateChanBadges(chanResult);
             updatePrice(klineResult);
             document.getElementById('loading').style.display = 'none';
@@ -696,9 +687,6 @@
                 { type: 'value', gridIndex: 0, scale: true, axisLine: { lineStyle: { color: '#333' } }, axisLabel: { color: '#666' }, splitLine: { lineStyle: { color: '#1a1a1a' } } },
                 { type: 'value', gridIndex: 1, scale: true, axisLine: { lineStyle: { color: '#333' } }, axisLabel: { color: '#666' }, splitLine: { show: false } },
                 { type: 'value', gridIndex: 2, scale: true, axisLine: { lineStyle: { color: '#333' } }, axisLabel: { color: '#666' }, splitLine: { show: false } }
-            ],
-            dataZoom: [
-                { type: 'inside', xAxisIndex: [0, 1, 2], start: 75, end: 100 }
             ],
             series: []
         };
