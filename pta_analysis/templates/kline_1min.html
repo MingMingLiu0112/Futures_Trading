@@ -6,8 +6,11 @@
     <title>PTA 1分钟K线 - 专业图表</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { overflow: hidden; height: 100%; }
         body { background: #0a0a0a; color: #ccc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
-        .header { display: flex; align-items: center; padding: 10px 15px; background: #111; border-bottom: 1px solid #222; gap: 12px; }
+        
+        /* 顶部导航栏 */
+        .header { display: flex; align-items: center; padding: 10px 15px; background: #111; border-bottom: 1px solid #222; gap: 12px; flex-wrap: wrap; }
         .title { color: #e94560; font-size: 1.1rem; font-weight: 600; }
         .price { font-size: 1.3rem; font-weight: 700; color: #fff; }
         .price.up { color: #f44; }
@@ -21,16 +24,89 @@
         .chan-toggle { display: flex; gap: 4px; margin-left: 8px; }
         .chan-toggle .btn-sm { padding: 3px 7px; font-size: 0.72rem; }
         .chan-toggle .btn-sm.on { background: #e94560; color: #fff; border-color: #e94560; }
-        #chart { width: 100%; height: calc(100vh - 120px); background: #111; }
-        #loading { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); background: rgba(0,0,0,0.85); color: #fff; padding: 20px 30px; border-radius: 8px; z-index: 9999; font-size: 0.95rem; }
+        
+        /* 主布局 - 垂直方向 */
+        .main-container { display: flex; flex-direction: column; height: calc(100vh - 90px); }
+        .chart-container { flex: 1; min-height: 300px; overflow: hidden; }
+        #chart { width: 100%; height: 100%; background: #111; overflow: hidden; position: relative; }
+        #chart canvas + div { display: none !important; }
+        
+        /* 下方策略面板 */
+        .strategy-panel { background: #111; border-top: 1px solid #222; overflow: hidden; display: flex; flex-direction: column; }
+        .panel-header { padding: 8px 15px; background: #1a1a1a; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+        .panel-title { color: #e94560; font-size: 0.85rem; font-weight: 600; }
+        .panel-refresh { font-size: 0.65rem; color: #666; }
+        .panel-toggle { font-size: 0.7rem; color: #666; transition: transform 0.2s; }
+        .panel-toggle.collapsed { transform: rotate(180deg); }
+        .strategy-content { padding: 10px 15px; display: flex; gap: 15px; overflow-x: auto; flex-wrap: wrap; max-height: 200px; overflow-y: auto; }
+        .strategy-content.collapsed { display: none; }
+        
+        /* 策略卡片 - 横向紧凑布局 */
+        .strategy-card { background: #1a1a1a; border-radius: 6px; min-width: 150px; flex: 1; overflow: hidden; }
+        .card-header { padding: 6px 10px; background: #222; display: flex; justify-content: space-between; align-items: center; }
+        .card-title { color: #fff; font-size: 0.75rem; font-weight: 600; display: flex; align-items: center; gap: 4px; }
+        .card-title .icon { font-size: 0.8rem; }
+        .card-status { font-size: 0.65rem; padding: 1px 5px; border-radius: 3px; font-weight: 600; }
+        .status-active { background: rgba(233,69,96,0.2); color: #e94560; }
+        .status-inactive { background: rgba(100,100,100,0.2); color: #888; }
+        .status-bullish { background: rgba(0,168,100,0.2); color: #0a8; }
+        .status-bearish { background: rgba(244,68,68,0.2); color: #f44; }
+        .status-neutral { background: rgba(150,150,150,0.2); color: #999; }
+        .card-body { padding: 8px 10px; }
+        
+        /* 指标行 - 紧凑 */
+        .metric-row { display: flex; justify-content: space-between; align-items: center; padding: 2px 0; }
+        .metric-row:last-child { border-bottom: none; }
+        .metric-label { color: #888; font-size: 0.7rem; }
+        .metric-value { color: #fff; font-size: 0.75rem; font-weight: 600; }
+        .metric-value.highlight { color: #e94560; }
+        .metric-value.green { color: #0a8; }
+        .metric-value.red { color: #f44; }
+        .metric-value.yellow { color: #ffd93d; }
+        
+        /* 期权墙列表 - 紧凑 */
+        .wall-list { margin-top: 4px; }
+        .wall-item { display: flex; justify-content: space-between; align-items: center; padding: 1px 0; font-size: 0.68rem; }
+        .wall-strike { color: #888; }
+        .wall-oi { color: #fff; }
+        .wall-oi strong { color: #e94560; }
+        .wall-density { color: #666; font-size: 0.62rem; }
+        
+        /* 共振信号高亮 */
+        .signal-box { padding: 6px; border-radius: 4px; text-align: center; margin-top: 6px; }
+        .signal-long { background: rgba(0,168,100,0.15); border: 1px solid #0a8; }
+        .signal-short { background: rgba(244,68,68,0.15); border: 1px solid #f44; }
+        .signal-neutral { background: rgba(100,100,100,0.15); border: 1px solid #555; }
+        .signal-direction { font-size: 0.85rem; font-weight: 700; color: #fff; }
+        .signal-confidence { font-size: 0.68rem; color: #aaa; margin-top: 2px; }
+        .signal-action { font-size: 0.65rem; color: #888; margin-top: 4px; }
+        
+        /* 市场状态标签 */
+        .regime-badge { display: inline-block; padding: 1px 6px; border-radius: 8px; font-size: 0.65rem; font-weight: 600; }
+        .regime-calm { background: rgba(0,168,100,0.2); color: #0a8; }
+        .regime-kill { background: rgba(233,69,96,0.2); color: #e94560; }
+        .regime-macro { background: rgba(255,217,61,0.2); color: #ffd93d; }
+        
+        /* 风险等级 */
+        .risk-high { color: #f44; }
+        .risk-mid { color: #ffd93d; }
+        .risk-low { color: #0a8; }
+        
+        /* 缠论标签 */
         .chan-badges { display: flex; gap: 8px; font-size: 0.75rem; }
         .badge { padding: 2px 8px; border-radius: 10px; font-weight: 600; }
         .badge-bi { background: rgba(243,70,101,0.2); color: #f36; }
         .badge-seg { background: rgba(255,217,61,0.2); color: #ffd93d; }
         .badge-zs { background: rgba(233,69,96,0.2); color: #e94560; }
         .badge-bs { background: rgba(8,153,129,0.2); color: #089981; }
-        .footer { padding: 6px 15px; background: #0d0d0d; border-top: 1px solid #1a1a1a; font-size: 0.72rem; color: #555; display: flex; justify-content: space-between; }
-        /* ==================== 移动端适配 ==================== */
+        
+        /* 页脚 */
+        .footer { padding: 4px 15px; background: #0d0d0d; border-top: 1px solid #1a1a1a; font-size: 0.68rem; color: #555; display: flex; justify-content: space-between; }
+        
+        /* 加载动画 */
+        #loading { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); background: rgba(0,0,0,0.85); color: #fff; padding: 20px 30px; border-radius: 8px; z-index: 9999; font-size: 0.95rem; }
+        
+        /* 移动端适配 */
         @media (max-width: 768px) {
             .header { flex-wrap: wrap; padding: 8px 10px; gap: 6px; }
             .title { font-size: 0.95rem; }
@@ -41,23 +117,16 @@
             .chan-toggle { flex-wrap: wrap; }
             .chan-badges { gap: 4px; }
             .badge { padding: 1px 6px; font-size: 0.65rem; }
-            #chart { height: calc(100vh - 160px) !important; }
             .footer { font-size: 0.65rem; padding: 4px 10px; }
-        }
-        
-        @media (max-width: 480px) {
-            .header { padding: 6px 8px; }
-            .title { font-size: 0.85rem; }
-            .price { font-size: 1rem; }
-            .change { font-size: 0.75rem; }
-            #chart { height: calc(100vh - 180px) !important; }
-            .badge-seg, .badge-zs { display: none; }
+            .strategy-content { max-height: 150px; }
+            .strategy-card { min-width: 130px; }
         }
     </style>
 </head>
 <body>
     <div id="loading">数据加载中...</div>
 
+    <!-- 顶部导航栏 -->
     <div class="header">
         <span class="title">PTA 1分钟K线</span>
         <span id="price" class="price">--</span>
@@ -92,7 +161,169 @@
         </div>
     </div>
 
-    <div id="chart"></div>
+    <!-- 主内容区 -->
+    <div class="main-container">
+        <!-- K线图 -->
+        <div class="chart-container">
+            <div id="chart"></div>
+        </div>
+        
+        <!-- 下方策略面板 -->
+        <div class="strategy-panel" id="strategy-panel">
+            <div class="panel-header" onclick="togglePanel()">
+                <span class="panel-title">📊 期权策略信号</span>
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <span class="panel-refresh" id="strategy-time">--</span>
+                    <span class="panel-toggle" id="panel-toggle">▲</span>
+                </div>
+            </div>
+            <div class="strategy-content" id="strategy-content">
+                
+                <!-- 市场状态卡片 -->
+                <div class="strategy-card">
+                    <div class="card-header">
+                        <span class="card-title"><span class="icon">🌐</span>市场</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="metric-row">
+                            <span class="metric-label">状态</span>
+                            <span class="regime-badge" id="regime-badge">--</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">缠论</span>
+                            <span class="metric-value" id="chan-direction">--</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">置信度</span>
+                            <span class="metric-value" id="chan-confidence">--</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 杀期权阶段卡片 -->
+                <div class="strategy-card">
+                    <div class="card-header">
+                        <span class="card-title"><span class="icon">⚠️</span>杀期权</span>
+                        <span class="card-status status-inactive" id="kill-status">--</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="metric-row">
+                            <span class="metric-label">活跃</span>
+                            <span class="metric-value" id="kill-active">--</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">距到期</span>
+                            <span class="metric-value" id="kill-days">--</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">清晰度</span>
+                            <span class="metric-value" id="kill-clarity">--</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- PCR指标卡片 -->
+                <div class="strategy-card">
+                    <div class="card-header">
+                        <span class="card-title"><span class="icon">📈</span>PCR</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="metric-row">
+                            <span class="metric-label">持仓PCR</span>
+                            <span class="metric-value highlight" id="pcr-position">--</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">认购OI</span>
+                            <span class="metric-value green" id="pcr-call-oi">--</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">认沽OI</span>
+                            <span class="metric-value red" id="pcr-put-oi">--</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- IV曲线卡片 -->
+                <div class="strategy-card">
+                    <div class="card-header">
+                        <span class="card-title"><span class="icon">📉</span>IV</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="metric-row">
+                            <span class="metric-label">Call IV</span>
+                            <span class="metric-value" id="iv-call">--</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Put IV</span>
+                            <span class="metric-value" id="iv-put">--</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">IV差</span>
+                            <span class="metric-value highlight" id="iv-diff">--</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 期权墙卡片 -->
+                <div class="strategy-card">
+                    <div class="card-header">
+                        <span class="card-title"><span class="icon">🧱</span>期权墙</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="metric-row">
+                            <span class="metric-label">梯度</span>
+                            <span class="metric-value highlight" id="wall-ratio">--</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">地板</span>
+                            <span class="metric-value green" id="floor-oi">--</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">天花</span>
+                            <span class="metric-value red" id="ceil-oi">--</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 综合评分卡片 -->
+                <div class="strategy-card">
+                    <div class="card-header">
+                        <span class="card-title"><span class="icon">⭐</span>评分</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="metric-row">
+                            <span class="metric-label">期权</span>
+                            <span class="metric-value highlight" id="option-score">--</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">信号</span>
+                            <span class="card-status" id="option-label">--</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">IV</span>
+                            <span class="metric-value" id="score-iv">--</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 共振信号卡片 -->
+                <div class="strategy-card" style="min-width: 180px;">
+                    <div class="card-header">
+                        <span class="card-title"><span class="icon">🎯</span>共振</span>
+                        <span class="metric-value" id="signal-risk" style="font-size:0.65rem;">--</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="signal-box" id="signal-box">
+                            <div class="signal-direction" id="signal-direction">--</div>
+                            <div class="signal-confidence" id="signal-confidence">--</div>
+                            <div class="signal-action" id="signal-action"></div>
+                        </div>
+                    </div>
+                </div>
+                
+            </div>
+        </div>
+    </div>
 
     <div class="footer">
         <span>自动刷新每10秒</span>
@@ -104,27 +335,34 @@
     var chart = null;
     var rawData = [];
     var chanData = null;
+    var strategyData = null;
     var currentPeriod = '1min';
     var autoRefreshInterval = null;
     var autoRefreshSec = 10;
     var chanLayers = { bi: false, seg: false, zs: false, bs: false };
     var indicatorLayers = { ma: false, macd: true, kdj: true };
     var currentOption = null;
-    // 保存原始markLine数据用于toggle
-    // 保存当前dataZoom范围，用于自动刷新后恢复浏览位置
     var savedDataZoom = { start: 75, end: 100 };
     var chanMarkData = { bi: [], seg: [], zs: [], bs: [] };
+    var panelCollapsed = false;
+    
+    // 策略API基础URL
+    var strategyApiBase = 'http://47.100.97.88:8425/api/strategy';
 
     function init() {
         chart = echarts.init(document.getElementById('chart'));
         loadData();
+        loadStrategyData();
         window.addEventListener('resize', function() { chart.resize(); });
         startAutoRefresh();
     }
 
     function startAutoRefresh() {
         if (autoRefreshInterval) clearInterval(autoRefreshInterval);
-        autoRefreshInterval = setInterval(loadData, autoRefreshSec * 1000);
+        autoRefreshInterval = setInterval(function() {
+            loadData();
+            loadStrategyData();
+        }, autoRefreshSec * 1000);
         document.getElementById('btn-auto-refresh').textContent = '暂停';
         document.getElementById('btn-auto-refresh').classList.add('active');
     }
@@ -138,12 +376,21 @@
     function toggleAutoRefresh() {
         if (autoRefreshInterval) stopAutoRefresh(); else startAutoRefresh();
     }
+    
+    // 切换策略面板折叠
+    function togglePanel() {
+        panelCollapsed = !panelCollapsed;
+        var content = document.getElementById('strategy-content');
+        var toggle = document.getElementById('panel-toggle');
+        content.classList.toggle('collapsed', panelCollapsed);
+        toggle.classList.toggle('collapsed', panelCollapsed);
+        if (chart) setTimeout(function() { chart.resize(); }, 100);
+    }
 
     function toggleIndicator(ind) {
         indicatorLayers[ind] = !indicatorLayers[ind];
         document.getElementById('btn-' + ind).classList.toggle('on', indicatorLayers[ind]);
         if (!currentOption || !currentOption.series) return;
-        // 显示/隐藏指标对应的series
         var indMap = {
             'ma': ['MA5', 'MA10', 'MA20'],
             'macd': ['MACD', 'DIF', 'DEA'],
@@ -164,11 +411,9 @@
         document.getElementById('btn-' + layer).classList.toggle('on', chanLayers[layer]);
         if (!currentOption || !currentOption.series) return;
 
-        // 找到各series并更新数据
         for (var i = 0; i < currentOption.series.length; i++) {
             var s = currentOption.series[i];
             if (s.name === '笔' && s.markLine) {
-                // 笔用markLine，切换markLine.data
                 s.markLine.data = chanLayers.bi ? chanMarkData.bi : [];
             } else if (s.name === '线段') {
                 s.data = chanLayers.seg ? chanMarkData.seg : [];
@@ -178,36 +423,131 @@
                 s.data = chanLayers.bs ? chanMarkData.bs : [];
             }
         }
-        // 用merge模式更新
         chart.setOption(currentOption, false);
     }
 
     function changePeriod(p) {
         currentPeriod = p;
-        // clear chan cache
         loadData();
     }
 
-    // 将笔/线段/中枢的K线索引转为实际时间字符串（ECharts category轴必须用字符串）
     function idxToTime(idx) {
         idx = Math.min(Math.max(Math.round(idx), 0), rawData.length - 1);
         return rawData[idx] ? rawData[idx].time : (rawData[0] ? rawData[0].time : '');
     }
 
-    // 计算可见范围的K线索引（用于只显示可见范围内的缠论标记）
-    // 默认显示最后30%的数据：start=70, end=100
     function getVisibleRange() {
         var total = rawData.length;
         if (total === 0) return { start: 0, end: total - 1 };
-        // dataZoom默认75-100%，显示最后25%
         var startIdx = Math.floor(total * 0.75);
         var endIdx = total - 1;
         return { start: startIdx, end: endIdx };
     }
+    
+    // 加载策略数据
+    async function loadStrategyData() {
+        try {
+            var resp = await fetch(strategyApiBase + '/full_analysis');
+            var data = await resp.json();
+            
+            if (!data.success) {
+                console.warn('策略数据加载失败:', data.error);
+                return;
+            }
+            
+            strategyData = data;
+            updateStrategyPanel(data);
+            document.getElementById('strategy-time').textContent = '更新: ' + new Date().toLocaleTimeString();
+        } catch(e) {
+            console.error('策略数据加载异常:', e);
+        }
+    }
+    
+    // 更新策略面板
+    function updateStrategyPanel(data) {
+        // 市场状态
+        var regimeBadge = document.getElementById('regime-badge');
+        var regime = data.regime || '待补充';
+        regimeBadge.textContent = regime;
+        regimeBadge.className = 'regime-badge';
+        if (regime.indexOf('平静') >= 0) regimeBadge.classList.add('regime-calm');
+        else if (regime.indexOf('杀期权') >= 0) regimeBadge.classList.add('regime-kill');
+        else if (regime.indexOf('宏观') >= 0) regimeBadge.classList.add('regime-macro');
+        
+        // 缠论信号
+        var chan = data.chan_signal;
+        if (chan && chan.direction) {
+            document.getElementById('chan-direction').textContent = chan.direction;
+            document.getElementById('chan-confidence').textContent = chan.confidence ? (chan.confidence * 100).toFixed(0) + '%' : '待补充';
+        } else {
+            document.getElementById('chan-direction').textContent = '待补充';
+            document.getElementById('chan-confidence').textContent = '待补充';
+        }
+        
+        // 杀期权阶段
+        var ko = data.kill_option_stage || {};
+        var killStatus = document.getElementById('kill-status');
+        if (ko.is_active) {
+            killStatus.textContent = '活跃';
+            killStatus.className = 'card-status status-active';
+        } else {
+            killStatus.textContent = '未激活';
+            killStatus.className = 'card-status status-inactive';
+        }
+        document.getElementById('kill-active').textContent = ko.is_active ? '是' : '否';
+        document.getElementById('kill-days').textContent = (ko.days_to_expiry < 999) ? ko.days_to_expiry + '天' : '待补充';
+        document.getElementById('kill-clarity').textContent = ko.wall_clarity ? (ko.wall_clarity * 100).toFixed(0) + '%' : '待补充';
+        
+        // PCR指标
+        var opt = data.option_structure || {};
+        document.getElementById('pcr-position').textContent = opt.pcr ? opt.pcr.toFixed(2) : '待补充';
+        document.getElementById('pcr-call-oi').textContent = opt.floor_oi ? formatNumber(opt.floor_oi) : '待补充';
+        document.getElementById('pcr-put-oi').textContent = opt.ceil_oi ? formatNumber(opt.ceil_oi) : '待补充';
+        
+        // IV曲线
+        document.getElementById('iv-call').textContent = opt.call_iv ? opt.call_iv.toFixed(1) + '%' : '待补充';
+        document.getElementById('iv-put').textContent = opt.put_iv ? opt.put_iv.toFixed(1) + '%' : '待补充';
+        document.getElementById('iv-diff').textContent = opt.iv_diff ? opt.iv_diff.toFixed(1) + '%' : '待补充';
+        
+        // 期权墙
+        document.getElementById('wall-ratio').textContent = opt.gradient_ratio ? opt.gradient_ratio.toFixed(2) : '待补充';
+        document.getElementById('floor-oi').textContent = opt.floor_oi ? formatNumber(opt.floor_oi) : '待补充';
+        document.getElementById('ceil-oi').textContent = opt.ceil_oi ? formatNumber(opt.ceil_oi) : '待补充';
+        
+        // 综合评分
+        document.getElementById('option-score').textContent = (opt.score !== undefined && opt.score !== null) ? opt.score : '待补充';
+        document.getElementById('option-label').textContent = opt.label || '待补充';
+        document.getElementById('score-iv').textContent = opt.iv_skew || '待补充';
+        
+        // 共振信号
+        var sig = data.resonance_signal || {};
+        var signalBox = document.getElementById('signal-box');
+        var direction = sig.direction || '';
+        document.getElementById('signal-direction').textContent = direction || '待补充';
+        document.getElementById('signal-confidence').textContent = '置信度: ' + (sig.confidence ? (sig.confidence * 100).toFixed(0) + '%' : '待补充');
+        document.getElementById('signal-action').textContent = sig.action || '待补充';
+        
+        signalBox.className = 'signal-box';
+        if (direction && direction.indexOf('多') >= 0) signalBox.classList.add('signal-long');
+        else if (direction && direction.indexOf('空') >= 0) signalBox.classList.add('signal-short');
+        else signalBox.classList.add('signal-neutral');
+        
+        var riskEl = document.getElementById('signal-risk');
+        riskEl.textContent = sig.risk_level || '待补充';
+        riskEl.className = 'metric-value';
+        if (sig.risk_level === '高') riskEl.classList.add('risk-high');
+        else if (sig.risk_level === '中') riskEl.classList.add('risk-mid');
+        else if (sig.risk_level === '低') riskEl.classList.add('risk-low');
+    }
+    
+    function formatNumber(n) {
+        if (n >= 10000) return (n / 10000).toFixed(1) + '万';
+        if (n >= 1000) return n.toString();
+        return n;
+    }
 
     async function loadData() {
         try {
-            // 保存当前浏览位置，自动刷新后恢复
             if (chart && currentOption) {
                 var storedZoom = chart.getOption().dataZoom;
                 if (storedZoom && storedZoom.length > 0) {
@@ -232,13 +572,10 @@
             chanData = chanResult;
             renderChart(klineResult, chanResult);
             
-            // 恢复浏览位置
             if (chart) {
                 chart.setOption({
                     dataZoom: [
-                        { xAxisIndex: 0, start: savedDataZoom.start, end: savedDataZoom.end },
-                        { xAxisIndex: 1, start: savedDataZoom.start, end: savedDataZoom.end },
-                        { xAxisIndex: 2, start: savedDataZoom.start, end: savedDataZoom.end }
+                        { type: 'inside', xAxisIndex: [0, 1, 2], start: savedDataZoom.start, end: savedDataZoom.end }
                     ]
                 }, false);
             }
@@ -317,7 +654,7 @@
             if (i < n - 1) { k.push(50); d.push(50); rsv.push(50); continue; }
             var high = Math.max.apply(null, data.slice(i-n+1, i+1).map(function(x){return x[2];}));
             var low = Math.min.apply(null, data.slice(i-n+1, i+1).map(function(x){return x[3];}));
-            rsv.push(high === low ? 50 : (data[i][1] - low) / (high - low) * 100);
+            rsv.push(high === low ? 50 :            (data[i][1] - low) / (high - low) * 100);
             k.push((rsv[i] * m1 + (k[i-1] || 50) * (m1-1)) / m1);
             d.push((k[i] * m2 + (d[i-1] || 50) * (m2-1)) / m2);
         }
@@ -332,24 +669,23 @@
         var ohlcData = data.map(function(d) { return [d.open, d.close, d.low, d.high]; });
         var volData = data.map(function(d) { return d.volume || 0; });
 
-        // 计算指标
         var ma5 = calcMA(ohlcData, 5, 1);
         var ma10 = calcMA(ohlcData, 10, 1);
         var ma20 = calcMA(ohlcData, 20, 1);
         var macd = calcMACD(ohlcData.map(function(d){return d[1];}));
         var kdj = calcKDJ(ohlcData);
 
-        // 基础K线配置
         var baseOption = {
             backgroundColor: '#111',
             animation: false,
             tooltip: { trigger: 'axis', axisPointer: { type: 'cross' }, backgroundColor: 'rgba(30,30,30,0.95)', borderColor: '#333', textStyle: { color: '#ccc' } },
             legend: { show: true, top: 3, inactiveColor: '#555', textStyle: { color: '#aaa' },
-                      data: ['K线','MA5','MA10','MA20','MA60'] },
+                      data: ['K线','MA5','MA10','MA20','MA60'],
+                      selected: {'MA5': false, 'MA10': false, 'MA20': false} },
             grid: [
-                { left: '8%', right: '5%', top: '12%', height: '50%' },
-                { left: '8%', right: '5%', top: '68%', height: '12%' },
-                { left: '8%', right: '5%', top: '84%', height: '12%' }
+                { left: '8%', right: '3%', top: '8%', height: '55%' },
+                { left: '8%', right: '3%', top: '68%', height: '14%' },
+                { left: '8%', right: '3%', top: '86%', height: '14%' }
             ],
             xAxis: [
                 { type: 'category', data: timeData, gridIndex: 0, boundaryGap: false, axisLine: { lineStyle: { color: '#333' } }, axisLabel: { color: '#666', fontSize: 10 }, axisTick: { show: false }, splitLine: { show: false } },
@@ -362,34 +698,28 @@
                 { type: 'value', gridIndex: 2, scale: true, axisLine: { lineStyle: { color: '#333' } }, axisLabel: { color: '#666' }, splitLine: { show: false } }
             ],
             dataZoom: [
-                { type: 'inside', xAxisIndex: [0, 1, 2], start: 75, end: 100 },
-                { type: 'slider', xAxisIndex: [0, 1, 2], bottom: 2, height: 18, borderColor: '#333', backgroundColor: '#1a1a1a', fillerColor: 'rgba(233,69,96,0.2)', handleStyle: { color: '#e94560' }, textStyle: { color: '#666' }, start: 75, end: 100 }
+                { type: 'inside', xAxisIndex: [0, 1, 2], start: 75, end: 100 }
             ],
             series: []
         };
 
         var series = [
-            // K线
             { name: 'K线', type: 'candlestick', xAxisIndex: 0, yAxisIndex: 0,
               data: ohlcData,
               itemStyle: { color: '#f44', color0: '#0a8', borderColor: '#f44', borderColor0: '#0a8' }
             },
-            // MA5 (默认隐藏)
             { name: 'MA5', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
               data: ma5, smooth: true, lineStyle: { color: '#f44', width: 1 }, symbol: 'none',
               z: 2, show: false
             },
-            // MA10 (默认隐藏)
             { name: 'MA10', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
               data: ma10, smooth: true, lineStyle: { color: '#4f4', width: 1 }, symbol: 'none',
               z: 2, show: false
             },
-            // MA20 (默认隐藏)
             { name: 'MA20', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
               data: ma20, smooth: true, lineStyle: { color: '#44f', width: 1 }, symbol: 'none',
               z: 2, show: false
             },
-            // MACD (默认显示)
             { name: 'MACD', type: 'bar', xAxisIndex: 1, yAxisIndex: 1,
               data: macd.bars.map(function(v){ return v >= 0 ? v : '-'; }),
               itemStyle: { color: function(p){ return macd.bars[p.dataIndex] >= 0 ? '#f44' : '#0a8'; } },
@@ -401,7 +731,6 @@
             { name: 'DEA', type: 'line', xAxisIndex: 1, yAxisIndex: 1,
               data: macd.dea, lineStyle: { color: '#4ecdc4', width: 1 }, symbol: 'none', show: true
             },
-            // KDJ (默认显示)
             { name: 'K', type: 'line', xAxisIndex: 2, yAxisIndex: 2,
               data: kdj.k.map(function(v){ return +v.toFixed(2); }), lineStyle: { color: '#ff6b6b', width: 1 }, symbol: 'none', show: true
             },
@@ -413,11 +742,9 @@
             },
         ];
 
-        // 添加缠论层
         if (chanResult && chanResult.echarts) {
             var e = chanResult.echarts;
 
-            // 笔 - 用line series渲染（每笔两条线段）
             if (e.bi_markline && e.bi_markline.length > 0) {
                 var vr = getVisibleRange();
                 var biFiltered = e.bi_markline.filter(function(m) {
@@ -442,7 +769,6 @@
                 });
             }
 
-            // 线段 - 用line series（只显示可见范围内）
             if (e.seg_markline && e.seg_markline.length > 0) {
                 var vr = getVisibleRange();
                 var segFiltered = e.seg_markline.filter(function(m) {
@@ -465,7 +791,6 @@
                 });
             }
 
-            // 中枢 - markArea（只显示可见范围内）
             if (e.zs_markarea && e.zs_markarea.length > 0) {
                 var vr = getVisibleRange();
                 chanMarkData.zs = [];
@@ -490,7 +815,6 @@
                 });
             }
 
-            // 买卖点 - scatter（只显示可见范围内）
             if (e.bs_scatter && e.bs_scatter.length > 0) {
                 var vr = getVisibleRange();
                 chanMarkData.bs = e.bs_scatter
@@ -516,7 +840,6 @@
         baseOption.series = series;
         currentOption = baseOption;
 
-        // Initialize button states (all off = pure K-line view)
         document.getElementById('btn-bi').classList.toggle('on', chanLayers.bi);
         document.getElementById('btn-seg').classList.toggle('on', chanLayers.seg);
         document.getElementById('btn-zs').classList.toggle('on', chanLayers.zs);
