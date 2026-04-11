@@ -343,10 +343,11 @@
     var currentOption = null;
     var savedDataZoom = { start: 75, end: 100 };
     var chanMarkData = { bi: [], seg: [], zs: [], bs: [] };
+    var rawChanData = { bi: [], seg: [], zs: [], bs: [] };  // 原始缠论数据
     var panelCollapsed = false;
     
     // 策略API基础URL
-    var strategyApiBase = 'http://47.100.97.88:8425/api/strategy';
+    var strategyApiBase = '/api/strategy';
 
     function init() {
         chart = echarts.init(document.getElementById('chart'));
@@ -413,16 +414,86 @@
         for (var i = 0; i < currentOption.series.length; i++) {
             var s = currentOption.series[i];
             if (s.name === '笔' && s.markLine) {
-                s.markLine.data = chanLayers.bi ? chanMarkData.bi : [];
+                // 根据当前可见范围重新计算笔数据
+                var vr = getVisibleRange();
+                var biFiltered = (rawChanData.bi || []).filter(function(m) {
+                    return (m.xAxis >= vr.start && m.xAxis <= vr.end) ||
+                           (m.xAxis2 >= vr.start && m.xAxis2 <= vr.end) ||
+                           (m.xAxis < vr.start && m.xAxis2 > vr.end);
+                });
+                var biData = [];
+                biFiltered.forEach(function(m) {
+                    biData.push([idxToTime(m.xAxis), m.yAxis]);
+                    biData.push([idxToTime(m.xAxis2), m.yAxis2]);
+                    biData.push({ value: [idxToTime(m.xAxis2), m.yAxis2], symbol: 'none' });
+                });
+                s.markLine.data = chanLayers.bi ? biData : [];
             } else if (s.name === '线段') {
-                s.data = chanLayers.seg ? chanMarkData.seg : [];
+                var vr = getVisibleRange();
+                var segFiltered = (rawChanData.seg || []).filter(function(m) {
+                    return (m.xAxis >= vr.start && m.xAxis <= vr.end) ||
+                           (m.xAxis2 >= vr.start && m.xAxis2 <= vr.end) ||
+                           (m.xAxis < vr.start && m.xAxis2 > vr.end);
+                });
+                var segData = [];
+                segFiltered.forEach(function(m) {
+                    segData.push([idxToTime(m.xAxis), m.yAxis]);
+                    segData.push([idxToTime(m.xAxis2), m.yAxis2]);
+                    segData.push({ value: [idxToTime(m.xAxis2), m.yAxis2], symbol: 'none' });
+                });
+                s.data = chanLayers.seg ? segData : [];
             } else if (s.name === '中枢' && s.markArea) {
-                s.markArea.data = chanLayers.zs ? chanMarkData.zs : [];
+                var vr = getVisibleRange();
+                var zsFiltered = (rawChanData.zs || []).filter(function(m) {
+                    return (m.xAxis >= vr.start && m.xAxis <= vr.end) ||
+                           (m.xAxis2 >= vr.start && m.xAxis2 <= vr.end) ||
+                           (m.xAxis < vr.start && m.xAxis2 > vr.end);
+                });
+                var zsData = [];
+                zsFiltered.forEach(function(m) {
+                    zsData.push([
+                        { xAxis: idxToTime(m.xAxis), yAxis: m.yAxis,
+                          itemStyle: { color: 'rgba(233,69,96,0.08)', borderColor: '#e94560', borderWidth: 1, borderType: 'dashed' } },
+                        { xAxis: idxToTime(m.xAxis2), yAxis: m.yAxis2 }
+                    ]);
+                });
+                s.markArea.data = chanLayers.zs ? zsData : [];
             } else if (s.name === '买卖点') {
-                s.data = chanLayers.bs ? chanMarkData.bs : [];
+                var vr = getVisibleRange();
+                var bsFiltered = (rawChanData.bs || []).filter(function(s) {
+                    return s.value[0] >= vr.start && s.value[0] <= vr.end;
+                }).map(function(s) {
+                    return {
+                        value: [idxToTime(s.value[0]), s.value[1]],
+                        symbol: 'circle', symbolSize: 12,
+                        itemStyle: { color: s.itemStyle ? s.itemStyle.color : '#ff6b6b' },
+                        label: { show: true, formatter: s.label ? s.label.formatter : '', color: '#fff', fontSize: 9, position: 'top' }
+                    };
+                });
+                s.data = chanLayers.bs ? bsFiltered : [];
             }
         }
+        
+        // 保存当前缩放位置
+        var zoomStart = savedDataZoom.start;
+        var zoomEnd = savedDataZoom.end;
+        if (chart && chart.getOption) {
+            var opt = chart.getOption();
+            if (opt && opt.dataZoom && opt.dataZoom.length > 0) {
+                zoomStart = opt.dataZoom[0].start;
+                zoomEnd = opt.dataZoom[0].end;
+            }
+        }
+        
+        // 将dataZoom添加到currentOption中
+        currentOption.dataZoom = [
+            { type: 'inside', xAxisIndex: [0, 1, 2], start: zoomStart, end: zoomEnd }
+        ];
+        
         chart.setOption(currentOption, false);
+        
+        // 清除currentOption中的dataZoom，避免污染
+        delete currentOption.dataZoom;
     }
 
     function changePeriod(p) {
@@ -438,8 +509,10 @@
     function getVisibleRange() {
         var total = rawData.length;
         if (total === 0) return { start: 0, end: total - 1 };
-        var startIdx = Math.floor(total * 0.75);
-        var endIdx = total - 1;
+        
+        // 使用savedDataZoom作为主要来源（更可靠）
+        var startIdx = Math.floor(total * savedDataZoom.start / 100);
+        var endIdx = Math.floor(total * savedDataZoom.end / 100);
         return { start: startIdx, end: endIdx };
     }
     
@@ -547,11 +620,11 @@
 
     async function loadData() {
         try {
-            if (chart && currentOption) {
-                var storedZoom = chart.getOption().dataZoom;
-                if (storedZoom && storedZoom.length > 0) {
-                    savedDataZoom.start = storedZoom[0].start;
-                    savedDataZoom.end = storedZoom[0].end;
+            if (chart && currentOption && chart.getOption) {
+                var opt = chart.getOption();
+                if (opt && opt.dataZoom && opt.dataZoom.length > 0) {
+                    savedDataZoom.start = opt.dataZoom[0].start;
+                    savedDataZoom.end = opt.dataZoom[0].end;
                 }
             }
             
@@ -735,6 +808,12 @@
 
         if (chanResult && chanResult.echarts) {
             var e = chanResult.echarts;
+
+            // 保存原始缠论数据
+            rawChanData.bi = e.bi_markline || [];
+            rawChanData.seg = e.seg_markline || [];
+            rawChanData.zs = e.zs_markarea || [];
+            rawChanData.bs = e.bs_scatter || [];
 
             if (e.bi_markline && e.bi_markline.length > 0) {
                 var vr = getVisibleRange();

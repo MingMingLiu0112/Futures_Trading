@@ -1152,12 +1152,25 @@ def get_pta_option_data(trade_date: str = None) -> pd.DataFrame:
     if trade_date is None:
         trade_date = datetime.now().strftime('%Y%m%d')
     
-    try:
-        df = ak.option_hist_czce(symbol='PTA期权', trade_date=trade_date)
-        return df
-    except Exception as e:
-        warnings.warn(f"获取期权数据失败: {e}")
-        return pd.DataFrame()
+    # 如果当天没有数据，自动尝试最近的前几个交易日
+    max_retries = 10
+    for i in range(max_retries):
+        try:
+            df = ak.option_hist_czce(symbol='PTA期权', trade_date=trade_date)
+            if df is not None and not df.empty and df['持仓量'].sum() > 0:
+                return df
+            # 如果当天是周末或无数据，尝试前一天
+            dt = datetime.strptime(trade_date, '%Y%m%d')
+            dt = dt - timedelta(days=1)
+            trade_date = dt.strftime('%Y%m%d')
+        except Exception as e:
+            # 尝试前一天
+            dt = datetime.strptime(trade_date, '%Y%m%d')
+            dt = dt - timedelta(days=1)
+            trade_date = dt.strftime('%Y%m%d')
+    
+    warnings.warn(f"获取期权数据失败: 已尝试所有可用日期")
+    return pd.DataFrame()
 
 
 def get_pta_expiry_dates(months: int = 2) -> List[str]:
