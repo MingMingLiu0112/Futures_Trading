@@ -411,40 +411,26 @@ def index():
                             </ul>
                         </div>
                         
-                        <div class="table-responsive mt-3">
-                            <table class="table table-bordered table-sm">
-                                <thead class="table-dark">
-                                    <tr>
-                                        <th>行权价</th>
-                                        <th colspan="2" class="text-center">Call数据</th>
-                                        <th colspan="2" class="text-center">Put数据</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr style="background-color: #fff3cd;">
-                                        <td><strong>6400</strong></td>
-                                        <td style="color: #198754;">
-                                            价格: <strong>120元</strong><br>
-                                            持仓: 5,000 <span class="text-success">(+5.1%)</span><br>
-                                            密集度: 1.25 <span class="badge bg-warning">高密集</span><br>
-                                            成交: 1,000 <span class="text-success">(+10.2%)</span><br>
-                                            IV: 25.0% <span class="text-danger">(-0.5%)</span><br>
-                                            Δ: 0.45 Γ: 0.02<br>
-                                            Θ: -0.05 V: 0.15
-                                        </td>
-                                        <td style="color: #dc3545;">
-                                            价格: <strong>80元</strong><br>
-                                            持仓: 3,200 <span class="text-danger">(-3.2%)</span><br>
-                                            密集度: 0.85 <span class="badge bg-info">正常</span><br>
-                                            成交: 800 <span class="text-danger">(-5.0%)</span><br>
-                                            IV: 28.0% <span class="text-success">(+0.3%)</span><br>
-                                            Δ: -0.55 Γ: 0.02<br>
-                                            Θ: -0.04 V: 0.14
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
+                        <div id="optionStats" class="mb-3 p-3 bg-dark text-white rounded">
+                            <div class="text-center text-muted">点击"加载实时数据"按钮获取数据</div>
                         </div>
+                        <div class="table-responsive mt-3" style="max-height: 500px; overflow-y: auto;">
+                            <div id="optionTable">
+                                <table class="table table-bordered table-sm">
+                                    <thead class="table-dark">
+                                        <tr>
+                                            <th>行权价</th>
+                                            <th colspan="2" class="text-center">Call数据</th>
+                                            <th colspan="2" class="text-center">Put数据</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr><td colspan="5" class="text-center text-muted">点击下方按钮加载数据</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div id="optionTimestamp" class="text-end text-muted small mt-2"></div>
                         
                         <div class="text-center mt-3">
                             <button class="btn btn-primary" onclick="loadRealOptionChain()">
@@ -789,8 +775,91 @@ def index():
         }
         
         // 模拟功能
-        function loadRealOptionChain() {
-            alert('正在加载实时期权链数据...（模拟功能）');
+        async function loadRealOptionChain() {
+            try {
+                const response = await fetch('/api/options/chain');
+                const data = await response.json();
+                
+                if (!data.success) {
+                    alert('加载失败: ' + (data.error || '未知错误'));
+                    return;
+                }
+                
+                // Update stats
+                document.getElementById('optionStats').innerHTML = \`
+                    <div class="row text-center">
+                        <div class="col-3">
+                            <div class="text-primary fw-bold">\${data.underlying_price.toFixed(0)}</div>
+                            <small>标的价格</small>
+                        </div>
+                        <div class="col-3">
+                            <div class="text-warning fw-bold">\${data.atm_strike}</div>
+                            <small>ATM行权价</small>
+                        </div>
+                        <div class="col-3">
+                            <div class="\${data.stats.volume_pcr > 1 ? 'text-danger' : 'text-success'} fw-bold">
+                                \${data.stats.volume_pcr.toFixed(2)}
+                            </div>
+                            <small>成交PCR</small>
+                        </div>
+                        <div class="col-3">
+                            <div class="\${data.stats.position_pcr > 1 ? 'text-danger' : 'text-success'} fw-bold">
+                                \${data.stats.position_pcr.toFixed(2)}
+                            </div>
+                            <small>持仓PCR</small>
+                        </div>
+                    </div>
+                \`;
+                
+                // Generate T-type table
+                const atm = data.atm_strike;
+                let tableHtml = \`
+                    <table class="table table-bordered table-sm table-hover mb-0">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>Call价格</th><th>CallIV</th><th>Δ</th><th>Γ</th><th>Θ</th><th>V</th>
+                                <th class="bg-warning text-dark">行权价</th>
+                                <th>Put价格</th><th>PutIV</th><th>Δ</th><th>Γ</th><th>Θ</th><th>V</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                \`;
+                
+                data.strike_rows.forEach(row => {
+                    const isATM = row.strike === atm;
+                    const bgClass = isATM ? 'table-warning' : '';
+                    const callUp = row.call_iv_change > 0 ? 'text-success' : (row.call_iv_change < 0 ? 'text-danger' : '');
+                    const putUp = row.put_iv_change > 0 ? 'text-success' : (row.put_iv_change < 0 ? 'text-danger' : '');
+                    
+                    tableHtml += \`
+                        <tr class="\${bgClass}">
+                            <td>\${row.call_price.toFixed(2)}</td>
+                            <td class="\${callUp}">\${row.call_iv.toFixed(1)}%</td>
+                            <td>\${row.call_delta.toFixed(3)}</td>
+                            <td>\${row.call_gamma.toFixed(4)}</td>
+                            <td>\${row.call_theta.toFixed(2)}</td>
+                            <td>\${row.call_vega.toFixed(2)}</td>
+                            <td class="fw-bold text-center bg-warning">\${row.strike.toFixed(0)}</td>
+                            <td>\${row.put_price.toFixed(2)}</td>
+                            <td class="\${putUp}">\${row.put_iv.toFixed(1)}%</td>
+                            <td>\${row.put_delta.toFixed(3)}</td>
+                            <td>\${row.put_gamma.toFixed(4)}</td>
+                            <td>\${row.put_theta.toFixed(2)}</td>
+                            <td>\${row.put_vega.toFixed(2)}</td>
+                        </tr>
+                    \`;
+                });
+                
+                tableHtml += '</tbody></table>';
+                document.getElementById('optionTable').innerHTML = tableHtml;
+                
+                // Show timestamp
+                document.getElementById('optionTimestamp').textContent = '数据时间: ' + data.timestamp;
+                
+            } catch (e) {
+                console.error('Load option chain error:', e);
+                alert('加载失败: ' + e.message);
+            }
         }
         
         function exportToExcel() {
@@ -825,23 +894,100 @@ def api_status():
 @app.route('/api/options/chain')
 def api_option_chain():
     """期权链数据API"""
-    return jsonify({
-        'underlying_price': 6420,
-        'timestamp': datetime.now().isoformat(),
-        'chain': [
-            {
-                'strike': 6400,
-                'call': {'price': 120, 'iv': 0.25, 'delta': 0.45, 'volume': 1000, 'oi': 5000},
-                'put': {'price': 80, 'iv': 0.28, 'delta': -0.55, 'volume': 800, 'oi': 3200}
-            }
-        ]
-    })
+    try:
+        api = oca.get_option_api()
+        result = api.get_full_chain()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/options/refresh', methods=['POST'])
+def api_option_refresh():
+    """刷新期权数据"""
+    try:
+        api = oca.get_option_api()
+        api._cache = None
+        api._last_update = None
+        result = api.get_full_chain()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/options/save_session', methods=['POST'])
+def api_save_session_snapshot():
+    """保存当前Session快照
+    
+    保存当前交易日的Session数据:
+    - morning: 11:30收盘
+    - afternoon: 15:00收盘
+    - night: 23:00收盘
+    """
+    try:
+        data = request.get_json() or {}
+        session_type = data.get('session_type', 'auto')  # 'morning', 'afternoon', 'night', 'auto'
+        
+        api = oca.get_option_api()
+        store = api.store
+        
+        # 获取当前时间
+        now = datetime.now()
+        trade_date = now.strftime('%Y%m%d')
+        
+        # 根据时间判断session类型
+        if session_type == 'auto':
+            hour = now.hour + now.minute / 60
+            if hour >= 23 or hour < 9:
+                session_type = 'night'
+            elif hour >= 11.5 and hour < 15:
+                session_type = 'afternoon'
+            elif hour >= 9 and hour < 11.5:
+                session_type = 'morning'
+            else:
+                session_type = 'afternoon'  # 默认
+        
+        # 获取今日期权数据
+        df = oca.AkshareOptionData.get_option_data(trade_date)
+        if df is None or len(df) == 0:
+            return jsonify({'success': False, 'error': '获取期权数据失败'})
+        
+        # 保存快照
+        store.save_session_snapshot(df, trade_date, session_type)
+        
+        return jsonify({
+            'success': True,
+            'session_type': session_type,
+            'trade_date': trade_date,
+            'saved_count': len(df)
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/options/vol_cone')
+def api_option_vol_cone():
+    """波动率锥API"""
+    try:
+        api = oca.get_option_api()
+        result = api.get_volatility_cone()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+# 注册期权链页面路由
+@app.route('/option_chain')
+def option_chain_page():
+    """期权链分析页面"""
+    try:
+        with open(os.path.join(WORKSPACE, 'option_chain.html'), 'r', encoding='utf-8') as f:
+            content = f.read()
+        return content
+    except Exception as e:
+        return f"Error loading page: {e}", 500
 
 @app.route('/kline')
 def kline_page():
-    """K线图页面"""
+    """K线图页面 - 使用Lightweight Charts"""
     try:
-        with open(os.path.join(WORKSPACE, 'templates', 'kline_1min.html'), 'r', encoding='utf-8') as f:
+        with open(os.path.join(WORKSPACE, 'templates', 'kline_lightweight.html'), 'r', encoding='utf-8') as f:
             content = f.read()
         from flask import make_response
         resp = make_response(content)
@@ -901,7 +1047,96 @@ def api_kline_data():
     
     period = request.args.get('period', '1min')
     
-    if period in ['1min', '5min', '15min', '30min', '60min']:
+    # 支持所有分钟周期：通过1分钟聚合
+    import re
+    agg_periods = {'120min': 120, '240min': 240}
+    standard_minute = ['1min', '5min', '15min', '30min', '60min']
+    
+    # 检查是否是非标准分钟周期（如7min, 13min等）
+    m = re.match(r'^(\d+)min$', period)
+    is_custom_minute = m and period not in standard_minute
+    
+    if is_custom_minute:
+        n = int(m.group(1))
+        try:
+            df = ak.futures_zh_minute_sina(symbol="TA0", period="1")
+            df = df.sort_values('datetime').tail(10000).reset_index(drop=True)
+            df['datetime'] = pd.to_datetime(df['datetime'])
+            df = df.set_index('datetime').resample(f'{n}min', label='left', offset=0).agg({
+                'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'
+            }).dropna().reset_index()
+            df['datetime'] = df['datetime'].astype(str).str.replace(' ', 'T')
+            
+            data = []
+            for _, row in df.iterrows():
+                data.append({
+                    'time': str(row['datetime']),
+                    'open': float(row['open']), 'high': float(row['high']),
+                    'low': float(row['low']), 'close': float(row['close']),
+                    'volume': float(row['volume'])
+                })
+            
+            last = data[-1] if data else {}
+            first = data[0] if data else {}
+            current_price = last.get('close', 0)
+            first_price = first.get('close', current_price)
+            change = current_price - first_price
+            change_pct = (change / first_price * 100) if first_price else 0
+            
+            return jsonify({
+                'symbol': 'TA', 'period': period, 'data': data,
+                'current_price': current_price, 'change': round(change, 2),
+                'change_pct': round(change_pct, 2), 'source': 'aggregated'
+            })
+        except Exception as e:
+            return jsonify({'error': str(e), 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0})
+    
+    elif period in ['1day', '1week', '1month']:
+        # 从日线数据聚合
+        try:
+            df = ak.futures_zh_daily_sina(symbol="TA0")
+            if df is None or len(df) == 0:
+                return jsonify({'error': '获取日线数据失败', 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0})
+            
+            df = df.sort_values('date').tail(500).reset_index(drop=True)
+            df['date'] = pd.to_datetime(df['date'])
+            
+            if period == '1day':
+                df['period_col'] = df['date']
+            elif period == '1week':
+                df['period_col'] = df['date'].dt.to_period('W').dt.start_time
+            elif period == '1month':
+                df['period_col'] = df['date'].dt.to_period('M').dt.start_time
+            
+            df_agg = df.groupby('period_col').agg({
+                'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'
+            }).reset_index()
+            
+            data = []
+            for _, row in df_agg.iterrows():
+                data.append({
+                    'time': str(row['period_col']).replace(' ', 'T'),
+                    'open': float(row['open']), 'high': float(row['high']),
+                    'low': float(row['low']), 'close': float(row['close']),
+                    'volume': float(row['volume'])
+                })
+            
+            last = data[-1] if data else {}
+            first = data[0] if data else {}
+            current_price = last.get('close', 0)
+            first_price = first.get('close', current_price)
+            change = current_price - first_price
+            change_pct = (change / first_price * 100) if first_price else 0
+            
+            return jsonify({
+                'symbol': 'TA', 'period': period, 'data': data,
+                'current_price': current_price, 'change': round(change, 2),
+                'change_pct': round(change_pct, 2), 'source': 'daily'
+            })
+        except Exception as e:
+            return jsonify({'error': str(e), 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0})
+
+    elif period in ['1min', '5min', '15min', '30min', '60min']:
         try:
             period_map = {"1min": "1", "5min": "5", "15min": "15", "30min": "30", "60min": "60"}
             df = ak.futures_zh_minute_sina(symbol="TA0", period=period_map.get(period, "1"))
@@ -1007,6 +1242,7 @@ def api_kline_indicators():
 
 # ==================== 缠论分析 API ====================
 import chan_core_wrapper as cw
+import option_chain_api as oca
 
 @app.route('/api/chan/analysis')
 def api_chan_analysis():

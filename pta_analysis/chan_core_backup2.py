@@ -560,26 +560,6 @@ def find_fenxing(kls: List[KL], min_gap: int = 1) -> List[Tuple[int, str, float]
         
         i += 1
     
-    # 同向分型合并：保留幅度更大的
-    if len(fenxing) > 1:
-        merged = [fenxing[0]]
-        for fx in fenxing[1:]:
-            last = merged[-1]
-            if last[1] == fx[1]:  # 同向
-                if last[1] == 'top':
-                    if last[2] >= fx[2]:
-                        pass  # last更高，保持
-                    else:
-                        merged[-1] = fx  # fx更高，替换
-                else:  # bottom
-                    if last[2] <= fx[2]:
-                        pass  # last更低，保持
-                    else:
-                        merged[-1] = fx
-            else:
-                merged.append(fx)
-        fenxing = merged
-    
     # 过滤间隔太近的分型（使用原始idx差值）
     if min_gap > 0 and len(fenxing) > 1:
         filtered = [fenxing[0]]
@@ -622,9 +602,6 @@ def build_bi(kls: List[KL], fenxing: List[Tuple[int, str, float]],
     bi_idx = 0
     
     i = 0
-    prev_top_price = None  # 跟踪前一个顶的价格
-    prev_bottom_price = None  # 跟踪前一个底的价格
-    
     while i < len(fenxing) - 1:
         fx1 = fenxing[i]
         fx2 = fenxing[i + 1]
@@ -637,23 +614,14 @@ def build_bi(kls: List[KL], fenxing: List[Tuple[int, str, float]],
             i += 1
             continue
         
-        # 笔方向检查：如果新顶不超过前高，或新底不低于前底，则是反向笔
-        direction = 'up' if type1 == 'bottom' else 'down'
-        if direction == 'up' and prev_top_price is not None and price2 <= prev_top_price:
-            # 新顶没超过前高，检查是否应该延续前一个UP笔
-            # 如果前一个笔结束后有足够间隔，才开始新笔
-            pass  # 暂时不做复杂处理
-        if direction == 'down' and prev_bottom_price is not None and price2 >= prev_bottom_price:
-            pass  # 暂时不做复杂处理
-        
         # 计算间隔K线数（使用原始idx差值）
         gap = abs(idx2 - idx1) - 1
         
-        # 判断是否为有效笔：间隔<4根K线
+        # 判断是否为有效笔
         if gap < min_k:
+            # 小笔判断：价格幅度
             gap_points = abs(price2 - price1)
             if gap_points < small_bi_points:
-                # 小笔跳过：如果回调幅度小于30点，认为是噪音
                 i += 1
                 continue
         
@@ -680,40 +648,6 @@ def build_bi(kls: List[KL], fenxing: List[Tuple[int, str, float]],
             else:
                 i += 1
                 continue
-        
-        # 检查是否应该形成新笔：
-        # 1. 如果是同向笔，新端点必须超越前一个同向笔的端点
-        # 2. 如果新笔起点在前一个同向笔区间内，不形成新笔（是延续）
-        if len(bis) > 0:
-            last_bi = bis[-1]
-            if direction == last_bi.dir:
-                # 同向笔：新顶必须创新高才算新笔，否则跳过
-                if direction == 'up' and price2 <= last_bi.end_price:
-                    i += 1
-                    continue
-                if direction == 'down' and price2 >= last_bi.end_price:
-                    i += 1
-                    continue
-        
-        # 新笔检查：只有当新笔真正突破前高/前低时才形成新笔
-        # 对于UP笔：新底必须创新低（低于前UP笔起点），否则延续前笔
-        if len(bis) > 0 and direction == 'up':
-            last_bi = bis[-1]
-            if last_bi.dir == 'up':
-                # 前一个也是UP笔：如果新底没有创新低，不形成新笔
-                if price1 >= last_bi.begin_price:
-                    # 新起点没有创新低，跳过
-                    i += 1
-                    continue
-        # 对于DOWN笔：新顶必须创新高（高于前DOWN笔起点），否则延续前笔
-        if len(bis) > 0 and direction == 'down':
-            last_bi = bis[-1]
-            if last_bi.dir == 'down':
-                # 前一个也是DOWN笔：如果新顶没有创新高，不形成新笔
-                if price1 <= last_bi.begin_price:
-                    # 新起点没有创新高，跳过
-                    i += 1
-                    continue
         
         bi = Bi(
             idx=bi_idx,

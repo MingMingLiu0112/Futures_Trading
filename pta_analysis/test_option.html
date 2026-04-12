@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Test</title>
+</head>
+<body>
+    <h1>Option Chain Test</h1>
+    <pre id="result">Loading...</pre>
+    <script>
+        fetch('/api/options/chain')
+            .then(r => r.json())
+            .then(d => {
+                document.getElementById('result').textContent = JSON.stringify(d, null, 2);
+            })
+            .catch(e => {
+                document.getElementById('result').textContent = 'Error: ' + e;
+            });
+    </script>
+</body>
+</html>

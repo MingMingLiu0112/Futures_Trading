@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PTA期货综合分析 - Lightweight Charts</title>
+    <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 10px;
+            background: #1a1a2e;
+            color: #fff;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #333;
+            margin-bottom: 10px;
+        }
+        .title { font-size: 20px; font-weight: bold; }
+        .controls { display: flex; gap: 10px; align-items: center; }
+        .controls select, .controls button {
+            padding: 6px 12px;
+            border-radius: 4px;
+            border: 1px solid #444;
+            background: #2d2d44;
+            color: #fff;
+            cursor: pointer;
+        }
+        .controls button:hover { background: #3d3d54; }
+        
+        .stats-bar {
+            display: flex;
+            gap: 20px;
+            padding: 8px 12px;
+            background: #2d2d44;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            font-size: 13px;
+            flex-wrap: wrap;
+        }
+        .stat-item { display: flex; gap: 5px; }
+        .stat-label { color: #888; }
+        .stat-value { font-weight: bold; }
+        .up { color: #26a69a; }
+        .down { color: #ef5350; }
+        .text-success { color: #26a69a; }
+        .text-danger { color: #ef5350; }
+        
+        .chart-section {
+            margin-bottom: 10px;
+            position: relative;
+        }
+        .section-title {
+            font-size: 14px;
+            font-weight: bold;
+            padding: 5px 10px;
+            background: #2d2d44;
+            border-radius: 4px 4px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .chart-container {
+            border-radius: 0 0 8px 8px;
+            overflow: hidden;
+        }
+        #main-chart { height: 400px; }
+        #macd-chart { height: 100px; }
+        #kdj-chart { height: 100px; }
+        
+        .indicator-toggles {
+            display: flex;
+            gap: 8px;
+        }
+        .indicator-toggle {
+            padding: 3px 8px;
+            border-radius: 4px;
+            background: #333;
+            color: #888;
+            cursor: pointer;
+            font-size: 11px;
+        }
+        .indicator-toggle.active {
+            background: #2196F3;
+            color: #fff;
+        }
+        .indicator-toggle:hover { background: #444; }
+        
+        /* Option Chain Table */
+        .option-section {
+            margin-bottom: 10px;
+        }
+        .option-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11px;
+        }
+        .option-table th, .option-table td {
+            padding: 3px 4px;
+            text-align: center;
+            border: 1px solid #333;
+        }
+        .option-table th {
+            background: #2d2d44;
+            color: #fff;
+            position: sticky;
+            top: 0;
+        }
+        .option-table tr:nth-child(even) { background: #252538; }
+        .option-table tr:hover { background: #333; }
+        .call-side { background: rgba(255, 99, 71, 0.1); }
+        .put-side { background: rgba(65, 105, 225, 0.1); }
+        .atm-row { background: rgba(255, 215, 0, 0.2) !important; }
+        .put-deep { background: rgba(38, 166, 154, 0.1); }
+        .call-deep { background: rgba(239, 83, 80, 0.1); }
+        .Strike-col { background: rgba(255, 215, 0, 0.15); font-weight: bold; color: #ffd700; }
+        
+        .table-scroll {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .table-scroll::-webkit-scrollbar { width: 6px; }
+        .table-scroll::-webkit-scrollbar-track { background: #1a1a2e; }
+        .table-scroll::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+        
+        .option-stats {
+            display: flex;
+            gap: 15px;
+            padding: 8px;
+            background: #252538;
+            font-size: 12px;
+            margin-bottom: 5px;
+        }
+        .option-stat { text-align: center; }
+        .option-stat-label { color: #888; font-size: 10px; }
+        .option-stat-value { font-weight: bold; }
+        .loading { text-align: center; padding: 30px; color: #888; }
+        .error { color: #ff6b6b; padding: 10px; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="title">📈 PTA期货综合分析</div>
+        <div class="controls">
+            <select id="symbol">
+                <option value="TA0">PTA主力 (TA0)</option>
+            </select>
+            <select id="period">
+                <option value="1min">1分钟</option>
+                    <option value="1day" selected>日线</option>
+                <option value="5min">5分钟</option>
+                <option value="30min">30分钟</option>
+                <option value="60min">60分钟</option>
+                <option value="120min">120分钟</option>
+                <option value="240min">240分钟</option>
+                <option value="1day">日线</option>
+                <option value="1week">周线</option>
+                <option value="1month">月线</option>
+            </select>
+            <button onclick="loadAllData()">🔄 刷新</button>
+        </div>
+    </div>
+
+    <div class="stats-bar" id="statsBar">
+        <div class="stat-item"><span class="stat-label">最新价:</span><span class="stat-value" id="lastPrice">--</span><span id="priceChange" style="font-size:11px;margin-left:5px;">--</span></div>
+        <div class="stat-item"><span class="stat-label">涨跌:</span><span class="stat-value" id="change">--</span></div>
+        <div class="stat-item"><span class="stat-label">成交量(手):</span><span class="stat-value" id="volume">--</span><span id="volumeChange" style="font-size:11px;margin-left:5px;">--</span></div>
+        <div class="stat-item"><span class="stat-label">持仓量:</span><span class="stat-value" id="openInterest">--</span><span id="oiChange" style="font-size:11px;margin-left:5px;">--</span></div>
+        <div class="stat-item"><span class="stat-label">笔数:</span><span class="stat-value" id="biCount">--</span></div>
+        <div class="stat-item"><span class="stat-label">线段:</span><span class="stat-value" id="segCount">--</span></div>
+        <div class="stat-item"><span class="stat-label">中枢:</span><span class="stat-value" id="zsCount">--</span></div>
+        <div class="stat-item"><span class="stat-label">买卖点:</span><span class="stat-value" id="bsCount">--</span></div>
+    </div>
+
+    <!-- 指标切换 -->
+    <div class="indicator-toggles" style="margin-bottom:10px;">
+        <span class="indicator-toggle active" data-ind="bi" onclick="toggleIndicator('bi')">笔</span>
+        <span class="indicator-toggle active" data-ind="seg" onclick="toggleIndicator('seg')">线段</span>
+        <span class="indicator-toggle active" data-ind="zs" onclick="toggleIndicator('zs')">中枢</span>
+        <span class="indicator-toggle active" data-ind="bs" onclick="toggleIndicator('bs')">买卖点</span>
+    </div>
+
+    <!-- K线图 -->
+    <div class="chart-section">
+        <div class="section-title"><span>K线图表</span></div>
+        <div id="main-chart" class="chart-container"></div>
+    </div>
+
+    <!-- MACD -->
+    <div class="chart-section">
+        <div class="section-title"><span>MACD指标</span><select id="macdPeriod" onchange="changeMacdPeriod()" style="background:#333;color:#fff;border:none;font-size:11px;padding:2px 5px;border-radius:3px;"><option value="1min">1分钟</option>
+                    <option value="1day" selected>日线</option><option value="2min">2分钟</option><option value="3min">3分钟</option><option value="4min">4分钟</option><option value="5min">5分钟</option><option value="6min">6分钟</option><option value="7min">7分钟</option><option value="8min">8分钟</option><option value="9min">9分钟</option><option value="10min">10分钟</option><option value="11min">11分钟</option><option value="12min">12分钟</option><option value="13min">13分钟</option><option value="14min">14分钟</option><option value="15min">15分钟</option><option value="16min">16分钟</option><option value="17min">17分钟</option><option value="18min">18分钟</option><option value="19min">19分钟</option><option value="20min">20分钟</option><option value="21min">21分钟</option><option value="22min">22分钟</option><option value="23min">23分钟</option><option value="24min">24分钟</option><option value="25min">25分钟</option><option value="26min">26分钟</option><option value="27min">27分钟</option><option value="28min">28分钟</option><option value="29min">29分钟</option><option value="30min">30分钟</option><option value="31min">31分钟</option><option value="32min">32分钟</option><option value="33min">33分钟</option><option value="34min">34分钟</option><option value="35min">35分钟</option><option value="36min">36分钟</option><option value="37min">37分钟</option><option value="38min">38分钟</option><option value="39min">39分钟</option><option value="40min">40分钟</option><option value="41min">41分钟</option><option value="42min">42分钟</option><option value="43min">43分钟</option><option value="44min">44分钟</option><option value="45min">45分钟</option><option value="46min">46分钟</option><option value="47min">47分钟</option><option value="48min">48分钟</option><option value="49min">49分钟</option><option value="50min">50分钟</option><option value="51min">51分钟</option><option value="52min">52分钟</option><option value="53min">53分钟</option><option value="54min">54分钟</option><option value="55min">55分钟</option><option value="56min">56分钟</option><option value="57min">57分钟</option><option value="58min">58分钟</option><option value="59min">59分钟</option><option value="60min">60分钟</option></select><span id="macdValues" style="font-size:11px;color:#888;">DIF: -- | DEA: -- | MACD: --</span></div>
+        <div id="macd-chart" class="chart-container"></div>
+    </div>
+
+    <!-- KDJ -->
+    <div class="chart-section">
+        <div class="section-title"><span>KDJ指标</span><span id="kdjValues" style="font-size:11px;color:#888;">K: -- | D: -- | J: --</span></div>
+        <div id="kdj-chart" class="chart-container"></div>
+    </div>
+
+    <!-- 期权链 -->
+    <div class="option-section">
+        <div class="section-title">
+            <span>📊 期权链T型报价</span>
+            <button onclick="loadOptionChain()" style="background:#2196F3;color:#fff;border:none;padding:2px 8px;border-radius:4px;cursor:pointer;">刷新</button>
+        </div>
+        <div class="chart-container" style="padding:10px;">
+            <div id="optionStats" class="option-stats"></div>
+            <div class="table-scroll">
+                <table class="option-table">
+                    <thead>
+                        <tr>
+                            <th>Θ</th><th>V</th><th>Γ</th><th>Δ</th><th>成变%</th><th>成交</th><th>仓变%</th><th>持仓</th><th>IV变</th><th>IV</th><th>价格</th>
+                            <th class="Strike-col">行权价</th>
+                            <th>价格</th><th>IV</th><th>IV变</th><th>持仓</th><th>仓变%</th><th>成交</th><th>成变%</th><th>Δ</th><th>Γ</th><th>V</th><th>Θ</th>
+                        </tr>
+                    </thead>
+                    <tbody id="optionTableBody">
+                        <tr><td colspan="17" class="loading">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div id="optionTimestamp" style="color:#888;font-size:11px;margin-top:5px;"></div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== 全局变量 ====================
+        let mainChart = null, macdChart = null, kdjChart = null;
+        let candleSeries = null, volumeSeries = null;
+        let biSeries = null, segSeries = null, zsSeries = null, sessionBreakSeries = null;
+        let macdLineSeries = null, signalLineSeries = null, macdHistSeries = null;
+        let kdjKSeries = null, kdjDSeries = null, kdjJSeries = null;
+        
+        // 指标显示状态
+        let showBi = true, showSeg = true, showZs = true, showBs = true;
+        
+        // 数据
+        let klineData = [], biData = [], segData = [], zsData = [], bsData = [];
+        let macdDataCache = {}; // {period: {klineData, macdLine, signalLine, histogram}}
+        
+        // 颜色
+        const C = {
+            up: '#ef5350', down: '#26a69a',
+            biUp: '#ff9800', biDown: '#2196F3',
+            segUp: '#FFC107', segDown: '#FFEB3B',
+            zs: '#9C27B0',
+            bsBuy: '#4CAF50', bsSell: '#F44336',
+            macd: '#2196F3', signal: '#FF9800',
+            kdjK: '#2196F3', kdjD: '#FF9800', kdjJ: '#9C27B0'
+        };
+
+        // ==================== 初始化图表 ====================
+        
+        async function initMainChart() {
+            const container = document.getElementById('main-chart');
+            mainChart = LightweightCharts.createChart(container, {
+                width: container.clientWidth, height: 600,
+                layout: { background: { type: 'solid', color: '#1a1a2e' }, textColor: '#aaa' },
+                grid: { vertLines: { color: '#2a2a3e' }, horzLines: { color: '#2a2a3e' } },
+                crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+                timeScale: { borderColor: '#333', timeVisible: true, secondsVisible: false },
+                rightPriceScale: { borderColor: '#333' },
+                layout: { background: { type: 'solid', color: '#1a1a2e' }, textColor: '#aaa' },
+                grid: { vertLines: { color: '#2a2a3e' }, horzLines: { color: '#2a2a3e' } },
+                crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+                timeScale: { 
+                    borderColor: '#333', 
+                    timeVisible: true, 
+                    secondsVisible: false,
+                },
+                rightPriceScale: { borderColor: '#333' },
+            });
+
+            candleSeries = mainChart.addCandlestickSeries({
+                upColor: C.up, downColor: C.down,
+                borderUpColor: C.up, borderDownColor: C.down,
+                wickUpColor: C.up, wickDownColor: C.down,
+            });
+            
+            // 自定义时间格式化器 - 中国期货交易时段
+            mainChart.applyOptions({
+                layout: {
+                    attribution: false,
+                },
+            });
+
+            volumeSeries = mainChart.addHistogramSeries({
+                color: C.up + '60', priceFormat: { type: 'volume' }, priceScaleId: '',
+            });
+            volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
+
+            // MACD图表
+            const macdContainer = document.getElementById('macd-chart');
+            macdContainer.style.display = 'block';
+            macdChart = LightweightCharts.createChart(macdContainer, {
+                width: container.clientWidth, height: 100,
+                layout: { background: { type: 'solid', color: '#1a1a2e' }, textColor: '#aaa' },
+                grid: { vertLines: { color: '#2a2a3e' }, horzLines: { color: '#2a2a3e' } },
+                timeScale: { visible: false },
+                rightPriceScale: { borderColor: '#333' },
+            });
+            macdLineSeries = macdChart.addLineSeries({ color: C.macd, lineWidth: 1 });
+            signalLineSeries = macdChart.addLineSeries({ color: C.signal, lineWidth: 1 });
+            macdHistSeries = macdChart.addHistogramSeries({});
+
+            // KDJ图表
+            const kdjContainer = document.getElementById('kdj-chart');
+            kdjContainer.style.display = 'block';
+            kdjChart = LightweightCharts.createChart(kdjContainer, {
+                width: container.clientWidth, height: 100,
+                layout: { background: { type: 'solid', color: '#1a1a2e' }, textColor: '#aaa' },
+                grid: { vertLines: { color: '#2a2a3e' }, horzLines: { color: '#2a2a3e' } },
+                timeScale: { visible: false },
+                rightPriceScale: { borderColor: '#333' },
+            });
+            kdjKSeries = kdjChart.addLineSeries({ color: C.kdjK, lineWidth: 1 });
+            kdjDSeries = kdjChart.addLineSeries({ color: C.kdjD, lineWidth: 1 });
+            kdjJSeries = kdjChart.addLineSeries({ color: C.kdjJ, lineWidth: 1 });
+
+            // 笔 - 线段
+            biSeries = mainChart.addLineSeries({
+                color: C.biUp, lineWidth: 2, priceLineVisible: false, lastValueVisible: false,
+            });
+            
+            segSeries = mainChart.addLineSeries({
+                color: C.segUp, lineWidth: 3, priceLineVisible: false, lastValueVisible: false,
+                lineStyle: LightweightCharts.LineStyle.Dashed,
+            });
+            
+            // 中枢 - 用Area显示
+            zsSeries = mainChart.addAreaSeries({
+                lineColor: C.zs,
+                topColor: C.zs + '40',
+                bottomColor: C.zs + '10',
+                priceLineVisible: false,
+                lastValueVisible: false,
+            });
+
+            // 买卖点
+            // markers handled by candleSeries
+
+            // 订阅主图滚动，同步MACD和KDJ
+            mainChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+                if (range) {
+                    if (macdChart) macdChart.timeScale().setVisibleLogicalRange(range);
+                    if (kdjChart) kdjChart.timeScale().setVisibleLogicalRange(range);
+                }
+            });
+            
+            // MACD/KDJ图表也订阅主图的十字光标移动
+            mainChart.subscribeCrosshairMove(param => {
+                updateIndicatorValuesAtCrosshair(param);
+            });
+            
+            // 确保所有图表同时切换到相同时间范围
+            // 指标与主图同轴
+
+            window.addEventListener('resize', () => {
+                mainChart.applyOptions({ width: container.clientWidth });
+                if (macdChart) macdChart.applyOptions({ width: container.clientWidth });
+                if (kdjChart) kdjChart.applyOptions({ width: container.clientWidth });
+            });
+            
+            try {
+                // K线数据
+                const kRes = await fetch(`/api/kline/data?symbol=TA0&period=${period}`);
+                const kData = await kRes.json();
+                
+                if (!kData.data || kData.data.length === 0) {
+                    alert('暂无K线数据');
+                    return;
+                }
+                
+                klineData = kData.data;
+                
+                console.log('Loaded period:', period, 'bars:', klineData.length, 'first:', klineData[0]?.time, 'last:', klineData[klineData.length-1]?.time);
+                
+                // 更新统计
+                const last = klineData[klineData.length - 1];
+                const first = klineData[0];
+                const change = ((last.close - first.close) / first.close * 100).toFixed(2);
+                const priceChangeFromPrev = (last.close - klineData[klineData.length - 2].close).toFixed(0);
+                const volumeChangeFromPrev = (last.volume - klineData[klineData.length - 2].volume).toFixed(0);
+                const totalVolume = klineData.reduce((s, k) => s + parseFloat(k.volume), 0);
+                
+                document.getElementById('lastPrice').textContent = last.close.toFixed(0);
+                document.getElementById('lastPrice').className = change >= 0 ? 'stat-value up' : 'stat-value down';
+                document.getElementById('priceChange').textContent = `(${priceChangeFromPrev >= 0 ? '+' : ''}${priceChangeFromPrev})`;
+                document.getElementById('priceChange').className = priceChangeFromPrev >= 0 ? 'text-success' : 'text-danger';
+                document.getElementById('change').textContent = `${change >= 0 ? '+' : ''}${change}%`;
+                document.getElementById('change').className = change >= 0 ? 'stat-value up' : 'stat-value down';
+                document.getElementById('volume').textContent = totalVolume.toFixed(0);
+                document.getElementById('volumeChange').textContent = `(${volumeChangeFromPrev >= 0 ? '+' : ''}${volumeChangeFromPrev})`;
+                document.getElementById('volumeChange').className = volumeChangeFromPrev >= 0 ? 'text-success' : 'text-danger';
+                document.getElementById('openInterest').textContent = '--';
+                document.getElementById('oiChange').textContent = '';
+                
+                // 缠论数据
+                const chanRes = await fetch(`/api/chan/analysis?period=${period}`);
+                const chanData = await chanRes.json();
+                
+                biData = chanData.bi_markline || [];
+                segData = chanData.seg_markline || [];
+                zsData = chanData.zs_data || [];
+                bsData = chanData.bs_data || [];
+                
+                document.getElementById('biCount').textContent = biData.length;
+                document.getElementById('segCount').textContent = segData.length;
+                document.getElementById('zsCount').textContent = zsData.length;
+                document.getElementById('bsCount').textContent = bsData.length;
+                
+                // 初始化图表
+                if (!mainChart) initMainChart();
+                
+                // K线数据 - 使用Unix时间戳（秒）
+                const chartData = klineData
+                    .filter(k => k.open && k.high && k.low && k.close)
+                    .map(k => {
+                        const ts = new Date(k.time).getTime() / 1000;
+                        return {
+                            time: ts,
+                            open: parseFloat(k.open),
+                            high: parseFloat(k.high),
+                            low: parseFloat(k.low),
+                            close: parseFloat(k.close),
+                        };
+                    })
+                    .sort((a, b) => a.time - b.time);
+                
+                // 清除旧数据
+                candleSeries.setData([]);
+                volumeSeries.setData([]);
+                biSeries.setData([]);
+                segSeries.setData([]);
+                zsSeries.setData([]);
+                candleSeries.setData(chartData);
+
+                
+                // 成交量
+                try {
+                    const volData = klineData
+                        .filter(k => k.volume)
+                        .map(k => ({
+                            time: new Date(k.time).getTime() / 1000,
+                            value: parseFloat(k.volume),
+                            color: parseFloat(k.close) >= parseFloat(k.open) ? C.up + '60' : C.down + '60',
+                        }))
+                        .sort((a, b) => a.time - b.time);
+                    console.log('volume items:', volData.length);
+                    volumeSeries.setData(volData);
+                } catch(e) { console.error('volumeSeries error:', e.message); }
+                
+                // 绘制指标
+                drawBiLines();
+                drawSegLines();
+                drawZsAreas();
+                drawBsMarkers();
+                
+                // MACD
+                console.log('Before calculateAndDrawMACD');
+                calculateAndDrawMACD();
+                console.log('After calculateAndDrawMACD');
+                
+                // KDJ
+                console.log('Before calculateAndDrawKDJ');
+                calculateAndDrawKDJ();
+                console.log('After calculateAndDrawKDJ');
+                
+                console.log('Before fitContent');
+                mainChart.timeScale().fitContent();
+                console.log('After fitContent');
+                
+            } catch (e) {
+                console.error('Load error:', e);
+                
+            }
+        }
+
+        // ==================== 数据加载 ====================
+
+        async function loadAllData() {
+            try {
+                const period = document.getElementById('period').value;
+                
+                // 并行加载K线数据和缠论数据
+                const [kRes, chanRes] = await Promise.all([
+                    fetch(`/api/kline/data?symbol=TA0&period=${period}`),
+                    fetch(`/api/chan/analysis?period=${period}`)
+                ]);
+                const kData = await kRes.json();
+                const chanData = await chanRes.json();
+                
+                if (kData.error) {
+                    document.getElementById('lastPrice').textContent = '--';
+                    document.getElementById('volume').textContent = '数据加载失败';
+                    return;
+                }
+                
+                if (!kData || !kData.data || !Array.isArray(kData.data) || kData.data.length === 0) {
+                    document.getElementById('lastPrice').textContent = '--';
+                    document.getElementById('volume').textContent = '无数据(周末?)';
+                    candleSeries.setData([]);
+                    volumeSeries.setData([]);
+                    return;
+                }
+                klineData = kData.data;
+                
+                // 转换时间格式
+                const chartData = klineData
+                    .filter(k => k.open && k.high && k.low && k.close)
+                    .map(k => {
+                        const ts = new Date(k.time).getTime() / 1000;
+                        return {
+                            time: ts,
+                            open: parseFloat(k.open),
+                            high: parseFloat(k.high),
+                            low: parseFloat(k.low),
+                            close: parseFloat(k.close),
+                        };
+                    })
+                    .sort((a, b) => a.time - b.time);
+                
+                // 清除旧数据
+                candleSeries.setData([]);
+                volumeSeries.setData([]);
+                biSeries.setData([]);
+                segSeries.setData([]);
+                zsSeries.setData([]);
+                
+                
+                // 成交量
+                const volData = klineData
+                    .filter(k => k.volume)
+                    .map(k => ({
+                        time: new Date(k.time).getTime() / 1000,
+                        value: parseFloat(k.volume),
+                        color: parseFloat(k.close) >= parseFloat(k.open) ? C.up + '60' : C.down + '60',
+                    }))
+                    .sort((a, b) => a.time - b.time);
+                volumeSeries.setData(volData);
+                
+                // 更新统计
+                const last = klineData[klineData.length - 1];
+                const first = klineData[0];
+                if (last && first) {
+                    const change = ((last.close - first.close) / first.close * 100).toFixed(2);
+                    const priceChangeFromPrev = (last.close - klineData[klineData.length - 2].close).toFixed(0);
+                    const volumeChangeFromPrev = (last.volume - klineData[klineData.length - 2].volume).toFixed(0);
+                    const totalVolume = klineData.reduce((s, k) => s + parseFloat(k.volume), 0);
+                    
+                    document.getElementById('lastPrice').textContent = last.close.toFixed(0);
+                    document.getElementById('lastPrice').className = change >= 0 ? 'stat-value up' : 'stat-value down';
+                    document.getElementById('priceChange').textContent = `(${priceChangeFromPrev >= 0 ? '+' : ''}${priceChangeFromPrev})`;
+                    document.getElementById('priceChange').className = priceChangeFromPrev >= 0 ? 'text-success' : 'text-danger';
+                    document.getElementById('change').textContent = `${change >= 0 ? '+' : ''}${change}%`;
+                    document.getElementById('change').className = change >= 0 ? 'stat-value up' : 'stat-value down';
+                    document.getElementById('volume').textContent = totalVolume.toFixed(0);
+                    document.getElementById('volumeChange').textContent = `(${volumeChangeFromPrev >= 0 ? '+' : ''}${volumeChangeFromPrev})`;
+                    document.getElementById('volumeChange').className = volumeChangeFromPrev >= 0 ? 'text-success' : 'text-danger';
+                    document.getElementById('openInterest').textContent = '--';
+                    document.getElementById('oiChange').textContent = '';
+                }
+                
+                // 处理缠论数据
+                biData = chanData.bi_markline || [];
+                segData = chanData.seg_markline || [];
+                zsData = chanData.zs_data || [];
+                bsData = chanData.bs_points || [];
+                
+                // 绘制指标
+                drawBiLines();
+                drawSegLines();
+                drawZsAreas();
+                drawBsMarkers();
+                
+                // MACD
+                calculateAndDrawMACD();
+                
+                // KDJ
+                calculateAndDrawKDJ();
+                
+                // 同步所有图表时间轴 - 先fitContent再同步
+                mainChart.timeScale().fitContent();
+                
+                kdjChart.timeScale().fitContent();
+                
+                // 同步可见范围
+                setTimeout(() => {
+                    const mainRange = mainChart.timeScale().getVisibleLogicalRange();
+                    if (mainRange) {
+                        macdChart.timeScale().setVisibleLogicalRange(mainRange);
+                        kdjChart.timeScale().setVisibleLogicalRange(mainRange);
+                    }
+                }, 100);
+                
+            } catch (e) {
+                console.error('Load error:', e);
+                
+            }
+        }
+
+        // ==================== 指标计算 ====================
+
+        function calculateMACD(closes, fast = 12, slow = 26, signal = 9) {
+            const ema = (data, period) => {
+                const k = 2 / (period + 1);
+                let emaVal = data[0];
+                return data.map(v => { emaVal = v * k + emaVal * (1 - k); return emaVal; });
+            };
+            
+            const fastEma = ema(closes, fast);
+            const slowEma = ema(closes, slow);
+            const macdLine = fastEma.map((v, i) => v - slowEma[i]);
+            const signalLine = ema(macdLine, signal);
+            // MACD柱状图 = DIF - DEA (红涨绿跌)
+            const histogram = macdLine.map((v, i) => v - signalLine[i]);
+            
+            return { macdLine, signalLine, histogram };
+        }
+
+        function calculateKDJ(highs, lows, closes, period = 9) {
+            const rsv = closes.map((_, i) => {
+                if (i < period - 1) return 50;
+                const sliceH = highs.slice(i - period + 1, i + 1);
+                const sliceL = lows.slice(i - period + 1, i + 1);
+                const h = Math.max(...sliceH), l = Math.min(...sliceL);
+                return h === l ? 50 : (closes[i] - l) / (h - l) * 100;
+            });
+            
+            let kVal = 50, dVal = 50;
+            const kLine = [], dLine = [], jLine = [];
+            
+            rsv.forEach(v => {
+                kVal = (2/3) * kVal + (1/3) * v;
+                dVal = (2/3) * dVal + (1/3) * kVal;
+                kLine.push(kVal);
+                dLine.push(dVal);
+                jLine.push(3 * kVal - 2 * dVal);
+            });
+            
+            return { kLine, dLine, jLine };
+        }
+
+        function calculateAndDrawMACD() {
+            const closes = klineData.map(k => parseFloat(k.close));
+            const { macdLine, signalLine, histogram } = calculateMACD(closes);
+            const times = klineData.map(k => new Date(k.time).getTime() / 1000);
+            
+            // 显示最新值
+            const n = macdLine.length - 1;
+            if (n >= 0) {
+                document.getElementById('macdValues').innerHTML = 
+                    `DIF: ${macdLine[n].toFixed(3)} | DEA: ${signalLine[n].toFixed(3)} | 柱: ${histogram[n].toFixed(3)}`;
+            }
+            
+            // MACD线 - 只设置真实数据（从26开始）
+            const macdData = macdLine.map((v, i) => ({ time: times[i], value: i >= 25 ? v : 0 }));
+            const signalData = signalLine.map((v, i) => ({ time: times[i], value: i >= 25 ? v : 0 }));
+
+            macdLineSeries.setData(macdData);
+            signalLineSeries.setData(signalData);
+            
+            // MACD柱状图：累积面积 - 只设置真实数据
+            let cumulative = 0;
+            const histData = [];
+            for (let i = 0; i < histogram.length; i++) {
+                if (i >= 25) {
+                    cumulative += histogram[i];
+                }
+                histData.push({
+                    time: times[i],
+                    value: i >= 25 ? cumulative : 0,
+                    color: i >= 25 ? (cumulative >= 0 ? '#ef5350' : '#26a69a') : '#666',
+                });
+            }
+            macdHistSeries.setData(histData);
+        }
+
+        function calculateAndDrawKDJ() {
+            const highs = klineData.map(k => parseFloat(k.high));
+            const lows = klineData.map(k => parseFloat(k.low));
+            const closes = klineData.map(k => parseFloat(k.close));
+            const { kLine, dLine, jLine } = calculateKDJ(highs, lows, closes);
+            const times = klineData.map(k => new Date(k.time).getTime() / 1000);
+            
+            // 显示最新值
+            const n = kLine.length - 1;
+            if (n >= 0) {
+                document.getElementById('kdjValues').innerHTML = 
+                    `K: ${kLine[n].toFixed(2)} | D: ${dLine[n].toFixed(2)} | J: ${jLine[n].toFixed(2)}`;
+            }
+            
+            // KDJ线 - 只设置真实数据（从9开始）
+            const kdjKData = kLine.map((v, i) => ({ time: times[i], value: i >= 8 ? v : 0 }));
+            const kdjDData = dLine.map((v, i) => ({ time: times[i], value: i >= 8 ? v : 0 }));
+            const kdjJData = jLine.map((v, i) => ({ time: times[i], value: i >= 8 ? v : 0 }));
+            kdjKSeries.setData(kdjKData);
+            kdjDSeries.setData(kdjDData);
+            kdjJSeries.setData(kdjJData);
+        }
+
+                function updateIndicatorValuesAtCrosshair(param) {
+            if (!param.time || !klineData || klineData.length === 0) return;
+            
+            const crosshairTime = param.time;
+            
+            // 找到十字光标位置对应的K线索引
+            let idx = -1;
+            for (let i = 0; i < klineData.length; i++) {
+                const t = new Date(klineData[i].time).getTime() / 1000;
+                if (Math.abs(t - crosshairTime) < 60) { // 1分钟容差
+                    idx = i;
+                    break;
+                }
+            }
+            
+            if (idx < 0) return;
+            
+            const k = klineData[idx];
+            const price = parseFloat(k.close);
+            const open = parseFloat(k.open);
+            const high = parseFloat(k.high);
+            const low = parseFloat(k.low);
+            const vol = parseFloat(k.volume);
+            const priceChange = idx > 0 ? (price - klineData[idx-1].close).toFixed(0) : '0';
+            const volChange = idx > 0 ? (vol - klineData[idx-1].volume).toFixed(0) : '0';
+            
+            // 更新价格和成交量显示
+            document.getElementById('lastPrice').textContent = price.toFixed(0);
+            document.getElementById('priceChange').textContent = `(${priceChange >= 0 ? '+' : ''}${priceChange})`;
+            document.getElementById('priceChange').className = priceChange >= 0 ? 'text-success' : 'text-danger';
+            document.getElementById('volume').textContent = vol.toFixed(0);
+            document.getElementById('volumeChange').textContent = `(${volChange >= 0 ? '+' : ''}${volChange})`;
+            document.getElementById('volumeChange').className = volChange >= 0 ? 'text-success' : 'text-danger';
+            
+            // 计算该位置的MACD值
+            const closes = klineData.slice(0, idx + 1).map(k => parseFloat(k.close));
+            if (closes.length >= 26) {
+                const { macdLine, signalLine, histogram } = calculateMACD(closes);
+                const n = macdLine.length - 1;
+                if (n >= 0) {
+                    document.getElementById('macdValues').innerHTML = 
+                        `DIF: ${macdLine[n].toFixed(3)} | DEA: ${signalLine[n].toFixed(3)} | 柱: ${histogram[n].toFixed(3)}`;
+                }
+            }
+            
+            // 计算该位置的KDJ值
+            if (closes.length >= 9) {
+                const highs = klineData.slice(0, idx + 1).map(k => parseFloat(k.high));
+                const lows = klineData.slice(0, idx + 1).map(k => parseFloat(k.low));
+                const { kLine, dLine, jLine } = calculateKDJ(highs, lows, closes);
+                const n = kLine.length - 1;
+                if (n >= 0) {
+                    document.getElementById('kdjValues').innerHTML = 
+                        `K: ${kLine[n].toFixed(2)} | D: ${dLine[n].toFixed(2)} | J: ${jLine[n].toFixed(2)}`;
+                }
+            }
+        }
+
+        // ==================== 缠论绘制 ====================
+
+        function drawBiLines() {
+            if (!showBi || biData.length === 0) {
+                biSeries.setData([]);
+                return;
+            }
+            
+            const lineData = [];
+            biData.forEach(bi => {
+                const startTime = klineData[bi.xAxis]?.time;
+                const endTime = klineData[bi.xAxis2]?.time;
+                if (!startTime || !endTime) return;
+                
+                const t1 = new Date(startTime).getTime() / 1000;
+                const t2 = new Date(endTime).getTime() / 1000;
+                if (isNaN(t1) || isNaN(t2)) return;
+                
+                const color = bi.dir === 'up' ? C.biUp : C.biDown;
+                biSeries.applyOptions({ color: color });
+                
+                lineData.push({ time: t1, value: bi.yAxis });
+                lineData.push({ time: t2, value: bi.yAxis2 });
+            });
+            
+            biSeries.setData(lineData);
+        }
+
+        function drawSegLines() {
+            if (!showSeg || segData.length === 0) {
+                segSeries.setData([]);
+                return;
+            }
+            
+            const lineData = [];
+            segData.forEach(seg => {
+                const startTime = klineData[seg.xAxis]?.time;
+                const endTime = klineData[seg.xAxis2]?.time;
+                if (!startTime || !endTime) return;
+                
+                const color = seg.dir === 'up' ? C.segUp : C.segDown;
+                segSeries.applyOptions({ color: color });
+                
+                lineData.push({ time: new Date(startTime).getTime() / 1000, value: seg.yAxis });
+                lineData.push({ time: new Date(endTime).getTime() / 1000, value: seg.yAxis2 });
+            });
+            
+            segSeries.setData(lineData);
+        }
+
+        function drawZsAreas() {
+            if (!showZs || zsData.length === 0) {
+                zsSeries.setData([]);
+                return;
+            }
+            
+            const areaData = [];
+            zsData.forEach(zs => {
+                const startTime = klineData[zs.begin]?.time;
+                const endTime = klineData[zs.end]?.time;
+                if (!startTime || !endTime) return;
+                
+                const ts1 = new Date(startTime).getTime() / 1000;
+                const ts2 = new Date(endTime).getTime() / 1000;
+                
+                // 中枢用矩形区域表示 - 4个点
+                areaData.push(
+                    { time: ts1, value: zs.high },
+                    { time: ts2, value: zs.high },
+                    { time: ts2, value: zs.low },
+                    { time: ts1, value: zs.low },
+                );
+            });
+            
+            zsSeries.setData(areaData);
+        }
+
+        function drawBsMarkers() {
+            if (!showBs || bsData.length === 0) {
+                candleSeries.setMarkers([]);
+                return;
+            }
+            
+            const markers = bsData.map(bs => {
+                const time = klineData[bs.xAxis]?.time;
+                if (!time) return null;
+                
+                const isBuy = bs.type === 'buy' || bs.signal === 1;
+                return {
+                    time: new Date(time).getTime() / 1000,
+                    position: isBuy ? 'belowBar' : 'aboveBar',
+                    color: isBuy ? C.bsBuy : C.bsSell,
+                    shape: isBuy ? 'arrowUp' : 'arrowDown',
+                    text: bs.desc || (isBuy ? '买' : '卖'),
+                };
+            }).filter(m => m !== null);
+            
+            candleSeries.setMarkers(markers);
+        }
+
+        function toggleIndicator(ind) {
+            const el = document.querySelector(`[data-ind="${ind}"]`);
+            el.classList.toggle('active');
+            
+            switch(ind) {
+                case 'bi': showBi = el.classList.contains('active'); break;
+                case 'seg': showSeg = el.classList.contains('active'); break;
+                case 'zs': showZs = el.classList.contains('active'); break;
+                case 'bs': showBs = el.classList.contains('active'); break;
+            }
+            
+            if (klineData.length > 0) {
+                drawBiLines();
+                drawSegLines();
+                drawZsAreas();
+                drawBsMarkers();
+            }
+        }
+
+        async function changeMacdPeriod() {
+            const period = document.getElementById('macdPeriod').value;
+            try {
+                // Fetch K-line data for this period
+                const kRes = await fetch(`/api/kline/data?symbol=TA0&period=${period}`);
+                const kData = await kRes.json();
+                
+                if (!kData.data || kData.data.length === 0) {
+                    alert('暂无该周期数据');
+                    return;
+                }
+                
+                const periodKlineData = kData.data;
+                const closes = periodKlineData.map(k => parseFloat(k.close));
+                const { macdLine, signalLine, histogram } = calculateMACD(closes);
+                const times = periodKlineData.map(k => new Date(k.time).getTime() / 1000);
+                
+                // Cache the data
+                macdDataCache[period] = { klineData: periodKlineData, macdLine, signalLine, histogram };
+                
+                // Update MACD chart
+                const n = macdLine.length - 1;
+                if (n >= 0) {
+                    document.getElementById('macdValues').innerHTML = 
+                        `DIF: ${macdLine[n].toFixed(3)} | DEA: ${signalLine[n].toFixed(3)} | 柱: ${histogram[n].toFixed(3)}`;
+                }
+                
+                macdLineSeries.setData(macdLine.map((v, i) => ({ time: times[i], value: v })));
+                signalLineSeries.setData(signalLine.map((v, i) => ({ time: times[i], value: v })));
+                
+                // MACD柱状图：累积面积，零轴以上红色，以下绿色
+                let cumulative = 0;
+                const histData = histogram.map((v, i) => {
+                    cumulative += v;
+                    return {
+                        time: times[i],
+                        value: cumulative,
+                        color: cumulative >= 0 ? '#ef5350' : '#26a69a',
+                    };
+                });
+                macdHistSeries.setData(histData);
+                
+                
+            } catch (e) {
+                console.error('MACD period change error:', e);
+            }
+        }
+
+        // ==================== 期权链 ====================
+
+        async function loadOptionChain() {
+            try {
+                // Fetch options data
+                const [optRes, klineRes] = await Promise.all([
+                    fetch('/api/options/chain'),
+                    fetch('/api/kline/data?symbol=TA0&period=1min')
+                ]);
+                const data = await optRes.json();
+                const klineData = await klineRes.json();
+                
+                if (!data.success) {
+                    document.getElementById('optionTableBody').innerHTML = 
+                        `<tr><td colspan="19" class="error">加载失败: ${data.error}</td></tr>`;
+                    return;
+                }
+                
+                // 获取实时标的价格
+                const realtimePrice = klineData.data?.slice(-1)[0]?.close || data.underlying_price;
+                const atmStrike = Math.round(realtimePrice / 50) * 50;  // PTA跳动50
+                
+                // 更新统计
+                const stats = data.stats || {};
+                document.getElementById('optionStats').innerHTML = `
+                    <div class="option-stat"><div class="option-stat-label">标的价格</div><div class="option-stat-value text-primary fw-bold">${realtimePrice?.toFixed(0) || '--'}</div></div>
+                    <div class="option-stat"><div class="option-stat-label">ATM行权价</div><div class="option-stat-value text-warning fw-bold">${atmStrike || '--'}</div></div>
+                    <div class="option-stat"><div class="option-stat-label">成交PCR</div><div class="option-stat-value" style="color:${stats.volume_pcr > 1 ? '#ef5350' : '#26a69a'}">${stats.volume_pcr?.toFixed(2) || '--'}</div></div>
+                    <div class="option-stat"><div class="option-stat-label">持仓PCR</div><div class="option-stat-value" style="color:${stats.position_pcr > 1 ? '#ef5350' : '#26a69a'}">${stats.position_pcr?.toFixed(2) || '--'}</div></div>
+                    <div class="option-stat"><div class="option-stat-label">Call IV均值</div><div class="option-stat-value">${stats.avg_call_iv?.toFixed(1) || '--'}%</div></div>
+                    <div class="option-stat"><div class="option-stat-label">Put IV均值</div><div class="option-stat-value">${stats.avg_put_iv?.toFixed(1) || '--'}%</div></div>
+                `;
+                
+                // 表格 - 从ATM向两端展开
+                const rows = data.strike_rows || [];
+                
+                // 找到ATM所在的索引
+                let atmIdx = rows.findIndex(r => r.strike === atmStrike);
+                if (atmIdx < 0) atmIdx = Math.floor(rows.length / 2);
+                
+                // 按行权价从低到高排序
+                const sortedRows = [...rows].sort((a, b) => a.strike - b.strike);
+                
+                let html = '';
+                sortedRows.forEach(r => {
+                    const isATM = r.strike === atmStrike;
+                    const rowClass = isATM ? 'atm-row' : (r.strike < atmStrike ? 'put-deep' : 'call-deep');
+                    const callUpStyle = r.call_iv_change > 0 ? 'color:#26a69a' : (r.call_iv_change < 0 ? 'color:#ef5350' : '');
+                    const putUpStyle = r.put_iv_change > 0 ? 'color:#26a69a' : (r.put_iv_change < 0 ? 'color:#ef5350' : '');
+                    const callVolChg = r.call_volume > 0 ? ((r.call_iv_change / (r.call_iv - r.call_iv_change) * 100).toFixed(1)) : '0';
+                    const putVolChg = r.put_volume > 0 ? ((r.put_iv_change / (r.put_iv - r.put_iv_change) * 100).toFixed(1)) : '0';
+                    const callOiChgPct = r.call_oi > 0 ? ((r.call_oi_change / r.call_oi * 100).toFixed(1)) : '0';
+                    const putOiChgPct = r.put_oi > 0 ? ((r.put_oi_change / r.put_oi * 100).toFixed(1)) : '0';
+                    
+                    html += `<tr class="${rowClass}">
+                        <td class="put-side">${r.put_theta?.toFixed(2) || '--'}</td>
+                        <td class="put-side">${r.put_vega?.toFixed(2) || '--'}</td>
+                        <td class="put-side">${r.put_gamma?.toFixed(4) || '--'}</td>
+                        <td class="put-side">${r.put_delta?.toFixed(3) || '--'}</td>
+                        <td class="put-side" style="${r.put_volume >= (r.put_oi || 1) ? 'color:#26a69a' : ''}">${putVolChg}%</td>
+                        <td class="put-side">${r.put_volume?.toLocaleString() || '--'}</td>
+                        <td class="put-side" style="${r.put_oi_change >= 0 ? 'color:#26a69a' : 'color:#ef5350'}">${r.put_oi_change >= 0 ? '+' : ''}${putOiChgPct}%</td>
+                        <td class="put-side">${r.put_oi?.toLocaleString() || '--'}</td>
+                        <td class="put-side" style="${putUpStyle}">${r.put_iv_change > 0 ? '+' : ''}${r.put_iv_change?.toFixed(1) || '0'}%</td>
+                        <td class="put-side">${r.put_iv?.toFixed(1) || '--'}%</td>
+                        <td class="put-side">${r.put_price?.toFixed(2) || '--'}</td>
+                        <td class="Strike-col">${r.strike?.toFixed(0) || '--'}</td>
+                        <td class="call-side">${r.call_price?.toFixed(2) || '--'}</td>
+                        <td class="call-side">${r.call_iv?.toFixed(1) || '--'}%</td>
+                        <td class="call-side" style="${callUpStyle}">${r.call_iv_change > 0 ? '+' : ''}${r.call_iv_change?.toFixed(1) || '0'}%</td>
+                        <td class="call-side">${r.call_oi?.toLocaleString() || '--'}</td>
+                        <td class="call-side" style="${r.call_oi_change >= 0 ? 'color:#26a69a' : 'color:#ef5350'}">${r.call_oi_change >= 0 ? '+' : ''}${callOiChgPct}%</td>
+                        <td class="call-side">${r.call_volume?.toLocaleString() || '--'}</td>
+                        <td class="call-side" style="${r.call_volume >= (r.call_oi || 1) ? 'color:#26a69a' : ''}">${callVolChg}%</td>
+                        <td class="call-side">${r.call_delta?.toFixed(3) || '--'}</td>
+                        <td class="call-side">${r.call_gamma?.toFixed(4) || '--'}</td>
+                        <td class="call-side">${r.call_vega?.toFixed(2) || '--'}</td>
+                        <td class="call-side">${r.call_theta?.toFixed(2) || '--'}</td>
+                    </tr>`;
+                });
+                
+                document.getElementById('optionTableBody').innerHTML = html || '<tr><td colspan="17" class="error">暂无数据</td></tr>';
+                document.getElementById('optionTimestamp').textContent = `数据时间: ${data.timestamp || '--'}`;
+                
+            } catch (e) {
+                console.error('Option error:', e);
+                document.getElementById('optionTableBody').innerHTML = `<tr><td colspan="17" class="error">加载失败</td></tr>`;
+            }
+        }
+
+        // ==================== 初始化 ====================
+
+        document.getElementById('period').addEventListener('change', () => {
+            document.getElementById('macdPeriod').value = document.getElementById('period').value;
+            loadAllData();
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initMainChart();
+            
+            
+            loadAllData();
+            loadOptionChain();
+        });
+    </script>
+</body>
+</html>

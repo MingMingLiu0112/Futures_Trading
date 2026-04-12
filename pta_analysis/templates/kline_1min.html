@@ -341,7 +341,14 @@
     var chanLayers = { bi: false, seg: false, zs: false, bs: false };
     var indicatorLayers = { ma: false, macd: true, kdj: true };
     var currentOption = null;
-    var savedDataZoom = { start: 75, end: 100 };
+    // 从sessionStorage恢复缩放位置
+    var savedDataZoom = (function() {
+        try {
+            var s = sessionStorage.getItem('chartDataZoom');
+            if (s) return JSON.parse(s);
+        } catch(e) {}
+        return { start: 75, end: 100 };
+    })();
     var chanMarkData = { bi: [], seg: [], zs: [], bs: [] };
     var rawChanData = { bi: [], seg: [], zs: [], bs: [] };  // 原始缠论数据
     var panelCollapsed = false;
@@ -354,6 +361,19 @@
         loadData();
         loadStrategyData();
         window.addEventListener('resize', function() { chart.resize(); });
+        
+        // 实时保存用户拖动的dataZoom位置
+        chart.on('dataZoom', function(params) {
+            var opt = chart.getOption();
+            if (opt && opt.dataZoom && opt.dataZoom.length > 0) {
+                savedDataZoom.start = opt.dataZoom[0].start;
+                savedDataZoom.end = opt.dataZoom[0].end;
+                try {
+                    sessionStorage.setItem('chartDataZoom', JSON.stringify(savedDataZoom));
+                } catch(e) {}
+            }
+        });
+        
         startAutoRefresh();
     }
 
@@ -410,6 +430,17 @@
         chanLayers[layer] = !chanLayers[layer];
         document.getElementById('btn-' + layer).classList.toggle('on', chanLayers[layer]);
         if (!currentOption || !currentOption.series) return;
+
+        // 从chart获取当前缩放位置
+        var currentZoom = { start: 75, end: 100 };
+        if (chart) {
+            var opt = chart.getOption();
+            if (opt && opt.dataZoom && opt.dataZoom.length > 0) {
+                currentZoom.start = opt.dataZoom[0].start;
+                currentZoom.end = opt.dataZoom[0].end;
+                console.log('toggleLayer: chart当前缩放=', currentZoom);
+            }
+        }
 
         for (var i = 0; i < currentOption.series.length; i++) {
             var s = currentOption.series[i];
@@ -474,26 +505,29 @@
             }
         }
         
-        // 保存当前缩放位置
-        var zoomStart = savedDataZoom.start;
-        var zoomEnd = savedDataZoom.end;
-        if (chart && chart.getOption) {
-            var opt = chart.getOption();
-            if (opt && opt.dataZoom && opt.dataZoom.length > 0) {
-                zoomStart = opt.dataZoom[0].start;
-                zoomEnd = opt.dataZoom[0].end;
-            }
-        }
+        // 包含正确缩放的完整选项
+        chart.setOption({
+            series: currentOption.series,
+            dataZoom: [
+                { type: 'inside', xAxisIndex: [0, 1, 2], start: currentZoom.start, end: currentZoom.end }
+            ]
+        }, false);
         
-        // 将dataZoom添加到currentOption中
-        currentOption.dataZoom = [
-            { type: 'inside', xAxisIndex: [0, 1, 2], start: zoomStart, end: zoomEnd }
-        ];
+        // 保存到sessionStorage
+        try { sessionStorage.setItem('chartDataZoom', JSON.stringify(currentZoom)); } catch(e) {}
         
-        chart.setOption(currentOption, false);
-        
-        // 清除currentOption中的dataZoom，避免污染
-        delete currentOption.dataZoom;
+        // 保存最终缩放位置到sessionStorage
+        setTimeout(function() {
+            try {
+                var opt = chart.getOption();
+                if (opt && opt.dataZoom && opt.dataZoom.length > 0) {
+                    var z = opt.dataZoom[0];
+                    savedDataZoom.start = z.start;
+                    savedDataZoom.end = z.end;
+                    sessionStorage.setItem('chartDataZoom', JSON.stringify({ start: z.start, end: z.end }));
+                }
+            } catch(e) {}
+        }, 0);
     }
 
     function changePeriod(p) {
@@ -620,13 +654,26 @@
 
     async function loadData() {
         try {
-            if (chart && currentOption && chart.getOption) {
+            // 优先使用sessionStorage中保存的位置
+            var currentZoomStart = savedDataZoom.start;
+            var currentZoomEnd = savedDataZoom.end;
+            console.log('loadData开始: sessionStorage位置=', currentZoomStart, currentZoomEnd);
+            
+            // 如果chart存在且有数据，才从chart获取当前缩放
+            if (chart && chart.getOption) {
                 var opt = chart.getOption();
                 if (opt && opt.dataZoom && opt.dataZoom.length > 0) {
-                    savedDataZoom.start = opt.dataZoom[0].start;
-                    savedDataZoom.end = opt.dataZoom[0].end;
+                    var chartZoomStart = opt.dataZoom[0].start;
+                    var chartZoomEnd = opt.dataZoom[0].end;
+                    console.log('loadData: chart当前位置=', chartZoomStart, chartZoomEnd);
+                    // 如果chart的位置不是默认值(75,100)，优先使用chart位置
+                    if (chartZoomStart !== 75 || chartZoomEnd !== 100) {
+                        currentZoomStart = chartZoomStart;
+                        currentZoomEnd = chartZoomEnd;
+                    }
                 }
             }
+            console.log('loadData: 最终使用位置=', currentZoomStart, currentZoomEnd);
             
             var [klineResp, chanResp] = await Promise.all([
                 fetch('/api/kline/data?period=' + currentPeriod),
@@ -762,7 +809,7 @@
                 { type: 'value', gridIndex: 2, scale: true, axisLine: { lineStyle: { color: '#333' } }, axisLabel: { color: '#666' }, splitLine: { show: false } }
             ],
             dataZoom: [
-                { type: 'inside', xAxisIndex: [0, 1, 2], start: 75, end: 100 }
+                { type: 'inside', xAxisIndex: [0, 1, 2], start: (function() { try { var s = sessionStorage.getItem('chartDataZoom'); return s ? JSON.parse(s).start : 75; } catch(e) { return 75; } })(), end: (function() { try { var s = sessionStorage.getItem('chartDataZoom'); return s ? JSON.parse(s).end : 100; } catch(e) { return 100; } })() }
             ],
             series: []
         };
