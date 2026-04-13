@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PTA期货综合分析 - Lightweight Charts</title>
-    <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="/static/js/lightweight-charts.4.1.0.min.js" onerror="console.error('LightweightCharts failed to load')"></script>
     <style>
         * { box-sizing: border-box; }
         body { 
@@ -70,7 +70,7 @@
             border-radius: 0 0 8px 8px;
             overflow: hidden;
         }
-        #main-chart { height: 400px; }
+        #main-chart { height: 400px; width: 100%; min-width: 600px; }
         #macd-chart { height: 100px; }
         #kdj-chart { height: 100px; }
         
@@ -262,7 +262,7 @@
         async function initMainChart() {
             const container = document.getElementById('main-chart');
             mainChart = LightweightCharts.createChart(container, {
-                width: container.clientWidth, height: 600,
+                width: window.innerWidth - 40, height: 600,
                 layout: { background: { type: 'solid', color: '#1a1a2e' }, textColor: '#aaa' },
                 grid: { vertLines: { color: '#2a2a3e' }, horzLines: { color: '#2a2a3e' } },
                 crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
@@ -364,138 +364,40 @@
             // 指标与主图同轴
 
             window.addEventListener('resize', () => {
-                mainChart.applyOptions({ width: container.clientWidth });
-                if (macdChart) macdChart.applyOptions({ width: container.clientWidth });
-                if (kdjChart) kdjChart.applyOptions({ width: container.clientWidth });
-            });
-            
-            try {
-                // K线数据
-                const kRes = await fetch(`/api/kline/data?symbol=TA0&period=${period}`);
-                const kData = await kRes.json();
-                
-                if (!kData.data || kData.data.length === 0) {
-                    alert('暂无K线数据');
-                    return;
-                }
-                
-                klineData = kData.data;
-                
-                console.log('Loaded period:', period, 'bars:', klineData.length, 'first:', klineData[0]?.time, 'last:', klineData[klineData.length-1]?.time);
-                
-                // 更新统计
-                const last = klineData[klineData.length - 1];
-                const first = klineData[0];
-                const change = ((last.close - first.close) / first.close * 100).toFixed(2);
-                const priceChangeFromPrev = (last.close - klineData[klineData.length - 2].close).toFixed(0);
-                const volumeChangeFromPrev = (last.volume - klineData[klineData.length - 2].volume).toFixed(0);
-                const totalVolume = klineData.reduce((s, k) => s + parseFloat(k.volume), 0);
-                
-                document.getElementById('lastPrice').textContent = last.close.toFixed(0);
-                document.getElementById('lastPrice').className = change >= 0 ? 'stat-value up' : 'stat-value down';
-                document.getElementById('priceChange').textContent = `(${priceChangeFromPrev >= 0 ? '+' : ''}${priceChangeFromPrev})`;
-                document.getElementById('priceChange').className = priceChangeFromPrev >= 0 ? 'text-success' : 'text-danger';
-                document.getElementById('change').textContent = `${change >= 0 ? '+' : ''}${change}%`;
-                document.getElementById('change').className = change >= 0 ? 'stat-value up' : 'stat-value down';
-                document.getElementById('volume').textContent = totalVolume.toFixed(0);
-                document.getElementById('volumeChange').textContent = `(${volumeChangeFromPrev >= 0 ? '+' : ''}${volumeChangeFromPrev})`;
-                document.getElementById('volumeChange').className = volumeChangeFromPrev >= 0 ? 'text-success' : 'text-danger';
-                document.getElementById('openInterest').textContent = '--';
-                document.getElementById('oiChange').textContent = '';
-                
-                // 缠论数据
-                const chanRes = await fetch(`/api/chan/analysis?period=${period}`);
-                const chanData = await chanRes.json();
-                
-                biData = chanData.bi_markline || [];
-                segData = chanData.seg_markline || [];
-                zsData = chanData.zs_data || [];
-                bsData = chanData.bs_data || [];
-                
-                document.getElementById('biCount').textContent = biData.length;
-                document.getElementById('segCount').textContent = segData.length;
-                document.getElementById('zsCount').textContent = zsData.length;
-                document.getElementById('bsCount').textContent = bsData.length;
-                
-                // 初始化图表
-                if (!mainChart) initMainChart();
-                
-                // K线数据 - 使用Unix时间戳（秒）
-                const chartData = klineData
-                    .filter(k => k.open && k.high && k.low && k.close)
-                    .map(k => {
-                        const ts = new Date(k.time).getTime() / 1000;
-                        return {
-                            time: ts,
-                            open: parseFloat(k.open),
-                            high: parseFloat(k.high),
-                            low: parseFloat(k.low),
-                            close: parseFloat(k.close),
-                        };
-                    })
-                    .sort((a, b) => a.time - b.time);
-                
-                // 清除旧数据
-                candleSeries.setData([]);
-                volumeSeries.setData([]);
-                biSeries.setData([]);
-                segSeries.setData([]);
-                zsSeries.setData([]);
-                candleSeries.setData(chartData);
-
-                
-                // 成交量
-                try {
-                    const volData = klineData
-                        .filter(k => k.volume)
-                        .map(k => ({
-                            time: new Date(k.time).getTime() / 1000,
-                            value: parseFloat(k.volume),
-                            color: parseFloat(k.close) >= parseFloat(k.open) ? C.up + '60' : C.down + '60',
-                        }))
-                        .sort((a, b) => a.time - b.time);
-                    console.log('volume items:', volData.length);
-                    volumeSeries.setData(volData);
-                } catch(e) { console.error('volumeSeries error:', e.message); }
-                
-                // 绘制指标
-                drawBiLines();
-                drawSegLines();
-                drawZsAreas();
-                drawBsMarkers();
-                
-                // MACD
-                console.log('Before calculateAndDrawMACD');
-                calculateAndDrawMACD();
-                console.log('After calculateAndDrawMACD');
-                
-                // KDJ
-                console.log('Before calculateAndDrawKDJ');
-                calculateAndDrawKDJ();
-                console.log('After calculateAndDrawKDJ');
-                
-                console.log('Before fitContent');
+                const w = window.innerWidth - 40;
+                mainChart.applyOptions({ width: w });
+                if (macdChart) macdChart.applyOptions({ width: w });
+                if (kdjChart) kdjChart.applyOptions({ width: w });
                 mainChart.timeScale().fitContent();
-                console.log('After fitContent');
-                
-            } catch (e) {
-                console.error('Load error:', e);
-                
-            }
+            });
         }
 
         // ==================== 数据加载 ====================
 
         async function loadAllData() {
             try {
+                console.log('loadAllData start, mainChart:', !!mainChart);
+                
+                // 确保图表已初始化，使用requestAnimationFrame确保DOM渲染完成
+                if (!mainChart) {
+                    console.log('Calling initMainChart...');
+                    await new Promise(resolve => requestAnimationFrame(resolve));
+                    await initMainChart();
+                    console.log('initMainChart done, mainChart:', !!mainChart, 'candleSeries:', !!candleSeries);
+                }
+                
                 const period = document.getElementById('period').value;
+                console.log('Fetching data for period:', period);
                 
                 // 并行加载K线数据和缠论数据
+                console.log('Starting parallel fetch...');
                 const [kRes, chanRes] = await Promise.all([
                     fetch(`/api/kline/data?symbol=TA0&period=${period}`),
                     fetch(`/api/chan/analysis?period=${period}`)
                 ]);
+                console.log('Fetch complete, status:', kRes.status, chanRes.status);
                 const kData = await kRes.json();
+                console.log('kData parsed, data length:', kData.data?.length, 'error:', kData.error);
                 const chanData = await chanRes.json();
                 
                 if (kData.error) {
@@ -506,14 +408,15 @@
                 
                 if (!kData || !kData.data || !Array.isArray(kData.data) || kData.data.length === 0) {
                     document.getElementById('lastPrice').textContent = '--';
-                    document.getElementById('volume').textContent = '无数据(周末?)';
-                    candleSeries.setData([]);
-                    volumeSeries.setData([]);
+                    document.getElementById('volume').textContent = '无数据';
+                    if (mainChart) { candleSeries.setData([]); volumeSeries.setData([]); }
                     return;
                 }
                 klineData = kData.data;
+                console.log('klineData assigned, length:', klineData.length);
                 
                 // 转换时间格式
+                console.log('Creating chartData...');
                 const chartData = klineData
                     .filter(k => k.open && k.high && k.low && k.close)
                     .map(k => {
@@ -527,15 +430,19 @@
                         };
                     })
                     .sort((a, b) => a.time - b.time);
+                console.log('chartData created, length:', chartData.length, 'first:', chartData[0]?.time, 'last:', chartData[chartData.length-1]?.time);
                 
                 // 清除旧数据
+                console.log('Clearing old series...');
                 candleSeries.setData([]);
                 volumeSeries.setData([]);
                 biSeries.setData([]);
                 segSeries.setData([]);
                 zsSeries.setData([]);
                 
-                
+                console.log('Setting candle data...');
+                candleSeries.setData(chartData);
+                console.log('Setting volume data...');
                 // 成交量
                 const volData = klineData
                     .filter(k => k.volume)
@@ -575,11 +482,11 @@
                 zsData = chanData.zs_data || [];
                 bsData = chanData.bs_points || [];
                 
-                // 绘制指标
-                drawBiLines();
-                drawSegLines();
-                drawZsAreas();
-                drawBsMarkers();
+                // 绘制指标 - 暂时禁用缠论，等数据源对齐后再开启
+                // drawBiLines();
+                // drawSegLines();
+                // drawZsAreas();
+                // drawBsMarkers();
                 
                 // MACD
                 calculateAndDrawMACD();
@@ -588,7 +495,11 @@
                 calculateAndDrawKDJ();
                 
                 // 同步所有图表时间轴 - 先fitContent再同步
+                const mainContainer = document.getElementById('main-chart');
+                const chartWidth = window.innerWidth - 40; // 减去左右padding
+                mainChart.applyOptions({ width: chartWidth });
                 mainChart.timeScale().fitContent();
+                mainChart.resize(chartWidth, 400); // 强制resize
                 
                 kdjChart.timeScale().fitContent();
                 
@@ -1030,9 +941,7 @@
         });
 
         document.addEventListener('DOMContentLoaded', () => {
-            initMainChart();
-            
-            
+            // initMainChart() 会在 loadAllData() 内部调用，避免重复 fetch
             loadAllData();
             loadOptionChain();
         });

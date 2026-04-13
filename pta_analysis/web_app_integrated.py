@@ -14,6 +14,13 @@ import akshare as ak
 import pandas as pd
 import numpy as np
 
+# 天勤量化 TqSdk
+from tqsdk import TqApi, TqAuth
+
+# TqSdk 认证配置
+TQS_USER = os.environ.get('TQS_AUTH_USER', 'mingmingliu')
+TQS_PASS = os.environ.get('TQS_AUTH_PASS', 'Liuzhaoning2025')
+
 # Flask 应用
 WORKSPACE = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(WORKSPACE, "data", "pta_signals.db")
@@ -1041,173 +1048,96 @@ def mini_page():
 
 @app.route('/api/kline/data')
 def api_kline_data():
-    """K线图数据API - akshare实时数据"""
-    import akshare as ak
-    import pandas as pd
+    """K线图数据API - 天勤TqSdk实时数据"""
+    import re
+    import datetime as dt
+    import math
     
     period = request.args.get('period', '1min')
     
-    # 支持所有分钟周期：通过1分钟聚合
-    import re
-    agg_periods = {'120min': 120, '240min': 240}
-    standard_minute = ['1min', '5min', '15min', '30min', '60min']
+    # TqSdk 周期（秒）
+    period_seconds_map = {
+        '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '60min': 3600,
+        '1day': 86400, '1week': 604800, '1month': 2592000
+    }
     
-    # 检查是否是非标准分钟周期（如7min, 13min等）
+    # 非标准分钟周期（如120min, 240min）
     m = re.match(r'^(\d+)min$', period)
-    is_custom_minute = m and period not in standard_minute
-    
-    if is_custom_minute:
+    if m:
         n = int(m.group(1))
-        try:
-            df = ak.futures_zh_minute_sina(symbol="TA0", period="1")
-            df = df.sort_values('datetime').tail(10000).reset_index(drop=True)
-            df['datetime'] = pd.to_datetime(df['datetime'])
-            df = df.set_index('datetime').resample(f'{n}min', label='left', offset=0).agg({
-                'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'
-            }).dropna().reset_index()
-            df['datetime'] = df['datetime'].astype(str).str.replace(' ', 'T')
-            
-            data = []
-            for _, row in df.iterrows():
-                data.append({
-                    'time': str(row['datetime']),
-                    'open': float(row['open']), 'high': float(row['high']),
-                    'low': float(row['low']), 'close': float(row['close']),
-                    'volume': float(row['volume'])
-                })
-            
-            last = data[-1] if data else {}
-            first = data[0] if data else {}
-            current_price = last.get('close', 0)
-            first_price = first.get('close', current_price)
-            change = current_price - first_price
-            change_pct = (change / first_price * 100) if first_price else 0
-            
-            return jsonify({
-                'symbol': 'TA', 'period': period, 'data': data,
-                'current_price': current_price, 'change': round(change, 2),
-                'change_pct': round(change_pct, 2), 'source': 'aggregated'
-            })
-        except Exception as e:
-            return jsonify({'error': str(e), 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0})
+        period_sec = n * 60
+        count = 1000
+    elif period in period_seconds_map:
+        period_sec = period_seconds_map[period]
+        count = 500 if period in ['1day', '1week', '1month'] else 1000
+    else:
+        return jsonify({'error': f'unsupported period: {period}', 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0})
     
-    elif period in ['1day', '1week', '1month']:
-        # 从日线数据聚合
-        try:
-            df = ak.futures_zh_daily_sina(symbol="TA0")
-            if df is None or len(df) == 0:
-                return jsonify({'error': '获取日线数据失败', 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0})
+    try:
+        api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS))
+        klines = api.get_kline_serial('CZCE.TA605', period_sec, count)
+        
+        data = []
+        for _, row in klines.iterrows():
+            # 跳过 NaN/空数据行
+            close = float(row['close']) if math.isfinite(row['close']) else None
+            if close is None or close == 0:
+                continue
             
-            df = df.sort_values('date').tail(500).reset_index(drop=True)
-            df['date'] = pd.to_datetime(df['date'])
+            dt_val = row['datetime']
+            if isinstance(dt_val, (int, float)) and math.isfinite(dt_val) and dt_val > 0:
+                dt_sec = dt_val / 1e9
+                time_str = dt.datetime.utcfromtimestamp(dt_sec).strftime('%Y-%m-%dT%H:%M:%S')
+            else:
+                time_str = str(dt_val).replace(' ', 'T')
             
-            if period == '1day':
-                df['period_col'] = df['date']
-            elif period == '1week':
-                df['period_col'] = df['date'].dt.to_period('W').dt.start_time
-            elif period == '1month':
-                df['period_col'] = df['date'].dt.to_period('M').dt.start_time
-            
-            df_agg = df.groupby('period_col').agg({
-                'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'
-            }).reset_index()
-            
-            data = []
-            for _, row in df_agg.iterrows():
-                data.append({
-                    'time': str(row['period_col']).replace(' ', 'T'),
-                    'open': float(row['open']), 'high': float(row['high']),
-                    'low': float(row['low']), 'close': float(row['close']),
-                    'volume': float(row['volume'])
-                })
-            
-            last = data[-1] if data else {}
-            first = data[0] if data else {}
-            current_price = last.get('close', 0)
-            first_price = first.get('close', current_price)
-            change = current_price - first_price
-            change_pct = (change / first_price * 100) if first_price else 0
-            
-            return jsonify({
-                'symbol': 'TA', 'period': period, 'data': data,
-                'current_price': current_price, 'change': round(change, 2),
-                'change_pct': round(change_pct, 2), 'source': 'daily'
+            data.append({
+                'time': time_str,
+                'open': float(row['open']) if math.isfinite(row['open']) else close,
+                'high': float(row['high']) if math.isfinite(row['high']) else close,
+                'low': float(row['low']) if math.isfinite(row['low']) else close,
+                'close': close,
+                'volume': float(row['volume']) if math.isfinite(row['volume']) else 0
             })
-        except Exception as e:
-            return jsonify({'error': str(e), 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0})
-
-    elif period in ['1min', '5min', '15min', '30min', '60min']:
-        try:
-            period_map = {"1min": "1", "5min": "5", "15min": "15", "30min": "30", "60min": "60"}
-            df = ak.futures_zh_minute_sina(symbol="TA0", period=period_map.get(period, "1"))
-            df = df.sort_values('datetime').tail(1000).reset_index(drop=True)
-            
-            data = []
-            for _, row in df.iterrows():
-                data.append({
-                    'time': str(row['datetime']),
-                    'open': float(row['open']),
-                    'high': float(row['high']),
-                    'low': float(row['low']),
-                    'close': float(row['close']),
-                    'volume': float(row['volume'])
-                })
-            
-            last = data[-1] if data else {}
-            first = data[0] if data else {}
-            current_price = last.get('close', 0)
-            first_price = first.get('close', current_price)
-            change = current_price - first_price
-            change_pct = (change / first_price * 100) if first_price else 0
-            
-            return jsonify({
-                'symbol': 'TA',
-                'period': period,
-                'data': data,
-                'current_price': current_price,
-                'change': round(change, 2),
-                'change_pct': round(change_pct, 2),
-                'source': 'akshare'
-            })
-        except Exception as e:
-            return jsonify({'error': str(e), 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0})
-    
-    elif period == '1day':
-        try:
-            df = ak.futures_zh_daily_sina(symbol="TA0")
-            df = df.sort_values('date').tail(500)
-            
-            data = []
-            for _, row in df.iterrows():
-                data.append({
-                    'time': str(row['date']),
-                    'open': float(row['open']),
-                    'high': float(row['high']),
-                    'low': float(row['low']),
-                    'close': float(row['close']),
-                    'volume': float(row['volume'])
-                })
-            
-            last = data[-1] if data else {}
-            first = data[0] if data else {}
-            current_price = last.get('close', 0)
-            first_price = first.get('close', current_price)
-            change = current_price - first_price
-            change_pct = (change / first_price * 100) if first_price else 0
-            
-            return jsonify({
-                'symbol': 'TA',
-                'period': period,
-                'data': data,
-                'current_price': current_price,
-                'change': round(change, 2),
-                'change_pct': round(change_pct, 2),
-                'source': 'akshare'
-            })
-        except Exception as e:
-            return jsonify({'error': str(e), 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0})
-    
-    return jsonify({'error': 'unsupported period', 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0})
+        
+        api.close()
+        
+        data.sort(key=lambda x: x['time'])
+        
+        last = data[-1] if data else {}
+        first = data[0] if data else {}
+        current_price = last.get('close', 0)
+        first_price = first.get('close', current_price)
+        change = current_price - first_price
+        change_pct = (change / first_price * 100) if first_price else 0
+        
+        # 确保数值不是 NaN 或 Infinity
+        def safe_val(v, default=0):
+            if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+                return default
+            return v
+        
+        change = safe_val(change, 0)
+        change_pct = safe_val(change_pct, 0)
+        current_price = safe_val(current_price, 0)
+        
+        # 保留2位小数
+        change = round(change, 2)
+        change_pct = round(change_pct, 2)
+        current_price = round(current_price, 2)
+        
+        resp = {
+            'symbol': 'TA',
+            'period': period,
+            'data': data,
+            'current_price': current_price,
+            'change': change,
+            'change_pct': change_pct,
+            'source': 'tqsdk'
+        }
+        return jsonify(resp)
+    except Exception as e:
+        return jsonify({'error': str(e), 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0})
 
 
 
