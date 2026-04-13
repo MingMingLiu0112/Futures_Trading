@@ -194,14 +194,17 @@
 
     <!-- MACD -->
     <div class="chart-section">
-        <div class="section-title"><span>MACD指标</span><select id="macdPeriod" onchange="changeMacdPeriod()" style="background:#333;color:#fff;border:none;font-size:11px;padding:2px 5px;border-radius:3px;"><option value="1min">1分钟</option>
-                    <option value="1day" selected>日线</option><option value="2min">2分钟</option><option value="3min">3分钟</option><option value="4min">4分钟</option><option value="5min">5分钟</option><option value="6min">6分钟</option><option value="7min">7分钟</option><option value="8min">8分钟</option><option value="9min">9分钟</option><option value="10min">10分钟</option><option value="11min">11分钟</option><option value="12min">12分钟</option><option value="13min">13分钟</option><option value="14min">14分钟</option><option value="15min">15分钟</option><option value="16min">16分钟</option><option value="17min">17分钟</option><option value="18min">18分钟</option><option value="19min">19分钟</option><option value="20min">20分钟</option><option value="21min">21分钟</option><option value="22min">22分钟</option><option value="23min">23分钟</option><option value="24min">24分钟</option><option value="25min">25分钟</option><option value="26min">26分钟</option><option value="27min">27分钟</option><option value="28min">28分钟</option><option value="29min">29分钟</option><option value="30min">30分钟</option><option value="31min">31分钟</option><option value="32min">32分钟</option><option value="33min">33分钟</option><option value="34min">34分钟</option><option value="35min">35分钟</option><option value="36min">36分钟</option><option value="37min">37分钟</option><option value="38min">38分钟</option><option value="39min">39分钟</option><option value="40min">40分钟</option><option value="41min">41分钟</option><option value="42min">42分钟</option><option value="43min">43分钟</option><option value="44min">44分钟</option><option value="45min">45分钟</option><option value="46min">46分钟</option><option value="47min">47分钟</option><option value="48min">48分钟</option><option value="49min">49分钟</option><option value="50min">50分钟</option><option value="51min">51分钟</option><option value="52min">52分钟</option><option value="53min">53分钟</option><option value="54min">54分钟</option><option value="55min">55分钟</option><option value="56min">56分钟</option><option value="57min">57分钟</option><option value="58min">58分钟</option><option value="59min">59分钟</option><option value="60min">60分钟</option></select><span id="macdValues" style="font-size:11px;color:#888;">DIF: -- | DEA: -- | MACD: --</span></div>
-        <div id="macd-chart" class="chart-container"></div>
+        <div class="section-title"><span>MACD指标</span><span id="macdValueDisplay" style="font-size:11px;color:#888;margin-left:10px;">DIF: -- | DEA: -- | 柱: --</span><span id="macdWaveDisplay" style="font-size:11px;color:#888;margin-left:15px;"></span><select id="macdPeriod" onchange="changeMacdPeriod()" style="background:#333;color:#fff;border:none;font-size:11px;padding:2px 5px;border-radius:3px;margin-left:10px;"><option value="1min">1分钟</option>
+                    <option value="1day" selected>日线</option><option value="2min">2分钟</option><option value="3min">3分钟</option><option value="4min">4分钟</option><option value="5min">5分钟</option><option value="6min">6分钟</option><option value="7min">7分钟</option><option value="8min">8分钟</option><option value="9min">9分钟</option><option value="10min">10分钟</option><option value="11min">11分钟</option><option value="12min">12分钟</option><option value="13min">13分钟</option><option value="14min">14分钟</option><option value="15min">15分钟</option><option value="16min">16分钟</option><option value="17min">17分钟</option><option value="18min">18分钟</option><option value="19min">19分钟</option><option value="20min">20分钟</option><option value="21min">21分钟</option><option value="22min">22分钟</option><option value="23min">23分钟</option><option value="24min">24分钟</option><option value="25min">25分钟</option><option value="26min">26分钟</option><option value="27min">27分钟</option><option value="28min">28分钟</option><option value="29min">29分钟</option><option value="30min">30分钟</option><option value="31min">31分钟</option><option value="32min">32分钟</option><option value="33min">33分钟</option><option value="34min">34分钟</option><option value="35min">35分钟</option><option value="36min">36分钟</option><option value="37min">37分钟</option><option value="38min">38分钟</option><option value="39min">39分钟</option><option value="40min">40分钟</option><option value="41min">41分钟</option><option value="42min">42分钟</option><option value="43min">43分钟</option><option value="44min">44分钟</option><option value="45min">45分钟</option><option value="46min">46分钟</option><option value="47min">47分钟</option><option value="48min">48分钟</option><option value="49min">49分钟</option><option value="50min">50分钟</option><option value="51min">51分钟</option><option value="52min">52分钟</option><option value="53min">53分钟</option><option value="54min">54分钟</option><option value="55min">55分钟</option><option value="56min">56分钟</option><option value="57min">57分钟</option><option value="58min">58分钟</option><option value="59min">59分钟</option><option value="60min">60分钟</option></select></div>
+        <div id="macd-chart-wrapper" style="position:relative;">
+            <div id="macd-chart" class="chart-container"></div>
+            <div id="macd-wave-labels" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:hidden;"></div>
+        </div>
     </div>
 
     <!-- KDJ -->
     <div class="chart-section">
-        <div class="section-title"><span>KDJ指标</span><span id="kdjValues" style="font-size:11px;color:#888;">K: -- | D: -- | J: --</span></div>
+        <div class="section-title"><span>KDJ指标</span><span id="kdjValueDisplay" style="font-size:11px;color:#888;margin-left:10px;">K: -- | D: -- | J: --</span></div>
         <div id="kdj-chart" class="chart-container"></div>
     </div>
 
@@ -238,6 +241,9 @@
         let biSeries = null, segSeries = null, zsSeries = null, sessionBreakSeries = null;
         let macdLineSeries = null, signalLineSeries = null, macdHistSeries = null;
         let kdjKSeries = null, kdjDSeries = null, kdjJSeries = null;
+        
+        // 保存MACD波数据用于标注
+        // let lastMacdWaveData = { times: [], histogram: [], waveEndLabels: [] }; // 已禁用
         
         // 指标显示状态
         let showBi = true, showSeg = true, showZs = true, showBs = true;
@@ -307,9 +313,9 @@
                 timeScale: { visible: false },
                 rightPriceScale: { borderColor: '#333' },
             });
-            macdLineSeries = macdChart.addLineSeries({ color: C.macd, lineWidth: 1 });
-            signalLineSeries = macdChart.addLineSeries({ color: C.signal, lineWidth: 1 });
-            macdHistSeries = macdChart.addHistogramSeries({});
+            macdLineSeries = macdChart.addLineSeries({ color: C.macd, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
+            signalLineSeries = macdChart.addLineSeries({ color: C.signal, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
+            macdHistSeries = macdChart.addHistogramSeries({ lastValueVisible: false, priceLineVisible: false });
 
             // KDJ图表
             const kdjContainer = document.getElementById('kdj-chart');
@@ -321,9 +327,9 @@
                 timeScale: { visible: false },
                 rightPriceScale: { borderColor: '#333' },
             });
-            kdjKSeries = kdjChart.addLineSeries({ color: C.kdjK, lineWidth: 1 });
-            kdjDSeries = kdjChart.addLineSeries({ color: C.kdjD, lineWidth: 1 });
-            kdjJSeries = kdjChart.addLineSeries({ color: C.kdjJ, lineWidth: 1 });
+            kdjKSeries = kdjChart.addLineSeries({ color: C.kdjK, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
+            kdjDSeries = kdjChart.addLineSeries({ color: C.kdjD, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
+            kdjJSeries = kdjChart.addLineSeries({ color: C.kdjJ, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
 
             // 笔 - 线段
             biSeries = mainChart.addLineSeries({
@@ -370,34 +376,34 @@
                 if (kdjChart) kdjChart.applyOptions({ width: w });
                 mainChart.timeScale().fitContent();
             });
+            
+            // 图表重绘时更新标注 (已禁用 - 导致缩放时重复绘制)
+            // macdChart.timeScale().subscribeVisibleTimeRangeChanged(() => {
+            //     if (lastMacdWaveData.times.length > 0) {
+            //         drawMacdWaveLabels(lastMacdWaveData.times, lastMacdWaveData.histogram, lastMacdWaveData.waveEndLabels);
+            //     }
+            // });
         }
 
         // ==================== 数据加载 ====================
 
         async function loadAllData() {
             try {
-                console.log('loadAllData start, mainChart:', !!mainChart);
                 
                 // 确保图表已初始化，使用requestAnimationFrame确保DOM渲染完成
                 if (!mainChart) {
-                    console.log('Calling initMainChart...');
                     await new Promise(resolve => requestAnimationFrame(resolve));
                     await initMainChart();
-                    console.log('initMainChart done, mainChart:', !!mainChart, 'candleSeries:', !!candleSeries);
                 }
                 
                 const period = document.getElementById('period').value;
-                console.log('Fetching data for period:', period);
                 
                 // 并行加载K线数据和缠论数据
-                console.log('Starting parallel fetch...');
                 const [kRes, chanRes] = await Promise.all([
                     fetch(`/api/kline/data?symbol=TA0&period=${period}`),
                     fetch(`/api/chan/analysis?period=${period}`)
                 ]);
-                console.log('Fetch complete, status:', kRes.status, chanRes.status);
                 const kData = await kRes.json();
-                console.log('kData parsed, data length:', kData.data?.length, 'error:', kData.error);
                 const chanData = await chanRes.json();
                 
                 if (kData.error) {
@@ -413,14 +419,12 @@
                     return;
                 }
                 klineData = kData.data;
-                console.log('klineData assigned, length:', klineData.length);
                 
                 // 转换时间格式
-                console.log('Creating chartData...');
                 const chartData = klineData
                     .filter(k => k.open && k.high && k.low && k.close)
                     .map(k => {
-                        const ts = new Date(k.time).getTime() / 1000;
+                        const ts = new Date(k.time).getTime() / 1000 + 8 * 3600;
                         return {
                             time: ts,
                             open: parseFloat(k.open),
@@ -430,24 +434,20 @@
                         };
                     })
                     .sort((a, b) => a.time - b.time);
-                console.log('chartData created, length:', chartData.length, 'first:', chartData[0]?.time, 'last:', chartData[chartData.length-1]?.time);
                 
                 // 清除旧数据
-                console.log('Clearing old series...');
                 candleSeries.setData([]);
                 volumeSeries.setData([]);
                 biSeries.setData([]);
                 segSeries.setData([]);
                 zsSeries.setData([]);
                 
-                console.log('Setting candle data...');
                 candleSeries.setData(chartData);
-                console.log('Setting volume data...');
                 // 成交量
                 const volData = klineData
                     .filter(k => k.volume)
                     .map(k => ({
-                        time: new Date(k.time).getTime() / 1000,
+                        time: new Date(k.time).getTime() / 1000 + 8 * 3600,
                         value: parseFloat(k.volume),
                         color: parseFloat(k.close) >= parseFloat(k.open) ? C.up + '60' : C.down + '60',
                     }))
@@ -482,7 +482,7 @@
                 zsData = chanData.zs_data || [];
                 bsData = chanData.bs_points || [];
                 
-                // 绘制指标 - 暂时禁用缠论，等数据源对齐后再开启
+                // 绘制指标 - 缠论已暂时停用（数据源不一致）
                 // drawBiLines();
                 // drawSegLines();
                 // drawZsAreas();
@@ -563,14 +563,7 @@
         function calculateAndDrawMACD() {
             const closes = klineData.map(k => parseFloat(k.close));
             const { macdLine, signalLine, histogram } = calculateMACD(closes);
-            const times = klineData.map(k => new Date(k.time).getTime() / 1000);
-            
-            // 显示最新值
-            const n = macdLine.length - 1;
-            if (n >= 0) {
-                document.getElementById('macdValues').innerHTML = 
-                    `DIF: ${macdLine[n].toFixed(3)} | DEA: ${signalLine[n].toFixed(3)} | 柱: ${histogram[n].toFixed(3)}`;
-            }
+            const times = klineData.map(k => new Date(k.time).getTime() / 1000 + 8 * 3600);
             
             // MACD线 - 只设置真实数据（从26开始）
             const macdData = macdLine.map((v, i) => ({ time: times[i], value: i >= 25 ? v : 0 }));
@@ -579,20 +572,47 @@
             macdLineSeries.setData(macdData);
             signalLineSeries.setData(signalData);
             
-            // MACD柱状图：累积面积 - 只设置真实数据
-            let cumulative = 0;
-            const histData = [];
-            for (let i = 0; i < histogram.length; i++) {
-                if (i >= 25) {
-                    cumulative += histogram[i];
+            // MACD柱状图：每根柱正常显示实际值(DIF-DEA)，每波最后一根柱上方标注累计面积
+            const n = histogram.length;
+            const histData = new Array(n).fill(null).map((_, i) => ({
+                time: times[i],
+                value: i < 25 ? 0 : histogram[i],
+                color: i < 25 ? '#666' : (histogram[i] >= 0 ? '#ef5350' : '#26a69a'),
+            }));
+            
+            // 追踪所有波的结束位置和累计值
+            const waveEndLabels = [];
+            let waveStart = -1, waveSign = 0, waveSum = 0;
+            
+            for (let i = 25; i < n; i++) {
+                const v = histogram[i];
+                const sign = v >= 0 ? 1 : -1;
+                
+                if (waveSign === 0) {
+                    waveStart = i; waveSign = sign; waveSum = v;
+                } else if (sign === waveSign) {
+                    waveSum += v;
+                } else {
+                    waveEndLabels.push({ idx: waveStart, sum: waveSum, sign: waveSign });
+                    waveStart = i; waveSign = sign; waveSum = v;
                 }
-                histData.push({
-                    time: times[i],
-                    value: i >= 25 ? cumulative : 0,
-                    color: i >= 25 ? (cumulative >= 0 ? '#ef5350' : '#26a69a') : '#666',
-                });
             }
+            // 最后一波
+            waveEndLabels.push({ idx: waveStart, sum: waveSum, sign: waveSign });
+            
             macdHistSeries.setData(histData);
+            
+            // 显示最后一波的累计面积在标题
+            if (waveEndLabels.length > 0) {
+                const lastWave = waveEndLabels[waveEndLabels.length - 1];
+                const label = `${lastWave.sign === 1 ? '红波' : '绿波'}累计: ${lastWave.sum >= 0 ? '+' : ''}${lastWave.sum.toFixed(1)}`;
+                document.getElementById('macdWaveDisplay').textContent = label;
+                document.getElementById('macdWaveDisplay').style.color = lastWave.sign === 1 ? '#ef5350' : '#26a69a';
+            }
+            
+            // 绘制所有波的累计面积标注 (已禁用 - 导致重复绘制)
+            // lastMacdWaveData = { times, histogram, waveEndLabels };
+            // drawMacdWaveLabels(times, histogram, waveEndLabels);
         }
 
         function calculateAndDrawKDJ() {
@@ -600,12 +620,12 @@
             const lows = klineData.map(k => parseFloat(k.low));
             const closes = klineData.map(k => parseFloat(k.close));
             const { kLine, dLine, jLine } = calculateKDJ(highs, lows, closes);
-            const times = klineData.map(k => new Date(k.time).getTime() / 1000);
+            const times = klineData.map(k => new Date(k.time).getTime() / 1000 + 8 * 3600);
             
             // 显示最新值
             const n = kLine.length - 1;
             if (n >= 0) {
-                document.getElementById('kdjValues').innerHTML = 
+                
                     `K: ${kLine[n].toFixed(2)} | D: ${dLine[n].toFixed(2)} | J: ${jLine[n].toFixed(2)}`;
             }
             
@@ -626,7 +646,7 @@
             // 找到十字光标位置对应的K线索引
             let idx = -1;
             for (let i = 0; i < klineData.length; i++) {
-                const t = new Date(klineData[i].time).getTime() / 1000;
+                const t = new Date(klineData[i].time).getTime() / 1000 + 8 * 3600;
                 if (Math.abs(t - crosshairTime) < 60) { // 1分钟容差
                     idx = i;
                     break;
@@ -658,8 +678,8 @@
                 const { macdLine, signalLine, histogram } = calculateMACD(closes);
                 const n = macdLine.length - 1;
                 if (n >= 0) {
-                    document.getElementById('macdValues').innerHTML = 
-                        `DIF: ${macdLine[n].toFixed(3)} | DEA: ${signalLine[n].toFixed(3)} | 柱: ${histogram[n].toFixed(3)}`;
+                    document.getElementById('macdValueDisplay').innerHTML = 
+                        `DIF: ${macdLine[n].toFixed(2)} | DEA: ${signalLine[n].toFixed(2)} | 柱: ${histogram[n].toFixed(2)}`;
                 }
             }
             
@@ -670,7 +690,7 @@
                 const { kLine, dLine, jLine } = calculateKDJ(highs, lows, closes);
                 const n = kLine.length - 1;
                 if (n >= 0) {
-                    document.getElementById('kdjValues').innerHTML = 
+                    document.getElementById('kdjValueDisplay').innerHTML = 
                         `K: ${kLine[n].toFixed(2)} | D: ${dLine[n].toFixed(2)} | J: ${jLine[n].toFixed(2)}`;
                 }
             }
@@ -690,8 +710,8 @@
                 const endTime = klineData[bi.xAxis2]?.time;
                 if (!startTime || !endTime) return;
                 
-                const t1 = new Date(startTime).getTime() / 1000;
-                const t2 = new Date(endTime).getTime() / 1000;
+                const t1 = new Date(startTime).getTime() / 1000 + 8 * 3600;
+                const t2 = new Date(endTime).getTime() / 1000 + 8 * 3600;
                 if (isNaN(t1) || isNaN(t2)) return;
                 
                 const color = bi.dir === 'up' ? C.biUp : C.biDown;
@@ -719,8 +739,8 @@
                 const color = seg.dir === 'up' ? C.segUp : C.segDown;
                 segSeries.applyOptions({ color: color });
                 
-                lineData.push({ time: new Date(startTime).getTime() / 1000, value: seg.yAxis });
-                lineData.push({ time: new Date(endTime).getTime() / 1000, value: seg.yAxis2 });
+                lineData.push({ time: new Date(startTime).getTime() / 1000 + 8 * 3600, value: seg.yAxis });
+                lineData.push({ time: new Date(endTime).getTime() / 1000 + 8 * 3600, value: seg.yAxis2 });
             });
             
             segSeries.setData(lineData);
@@ -738,8 +758,8 @@
                 const endTime = klineData[zs.end]?.time;
                 if (!startTime || !endTime) return;
                 
-                const ts1 = new Date(startTime).getTime() / 1000;
-                const ts2 = new Date(endTime).getTime() / 1000;
+                const ts1 = new Date(startTime).getTime() / 1000 + 8 * 3600;
+                const ts2 = new Date(endTime).getTime() / 1000 + 8 * 3600;
                 
                 // 中枢用矩形区域表示 - 4个点
                 areaData.push(
@@ -765,7 +785,7 @@
                 
                 const isBuy = bs.type === 'buy' || bs.signal === 1;
                 return {
-                    time: new Date(time).getTime() / 1000,
+                    time: new Date(time).getTime() / 1000 + 8 * 3600,
                     position: isBuy ? 'belowBar' : 'aboveBar',
                     color: isBuy ? C.bsBuy : C.bsSell,
                     shape: isBuy ? 'arrowUp' : 'arrowDown',
@@ -810,7 +830,7 @@
                 const periodKlineData = kData.data;
                 const closes = periodKlineData.map(k => parseFloat(k.close));
                 const { macdLine, signalLine, histogram } = calculateMACD(closes);
-                const times = periodKlineData.map(k => new Date(k.time).getTime() / 1000);
+                const times = periodKlineData.map(k => new Date(k.time).getTime() / 1000 + 8 * 3600);
                 
                 // Cache the data
                 macdDataCache[period] = { klineData: periodKlineData, macdLine, signalLine, histogram };
@@ -818,7 +838,7 @@
                 // Update MACD chart
                 const n = macdLine.length - 1;
                 if (n >= 0) {
-                    document.getElementById('macdValues').innerHTML = 
+                    
                         `DIF: ${macdLine[n].toFixed(3)} | DEA: ${signalLine[n].toFixed(3)} | 柱: ${histogram[n].toFixed(3)}`;
                 }
                 

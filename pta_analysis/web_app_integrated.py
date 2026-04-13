@@ -1079,18 +1079,15 @@ def api_kline_data():
         
         data = []
         for _, row in klines.iterrows():
-            # 跳过 NaN/空数据行
             close = float(row['close']) if math.isfinite(row['close']) else None
             if close is None or close == 0:
                 continue
-            
             dt_val = row['datetime']
             if isinstance(dt_val, (int, float)) and math.isfinite(dt_val) and dt_val > 0:
                 dt_sec = dt_val / 1e9
                 time_str = dt.datetime.utcfromtimestamp(dt_sec).strftime('%Y-%m-%dT%H:%M:%S')
             else:
                 time_str = str(dt_val).replace(' ', 'T')
-            
             data.append({
                 'time': time_str,
                 'open': float(row['open']) if math.isfinite(row['open']) else close,
@@ -1099,9 +1096,7 @@ def api_kline_data():
                 'close': close,
                 'volume': float(row['volume']) if math.isfinite(row['volume']) else 0
             })
-        
         api.close()
-        
         data.sort(key=lambda x: x['time'])
         
         last = data[-1] if data else {}
@@ -1111,31 +1106,19 @@ def api_kline_data():
         change = current_price - first_price
         change_pct = (change / first_price * 100) if first_price else 0
         
-        # 确保数值不是 NaN 或 Infinity
         def safe_val(v, default=0):
             if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
                 return default
             return v
+        change = round(safe_val(change, 0), 2)
+        change_pct = round(safe_val(change_pct, 0), 2)
+        current_price = round(safe_val(current_price, 0), 2)
         
-        change = safe_val(change, 0)
-        change_pct = safe_val(change_pct, 0)
-        current_price = safe_val(current_price, 0)
-        
-        # 保留2位小数
-        change = round(change, 2)
-        change_pct = round(change_pct, 2)
-        current_price = round(current_price, 2)
-        
-        resp = {
-            'symbol': 'TA',
-            'period': period,
-            'data': data,
-            'current_price': current_price,
-            'change': change,
-            'change_pct': change_pct,
-            'source': 'tqsdk'
-        }
-        return jsonify(resp)
+        return jsonify({
+            'symbol': 'TA', 'period': period, 'data': data,
+            'current_price': current_price, 'change': change,
+            'change_pct': change_pct, 'source': 'tqsdk'
+        })
     except Exception as e:
         return jsonify({'error': str(e), 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0})
 
