@@ -1044,6 +1044,46 @@
             }
         }
 
+        // ==================== 增量更新（不闪屏） ====================
+        async function incrementalUpdate() {
+            if (!mainChart || !candleSeries) return;
+            try {
+                const period = document.getElementById('period').value;
+                const res = await fetch('/api/kline/data?symbol=TA0&period=' + period);
+                const data = await res.json();
+                if (data.error || !data.data || data.data.length === 0) return;
+                const newData = data.data;
+                const lastNew = newData[newData.length - 1];
+                
+                // 获取时间（确保是时间戳秒）
+                const lastTime = lastNew.time + 8 * 3600;
+                
+                candleSeries.update({
+                    time: lastTime,
+                    open: parseFloat(lastNew.open),
+                    high: parseFloat(lastNew.high),
+                    low: parseFloat(lastNew.low),
+                    close: parseFloat(lastNew.close),
+                    color: parseFloat(lastNew.close) >= parseFloat(lastNew.open) ? '#26a69a' : '#ef5350'
+                });
+                volumeSeries.update({
+                    time: lastTime,
+                    value: parseFloat(lastNew.volume),
+                    color: parseFloat(lastNew.close) >= parseFloat(lastNew.open) ? '#26a69a80' : '#ef535080'
+                });
+                
+                // 更新持仓量
+                const oi = lastNew.open_interest || 0;
+                const oiEl = document.getElementById('openInterest');
+                if (oiEl) oiEl.textContent = oi > 0 ? oi.toFixed(0) : '--';
+                
+                // 更新顶部价格显示
+                const priceEl = document.getElementById('lastPrice');
+                if (priceEl) priceEl.textContent = parseFloat(lastNew.close).toFixed(0);
+                
+            } catch(e) { console.error('Update error:', e); }
+        }
+        
         // ==================== 初始化 ====================
 
         document.getElementById('period').addEventListener('change', () => {
@@ -1055,7 +1095,7 @@
             loadAllData();
             loadOptionChain();
             // 每秒增量刷新最后一根K线
-            setInterval(incrementalUpdate, 1000);
+            setInterval(incrementalUpdate, 10000);
         });
     </script>
 </body>
