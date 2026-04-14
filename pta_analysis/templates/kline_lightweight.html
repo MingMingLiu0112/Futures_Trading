@@ -441,7 +441,7 @@
                 const chartData = klineData
                     .filter(k => k.open && k.high && k.low && k.close)
                     .map(k => {
-                        const ts = new Date(k.time).getTime() / 1000 + 8 * 3600;
+                        const ts = k.time + 8 * 3600;
                         return {
                             time: ts,
                             open: parseFloat(k.open),
@@ -464,7 +464,7 @@
                 const volData = klineData
                     .filter(k => k.volume)
                     .map(k => ({
-                        time: new Date(k.time).getTime() / 1000 + 8 * 3600,
+                        time: k.time + 8 * 3600,
                         value: parseFloat(k.volume),
                         color: parseFloat(k.close) >= parseFloat(k.open) ? C.up + '60' : C.down + '60',
                     }))
@@ -489,8 +489,16 @@
                     document.getElementById('volume').textContent = totalVolume.toFixed(0);
                     document.getElementById('volumeChange').textContent = `(${volumeChangeFromPrev >= 0 ? '+' : ''}${volumeChangeFromPrev})`;
                     document.getElementById('volumeChange').className = volumeChangeFromPrev >= 0 ? 'text-success' : 'text-danger';
-                    document.getElementById('openInterest').textContent = '--';
-                    document.getElementById('oiChange').textContent = '';
+                    const oi = last.open_interest || 0;
+                    const oiPrev = klineData.length >= 2 ? (klineData[klineData.length - 2].open_interest || 0) : oi;
+                    const oiChange = oi - oiPrev;
+                    const oiEl = document.getElementById('openInterest');
+                    if (oiEl) oiEl.textContent = typeof oi === 'number' ? oi.toFixed(0) : '--';
+                    const oiChangeEl = document.getElementById('oiChange');
+                    if (oiChangeEl) {
+                        oiChangeEl.textContent = `(${oiChange >= 0 ? '+' : ''}${oiChange.toFixed(0)})`;
+                        oiChangeEl.className = oiChange >= 0 ? 'text-success' : 'text-danger';
+                    }
                 }
                 
                 // 处理缠论数据
@@ -580,7 +588,7 @@
         function calculateAndDrawMACD() {
             const closes = klineData.map(k => parseFloat(k.close));
             const { macdLine, signalLine, histogram } = calculateMACD(closes);
-            const times = klineData.map(k => new Date(k.time).getTime() / 1000 + 8 * 3600);
+            const times = klineData.map(k => k.time + 8 * 3600);
             
             // MACD线 - 只设置真实数据（从26开始）
             const macdData = macdLine.map((v, i) => ({ time: times[i], value: i >= 25 ? v : null }));
@@ -697,7 +705,7 @@
             const lows = klineData.map(k => parseFloat(k.low));
             const closes = klineData.map(k => parseFloat(k.close));
             const { kLine, dLine, jLine } = calculateKDJ(highs, lows, closes);
-            const times = klineData.map(k => new Date(k.time).getTime() / 1000 + 8 * 3600);
+            const times = klineData.map(k => k.time + 8 * 3600);
             
             // 显示最新值
             const n = kLine.length - 1;
@@ -913,7 +921,7 @@
                 const periodKlineData = kData.data;
                 const closes = periodKlineData.map(k => parseFloat(k.close));
                 const { macdLine, signalLine, histogram } = calculateMACD(closes);
-                const times = periodKlineData.map(k => new Date(k.time).getTime() / 1000 + 8 * 3600);
+                const times = periodKlineData.map(k => k.time + 8 * 3600);
                 
                 // Cache the data
                 macdDataCache[period] = { klineData: periodKlineData, macdLine, signalLine, histogram };
@@ -1046,6 +1054,8 @@
             // initMainChart() 会在 loadAllData() 内部调用，避免重复 fetch
             loadAllData();
             loadOptionChain();
+            // 每秒增量刷新最后一根K线
+            setInterval(incrementalUpdate, 1000);
         });
     </script>
 </body>

@@ -1080,6 +1080,16 @@ def api_kline_data():
         api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS))
         klines = api.get_kline_serial('CZCE.TA605', period_sec, count)
         
+        # 从akshare获取最新持仓数据
+        try:
+            period_code = period.replace('min', 'm') if 'min' in period else period
+            ak_df = ak.futures_zh_minute_sina(symbol='TA0', period=period_code)
+            ak_df.columns = [c.strip() for c in ak_df.columns]
+            ak_df = ak_df.sort_values('datetime')
+            latest_hold = float(ak_df['hold'].iloc[-1]) if len(ak_df) > 0 else 0
+        except:
+            latest_hold = 0
+        
         data = []
         for _, row in klines.iterrows():
             close = float(row['close']) if math.isfinite(row['close']) else None
@@ -1087,17 +1097,20 @@ def api_kline_data():
                 continue
             dt_val = row['datetime']
             if isinstance(dt_val, (int, float)) and math.isfinite(dt_val) and dt_val > 0:
-                dt_sec = dt_val / 1e9
-                time_str = dt.datetime.utcfromtimestamp(dt_sec).strftime('%Y-%m-%dT%H:%M:%S')
+                # 直接使用Unix时间戳（秒），LightweightCharts自动处理时区
+                time_ts = int(dt_val / 1e9)
             else:
-                time_str = str(dt_val).replace(' ', 'T')
+                # Fallback: 解析字符串并转为时间戳
+                dt_obj = dt.datetime.strptime(str(dt_val).replace('T', ' '), '%Y-%m-%d %H:%M:%S')
+                time_ts = int((dt_obj - dt.datetime(1970, 1, 1)).total_seconds())
             data.append({
-                'time': time_str,
+                'time': time_ts,  # Unix时间戳（秒）
                 'open': float(row['open']) if math.isfinite(row['open']) else close,
                 'high': float(row['high']) if math.isfinite(row['high']) else close,
                 'low': float(row['low']) if math.isfinite(row['low']) else close,
                 'close': close,
-                'volume': float(row['volume']) if math.isfinite(row['volume']) else 0
+                'volume': float(row['volume']) if math.isfinite(row['volume']) else 0,
+                'open_interest': latest_hold
             })
         api.close()
         data.sort(key=lambda x: x['time'])
@@ -1123,7 +1136,49 @@ def api_kline_data():
             'change_pct': change_pct, 'source': 'tqsdk'
         })
     except Exception as e:
-        return jsonify({'error': str(e), 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0})
+        # Fallback to akshare
+        try:
+            period_code = period.replace('min', 'm') if 'min' in period else period
+            df = ak.futures_zh_minute_sina(symbol='TA0', period=period_code)
+            df.columns = [c.strip() for c in df.columns]
+            df['datetime'] = pd.to_datetime(df['datetime'])
+            df = df.sort_values('datetime').tail(500).reset_index(drop=True)
+            
+            data = []
+            for _, row in df.iterrows():
+                close = float(row['close']) if math.isfinite(row['close']) else None
+                if close is None or close == 0:
+                    continue
+                # 解析datetime并转为Unix时间戳
+                dt_str = str(row['datetime'])
+                if 'T' in dt_str:
+                    dt_str = dt_str.replace('T', ' ')
+                dt_obj = dt.datetime.strptime(dt_str, '%Y-%m-%d %H:%M:%S')
+                time_ts = int((dt_obj - dt.datetime(1970, 1, 1)).total_seconds())
+                data.append({
+                    'time': time_ts,  # Unix时间戳（秒）
+                    'open': float(row['open']) if math.isfinite(row['open']) else close,
+                    'high': float(row['high']) if math.isfinite(row['high']) else close,
+                    'low': float(row['low']) if math.isfinite(row['low']) else close,
+                    'close': close,
+                    'volume': float(row['volume']) if math.isfinite(row['volume']) else 0,
+                    'open_interest': float(row.get('hold', 0)) if math.isfinite(row.get('hold', 0)) else 0
+                })
+            
+            last = data[-1] if data else {}
+            first = data[0] if data else {}
+            current_price = last.get('close', 0)
+            first_price = first.get('close', current_price)
+            change = current_price - first_price
+            change_pct = (change / first_price * 100) if first_price else 0
+            
+            return jsonify({
+                'symbol': 'TA', 'period': period, 'data': data,
+                'current_price': round(current_price, 2), 'change': round(change, 2),
+                'change_pct': round(change_pct, 2), 'source': 'akshare'
+            })
+        except Exception as e2:
+            return jsonify({'error': f'TqSdk: {str(e)}, Akshare: {str(e2)}', 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0})
 
 
 
