@@ -15,7 +15,8 @@ let drawingMode = null;
 // 默认指标参数
 const defaultIndicators = {
     macd: { fast: 12, slow: 26, signal: 9 },
-    kdj: { period: 9, k: 3, d: 3 }
+    kdj: { period: 9, k: 3, d: 3 },
+    autoScale: false  // 默认不启用周期自适应
 };
 
 let currentIndicators = JSON.parse(JSON.stringify(defaultIndicators));
@@ -66,6 +67,14 @@ function bindEvents() {
     // 指标参数应用
     document.getElementById('apply-indicators').addEventListener('click', applyIndicatorSettings);
     document.getElementById('reset-indicators').addEventListener('click', resetIndicatorSettings);
+    
+    // MACD周期自适应切换
+    document.getElementById('macd-auto-scale').addEventListener('change', function() {
+        const isChecked = this.checked;
+        document.getElementById('macd-fast').disabled = isChecked;
+        document.getElementById('macd-slow').disabled = isChecked;
+        document.getElementById('macd-signal').disabled = isChecked;
+    });
     
     // MACD面积切换
     document.getElementById('toggle-macd-area').addEventListener('click', toggleMACDArea);
@@ -139,8 +148,10 @@ async function loadKlineData() {
 async function loadIndicators() {
     try {
         const { fast, slow, signal } = currentIndicators.macd;
+        const autoScale = currentIndicators.autoScale;
+        const autoScaleParam = autoScale ? '&auto_scale=true' : '';
         const response = await fetch(
-            `/api/kline/indicators?period=${currentPeriod}&symbol=${currentSymbol}&fast=${fast}&slow=${slow}&signal=${signal}`
+            `/api/kline/indicators?period=${currentPeriod}&symbol=${currentSymbol}&fast=${fast}&slow=${slow}&signal=${signal}${autoScaleParam}`
         );
         const result = await response.json();
         
@@ -159,8 +170,10 @@ async function loadIndicators() {
 async function loadAllPeriodsMACD() {
     try {
         const { fast, slow, signal } = currentIndicators.macd;
+        const autoScale = currentIndicators.autoScale;
+        const autoScaleParam = autoScale ? '&auto_scale=true' : '';
         const response = await fetch(
-            `/api/kline/macd/all_periods?symbol=${currentSymbol}&fast=${fast}&slow=${slow}&signal=${signal}`
+            `/api/kline/macd/all_periods?symbol=${currentSymbol}&fast=${fast}&slow=${slow}&signal=${signal}${autoScaleParam}`
         );
         const result = await response.json();
         
@@ -260,7 +273,8 @@ function updateAllPeriodsMACDInfo(data) {
                     </div>
                     <div class="small text-muted mt-1">
                         DIF: ${macd.dif.toFixed(4)} | DEA: ${macd.dea.toFixed(4)} |
-                        面积比: ${periodData.area_summary?.area_ratio?.toFixed(2) || 'N/A'}
+                        面积比: ${periodData.area_summary?.area_ratio?.toFixed(2) || 'N/A'} |
+                        参数:(${macd.fast},${macd.slow},${macd.signal})
                     </div>
                 </div>
             </div>
@@ -445,6 +459,17 @@ function updateMACDChart(data) {
 
 // 应用指标设置
 function applyIndicatorSettings() {
+    const autoScale = document.getElementById('macd-auto-scale').checked;
+    
+    // 如果启用了周期自适应，不需要验证手动参数
+    if (autoScale) {
+        currentIndicators.autoScale = true;
+        loadIndicators();
+        loadAllPeriodsMACD();
+        showNotification('已启用周期自适应MACD参数', 'success');
+        return;
+    }
+    
     const fast = parseInt(document.getElementById('macd-fast').value);
     const slow = parseInt(document.getElementById('macd-slow').value);
     const signal = parseInt(document.getElementById('macd-signal').value);
@@ -462,6 +487,7 @@ function applyIndicatorSettings() {
     
     // 更新当前指标
     currentIndicators.macd = { fast, slow, signal };
+    currentIndicators.autoScale = false;
     
     // 重新加载指标
     loadIndicators();
@@ -477,6 +503,7 @@ function resetIndicatorSettings() {
     document.getElementById('macd-fast').value = defaultIndicators.macd.fast;
     document.getElementById('macd-slow').value = defaultIndicators.macd.slow;
     document.getElementById('macd-signal').value = defaultIndicators.macd.signal;
+    document.getElementById('macd-auto-scale').checked = defaultIndicators.autoScale;
     
     // 重新加载指标
     loadIndicators();

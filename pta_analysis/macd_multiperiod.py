@@ -27,6 +27,62 @@ PERIOD_LABELS = {
     '60min': '60分钟'
 }
 
+# MACD参数随周期调整配置
+# 短周期用较小参数（响应更快），长周期用较大参数（更平滑，避免噪声）
+# 原理：周期分钟数越大，EMA参数也应该越大以保持相似的信号特性
+PERIOD_MACD_PARAMS = {
+    '1min':  {'fast': 6,  'slow': 13, 'signal': 4},   # 最短周期，用较小参数
+    '5min':  {'fast': 12, 'slow': 26, 'signal': 9},   # 标准参数
+    '15min': {'fast': 12, 'slow': 26, 'signal': 9},   # 15分钟周期
+    '30min': {'fast': 24, 'slow': 52, 'signal': 18},  # 30分钟用较大参数，更平滑
+    '60min': {'fast': 24, 'slow': 52, 'signal': 18},  # 60分钟（日线级别参数）
+}
+
+# 周期分钟数映射
+PERIOD_MINUTES = {
+    '1min': 1,
+    '5min': 5,
+    '15min': 15,
+    '30min': 30,
+    '60min': 60
+}
+
+def get_macd_params_for_period(period='1min', user_fast=None, user_slow=None, user_signal=None, auto_scale=False):
+    """
+    获取指定周期的MACD参数
+    
+    如果用户指定了参数，使用用户参数；否则使用周期默认参数
+    auto_scale=True时，根据周期分钟数自动计算参数
+    
+    参数:
+        period: 时间周期 ('1min', '5min', '15min', '30min', '60min')
+        user_fast: 用户指定的快线周期（可选）
+        user_slow: 用户指定的慢线周期（可选）
+        user_signal: 用户指定的信号线周期（可选）
+        auto_scale: 是否自动根据周期缩放参数（默认False）
+    
+    返回:
+        dict: 包含 fast, slow, signal 的字典
+    """
+    # 如果用户指定了参数，使用用户参数
+    if user_fast is not None and user_slow is not None and user_signal is not None:
+        return {'fast': user_fast, 'slow': user_slow, 'signal': user_signal}
+    
+    # 如果启用自动缩放，根据周期分钟数计算（平方根缩放，更平滑）
+    if auto_scale:
+        minutes = PERIOD_MINUTES.get(period, 1)
+        # 使用平方根缩放：60min周期参数约为1min的√60≈7.7倍，但限制最大为4倍
+        factor = min(4.0, max(0.5, (minutes ** 0.5) / 2.2))  # 归一化使5min的factor≈1
+        base = {'fast': 12, 'slow': 26, 'signal': 9}
+        return {
+            'fast': max(4, int(base['fast'] * factor / 2 + 0.5)),
+            'slow': max(8, int(base['slow'] * factor / 2 + 0.5)),
+            'signal': max(3, int(base['signal'] * factor / 2 + 0.5))
+        }
+    
+    # 否则使用周期适配参数
+    return PERIOD_MACD_PARAMS.get(period, PERIOD_MACD_PARAMS['5min']).copy()
+
 def calculate_macd(close_series, fast=12, slow=26, signal=9):
     """
     计算MACD指标
@@ -159,18 +215,24 @@ def resample_data(df, period='5min'):
     
     return resampled
 
-def analyze_macd_for_period(df, period='1min', fast=12, slow=26, signal=9):
+def analyze_macd_for_period(df, period='1min', fast=None, slow=None, signal=None):
     """
     分析指定周期的MACD指标
     
     参数:
     - df: 原始1分钟数据DataFrame
     - period: 时间周期 ('1min', '5min', '15min', '30min', '60min')
-    - fast, slow, signal: MACD参数
+    - fast, slow, signal: MACD参数（可选，不指定时自动适配周期）
     
     返回:
     - result: 包含MACD分析结果的字典
     """
+    # 获取周期适配的MACD参数
+    macd_params = get_macd_params_for_period(period, fast, slow, signal)
+    fast = macd_params['fast']
+    slow = macd_params['slow']
+    signal = macd_params['signal']
+    
     # 获取周期代码
     period_code = PERIOD_MAP.get(period, '1min')
     
@@ -214,13 +276,13 @@ def analyze_macd_for_period(df, period='1min', fast=12, slow=26, signal=9):
     
     return result
 
-def get_all_periods_macd(df, fast=12, slow=26, signal=9):
+def get_all_periods_macd(df, fast=None, slow=None, signal=None):
     """
     获取所有时间周期的MACD分析
     
     参数:
     - df: 原始1分钟数据DataFrame
-    - fast, slow, signal: MACD参数
+    - fast, slow, signal: MACD参数（可选，不指定时自动适配周期）
     
     返回:
     - results: 各周期MACD分析结果的字典
@@ -229,6 +291,7 @@ def get_all_periods_macd(df, fast=12, slow=26, signal=9):
     
     for period in ['1min', '5min', '15min', '30min', '60min']:
         try:
+            # 如果用户指定了参数，则使用用户参数；否则自动适配周期
             result = analyze_macd_for_period(df, period, fast, slow, signal)
             results[period] = result
         except Exception as e:

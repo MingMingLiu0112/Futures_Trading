@@ -153,13 +153,22 @@
             </select>
             <select id="period">
                 <option value="1min">1分钟</option>
-                    <option value="1day" selected>日线</option>
+                <option value="3min">3分钟</option>
                 <option value="5min">5分钟</option>
+                <option value="8min">8分钟</option>
+                <option value="10min">10分钟</option>
+                <option value="15min">15分钟</option>
+                <option value="18min">18分钟</option>
+                <option value="20min">20分钟</option>
+                <option value="25min">25分钟</option>
                 <option value="30min">30分钟</option>
+                <option value="35min">35分钟</option>
+                <option value="40min">40分钟</option>
+                <option value="45min">45分钟</option>
+                <option value="50min">50分钟</option>
+                <option value="55min">55分钟</option>
                 <option value="60min">60分钟</option>
-                <option value="120min">120分钟</option>
-                <option value="240min">240分钟</option>
-                <option value="1day">日线</option>
+                <option value="1day" selected>日线</option>
                 <option value="1week">周线</option>
                 <option value="1month">月线</option>
             </select>
@@ -194,11 +203,10 @@
 
     <!-- MACD -->
     <div class="chart-section">
-        <div class="section-title"><span>MACD指标</span><span id="macdValueDisplay" style="font-size:11px;color:#888;margin-left:10px;">DIF: -- | DEA: -- | 柱: --</span><span id="macdWaveDisplay" style="font-size:11px;color:#888;margin-left:15px;"></span><select id="macdPeriod" onchange="changeMacdPeriod()" style="background:#333;color:#fff;border:none;font-size:11px;padding:2px 5px;border-radius:3px;margin-left:10px;"><option value="1min">1分钟</option>
-                    <option value="1day" selected>日线</option><option value="2min">2分钟</option><option value="3min">3分钟</option><option value="4min">4分钟</option><option value="5min">5分钟</option><option value="6min">6分钟</option><option value="7min">7分钟</option><option value="8min">8分钟</option><option value="9min">9分钟</option><option value="10min">10分钟</option><option value="11min">11分钟</option><option value="12min">12分钟</option><option value="13min">13分钟</option><option value="14min">14分钟</option><option value="15min">15分钟</option><option value="16min">16分钟</option><option value="17min">17分钟</option><option value="18min">18分钟</option><option value="19min">19分钟</option><option value="20min">20分钟</option><option value="21min">21分钟</option><option value="22min">22分钟</option><option value="23min">23分钟</option><option value="24min">24分钟</option><option value="25min">25分钟</option><option value="26min">26分钟</option><option value="27min">27分钟</option><option value="28min">28分钟</option><option value="29min">29分钟</option><option value="30min">30分钟</option><option value="31min">31分钟</option><option value="32min">32分钟</option><option value="33min">33分钟</option><option value="34min">34分钟</option><option value="35min">35分钟</option><option value="36min">36分钟</option><option value="37min">37分钟</option><option value="38min">38分钟</option><option value="39min">39分钟</option><option value="40min">40分钟</option><option value="41min">41分钟</option><option value="42min">42分钟</option><option value="43min">43分钟</option><option value="44min">44分钟</option><option value="45min">45分钟</option><option value="46min">46分钟</option><option value="47min">47分钟</option><option value="48min">48分钟</option><option value="49min">49分钟</option><option value="50min">50分钟</option><option value="51min">51分钟</option><option value="52min">52分钟</option><option value="53min">53分钟</option><option value="54min">54分钟</option><option value="55min">55分钟</option><option value="56min">56分钟</option><option value="57min">57分钟</option><option value="58min">58分钟</option><option value="59min">59分钟</option><option value="60min">60分钟</option></select></div>
-        <div id="macd-chart-wrapper" style="position:relative;">
-            <div id="macd-chart" class="chart-container"></div>
-            <div id="macd-wave-labels" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:hidden;"></div>
+        <div class="section-title"><span>MACD指标</span><span id="macdValueDisplay" style="font-size:11px;color:#888;margin-left:10px;">DIF: -- | DEA: -- | 柱: --</span></div>
+        <div id="macd-chart-wrapper" style="position:relative;height:100px;">
+            <div id="macd-chart" class="chart-container" style="height:100px;"></div>
+            <div id="macd-wave-labels" style="position:absolute;top:0;left:0;width:100%;height:100px;pointer-events:none;overflow:hidden;z-index:5;"></div>
         </div>
     </div>
 
@@ -241,9 +249,10 @@
         let biSeries = null, segSeries = null, zsSeries = null, sessionBreakSeries = null;
         let macdLineSeries = null, signalLineSeries = null, macdHistSeries = null;
         let kdjKSeries = null, kdjDSeries = null, kdjJSeries = null;
+        let kdjLine20Series = null, kdjLine80Series = null;
         
         // 保存MACD波数据用于标注
-        // let lastMacdWaveData = { times: [], histogram: [], waveEndLabels: [] }; // 已禁用
+        let lastMacdWaveData = { times: [], waveEndLabels: [] }; // 保存MACD波数据用于缩放重绘
         
         // 指标显示状态
         let showBi = true, showSeg = true, showZs = true, showBs = true;
@@ -311,7 +320,7 @@
                 layout: { background: { type: 'solid', color: '#1a1a2e' }, textColor: '#aaa' },
                 grid: { vertLines: { color: '#2a2a3e' }, horzLines: { color: '#2a2a3e' } },
                 timeScale: { visible: false },
-                rightPriceScale: { borderColor: '#333' },
+                rightPriceScale: { borderColor: '#333', visible: true },
             });
             macdLineSeries = macdChart.addLineSeries({ color: C.macd, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
             signalLineSeries = macdChart.addLineSeries({ color: C.signal, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
@@ -330,6 +339,10 @@
             kdjKSeries = kdjChart.addLineSeries({ color: C.kdjK, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
             kdjDSeries = kdjChart.addLineSeries({ color: C.kdjD, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
             kdjJSeries = kdjChart.addLineSeries({ color: C.kdjJ, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
+            
+            // KDJ超买超卖线 20/80
+            kdjLine20Series = kdjChart.addLineSeries({ color: '#888', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, lastValueVisible: false, priceLineVisible: false });
+            kdjLine80Series = kdjChart.addLineSeries({ color: '#888', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, lastValueVisible: false, priceLineVisible: false });
 
             // 笔 - 线段
             biSeries = mainChart.addLineSeries({
@@ -375,14 +388,18 @@
                 if (macdChart) macdChart.applyOptions({ width: w });
                 if (kdjChart) kdjChart.applyOptions({ width: w });
                 mainChart.timeScale().fitContent();
+                // resize后重绘标注
+                if (lastMacdWaveData.times.length > 0) {
+                    setTimeout(() => drawMacdWaveLabels(lastMacdWaveData.times, lastMacdWaveData.waveEndLabels), 100);
+                }
             });
             
-            // 图表重绘时更新标注 (已禁用 - 导致缩放时重复绘制)
-            // macdChart.timeScale().subscribeVisibleTimeRangeChanged(() => {
-            //     if (lastMacdWaveData.times.length > 0) {
-            //         drawMacdWaveLabels(lastMacdWaveData.times, lastMacdWaveData.histogram, lastMacdWaveData.waveEndLabels);
-            //     }
-            // });
+            // 图表缩放时更新标注
+            macdChart.timeScale().subscribeVisibleTimeRangeChange(() => {
+                if (lastMacdWaveData.times.length > 0) {
+                    drawMacdWaveLabels(lastMacdWaveData.times, lastMacdWaveData.waveEndLabels);
+                }
+            });
         }
 
         // ==================== 数据加载 ====================
@@ -566,11 +583,18 @@
             const times = klineData.map(k => new Date(k.time).getTime() / 1000 + 8 * 3600);
             
             // MACD线 - 只设置真实数据（从26开始）
-            const macdData = macdLine.map((v, i) => ({ time: times[i], value: i >= 25 ? v : 0 }));
-            const signalData = signalLine.map((v, i) => ({ time: times[i], value: i >= 25 ? v : 0 }));
+            const macdData = macdLine.map((v, i) => ({ time: times[i], value: i >= 25 ? v : null }));
+            const signalData = signalLine.map((v, i) => ({ time: times[i], value: i >= 25 ? v : null }));
 
             macdLineSeries.setData(macdData);
             signalLineSeries.setData(signalData);
+            
+            // 更新MACD指标数值显示
+            const lastIdx = histogram.length - 1;
+            if (lastIdx >= 25) {
+                document.getElementById('macdValueDisplay').textContent = 
+                    `DIF: ${macdLine[lastIdx].toFixed(2)} | DEA: ${signalLine[lastIdx].toFixed(2)} | 柱: ${histogram[lastIdx].toFixed(2)}`;
+            }
             
             // MACD柱状图：每根柱正常显示实际值(DIF-DEA)，每波最后一根柱上方标注累计面积
             const n = histogram.length;
@@ -602,17 +626,70 @@
             
             macdHistSeries.setData(histData);
             
-            // 显示最后一波的累计面积在标题
-            if (waveEndLabels.length > 0) {
-                const lastWave = waveEndLabels[waveEndLabels.length - 1];
-                const label = `${lastWave.sign === 1 ? '红波' : '绿波'}累计: ${lastWave.sum >= 0 ? '+' : ''}${lastWave.sum.toFixed(1)}`;
-                document.getElementById('macdWaveDisplay').textContent = label;
-                document.getElementById('macdWaveDisplay').style.color = lastWave.sign === 1 ? '#ef5350' : '#26a69a';
+            // 保存数据并绘制标注
+            lastMacdWaveData = { times, waveEndLabels };
+            drawMacdWaveLabels(times, waveEndLabels);
+        }
+        
+        function drawMacdWaveLabels(times, waveEndLabels) {
+            const labelsDiv = document.getElementById('macd-wave-labels');
+            if (!labelsDiv) return;
+            labelsDiv.innerHTML = '';
+            
+            const wrapper = document.getElementById('macd-chart-wrapper');
+            if (!wrapper) return;
+            const chartHeight = wrapper.clientHeight;
+            const chartWidth = wrapper.clientWidth;
+            if (chartWidth <= 0 || chartHeight <= 0) return;
+            
+            // 计算累计值，只显示已完成波段
+            let cumulative = 0;
+            const completedWaves = waveEndLabels.slice(0, -1); // 排除最后一波（可能未完成）
+            
+            for (let i = 0; i < completedWaves.length; i++) {
+                const w = completedWaves[i];
+                cumulative += w.sum;
+                
+                // X坐标：用timeToCoordinate将时间转换为图表坐标
+                const timeKey = times[w.idx];
+                let x;
+                try {
+                    x = macdChart.timeScale().timeToCoordinate(timeKey);
+                } catch(e) {
+                    x = (w.idx / times.length) * chartWidth;
+                }
+                if (x === null || x === undefined) continue;
+                
+                // Y坐标：红波紧贴顶部，绿波紧贴底部
+                const isRed = w.sign === 1;
+                const y = isRed ? 2 : chartHeight - 10;
+                
+                const label = document.createElement('div');
+                label.style.cssText = `position:absolute;left:${x}px;top:${y}px;font-size:8px;color:${isRed ? '#ef5350' : '#26a69a'};background:rgba(26,26,46,0.85);padding:1px 3px;border-radius:2px;white-space:nowrap;`;
+                label.textContent = `${cumulative >= 0 ? '+' : ''}${cumulative.toFixed(1)}`;
+                labelsDiv.appendChild(label);
             }
             
-            // 绘制所有波的累计面积标注 (已禁用 - 导致重复绘制)
-            // lastMacdWaveData = { times, histogram, waveEndLabels };
-            // drawMacdWaveLabels(times, histogram, waveEndLabels);
+            // 单独显示当前进行中波段的值（不加入累计）
+            if (waveEndLabels.length > 0) {
+                const currentWave = waveEndLabels[waveEndLabels.length - 1];
+                const isRed = currentWave.sign === 1;
+                // 只显示当前波段自身的sum，不加入累计
+                const currentY = isRed ? 25 : chartHeight - 25; // 放在中间位置以示区分
+                const timeKey = times[currentWave.idx];
+                let x;
+                try {
+                    x = macdChart.timeScale().timeToCoordinate(timeKey);
+                } catch(e) {
+                    x = (currentWave.idx / times.length) * chartWidth;
+                }
+                if (x !== null && x !== undefined) {
+                    const label = document.createElement('div');
+                    label.style.cssText = `position:absolute;left:${x}px;top:${currentY}px;font-size:8px;color:${isRed ? '#FF8888' : '#88FF88'};background:rgba(26,26,46,0.9);padding:1px 3px;border-radius:2px;white-space:nowrap;border:1px dashed ${isRed ? '#FF8888' : '#88FF88'};`;
+                    label.textContent = `${currentWave.sum >= 0 ? '+' : ''}${currentWave.sum.toFixed(1)}`;
+                    labelsDiv.appendChild(label);
+                }
+            }
         }
 
         function calculateAndDrawKDJ() {
@@ -636,6 +713,12 @@
             kdjKSeries.setData(kdjKData);
             kdjDSeries.setData(kdjDData);
             kdjJSeries.setData(kdjJData);
+            
+            // KDJ 20/80 超买超卖线
+            const line20Data = times.map(t => ({ time: t, value: 20 }));
+            const line80Data = times.map(t => ({ time: t, value: 80 }));
+            kdjLine20Series.setData(line20Data);
+            kdjLine80Series.setData(line80Data);
         }
 
                 function updateIndicatorValuesAtCrosshair(param) {
@@ -956,7 +1039,6 @@
         // ==================== 初始化 ====================
 
         document.getElementById('period').addEventListener('change', () => {
-            document.getElementById('macdPeriod').value = document.getElementById('period').value;
             loadAllData();
         });
 

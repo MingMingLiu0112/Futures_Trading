@@ -17,6 +17,9 @@ import numpy as np
 # 天勤量化 TqSdk
 from tqsdk import TqApi, TqAuth
 
+# MACD多周期计算模块
+import macd_multiperiod as mmacd
+
 # TqSdk 认证配置
 TQS_USER = os.environ.get('TQS_AUTH_USER', 'mingmingliu')
 TQS_PASS = os.environ.get('TQS_AUTH_PASS', 'Liuzhaoning2025')
@@ -1126,30 +1129,141 @@ def api_kline_data():
 
 @app.route('/api/kline/indicators')
 def api_kline_indicators():
-    """技术指标API"""
-    return jsonify({
-        'macd': {
-            'fast': 12,
-            'slow': 26,
-            'signal': 9,
-            'positive_area': 1250.5,
-            'negative_area': 850.3,
-            'area_ratio': 1.47
-        },
-        'kdj': {
-            'k_period': 9,
-            'd_period': 3,
-            'j_period': 3,
-            'k_value': 65.2,
-            'd_value': 58.7,
-            'j_value': 78.1
-        },
-        'ma': {
-            'ma5': 6415,
-            'ma10': 6408,
-            'ma20': 6395
-        }
-    })
+    """技术指标API - 支持周期自适应MACD参数"""
+    period = request.args.get('period', '1min')
+    symbol = request.args.get('symbol', 'TA0')
+    
+    # 获取用户指定的MACD参数（可选）
+    user_fast = request.args.get('fast', type=int)
+    user_slow = request.args.get('slow', type=int)
+    user_signal = request.args.get('signal', type=int)
+    auto_scale = request.args.get('auto_scale', 'false').lower() == 'true'
+    
+    try:
+        # 获取K线数据
+        period_code = period.replace('min', 'm') if 'min' in period else period
+        df = ak.futures_zh_minute_sina(symbol=symbol, period=period_code)
+        df.columns = [c.strip() for c in df.columns]
+        df['datetime'] = pd.to_datetime(df['datetime'])
+        df = df.sort_values('datetime').tail(500).reset_index(drop=True)
+        
+        # 获取MACD参数（周期自适应或用户指定）
+        macd_params = mmacd.get_macd_params_for_period(
+            period,
+            user_fast=user_fast,
+            user_slow=user_slow,
+            user_signal=user_signal,
+            auto_scale=auto_scale
+        )
+        
+        # 计算MACD
+        close_series = df['close']
+        dif, dea, macd_hist = mmacd.calculate_macd(
+            close_series,
+            fast=macd_params['fast'],
+            slow=macd_params['slow'],
+            signal=macd_params['signal']
+        )
+        
+        # 计算面积
+        summary = mmacd.get_macd_summary(macd_hist)
+        
+        # 获取最新值
+        last_dif = float(dif.iloc[-1])
+        last_dea = float(dea.iloc[-1])
+        last_macd = float(macd_hist.iloc[-1])
+        
+        return jsonify({
+            'success': True,
+            'period': period,
+            'symbol': symbol,
+            'macd': {
+                'fast': macd_params['fast'],
+                'slow': macd_params['slow'],
+                'signal': macd_params['signal'],
+                'dif': round(last_dif, 4),
+                'dea': round(last_dea, 4),
+                'macd': round(last_macd, 4),
+                'state': '多头' if last_macd > 0 else '空头',
+                'positive_area': summary['positive_area'],
+                'negative_area': summary['negative_area'],
+                'area_ratio': summary['area_ratio']
+            },
+            'kdj': {
+                'k_period': 9,
+                'd_period': 3,
+                'j_period': 3,
+                'k_value': 65.2,
+                'd_value': 58.7,
+                'j_value': 78.1
+            },
+            'ma': {
+                'ma5': round(float(df['close'].tail(5).mean()), 2),
+                'ma10': round(float(df['close'].tail(10).mean()), 2),
+                'ma20': round(float(df['close'].tail(20).mean()), 2)
+            }
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/kline/macd/all_periods')
+def api_kline_macd_all_periods():
+    """获取所有时间周期的MACD指标（周期自适应参数）"""
+    symbol = request.args.get('symbol', 'TA0')
+    
+    # 获取用户指定的MACD参数（可选）
+    user_fast = request.args.get('fast', type=int)
+    user_slow = request.args.get('slow', type=int)
+    user_signal = request.args.get('signal', type=int)
+    auto_scale = request.args.get('auto_scale', 'false').lower() == 'true'
+    
+    try:
+        # 获取1分钟原始数据
+        df = ak.futures_zh_minute_sina(symbol=symbol, period='1m')
+        df.columns = [c.strip() for c in df.columns]
+        df['datetime'] = pd.to_datetime(df['datetime'])
+        df = df.sort_values('datetime').tail(2000).reset_index(drop=True)
+        
+        # 获取所有周期的MACD
+        results = {}
+        for period in ['1min', '5min', '15min', '30min', '60min']:
+            try:
+                # 获取该周期的MACD参数
+                macd_params = mmacd.get_macd_params_for_period(
+                    period,
+                    user_fast=user_fast,
+                    user_slow=user_slow,
+                    user_signal=user_signal,
+                    auto_scale=auto_scale
+                )
+                
+                # 分析该周期MACD
+                result = mmacd.analyze_macd_for_period(
+                    df, period,
+                    fast=macd_params['fast'],
+                    slow=macd_params['slow'],
+                    signal=macd_params['signal']
+                )
+                results[period] = {
+                    'success': True,
+                    **result
+                }
+            except Exception as e:
+                results[period] = {'success': False, 'error': str(e)}
+        
+        return jsonify({
+            'success': True,
+            'symbol': symbol,
+            'periods': results
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)})
+
 
 # ==================== 启动应用 ====================
 
