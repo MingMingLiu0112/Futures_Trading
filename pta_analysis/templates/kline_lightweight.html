@@ -33,6 +33,14 @@
             cursor: pointer;
         }
         .controls button:hover { background: #3d3d54; }
+        .data-source {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 3px;
+            margin-left: 10px;
+        }
+        .data-source.tqsdk { background: #2e7d32; color: #fff; }
+        .data-source.akshare { background: #1565c0; color: #fff; }
         
         .stats-bar {
             display: flex;
@@ -173,10 +181,12 @@
                 <option value="1month">月线</option>
             </select>
             <button onclick="loadAllData()">🔄 刷新</button>
+            <span id="dataSource" class="data-source" style="background:#666;color:#fff;">--</span>
         </div>
     </div>
 
     <div class="stats-bar" id="statsBar">
+        <div class="stat-item"><span class="stat-label">时间:</span><span class="stat-value" id="crosshairTime">--</span></div>
         <div class="stat-item"><span class="stat-label">最新价:</span><span class="stat-value" id="lastPrice">--</span><span id="priceChange" style="font-size:11px;margin-left:5px;">--</span></div>
         <div class="stat-item"><span class="stat-label">涨跌:</span><span class="stat-value" id="change">--</span></div>
         <div class="stat-item"><span class="stat-label">成交量(手):</span><span class="stat-value" id="volume">--</span><span id="volumeChange" style="font-size:11px;margin-left:5px;">--</span></div>
@@ -305,7 +315,43 @@
                 layout: {
                     attribution: false,
                 },
+                timeScale: {
+                    timeVisible: true,
+                    secondsVisible: false,
+                    rightOffset: 5,
+                    barSpacing: 10,
+                },
             });
+            
+            // 中国期货交易时段格式化
+            function formatChinaFuturesTime(timestamp) {
+                const date = new Date(timestamp * 1000);
+                const hour = date.getUTCHours() + 8; // UTC+8
+                const minute = date.getUTCMinutes();
+                const day = date.getUTCDate();
+                
+                // 交易时段判断
+                const totalMinutes = hour * 60 + minute;
+                
+                // 夜盘 21:00 - 23:59 (1440-1380 = 60 到 1380-1440 = 0)
+                if (hour >= 21 || hour < 3) {
+                    return `夜${hour}:${minute.toString().padStart(2, '0')}`;
+                }
+                // 早盘一 9:00 - 10:15
+                if (hour >= 9 && (hour < 10 || (hour === 10 && minute <= 15))) {
+                    return `早一${hour}:${minute.toString().padStart(2, '0')}`;
+                }
+                // 早盘二 10:15 - 11:30
+                if (hour === 10 && minute > 15 || (hour === 11 && minute <= 30)) {
+                    return `早二${hour}:${minute.toString().padStart(2, '0')}`;
+                }
+                // 午盘 13:30 - 15:00
+                if (hour >= 13 && hour < 15 || (hour === 13 && minute >= 30)) {
+                    return `午${hour}:${minute.toString().padStart(2, '0')}`;
+                }
+                // 休盘中
+                return `${hour}:${minute.toString().padStart(2, '0')}`;
+            }
 
             volumeSeries = mainChart.addHistogramSeries({
                 color: C.up + '60', priceFormat: { type: 'volume' }, priceScaleId: '',
@@ -413,6 +459,14 @@
                     await initMainChart();
                 }
                 
+                // 保存当前图表可见范围
+                let savedRange = null;
+                if (mainChart) {
+                    try {
+                        savedRange = mainChart.timeScale().getVisibleLogicalRange();
+                    } catch(e) {}
+                }
+                
                 const period = document.getElementById('period').value;
                 
                 // 并行加载K线数据和缠论数据
@@ -436,6 +490,16 @@
                     return;
                 }
                 klineData = kData.data;
+                
+                // 更新数据源显示
+                const ds = document.getElementById('dataSource');
+                if (kData.source === 'tqsdk') {
+                    ds.textContent = 'TqSdk';
+                    ds.className = 'data-source tqsdk';
+                } else {
+                    ds.textContent = 'AkShare';
+                    ds.className = 'data-source akshare';
+                }
                 
                 // 转换时间格式
                 const chartData = klineData
@@ -489,7 +553,8 @@
                     document.getElementById('volume').textContent = totalVolume.toFixed(0);
                     document.getElementById('volumeChange').textContent = `(${volumeChangeFromPrev >= 0 ? '+' : ''}${volumeChangeFromPrev})`;
                     document.getElementById('volumeChange').className = volumeChangeFromPrev >= 0 ? 'text-success' : 'text-danger';
-                    document.getElementById('openInterest').textContent = '--';
+                    const oi = kData.open_interest || 0;
+                    document.getElementById('openInterest').textContent = oi > 0 ? oi.toFixed(0) : '--';
                     document.getElementById('oiChange').textContent = '';
                 }
                 
@@ -522,16 +587,127 @@
                 
                 // 同步可见范围
                 setTimeout(() => {
-                    const mainRange = mainChart.timeScale().getVisibleLogicalRange();
-                    if (mainRange) {
-                        macdChart.timeScale().setVisibleLogicalRange(mainRange);
-                        kdjChart.timeScale().setVisibleLogicalRange(mainRange);
+                    if (savedRange) {
+                        mainChart.timeScale().setVisibleLogicalRange(savedRange);
+                        macdChart.timeScale().setVisibleLogicalRange(savedRange);
+                        kdjChart.timeScale().setVisibleLogicalRange(savedRange);
+                    } else {
+                        const mainRange = mainChart.timeScale().getVisibleLogicalRange();
+                        if (mainRange) {
+                            macdChart.timeScale().setVisibleLogicalRange(mainRange);
+                            kdjChart.timeScale().setVisibleLogicalRange(mainRange);
+                        }
                     }
                 }, 100);
                 
             } catch (e) {
                 console.error('Load error:', e);
                 
+            }
+        }
+
+        // ==================== 增量更新（不闪屏） ====================
+        
+        let isUpdating = false; // 请求锁，防止重叠
+        let lastClose = null;   // 用于对比价格是否变化
+        
+        async function updateLatestCandle() {
+            if (!mainChart || !klineData || klineData.length === 0) return;
+            if (isUpdating) return; // 防止重叠请求
+            isUpdating = true;
+            
+            try {
+                const period = document.getElementById('period').value;
+                const kRes = await fetch(`/api/kline/data?symbol=TA0&period=${period}`);
+                const kData = await kRes.json();
+                
+                if (kData.error || !kData.data || kData.data.length === 0) {
+                    isUpdating = false;
+                    return;
+                }
+                
+                const newData = kData.data;
+                const lastOld = klineData[klineData.length - 1];
+                const lastNew = newData[newData.length - 1];
+                
+                // 对比最新价格是否有变化，无变化则跳过
+                if (lastClose === parseFloat(lastNew.close)) {
+                    isUpdating = false;
+                    return;
+                }
+                lastClose = parseFloat(lastNew.close);
+                
+                // 只更新最后一根K线（如果时间相同）或追加新K线
+                if (lastOld && lastNew && lastOld.time === lastNew.time) {
+                    // 更新最后一条
+                    klineData[klineData.length - 1] = lastNew;
+                    
+                    // 更新K线蜡烛图
+                    const ts = new Date(lastNew.time).getTime() / 1000 + 8 * 3600;
+                    candleSeries.update({
+                        time: ts,
+                        open: parseFloat(lastNew.open),
+                        high: parseFloat(lastNew.high),
+                        low: parseFloat(lastNew.low),
+                        close: parseFloat(lastNew.close)
+                    });
+                    
+                    // 更新成交量
+                    volumeSeries.update({
+                        time: ts,
+                        value: parseFloat(lastNew.volume),
+                        color: parseFloat(lastNew.close) >= parseFloat(lastNew.open) ? '#26a69a80' : '#ef535080'
+                    });
+                    
+                    // 更新持仓量显示
+                    const oi = kData.open_interest || 0;
+                    document.getElementById('openInterest').textContent = oi > 0 ? oi.toFixed(0) : '--';
+                    
+                    // 更新价格显示
+                    const change = ((parseFloat(lastNew.close) - parseFloat(klineData[0].close)) / parseFloat(klineData[0].close) * 100).toFixed(2);
+                    document.getElementById('lastPrice').textContent = parseFloat(lastNew.close).toFixed(0);
+                    document.getElementById('change').textContent = `${change >= 0 ? '+' : ''}${change}%`;
+                }
+                // 如果有新K线，需要完整刷新
+                else if (lastNew && lastOld && lastNew.time !== lastOld.time) {
+                    // 保持当前可见范围
+                    let savedRange = null;
+                    try {
+                        savedRange = mainChart.timeScale().getVisibleLogicalRange();
+                    } catch(e) {}
+                    
+                    // 重新加载
+                    klineData = newData;
+                    
+                    const chartData = klineData
+                        .filter(k => k.open && k.high && k.low && k.close)
+                        .map(k => {
+                            const ts = new Date(k.time).getTime() / 1000 + 8 * 3600;
+                            return {
+                                time: ts,
+                                open: parseFloat(k.open),
+                                high: parseFloat(k.high),
+                                low: parseFloat(k.low),
+                                close: parseFloat(k.close),
+                                color: parseFloat(k.close) >= parseFloat(k.open) ? '#26a69a' : '#ef5350'
+                            };
+                        });
+                    
+                    candleSeries.setData(chartData);
+                    
+                    // 恢复可见范围
+                    if (savedRange) {
+                        setTimeout(() => {
+                            mainChart.timeScale().setVisibleLogicalRange(savedRange);
+                            macdChart.timeScale().setVisibleLogicalRange(savedRange);
+                            kdjChart.timeScale().setVisibleLogicalRange(savedRange);
+                        }, 50);
+                    }
+                }
+            } catch (e) {
+                console.error('Update error:', e);
+            } finally {
+                isUpdating = false;
             }
         }
 
@@ -666,7 +842,8 @@
                 
                 const label = document.createElement('div');
                 label.style.cssText = `position:absolute;left:${x}px;top:${y}px;font-size:8px;color:${isRed ? '#ef5350' : '#26a69a'};background:rgba(26,26,46,0.85);padding:1px 3px;border-radius:2px;white-space:nowrap;`;
-                label.textContent = `${cumulative >= 0 ? '+' : ''}${cumulative.toFixed(1)}`;
+                // 显示波段自身值（红波自身值不会是负）
+                label.textContent = `${w.sum >= 0 ? '+' : ''}${w.sum.toFixed(1)}`;
                 labelsDiv.appendChild(label);
             }
             
@@ -737,6 +914,9 @@
             }
             
             if (idx < 0) return;
+            
+            // 显示格式化的时间（交易时段）
+            document.getElementById('crosshairTime').textContent = formatChinaFuturesTime(crosshairTime);
             
             const k = klineData[idx];
             const price = parseFloat(k.close);
@@ -1046,6 +1226,8 @@
             // initMainChart() 会在 loadAllData() 内部调用，避免重复 fetch
             loadAllData();
             loadOptionChain();
+            // 每秒刷新最新K线（只更新最后一条，不重绘历史）
+            setInterval(() => updateLatestCandle(), 1000);
         });
     </script>
 </body>

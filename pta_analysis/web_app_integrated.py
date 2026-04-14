@@ -1097,10 +1097,37 @@ def api_kline_data():
                 'high': float(row['high']) if math.isfinite(row['high']) else close,
                 'low': float(row['low']) if math.isfinite(row['low']) else close,
                 'close': close,
-                'volume': float(row['volume']) if math.isfinite(row['volume']) else 0
+                'volume': float(row['volume']) if math.isfinite(row['volume']) else 0,
+                'open_interest': float(row.get('open_interest') or row.get('hold') or row.get('open_oi') or 0) if math.isfinite(row.get('open_interest') or row.get('hold') or row.get('open_oi') or 0) else 0
             })
         api.close()
         data.sort(key=lambda x: x['time'])
+    except Exception as e:
+        # Fallback to akshare
+        try:
+            period_code = period.replace('min', 'm') if 'min' in period else period
+            df = ak.futures_zh_minute_sina(symbol='TA0', period=period_code)
+            df.columns = [c.strip() for c in df.columns]
+            df['datetime'] = pd.to_datetime(df['datetime'])
+            df = df.sort_values('datetime').tail(500).reset_index(drop=True)
+            
+            data = []
+            for _, row in df.iterrows():
+                close = float(row['close']) if math.isfinite(row['close']) else None
+                if close is None or close == 0:
+                    continue
+                time_str = str(row['datetime']).replace(' ', 'T')
+                data.append({
+                    'time': time_str,
+                    'open': float(row['open']) if math.isfinite(row['open']) else close,
+                    'high': float(row['high']) if math.isfinite(row['high']) else close,
+                    'low': float(row['low']) if math.isfinite(row['low']) else close,
+                    'close': close,
+                    'volume': float(row['volume']) if math.isfinite(row['volume']) else 0,
+                    'open_interest': float(row.get('hold', 0)) if math.isfinite(row.get('hold', 0)) else 0
+                })
+        except Exception as e2:
+            return jsonify({'error': f'TqSdk: {str(e)}, Akshare: {str(e2)}', 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0, 'open_interest': 0})
         
         last = data[-1] if data else {}
         first = data[0] if data else {}
@@ -1120,7 +1147,8 @@ def api_kline_data():
         return jsonify({
             'symbol': 'TA', 'period': period, 'data': data,
             'current_price': current_price, 'change': change,
-            'change_pct': change_pct, 'source': 'tqsdk'
+            'change_pct': change_pct, 'source': 'tqsdk',
+            'open_interest': last.get('open_interest', 0) if last else 0
         })
     except Exception as e:
         return jsonify({'error': str(e), 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0})
