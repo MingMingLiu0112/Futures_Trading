@@ -710,7 +710,7 @@
             // 显示最新值
             const n = kLine.length - 1;
             if (n >= 0) {
-                document.getElementById('kdjValueDisplay').textContent = 
+                
                     `K: ${kLine[n].toFixed(2)} | D: ${dLine[n].toFixed(2)} | J: ${jLine[n].toFixed(2)}`;
             }
             
