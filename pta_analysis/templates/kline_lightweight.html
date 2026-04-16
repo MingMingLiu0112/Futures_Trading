@@ -1,5 +1,8 @@
 
 
+
+
+
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -7,6 +10,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PTA期货综合分析 - Lightweight Charts</title>
     <script src="/static/js/lightweight-charts.4.1.0.min.js" onerror="console.error('LightweightCharts failed to load')"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <style>
         * { box-sizing: border-box; }
         body { 
@@ -220,8 +226,14 @@
 
     <!-- 期权链 -->
     <div class="option-section">
-        <div class="section-title">
-            <span>📊 期权链T型报价</span>
+        <div class="section-title" id="optionSectionTitle">
+            <span>📊 期权链T型报价 <span id="optionExpiry" style="color:#888;font-size:11px;">加载中...</span></span>
+            <div style="display:flex;gap:15px;align-items:center;font-size:12px;">
+                <span id="pcrDisplay" style="display:none;"></span>
+                <span class="badge" style="background:#2196F3;color:#fff;padding:2px 8px;" id="ivThresholdBadge">IV阈值: --</span>
+                <span class="badge" style="background:#9c27b0;color:#fff;padding:2px 8px;" id="oiChangeBadge">仓变: --</span>
+                <span style="color:#888;font-size:11px;">🟢升/🔴降 | 💛ATM | ±10档</span>
+            </div>
             <button onclick="loadOptionChain()" style="background:#2196F3;color:#fff;border:none;padding:2px 8px;border-radius:4px;cursor:pointer;">刷新</button>
         </div>
         <div class="chart-container" style="padding:10px;">
@@ -236,11 +248,75 @@
                         </tr>
                     </thead>
                     <tbody id="optionTableBody">
-                        <tr><td colspan="17" class="loading">加载中...</td></tr>
+                        <tr><td colspan="23" class="loading">加载中...</td></tr>
                     </tbody>
                 </table>
             </div>
             <div id="optionTimestamp" style="color:#888;font-size:11px;margin-top:5px;"></div>
+        </div>
+    </div>
+    
+    <!-- 隐波曲线 -->
+    <div class="chart-section">
+        <div class="section-title">
+            <span>📉 隐含波动率 Smile曲线</span>
+            <span style="font-size:11px;color:#888;">蓝色=Put虚值 | 红色=Call虚值 | 实线=今 | 虚线=昨</span>
+        </div>
+        <div id="ivSmileChart" class="chart-container" style="height:280px;"></div>
+    </div>
+    
+    <!-- 历史波动锥 -->
+    <div class="chart-section">
+        <div class="section-title">
+            <span>📊 历史波动率锥</span>
+            <span style="font-size:11px;color:#888;">当前HV vs 历史分布</span>
+        </div>
+        <div id="volConeChart" class="chart-container" style="height:200px;"></div>
+    </div>
+    
+    <!-- 期权详情弹窗 -->
+    <div class="modal fade" id="optionDetailModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content" style="background:#1a1a2e;color:#fff;">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="optionDetailTitle">期权详情</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="optionDetailBody">
+                    <div class="row">
+                        <div class="col-6">
+                            <h6>基本信息</h6>
+                            <p id="optCode">合约代码: --</p>
+                            <p id="optStrike">行权价: --</p>
+                            <p id="optPrice">价格: --</p>
+                            <p id="optOI">持仓: --</p>
+                        </div>
+                        <div class="col-6">
+                            <h6>隐波信息</h6>
+                            <p id="optIV">隐波(今): --</p>
+                            <p id="optPrevIV">隐波(昨): --</p>
+                            <p id="optIVChg">隐波变化: --</p>
+                        </div>
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-12">
+                            <h6>希腊字母</h6>
+                            <p id="optDelta">Delta: --</p>
+                            <p id="optGamma">Gamma: --</p>
+                            <p id="optTheta">Theta: --</p>
+                            <p id="optVega">Vega: --</p>
+                        </div>
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-12">
+                            <h6>日内走势(待实时数据)</h6>
+                            <div id="optionIntradayChart" style="height:150px;background:rgba(26,26,46,0.5);border-radius:8px;display:flex;align-items:center;justify-content:center;color:#888;">
+                                实时数据接入后显示<br/><small>TODO: 接入天勤TQSdk实时行情</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -253,6 +329,9 @@
         let kdjKSeries = null, kdjDSeries = null, kdjJSeries = null;
         let kdjLine20Series = null, kdjLine80Series = null;
         
+        // 期权链图表
+        let ivSmileChart = null, volConeChart = null;
+        
         // 保存MACD波数据用于标注
         let lastMacdWaveData = { times: [], waveEndLabels: [] }; // 保存MACD波数据用于缩放重绘
         
@@ -262,6 +341,7 @@
         // 数据
         let klineData = [], biData = [], segData = [], zsData = [], bsData = [];
         let macdDataCache = {}; // {period: {klineData, macdLine, signalLine, histogram}}
+        let optionChainData = null; // 保存期权链数据
         
         // 颜色
         const C = {
@@ -981,9 +1061,239 @@
 
         // ==================== 期权链 ====================
 
+        // 格式化到期日
+        function formatExpiryDisplay(expiry) {
+            if (!expiry || expiry.length < 5) return expiry;
+            if (expiry.startsWith('TA')) {
+                const month = '0' + expiry[2];
+                const year = '2' + expiry[4];
+                return `${expiry}（到期日：${year}/${month}/--）`;
+            }
+            return expiry;
+        }
+        
+        // 显示期权详情弹窗
+        function showOptionDetail(row, side) {
+            const modal = new bootstrap.Modal(document.getElementById('optionDetailModal'));
+            const s = side === 'C' ? row.call_code : row.put_code;
+            const price = side === 'C' ? row.call_price : row.put_price;
+            const iv = side === 'C' ? row.call_iv : row.put_iv;
+            const prevIv = side === 'C' ? row.prev_call_iv : row.prev_put_iv;
+            const oi = side === 'C' ? row.call_oi : row.put_oi;
+            const delta = side === 'C' ? row.call_delta : row.put_delta;
+            const gamma = side === 'C' ? row.call_gamma : row.put_gamma;
+            const theta = side === 'C' ? row.call_theta : row.put_theta;
+            const vega = side === 'C' ? row.call_vega : row.put_vega;
+            
+            document.getElementById('optionDetailTitle').textContent = 
+                `${row.strike.toFixed(0)} ${side === 'C' ? '认购' : '认沽'}期权详情`;
+            document.getElementById('optCode').textContent = `合约代码: ${s || '--'}`;
+            document.getElementById('optStrike').textContent = `行权价: ${row.strike.toFixed(0)}`;
+            document.getElementById('optPrice').textContent = `价格: ${price ? price.toFixed(2) : '--'}`;
+            document.getElementById('optOI').textContent = `持仓: ${oi ? oi.toLocaleString() : '--'}`;
+            document.getElementById('optIV').textContent = `隐波(今): ${iv ? iv.toFixed(2) + '%' : '--'}`;
+            document.getElementById('optPrevIV').textContent = `隐波(昨): ${prevIv ? prevIv.toFixed(2) + '%' : '--'}`;
+            document.getElementById('optIVChg').textContent = `隐波变化: ${iv && prevIv ? (iv - prevIv).toFixed(2) + '%' : '--'}`;
+            document.getElementById('optDelta').textContent = `Delta: ${delta ? delta.toFixed(4) : '--'}`;
+            document.getElementById('optGamma').textContent = `Gamma: ${gamma ? gamma.toFixed(6) : '--'}`;
+            document.getElementById('optTheta').textContent = `Theta: ${theta ? theta.toFixed(4) : '--'}`;
+            document.getElementById('optVega').textContent = `Vega: ${vega ? vega.toFixed(4) : '--'}`;
+            
+            modal.show();
+        }
+        
+        // 更新隐波Smile曲线 - 只显示ATM虚值±10档
+        function updateIvSmileChart(data, atmStrike) {
+            if (!ivSmileChart) {
+                ivSmileChart = echarts.init(document.getElementById('ivSmileChart'));
+            }
+            
+            const rows = data.strike_rows || [];
+            const sortedRows = [...rows].sort((a, b) => a.strike - b.strike);
+            
+            // 找到ATM索引
+            let atmIdx = sortedRows.findIndex(r => r.strike >= atmStrike);
+            if (atmIdx < 0) atmIdx = Math.floor(sortedRows.length / 2);
+            
+            // ATM左右各取10档（虚值 = OTM Put低于ATM，OTM Call高于ATM）
+            const startIdx = Math.max(0, atmIdx - 10);
+            const endIdx = Math.min(sortedRows.length, atmIdx + 10);
+            const displayRows = sortedRows.slice(startIdx, endIdx);
+            
+            // 构建smile数据：左侧Put虚值(从低到高)，右侧Call虚值(从低到高)
+            const otmLeft = displayRows.filter(r => r.strike <= atmStrike)
+                               .sort((a, b) => a.strike - b.strike);  // Put按行权价从低到高
+            const otmRight = displayRows.filter(r => r.strike > atmStrike)
+                                .sort((a, b) => a.strike - b.strike);  // Call按行权价从低到高
+            
+            // 横轴：以ATM为中心，左侧Put虚值，右侧Call虚值
+            const smileStrikes = [
+                ...otmLeft.map(r => r.strike.toFixed(0)),
+                ...otmRight.map(r => r.strike.toFixed(0))
+            ];
+            // Put IV（只在左侧有值）
+            const smilePutIv = [
+                ...otmLeft.map(r => r.put_iv || null),
+                ...otmRight.map(r => null)
+            ];
+            // Call IV（只在右侧有值）
+            const smileCallIv = [
+                ...otmLeft.map(r => null),
+                ...otmRight.map(r => r.call_iv || null)
+            ];
+            // 昨IV（如果有）
+            const smilePrevPutIv = [
+                ...otmLeft.map(r => r.prev_put_iv || null),
+                ...otmRight.map(r => null)
+            ];
+            const smilePrevCallIv = [
+                ...otmLeft.map(r => null),
+                ...otmRight.map(r => r.prev_call_iv || null)
+            ];
+            
+            const hasPrevData = smilePrevPutIv.some(v => v > 0) || smilePrevCallIv.some(v => v > 0);
+            
+            const series = [
+                { name: 'Put IV(今)', data: smilePutIv, color: '#4169e1', style: { width: 2.5 } },
+                { name: 'Call IV(今)', data: smileCallIv, color: '#ff6347', style: { width: 2.5 } }
+            ];
+            if (hasPrevData) {
+                series.push(
+                    { name: 'Put IV(昨)', data: smilePrevPutIv, color: '#4169e1', style: { type: 'dashed', width: 1.5, opacity: 0.5 } },
+                    { name: 'Call IV(昨)', data: smilePrevCallIv, color: '#ff6347', style: { type: 'dashed', width: 1.5, opacity: 0.5 } }
+                );
+            }
+            
+            // 纵轴范围自适应IV数据
+            const allIv = [...smilePutIv, ...smileCallIv].filter(v => v > 0);
+            const minIv = allIv.length ? Math.min(...allIv) : 0;
+            const maxIv = allIv.length ? Math.max(...allIv) : 100;
+            const ivPadding = (maxIv - minIv) * 0.3;
+            
+            ivSmileChart.setOption({
+                tooltip: { trigger: 'axis', formatter: function(params) {
+                    let res = '<b>' + params[0].axisValue + '</b><br/>';
+                    params.forEach(p => {
+                        if (p.value !== null && p.value !== '' && p.value !== undefined) {
+                            res += '<span style="color:' + p.color + ';">●</span> ' + p.seriesName + ': ' + p.value.toFixed(2) + '%<br/>';
+                        }
+                    });
+                    return res;
+                }},
+                legend: { data: series.map(s => s.name), textStyle: { color: '#aaa' }, top: 5 },
+                grid: { left: '5%', right: '5%', bottom: '15%', top: '15%' },
+                xAxis: { 
+                    type: 'category', 
+                    data: smileStrikes, 
+                    axisLabel: { color: '#aaa', fontSize: 11, rotate: 0 },
+                    axisLine: { lineStyle: { color: '#666' } },
+                    name: '行权价',
+                    nameLocation: 'middle',
+                    nameGap: 30
+                },
+                yAxis: { 
+                    type: 'value', 
+                    axisLabel: { color: '#aaa', fontSize: 12, formatter: '{value}%' },
+                    min: Math.max(0, Math.floor(minIv - ivPadding)),
+                    max: Math.ceil(maxIv + ivPadding),
+                    splitNumber: 5  // 减少刻度数量，每个刻度代表更大的波动率变化
+                },
+                series: series.map(s => ({
+                    name: s.name, type: 'line', data: s.data, smooth: true,
+                    itemStyle: { color: s.color },
+                    lineStyle: s.style,
+                    symbol: 'circle', symbolSize: 6,
+                    label: { show: true, formatter: '{c}%', fontSize: 10, color: '#aaa' },
+                    connectNulls: true
+                }))
+            });
+        }
+        
+        // 更新波动锥图表
+        function updateVolConeChart(data) {
+            if (!volConeChart) {
+                volConeChart = echarts.init(document.getElementById('volConeChart'));
+            }
+            
+            fetch('/api/options/vol_cone')
+                .then(r => r.json())
+                .then(volData => {
+                    if (volData.success && volData.tenors && volData.tenors.length > 0) {
+                        const hvCurrent = volData.hv_current || 0;
+                        const hvPercentile = volData.hv_percentile || 50;
+                        
+                        // 当前HV标注数据（在最后一个期限位置）
+                        const currentHvData = volData.tenors.map((t, i) => i === volData.tenors.length - 1 ? hvCurrent : null);
+                        
+                        volConeChart.setOption({
+                            tooltip: { 
+                                trigger: 'axis',
+                                formatter: function(params) {
+                                    let res = '<b>' + params[0].axisValue + '</b><br/>';
+                                    params.forEach(p => {
+                                        if (p.seriesName === 'HV百分位') return;
+                                        if (p.value !== null && p.value !== '' && p.value !== undefined && p.value !== '-') {
+                                            res += '<span style="color:' + p.color + ';">■</span> ' + p.seriesName + ': ' + p.value.toFixed(1) + '%<br/>';
+                                        }
+                                    });
+                                    // 显示百分位信息
+                                    if (params[0].axisValue === volData.tenors[volData.tenors.length - 1]) {
+                                        res += '<br/><b>当前HV百分位: ' + hvPercentile.toFixed(1) + '%</b>';
+                                    }
+                                    return res;
+                                }
+                            },
+                            legend: { data: ['最大值', '75%', '中位数', '25%', '最小值', '当前HV'], textStyle: { color: '#aaa' }, top: 5 },
+                            grid: { left: '8%', right: '8%', bottom: '15%', top: '20%' },
+                            xAxis: { 
+                                type: 'category', 
+                                data: volData.tenors, 
+                                axisLabel: { color: '#aaa', fontSize: 11 },
+                                axisLine: { lineStyle: { color: '#666' } },
+                                name: '期限',
+                                nameLocation: 'middle',
+                                nameGap: 25
+                            },
+                            yAxis: { 
+                                type: 'value', 
+                                axisLabel: { color: '#aaa', fontSize: 11, formatter: '{value}%' },
+                                splitLine: { lineStyle: { color: '#333' } }
+                            },
+                            series: [
+                                { name: '最大值', type: 'line', data: volData.hv_max, 
+                                  itemStyle: { color: '#ff6b6b' }, lineStyle: { width: 1.5, type: 'dashed' },
+                                  symbol: 'none', smooth: true },
+                                { name: '75%', type: 'line', data: volData.hv_75pct, 
+                                  itemStyle: { color: '#ffa500' }, lineStyle: { width: 2 },
+                                  symbol: 'none', smooth: true,
+                                  areaStyle: { color: 'rgba(255,165,0,0.1)' } },
+                                { name: '中位数', type: 'line', data: volData.hv_median, 
+                                  itemStyle: { color: '#4ecdc4' }, lineStyle: { width: 2.5 },
+                                  symbol: 'none', smooth: true },
+                                { name: '25%', type: 'line', data: volData.hv_25pct, 
+                                  itemStyle: { color: '#45b7d1' }, lineStyle: { width: 2 },
+                                  symbol: 'none', smooth: true },
+                                { name: '最小值', type: 'line', data: volData.hv_min, 
+                                  itemStyle: { color: '#96ceb4' }, lineStyle: { width: 1.5, type: 'dashed' },
+                                  symbol: 'none', smooth: true },
+                                { name: '当前HV', type: 'line', data: currentHvData, 
+                                  itemStyle: { color: '#ffd700' }, lineStyle: { width: 3 },
+                                  symbol: 'circle', symbolSize: 8, z: 10 }
+                            ]
+                        });
+                    } else {
+                        document.getElementById('volConeChart').innerHTML = 
+                            '<div style="text-align:center;padding:50px;color:#888;">波动锥数据: ' + (volData.note || '加载中...') + '</div>';
+                    }
+                })
+                .catch(() => {
+                    document.getElementById('volConeChart').innerHTML = 
+                        '<div style="text-align:center;padding:50px;color:#888;">波动锥数据暂不可用</div>';
+                });
+        }
+        
         async function loadOptionChain() {
             try {
-                // Fetch options data
                 const [optRes, klineRes] = await Promise.all([
                     fetch('/api/options/chain'),
                     fetch('/api/kline/data?symbol=TA0&period=1min')
@@ -993,66 +1303,85 @@
                 
                 if (!data.success) {
                     document.getElementById('optionTableBody').innerHTML = 
-                        `<tr><td colspan="19" class="error">加载失败: ${data.error}</td></tr>`;
+                        `<tr><td colspan="23" class="error">加载失败: ${data.error}</td></tr>`;
                     return;
                 }
                 
+                // 保存数据供图表使用
+                optionChainData = data;
+                
                 // 获取实时标的价格
                 const realtimePrice = klineData.data?.slice(-1)[0]?.close || data.underlying_price;
-                const atmStrike = Math.round(realtimePrice / 50) * 50;  // PTA跳动50
+                const atmStrike = Math.round(realtimePrice / 50) * 50;
                 
-                // 更新统计
+                // 更新标题栏信息
+                const nearExpiryDisplay = data.near_expiry_display || data.near_expiry;
+                document.getElementById('optionExpiry').textContent = nearExpiryDisplay;
+                
+                // 计算仓变阈值（自动跟踪当下持仓变化总和）- sortedRows定义在前
+                const rows = data.strike_rows || [];
+                const sortedRows = [...rows].sort((a, b) => a.strike - b.strike);
+                const totalOiChg = sortedRows.reduce((sum, r) => sum + (r.call_oi_change || 0) + (r.put_oi_change || 0), 0);
+                const oiChgThresh = totalOiChg > 5000 ? '大加仓' : (totalOiChg > 0 ? '小幅加仓' : (totalOiChg < -5000 ? '大减仓' : (totalOiChg < 0 ? '小幅减仓' : '中性')));
+                document.getElementById('oiChangeBadge').textContent = `仓变: ${totalOiChg > 0 ? '+' : ''}${totalOiChg.toLocaleString()}(${oiChgThresh})`;
+
+                // 计算IV阈值（自动跟踪当下隐波均值）
+                const avgIv = (data.stats?.avg_call_iv + data.stats?.avg_put_iv) / 2 || 20;
+                const ivThresh = avgIv < 15 ? '低波' : (avgIv < 25 ? '中波' : '高波');
+                document.getElementById('ivThresholdBadge').textContent = `IV均值: ${avgIv.toFixed(1)}%(${ivThresh})`;
+                
+                // PCR显示 - 移到标题栏
+                const fmPcr = data.stats?.full_market_pcr || {};
+                const volPcr = data.stats?.volume_pcr?.toFixed(2) || '--';
+                const posPcr = data.stats?.position_pcr?.toFixed(2) || '--';
+                const pcrEl = document.getElementById('pcrDisplay');
+                pcrEl.style.display = 'inline';
+                pcrEl.textContent = `PCR成交${volPcr}/持仓${posPcr}`;
+                
+                // 更新统计（只显示标的价格、ATM、希腊字母均值）
                 const stats = data.stats || {};
                 document.getElementById('optionStats').innerHTML = `
                     <div class="option-stat"><div class="option-stat-label">标的价格</div><div class="option-stat-value text-primary fw-bold">${realtimePrice?.toFixed(0) || '--'}</div></div>
                     <div class="option-stat"><div class="option-stat-label">ATM行权价</div><div class="option-stat-value text-warning fw-bold">${atmStrike || '--'}</div></div>
-                    <div class="option-stat"><div class="option-stat-label">成交PCR</div><div class="option-stat-value" style="color:${stats.volume_pcr > 1 ? '#ef5350' : '#26a69a'}">${stats.volume_pcr?.toFixed(2) || '--'}</div></div>
-                    <div class="option-stat"><div class="option-stat-label">持仓PCR</div><div class="option-stat-value" style="color:${stats.position_pcr > 1 ? '#ef5350' : '#26a69a'}">${stats.position_pcr?.toFixed(2) || '--'}</div></div>
                     <div class="option-stat"><div class="option-stat-label">Call IV均值</div><div class="option-stat-value">${stats.avg_call_iv?.toFixed(1) || '--'}%</div></div>
                     <div class="option-stat"><div class="option-stat-label">Put IV均值</div><div class="option-stat-value">${stats.avg_put_iv?.toFixed(1) || '--'}%</div></div>
                 `;
                 
-                // 表格 - 从ATM向两端展开
-                const rows = data.strike_rows || [];
-                
-                // 找到ATM所在的索引
-                let atmIdx = rows.findIndex(r => r.strike === atmStrike);
-                if (atmIdx < 0) atmIdx = Math.floor(rows.length / 2);
-                
-                // 按行权价从低到高排序
-                const sortedRows = [...rows].sort((a, b) => a.strike - b.strike);
-                
+                // 表格 - 显示全部行
                 let html = '';
                 sortedRows.forEach(r => {
-                    const isATM = r.strike === atmStrike;
+                    const isATM = Math.abs(r.strike - atmStrike) < 25;
                     const rowClass = isATM ? 'atm-row' : (r.strike < atmStrike ? 'put-deep' : 'call-deep');
                     const callUpStyle = r.call_iv_change > 0 ? 'color:#26a69a' : (r.call_iv_change < 0 ? 'color:#ef5350' : '');
                     const putUpStyle = r.put_iv_change > 0 ? 'color:#26a69a' : (r.put_iv_change < 0 ? 'color:#ef5350' : '');
-                    const callVolChg = r.call_volume > 0 ? ((r.call_iv_change / (r.call_iv - r.call_iv_change) * 100).toFixed(1)) : '0';
-                    const putVolChg = r.put_volume > 0 ? ((r.put_iv_change / (r.put_iv - r.put_iv_change) * 100).toFixed(1)) : '0';
-                    const callOiChgPct = r.call_oi > 0 ? ((r.call_oi_change / r.call_oi * 100).toFixed(1)) : '0';
-                    const putOiChgPct = r.put_oi > 0 ? ((r.put_oi_change / r.put_oi * 100).toFixed(1)) : '0';
+                    const callVolChgVal = r.call_volume_change > 0 ? '+' + r.call_volume_change?.toFixed(1) + '%' : (r.call_volume_change < 0 ? r.call_volume_change?.toFixed(1) + '%' : '0%');
+                    const putVolChgVal = r.put_volume_change > 0 ? '+' + r.put_volume_change?.toFixed(1) + '%' : (r.put_volume_change < 0 ? r.put_volume_change?.toFixed(1) + '%' : '0%');
+                    const callOiChgVal = r.call_oi_change > 0 ? '+' + r.call_oi_change?.toFixed(1) + '%' : (r.call_oi_change < 0 ? r.call_oi_change?.toFixed(1) + '%' : '0%');
+                    const putOiChgVal = r.put_oi_change > 0 ? '+' + r.put_oi_change?.toFixed(1) + '%' : (r.put_oi_change < 0 ? r.put_oi_change?.toFixed(1) + '%' : '0%');
+                    
+                    // 点击弹窗
+                    const clickAttr = `style="cursor:pointer;" onclick="showOptionDetail(${JSON.stringify(r).replace(/"/g, '&quot;')}, 'C')"`;
                     
                     html += `<tr class="${rowClass}">
                         <td class="put-side">${r.put_theta?.toFixed(2) || '--'}</td>
                         <td class="put-side">${r.put_vega?.toFixed(2) || '--'}</td>
                         <td class="put-side">${r.put_gamma?.toFixed(4) || '--'}</td>
                         <td class="put-side">${r.put_delta?.toFixed(3) || '--'}</td>
-                        <td class="put-side" style="${r.put_volume >= (r.put_oi || 1) ? 'color:#26a69a' : ''}">${putVolChg}%</td>
+                        <td class="put-side" style="${r.put_volume_change > 0 ? 'color:#26a69a' : (r.put_volume_change < 0 ? 'color:#ef5350' : '')}">${r.put_volume_change > 0 ? '+' : ''}${r.put_volume_change?.toFixed(1) || '0'}%</td>
                         <td class="put-side">${r.put_volume?.toLocaleString() || '--'}</td>
-                        <td class="put-side" style="${r.put_oi_change >= 0 ? 'color:#26a69a' : 'color:#ef5350'}">${r.put_oi_change >= 0 ? '+' : ''}${putOiChgPct}%</td>
+                        <td class="put-side" style="${r.put_oi_change > 0 ? 'color:#26a69a' : (r.put_oi_change < 0 ? 'color:#ef5350' : '')}">${r.put_oi_change > 0 ? '+' : ''}${r.put_oi_change?.toFixed(1) || '0'}%</td>
                         <td class="put-side">${r.put_oi?.toLocaleString() || '--'}</td>
-                        <td class="put-side" style="${putUpStyle}">${r.put_iv_change > 0 ? '+' : ''}${r.put_iv_change?.toFixed(1) || '0'}%</td>
+                        <td class="put-side" style="${putUpStyle}">${r.put_iv_change > 0 ? '+' : ''}${r.put_iv_change?.toFixed(2) || '0'}%</td>
                         <td class="put-side">${r.put_iv?.toFixed(1) || '--'}%</td>
-                        <td class="put-side">${r.put_price?.toFixed(2) || '--'}</td>
-                        <td class="Strike-col">${r.strike?.toFixed(0) || '--'}</td>
-                        <td class="call-side">${r.call_price?.toFixed(2) || '--'}</td>
+                        <td class="put-side" ${clickAttr}>${r.put_close?.toFixed(2) || '--'}</td>
+                        <td class="Strike-col" ${clickAttr}>${r.strike?.toFixed(0) || '--'}</td>
+                        <td class="call-side" ${clickAttr}>${r.call_close?.toFixed(2) || '--'}</td>
                         <td class="call-side">${r.call_iv?.toFixed(1) || '--'}%</td>
-                        <td class="call-side" style="${callUpStyle}">${r.call_iv_change > 0 ? '+' : ''}${r.call_iv_change?.toFixed(1) || '0'}%</td>
+                        <td class="call-side" style="${callUpStyle}">${r.call_iv_change > 0 ? '+' : ''}${r.call_iv_change?.toFixed(2) || '0'}%</td>
                         <td class="call-side">${r.call_oi?.toLocaleString() || '--'}</td>
-                        <td class="call-side" style="${r.call_oi_change >= 0 ? 'color:#26a69a' : 'color:#ef5350'}">${r.call_oi_change >= 0 ? '+' : ''}${callOiChgPct}%</td>
+                        <td class="call-side" style="${r.call_oi_change > 0 ? 'color:#26a69a' : (r.call_oi_change < 0 ? 'color:#ef5350' : '')}">${r.call_oi_change > 0 ? '+' : ''}${r.call_oi_change?.toFixed(1) || '0'}%</td>
                         <td class="call-side">${r.call_volume?.toLocaleString() || '--'}</td>
-                        <td class="call-side" style="${r.call_volume >= (r.call_oi || 1) ? 'color:#26a69a' : ''}">${callVolChg}%</td>
+                        <td class="call-side" style="${r.call_volume_change > 0 ? 'color:#26a69a' : (r.call_volume_change < 0 ? 'color:#ef5350' : '')}">${r.call_volume_change > 0 ? '+' : ''}${r.call_volume_change?.toFixed(1) || '0'}%</td>
                         <td class="call-side">${r.call_delta?.toFixed(3) || '--'}</td>
                         <td class="call-side">${r.call_gamma?.toFixed(4) || '--'}</td>
                         <td class="call-side">${r.call_vega?.toFixed(2) || '--'}</td>
@@ -1060,12 +1389,16 @@
                     </tr>`;
                 });
                 
-                document.getElementById('optionTableBody').innerHTML = html || '<tr><td colspan="17" class="error">暂无数据</td></tr>';
-                document.getElementById('optionTimestamp').textContent = `数据时间: ${data.timestamp || '--'}`;
+                document.getElementById('optionTableBody').innerHTML = html || '<tr><td colspan="23" class="error">暂无数据</td></tr>';
+                document.getElementById('optionTimestamp').textContent = `数据时间: ${data.timestamp || '--'} | 近月: ${data.near_expiry} | 全市场PCR: 成交${fmPcr.volume_pcr?.toFixed(2)} / 持仓${fmPcr.position_pcr?.toFixed(2)}`;
+                
+                // 更新图表（只显示ATM虚值±10档）
+                updateIvSmileChart(data, atmStrike);
+                updateVolConeChart(data);
                 
             } catch (e) {
                 console.error('Option error:', e);
-                document.getElementById('optionTableBody').innerHTML = `<tr><td colspan="17" class="error">加载失败</td></tr>`;
+                document.getElementById('optionTableBody').innerHTML = `<tr><td colspan="23" class="error">加载失败</td></tr>`;
             }
         }
 
