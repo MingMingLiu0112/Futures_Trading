@@ -3,6 +3,7 @@
 
 
 
+
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -204,24 +205,22 @@
     </div>
 
     <!-- K线图 -->
+    <!-- K线主图 + MACD + KDJ（同一时间轴） -->
     <div class="chart-section">
         <div class="section-title"><span>K线图表</span></div>
-        <div id="main-chart" class="chart-container"></div>
-    </div>
-
-    <!-- MACD -->
-    <div class="chart-section">
-        <div class="section-title"><span>MACD指标</span><span id="macdValueDisplay" style="font-size:11px;color:#888;margin-left:10px;">DIF: -- | DEA: -- | 柱: --</span></div>
-        <div id="macd-chart-wrapper" style="position:relative;height:100px;">
-            <div id="macd-chart" class="chart-container" style="height:100px;"></div>
-            <div id="macd-wave-labels" style="position:absolute;top:0;left:0;width:100%;height:100px;pointer-events:none;overflow:hidden;z-index:5;"></div>
+        <div id="charts-wrapper" style="position:relative;width:100%;">
+            <div id="main-chart" class="chart-container"></div>
+            <div id="macd-chart-wrapper" style="position:relative;height:100px;">
+                <div class="section-title" style="font-size:11px;background:#1a1a2e;border:none;padding:2px 5px;"><span>MACD指标</span><span id="macdValueDisplay" style="font-size:11px;color:#888;margin-left:10px;">DIF: -- | DEA: -- | 柱: --</span></div>
+                <div id="macd-chart" class="chart-container" style="height:80px;"></div>
+                <div id="macd-wave-labels" style="position:absolute;top:20px;left:0;width:100%;height:80px;pointer-events:none;overflow:hidden;z-index:5;"></div>
+            </div>
+            <div id="kdj-chart" class="chart-container" style="height:100px;">
+                <div class="section-title" style="font-size:11px;background:#1a1a2e;border:none;padding:2px 5px;"><span>KDJ指标</span><span id="kdjValueDisplay" style="font-size:11px;color:#888;margin-left:10px;">K: -- | D: -- | J: --</span></div>
+            </div>
+            <!-- 十字光标纵向延伸线 -->
+            <div id="crosshair-line" style="position:absolute;top:0;width:1px;height:100%;background:#555;pointer-events:none;z-index:10;display:none;"></div>
         </div>
-    </div>
-
-    <!-- KDJ -->
-    <div class="chart-section">
-        <div class="section-title"><span>KDJ指标</span><span id="kdjValueDisplay" style="font-size:11px;color:#888;margin-left:10px;">K: -- | D: -- | J: --</span></div>
-        <div id="kdj-chart" class="chart-container"></div>
     </div>
 
     <!-- 期权链 -->
@@ -229,9 +228,9 @@
         <div class="section-title" id="optionSectionTitle">
             <span>📊 期权链T型报价 <span id="optionExpiry" style="color:#888;font-size:11px;">加载中...</span></span>
             <div style="display:flex;gap:15px;align-items:center;font-size:12px;">
-                <span id="pcrDisplay" style="display:none;"></span>
-                <span class="badge" style="background:#2196F3;color:#fff;padding:2px 8px;" id="ivThresholdBadge">IV阈值: --</span>
-                <span class="badge" style="background:#9c27b0;color:#fff;padding:2px 8px;" id="oiChangeBadge">仓变: --</span>
+                <span id="pcrDisplay" style="display:none;color:#888;font-size:11px;"></span>
+                <span class="badge" style="background:#4CAF50;color:#fff;padding:2px 6px;font-size:11px;" id="ivThresholdBadge">IV:--</span>
+                <span class="badge" style="background:#9c27b0;color:#fff;padding:2px 6px;font-size:11px;" id="oiChangeBadge">仓:--</span>
                 <span style="color:#888;font-size:11px;">🟢升/🔴降 | 💛ATM | ±10档</span>
             </div>
             <button onclick="loadOptionChain()" style="background:#2196F3;color:#fff;border:none;padding:2px 8px;border-radius:4px;cursor:pointer;">刷新</button>
@@ -362,10 +361,14 @@
                 width: window.innerWidth - 40, height: 600,
                 layout: { background: { type: 'solid', color: '#1a1a2e' }, textColor: '#aaa' },
                 grid: { vertLines: { color: '#2a2a3e' }, horzLines: { color: '#2a2a3e' } },
-                crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-                timeScale: { 
-                    borderColor: '#333', 
-                    timeVisible: true, 
+                crosshair: {
+                    mode: LightweightCharts.CrosshairMode.Normal,
+                    vertLine: { width: 1, color: '#555', style: LightweightCharts.LineStyle.Dashed, labelBackgroundColor: '#333' },
+                    horzLine: { width: 1, color: '#555', style: LightweightCharts.LineStyle.Dashed, labelBackgroundColor: '#333' },
+                },
+                timeScale: {
+                    borderColor: '#333',
+                    timeVisible: true,
                     secondsVisible: false,
                 },
                 rightPriceScale: { borderColor: '#333' },
@@ -396,8 +399,13 @@
                 width: container.clientWidth, height: 100,
                 layout: { background: { type: 'solid', color: '#1a1a2e' }, textColor: '#aaa' },
                 grid: { vertLines: { color: '#2a2a3e' }, horzLines: { color: '#2a2a3e' } },
+                crosshair: {
+                    mode: LightweightCharts.CrosshairMode.Normal,
+                    vertLine: { width: 1, color: '#555', style: LightweightCharts.LineStyle.Dashed, labelBackgroundColor: '#333' },
+                    horzLine: { visible: false },
+                },
                 timeScale: { visible: false },
-                rightPriceScale: { borderColor: '#333', visible: false },
+                rightPriceScale: { borderColor: '#333' },
             });
             macdLineSeries = macdChart.addLineSeries({ color: C.macd, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
             signalLineSeries = macdChart.addLineSeries({ color: C.signal, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
@@ -410,8 +418,13 @@
                 width: container.clientWidth, height: 100,
                 layout: { background: { type: 'solid', color: '#1a1a2e' }, textColor: '#aaa' },
                 grid: { vertLines: { color: '#2a2a3e' }, horzLines: { color: '#2a2a3e' } },
+                crosshair: {
+                    mode: LightweightCharts.CrosshairMode.Normal,
+                    vertLine: { width: 1, color: '#555', style: LightweightCharts.LineStyle.Dashed, labelBackgroundColor: '#333' },
+                    horzLine: { visible: false },
+                },
                 timeScale: { visible: false },
-                rightPriceScale: { borderColor: '#333', visible: false },
+                rightPriceScale: { borderColor: '#333' },
             });
             kdjKSeries = kdjChart.addLineSeries({ color: C.kdjK, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
             kdjDSeries = kdjChart.addLineSeries({ color: C.kdjD, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
@@ -452,8 +465,33 @@
             });
             
             // MACD/KDJ图表也订阅主图的十字光标移动
+            const crosshairLine = document.getElementById('crosshair-line');
+            const chartsWrapper = document.getElementById('charts-wrapper');
             mainChart.subscribeCrosshairMove(param => {
                 updateIndicatorValuesAtCrosshair(param);
+                if (crosshairLine && chartsWrapper) {
+                    if (param.point && param.point.x !== undefined) {
+                        crosshairLine.style.display = 'block';
+                        crosshairLine.style.left = param.point.x + 'px';
+                    } else {
+                        crosshairLine.style.display = 'none';
+                    }
+                }
+            });
+
+            // 副图也需要同步主图的十字光标（当鼠标移动到副图时）
+            [macdChart, kdjChart].forEach(subChart => {
+                if (!subChart) return;
+                subChart.subscribeCrosshairMove(param => {
+                    if (param.point && param.point.x !== undefined) {
+                        // 将副图的x坐标同步到主图和其他副图
+                        mainChart.setCrosshairPosition(NaN, param.point.x, '');
+                        if (crosshairLine) {
+                            crosshairLine.style.display = 'block';
+                            crosshairLine.style.left = param.point.x + 'px';
+                        }
+                    }
+                });
             });
             
             // 确保所有图表同时切换到相同时间范围
@@ -1228,8 +1266,9 @@
                         volConeChart.setOption({
                             tooltip: { 
                                 trigger: 'axis',
+                                axisPointer: { type: 'line', lineStyle: { color: '#888', width: 1 } },
                                 formatter: function(params) {
-                                    let res = '<b>' + params[0].axisValue + '</b><br/>';
+                                    let res = '<b>@' + params[0].axisValue.replace('日','') + '</b><br/>';
                                     params.forEach(p => {
                                         if (p.seriesName === 'HV百分位') return;
                                         if (p.value !== null && p.value !== '' && p.value !== undefined && p.value !== '-') {
@@ -1238,7 +1277,7 @@
                                     });
                                     // 显示百分位信息
                                     if (params[0].axisValue === volData.tenors[volData.tenors.length - 1]) {
-                                        res += '<br/><b>当前HV百分位: ' + hvPercentile.toFixed(1) + '%</b>';
+                                        res += '<br/><b>HV百分位: ' + hvPercentile.toFixed(1) + '%</b>';
                                     }
                                     return res;
                                 }
@@ -1323,12 +1362,12 @@
                 const sortedRows = [...rows].sort((a, b) => a.strike - b.strike);
                 const totalOiChg = sortedRows.reduce((sum, r) => sum + (r.call_oi_change || 0) + (r.put_oi_change || 0), 0);
                 const oiChgThresh = totalOiChg > 5000 ? '大加仓' : (totalOiChg > 0 ? '小幅加仓' : (totalOiChg < -5000 ? '大减仓' : (totalOiChg < 0 ? '小幅减仓' : '中性')));
-                document.getElementById('oiChangeBadge').textContent = `仓变: ${totalOiChg > 0 ? '+' : ''}${totalOiChg.toLocaleString()}(${oiChgThresh})`;
-
+                document.getElementById('oiChangeBadge').textContent = `仓:${totalOiChg > 0 ? '+' : ''}${(totalOiChg/1000).toFixed(0)}K(${oiChgThresh})`;
+                
                 // 计算IV阈值（自动跟踪当下隐波均值）
                 const avgIv = (data.stats?.avg_call_iv + data.stats?.avg_put_iv) / 2 || 20;
-                const ivThresh = avgIv < 15 ? '低波' : (avgIv < 25 ? '中波' : '高波');
-                document.getElementById('ivThresholdBadge').textContent = `IV均值: ${avgIv.toFixed(1)}%(${ivThresh})`;
+                const ivThresh = avgIv < 15 ? '低' : (avgIv < 25 ? '中' : '高');
+                document.getElementById('ivThresholdBadge').textContent = `IV:${avgIv.toFixed(0)}%(${ivThresh})`;
                 
                 // PCR显示 - 移到标题栏
                 const fmPcr = data.stats?.full_market_pcr || {};
