@@ -5,6 +5,7 @@
 
 
 
+
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -742,12 +743,9 @@
 
         function getChartPriceAtY(y) {
             if (!mainChart || !candleSeries) return 0;
-            const range = candleSeries.priceRange();
-            if (!range) return 0;
-            const height = document.getElementById('main-chart').clientHeight;
-            const top = range.retrievableFrom();
-            const bottom = range.retrievableTo();
-            return top - (y / height) * (top - bottom);
+            // LightweightCharts 4.x 使用 coordinateToPrice 将 Y 坐标转换为价格
+            // Y 坐标：0 = 顶部（高价），正值向下
+            return candleSeries.coordinateToPrice(y);
         }
 
         function cancelDrawing() {
