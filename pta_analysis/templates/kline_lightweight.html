@@ -773,7 +773,11 @@
         }
 
         function finishDrawing(endTime, endPrice) {
-            if (!drawStartPoint || !currentTool) return;
+            console.log('[绘图DEBUG] finishDrawing 被调用', {endTime, endPrice, currentTool, drawStartPoint});
+            if (!drawStartPoint || !currentTool) {
+                console.log('[绘图DEBUG] finishDrawing 提前返回，因为', !drawStartPoint ? 'drawStartPoint为null' : 'currentTool为null');
+                return;
+            }
 
             const color = document.getElementById('drawColor').value;
             const id = ++drawingIdCounter;
