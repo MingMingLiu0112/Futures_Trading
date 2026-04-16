@@ -641,23 +641,18 @@
             });
 
             // ==================== 绘图工具事件 ====================
-            // 绘图交互：click-click 方式（LightweightCharts 4.1.0 没有拖动API）
+            // 绘图交互：click-click 方式（LightweightCharts 4.1.0 无拖动API）
             mainChart.subscribeClick(param => {
                 if (!currentTool || currentTool === 'select') return;
                 if (!param.time) return;
 
-                const endPrice = param.point && param.point.y !== undefined
+                const endPrice = param.point?.y !== undefined
                     ? getChartPriceAtY(param.point.y)
                     : (param.seriesData.get(candleSeries)?.close || 0);
 
                 if (!isDrawing) {
                     // 第一步：记录起点
-                    drawStartPoint = {
-                        time: param.time,
-                        price: endPrice,
-                        x: param.point?.x || 0,
-                        y: param.point?.y || 0
-                    };
+                    drawStartPoint = { time: param.time, price: endPrice };
                     isDrawing = true;
                     updateDrawingHint();
                 } else {
@@ -666,21 +661,19 @@
                 }
             });
 
-            // 鼠标移动时预览（仅在开始绘制后）
+            // 鼠标移动时预览
             mainChart.subscribeCrosshairMove(param => {
                 if (!isDrawing || !drawStartPoint || !currentTool) return;
 
-                const endTime = param.time;
+                const endTime = param.time || drawStartPoint.time;
                 const endPrice = param.point?.y !== undefined ? getChartPriceAtY(param.point.y) : drawStartPoint.price;
                 const color = document.getElementById('drawColor').value;
 
-                // 清除上次预览
                 if (tempDrawing) {
                     tempDrawing.forEach(ser => ser.setData([]));
                     tempDrawing = null;
                 }
 
-                // 绘制预览
                 const preview = [];
                 if (currentTool === 'hline') {
                     const ser = mainChart.addLineSeries({ color, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, lastValueVisible: false, priceLineVisible: false });
@@ -714,12 +707,16 @@
                 tempDrawing = preview;
             });
 
-            // 右键取消
-            mainChart.subscribeContextMenu(() => {
-                if (isDrawing) cancelDrawing();
+            // 双击取消绘制
+            mainChart.subscribeDblClick(() => {
+                if (isDrawing) {
+                    cancelDrawing();
+                    return true;
+                }
+                return false;
             });
 
-            // ESC键取消
+            // ESC键取消绘制
             document.addEventListener('keydown', e => {
                 if (e.key === 'Escape' && isDrawing) cancelDrawing();
             });
