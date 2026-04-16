@@ -641,37 +641,56 @@
             });
 
             // ==================== 绘图工具事件 ====================
-            // 绘图交互：click-click 方式（LightweightCharts 4.1.0 无拖动API）
-            mainChart.subscribeClick(param => {
-                console.log('[绘图DEBUG] subscribeClick fired', JSON.stringify({time: param.time, hasPoint: !!param.point, tool: currentTool, drawing: isDrawing}));
+            // 使用原生DOM事件避免LightweightCharts事件冲突
+            mainChart.chartElement().addEventListener('click', (e) => {
                 if (!currentTool || currentTool === 'select') return;
-                if (!param.time) {
-                    console.log('[绘图DEBUG] no time, ignoring click');
+
+                // 获取点击位置对应的数据
+                const rect = mainChart.chartElement().getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+
+                // 使用图表API获取该位置的时间和价格
+                const timeCoord = mainChart.timeScale().coordinateToTime(x);
+                if (!timeCoord) {
+                    console.log('[绘图DEBUG] 无法获取时间坐标');
                     return;
                 }
 
-                const endPrice = param.point?.y !== undefined
-                    ? getChartPriceAtY(param.point.y)
-                    : (param.seriesData.get(candleSeries)?.close || 0);
+                // 获取价格
+                const price = getChartPriceAtY(y);
+                if (!price) {
+                    console.log('[绘图DEBUG] 无法获取价格', {y, chartHeight: mainChart.chartElement().clientHeight});
+                    return;
+                }
+
+                console.log('[绘图DEBUG] 点击', {x, y, timeCoord, price, isDrawing});
 
                 if (!isDrawing) {
-                    drawStartPoint = { time: param.time, price: endPrice };
+                    // 第一步：记录起点
+                    drawStartPoint = { time: timeCoord, price: price };
                     isDrawing = true;
                     console.log('[绘图DEBUG] 起点已记录', drawStartPoint);
                     updateDrawingHint();
                 } else {
-                    console.log('[绘图DEBUG] 完成绘制，调用finishDrawing');
-                    finishDrawing(param.time, endPrice);
+                    // 第二步：完成绘制
+                    console.log('[绘图DEBUG] 完成绘制');
+                    finishDrawing(timeCoord, price);
                 }
             });
 
-            // 鼠标移动时预览
-            mainChart.subscribeCrosshairMove(param => {
+            // 鼠标移动时预览（使用原生事件）
+            mainChart.chartElement().addEventListener('mousemove', (e) => {
                 if (!isDrawing || !drawStartPoint || !currentTool) return;
 
-                const endTime = param.time || drawStartPoint.time;
-                const endPrice = param.point?.y !== undefined ? getChartPriceAtY(param.point.y) : drawStartPoint.price;
+                const rect = mainChart.chartElement().getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                const endTime = mainChart.timeScale().coordinateToTime(x);
+                const endPrice = getChartPriceAtY(y);
                 const color = document.getElementById('drawColor').value;
+
+                if (!endTime || !endPrice) return;
 
                 if (tempDrawing) {
                     tempDrawing.forEach(ser => ser.setData([]));
@@ -712,8 +731,9 @@
             });
 
             // 双击取消绘制
-            mainChart.subscribeDblClick(() => {
+            mainChart.chartElement().addEventListener('dblclick', (e) => {
                 if (isDrawing) {
+                    e.stopPropagation();
                     cancelDrawing();
                 }
             });
