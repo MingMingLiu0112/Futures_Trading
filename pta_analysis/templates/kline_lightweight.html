@@ -1,3 +1,5 @@
+
+
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -281,11 +283,6 @@
                 layout: { background: { type: 'solid', color: '#1a1a2e' }, textColor: '#aaa' },
                 grid: { vertLines: { color: '#2a2a3e' }, horzLines: { color: '#2a2a3e' } },
                 crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-                timeScale: { borderColor: '#333', timeVisible: true, secondsVisible: false },
-                rightPriceScale: { borderColor: '#333' },
-                layout: { background: { type: 'solid', color: '#1a1a2e' }, textColor: '#aaa' },
-                grid: { vertLines: { color: '#2a2a3e' }, horzLines: { color: '#2a2a3e' } },
-                crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
                 timeScale: { 
                     borderColor: '#333', 
                     timeVisible: true, 
@@ -320,7 +317,7 @@
                 layout: { background: { type: 'solid', color: '#1a1a2e' }, textColor: '#aaa' },
                 grid: { vertLines: { color: '#2a2a3e' }, horzLines: { color: '#2a2a3e' } },
                 timeScale: { visible: false },
-                rightPriceScale: { borderColor: '#333', visible: true },
+                rightPriceScale: { borderColor: '#333', visible: false },
             });
             macdLineSeries = macdChart.addLineSeries({ color: C.macd, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
             signalLineSeries = macdChart.addLineSeries({ color: C.signal, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
@@ -334,7 +331,7 @@
                 layout: { background: { type: 'solid', color: '#1a1a2e' }, textColor: '#aaa' },
                 grid: { vertLines: { color: '#2a2a3e' }, horzLines: { color: '#2a2a3e' } },
                 timeScale: { visible: false },
-                rightPriceScale: { borderColor: '#333' },
+                rightPriceScale: { borderColor: '#333', visible: false },
             });
             kdjKSeries = kdjChart.addLineSeries({ color: C.kdjK, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
             kdjDSeries = kdjChart.addLineSeries({ color: C.kdjD, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
@@ -383,19 +380,26 @@
             // 指标与主图同轴
 
             window.addEventListener('resize', () => {
-                const w = window.innerWidth - 40;
+                const w = container.clientWidth;
                 mainChart.applyOptions({ width: w });
                 if (macdChart) macdChart.applyOptions({ width: w });
                 if (kdjChart) kdjChart.applyOptions({ width: w });
                 mainChart.timeScale().fitContent();
+                if (macdChart) macdChart.timeScale().fitContent();
+                if (kdjChart) kdjChart.timeScale().fitContent();
                 // resize后重绘标注
                 if (lastMacdWaveData.times.length > 0) {
                     setTimeout(() => drawMacdWaveLabels(lastMacdWaveData.times, lastMacdWaveData.waveEndLabels), 100);
                 }
             });
             
-            // 图表缩放时更新标注
-            macdChart.timeScale().subscribeVisibleTimeRangeChange(() => {
+            // 主图滚动时也更新MACD标注（v4.1.0 API: subscribeVisibleLogicalRangeChange）
+            mainChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+                if (range) {
+                    if (macdChart) macdChart.timeScale().setVisibleLogicalRange(range);
+                    if (kdjChart) kdjChart.timeScale().setVisibleLogicalRange(range);
+                }
+                // 滚动后重绘MACD标注
                 if (lastMacdWaveData.times.length > 0) {
                     drawMacdWaveLabels(lastMacdWaveData.times, lastMacdWaveData.waveEndLabels);
                 }
@@ -613,24 +617,30 @@
             }));
             
             // 追踪所有波的结束位置和累计值
+            // 修复：waveEndLabels存储的是"波结束时"的位置，即sign改变时的前一柱
             const waveEndLabels = [];
-            let waveStart = -1, waveSign = 0, waveSum = 0;
+            let waveStart = -1, waveSign = 0, waveSum = 0, waveEndIdx = -1;
             
             for (let i = 25; i < n; i++) {
                 const v = histogram[i];
                 const sign = v >= 0 ? 1 : -1;
                 
                 if (waveSign === 0) {
-                    waveStart = i; waveSign = sign; waveSum = v;
+                    // 第一个有效柱
+                    waveStart = i; waveSign = sign; waveSum = v; waveEndIdx = i;
                 } else if (sign === waveSign) {
+                    // 同向，累加面积，更新结束位置
                     waveSum += v;
+                    waveEndIdx = i;
                 } else {
-                    waveEndLabels.push({ idx: waveStart, sum: waveSum, sign: waveSign });
-                    waveStart = i; waveSign = sign; waveSum = v;
+                    // 方向改变，记录前一波的结束位置（sign改变前的最后一柱）
+                    waveEndLabels.push({ idx: waveEndIdx, sum: waveSum, sign: waveSign });
+                    // 开始新波
+                    waveStart = i; waveSign = sign; waveSum = v; waveEndIdx = i;
                 }
             }
-            // 最后一波
-            waveEndLabels.push({ idx: waveStart, sum: waveSum, sign: waveSign });
+            // 最后一波（可能未完成）
+            waveEndLabels.push({ idx: waveEndIdx, sum: waveSum, sign: waveSign });
             
             macdHistSeries.setData(histData);
             
@@ -650,50 +660,65 @@
             const chartWidth = wrapper.clientWidth;
             if (chartWidth <= 0 || chartHeight <= 0) return;
             
-            // 计算累计值，只显示已完成波段
-            let cumulative = 0;
-            const completedWaves = waveEndLabels.slice(0, -1); // 排除最后一波（可能未完成）
+            // 获取MACD图表的可见时间范围
+            let visibleRange = null;
+            try {
+                visibleRange = macdChart.timeScale().getVisibleRange();
+            } catch(e) {}
             
+            // 区分已完成波和进行中波
+            const completedWaves = waveEndLabels.slice(0, -1); // 排除最后一波（可能未完成）
+            const currentWave = waveEndLabels[waveEndLabels.length - 1];
+            
+            // 绘制已完成波段的标注
             for (let i = 0; i < completedWaves.length; i++) {
                 const w = completedWaves[i];
-                cumulative += w.sum;
                 
-                // X坐标：用timeToCoordinate将时间转换为图表坐标
+                // X坐标：使用timeToCoordinate将时间转换为图表坐标
                 const timeKey = times[w.idx];
                 let x;
                 try {
-                    x = macdChart.timeScale().timeToCoordinate(timeKey);
+                    if (visibleRange && timeKey >= visibleRange.from && timeKey <= visibleRange.to) {
+                        x = macdChart.timeScale().timeToCoordinate(timeKey);
+                    } else {
+                        x = null;
+                    }
                 } catch(e) {
-                    x = (w.idx / times.length) * chartWidth;
+                    x = null;
                 }
                 if (x === null || x === undefined) continue;
                 
-                // Y坐标：红波紧贴顶部，绿波紧贴底部
+                // Y坐标：红波在顶部，绿波在底部（零轴下方），适当上移避免截断
                 const isRed = w.sign === 1;
-                const y = isRed ? 2 : chartHeight - 10;
+                const y = isRed ? 15 : chartHeight - 25;
                 
                 const label = document.createElement('div');
-                label.style.cssText = `position:absolute;left:${x}px;top:${y}px;font-size:8px;color:${isRed ? '#ef5350' : '#26a69a'};background:rgba(26,26,46,0.85);padding:1px 3px;border-radius:2px;white-space:nowrap;`;
-                label.textContent = `${cumulative >= 0 ? '+' : ''}${cumulative.toFixed(1)}`;
+                label.style.cssText = `position:absolute;left:${x}px;top:${y}px;font-size:9px;font-weight:bold;color:${isRed ? '#ef5350' : '#26a69a'};background:rgba(26,26,46,0.9);padding:2px 4px;border-radius:2px;white-space:nowrap;`;
+                // 直接显示该波段的面积值（红波正值，绿波负值）
+                label.textContent = `${w.sum >= 0 ? '+' : ''}${w.sum.toFixed(1)}`;
                 labelsDiv.appendChild(label);
             }
             
-            // 单独显示当前进行中波段的值（不加入累计）
-            if (waveEndLabels.length > 0) {
-                const currentWave = waveEndLabels[waveEndLabels.length - 1];
+            // 绘制当前进行中波段的标注（用虚线边框区分）
+            if (currentWave && currentWave.sign !== 0) {
                 const isRed = currentWave.sign === 1;
-                // 只显示当前波段自身的sum，不加入累计
-                const currentY = isRed ? 25 : chartHeight - 25; // 放在中间位置以示区分
                 const timeKey = times[currentWave.idx];
                 let x;
                 try {
-                    x = macdChart.timeScale().timeToCoordinate(timeKey);
+                    if (visibleRange && timeKey >= visibleRange.from && timeKey <= visibleRange.to) {
+                        x = macdChart.timeScale().timeToCoordinate(timeKey);
+                    } else {
+                        x = null;
+                    }
                 } catch(e) {
-                    x = (currentWave.idx / times.length) * chartWidth;
+                    x = null;
                 }
                 if (x !== null && x !== undefined) {
+                    // 当前波段的值：红波在顶部偏下，绿波在底部偏上（避免贴底截断）
+                    const currentY = isRed ? 30 : chartHeight - 25;
                     const label = document.createElement('div');
-                    label.style.cssText = `position:absolute;left:${x}px;top:${currentY}px;font-size:8px;color:${isRed ? '#FF8888' : '#88FF88'};background:rgba(26,26,46,0.9);padding:1px 3px;border-radius:2px;white-space:nowrap;border:1px dashed ${isRed ? '#FF8888' : '#88FF88'};`;
+                    label.style.cssText = `position:absolute;left:${x}px;top:${currentY}px;font-size:8px;color:${isRed ? '#FF8888' : '#88FF88'};background:rgba(26,26,46,0.85);padding:1px 3px;border-radius:2px;white-space:nowrap;border:1px dashed ${isRed ? '#FF8888' : '#88FF88'};`;
+                    // 当前波段显示自身面积值
                     label.textContent = `${currentWave.sum >= 0 ? '+' : ''}${currentWave.sum.toFixed(1)}`;
                     labelsDiv.appendChild(label);
                 }
