@@ -81,7 +81,7 @@
             overflow: hidden;
         }
         #main-chart { height: calc(100vh - 280px); width: 100%; min-width: 600px; }
-        #macd-chart { height: 100px; }
+        #macd-chart { height: 130px; }
         #kdj-chart { height: 100px; }
         
         .indicator-toggles {
@@ -152,6 +152,93 @@
         .option-stat-value { font-weight: bold; }
         .loading { text-align: center; padding: 30px; color: #888; }
         .error { color: #ff6b6b; padding: 10px; text-align: center; }
+
+        /* ========== 绘图工具样式 ========== */
+        .drawing-toolbar {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            padding: 4px 8px;
+            background: #252538;
+            border-radius: 6px;
+            flex-wrap: wrap;
+        }
+        .drawing-toolbar .tool-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 30px;
+            height: 28px;
+            border: 1px solid #444;
+            border-radius: 4px;
+            background: #333;
+            color: #aaa;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.15s;
+        }
+        .drawing-toolbar .tool-btn:hover {
+            background: #444;
+            border-color: #666;
+        }
+        .drawing-toolbar .tool-btn.active {
+            background: #FF9800;
+            border-color: #FF9800;
+            color: #fff;
+        }
+        .drawing-toolbar .tool-separator {
+            width: 1px;
+            height: 20px;
+            background: #444;
+            margin: 0 2px;
+        }
+        .drawing-toolbar .color-picker {
+            width: 20px;
+            height: 20px;
+            border: 1px solid #666;
+            border-radius: 3px;
+            cursor: pointer;
+            padding: 0;
+        }
+        .drawing-toolbar label {
+            font-size: 11px;
+            color: #888;
+        }
+        .drawing-toolbar .clear-btn {
+            background: #c62828;
+            border-color: #c62828;
+            color: #fff;
+            font-size: 11px;
+            width: auto;
+            padding: 0 8px;
+        }
+        .drawing-toolbar .clear-btn:hover {
+            background: #e53935;
+            border-color: #e53935;
+        }
+
+        /* 绘制中的提示 */
+        .drawing-hint {
+            font-size: 11px;
+            color: #FF9800;
+            padding: 2px 8px;
+            background: rgba(255,152,0,0.15);
+            border-radius: 4px;
+        }
+
+        /* 快捷价格标签（黄色横线上的价格标注） */
+        .price-label {
+            position: absolute;
+            right: 0;
+            background: #FFD700;
+            color: #000;
+            font-size: 10px;
+            font-weight: bold;
+            padding: 1px 4px;
+            border-radius: 2px;
+            pointer-events: none;
+            white-space: nowrap;
+        }
     </style>
 </head>
 <body>
@@ -203,6 +290,23 @@
         <span class="indicator-toggle active" data-ind="seg" onclick="toggleIndicator('seg')">线段</span>
         <span class="indicator-toggle active" data-ind="zs" onclick="toggleIndicator('zs')">中枢</span>
         <span class="indicator-toggle active" data-ind="bs" onclick="toggleIndicator('bs')">买卖点</span>
+        <div style="flex:1;"></div>
+        <!-- 绘图工具栏 -->
+        <div class="drawing-toolbar">
+            <label>绘图:</label>
+            <button class="tool-btn" id="tool-hline" onclick="setDrawingTool('hline')" title="水平线">━</button>
+            <button class="tool-btn" id="tool-vline" onclick="setDrawingTool('vline')" title="垂直线">┃</button>
+            <button class="tool-btn" id="tool-line" onclick="setDrawingTool('line')" title="趋势线">╱</button>
+            <button class="tool-btn" id="tool-rect" onclick="setDrawingTool('rect')" title="矩形">▢</button>
+            <button class="tool-btn" id="tool-ray" onclick="setDrawingTool('ray')" title="射线">╲</button>
+            <div class="tool-separator"></div>
+            <label>颜色:</label>
+            <input type="color" class="color-picker" id="drawColor" value="#FFD700" title="绘图颜色">
+            <div class="tool-separator"></div>
+            <button class="tool-btn" id="tool-select" onclick="setDrawingTool('select')" title="选择/退出">✕</button>
+            <button class="tool-btn clear-btn" onclick="clearAllDrawings()" title="清除所有">清空</button>
+        </div>
+        <span id="drawingHint" class="drawing-hint" style="display:none;"></span>
     </div>
 
     <!-- K线图 -->
@@ -211,10 +315,10 @@
         <div class="section-title"><span>K线图表</span></div>
         <div id="charts-wrapper" style="position:relative;width:100%;">
             <div id="main-chart" class="chart-container"></div>
-            <div id="macd-chart-wrapper" style="position:relative;height:100px;">
+            <div id="macd-chart-wrapper" style="position:relative;height:130px;">
                 <div class="section-title" style="font-size:11px;background:#1a1a2e;border:none;padding:2px 5px;"><span>MACD指标</span><span id="macdValueDisplay" style="font-size:11px;color:#888;margin-left:10px;">DIF: -- | DEA: -- | 柱: --</span></div>
-                <div id="macd-chart" class="chart-container" style="height:80px;"></div>
-                <div id="macd-wave-labels" style="position:absolute;top:20px;left:0;width:100%;height:80px;pointer-events:none;overflow:hidden;z-index:5;"></div>
+                <div id="macd-chart" class="chart-container" style="height:110px;"></div>
+                <div id="macd-wave-labels" style="position:absolute;top:20px;left:0;width:100%;height:110px;pointer-events:none;overflow:hidden;z-index:5;"></div>
             </div>
             <div id="kdj-chart" class="chart-container" style="height:100px;">
                 <div class="section-title" style="font-size:11px;background:#1a1a2e;border:none;padding:2px 5px;"><span>KDJ指标</span><span id="kdjValueDisplay" style="font-size:11px;color:#888;margin-left:10px;">K: -- | D: -- | J: --</span></div>
@@ -337,7 +441,19 @@
         
         // 指标显示状态
         let showBi = true, showSeg = true, showZs = true, showBs = true;
-        
+
+        // ========== 绘图工具状态 ==========
+        let currentTool = null;           // 'hline'|'vline'|'line'|'rect'|'ray'|'select'|null
+        let drawColor = '#FFD700';        // 当前绘图颜色
+        let drawings = [];                // 所有绘制对象 [{id, type, series, obj, color, points}]
+        let drawingIdCounter = 0;          // 绘制ID计数器
+        let tempDrawing = null;           // 临时绘制对象（绘制过程中）
+        let drawStartPoint = null;        // 绘制起点 {time, price, x, y}
+        let isDrawing = false;            // 是否正在绘制
+
+        // 保存所有绘图series（每个主图数据对应一个lineSeries，用于精准删除）
+        let drawingSeriesMap = {};        // {drawingId: series}
+
         // 数据
         let klineData = [], biData = [], segData = [], zsData = [], bsData = [];
         let macdDataCache = {}; // {period: {klineData, macdLine, signalLine, histogram}}
@@ -397,7 +513,7 @@
             const macdContainer = document.getElementById('macd-chart');
             macdContainer.style.display = 'block';
             macdChart = LightweightCharts.createChart(macdContainer, {
-                width: container.clientWidth, height: 100,
+                width: container.clientWidth, height: macdContainer.clientHeight || 110,
                 layout: { background: { type: 'solid', color: '#1a1a2e' }, textColor: '#aaa' },
                 grid: { vertLines: { color: '#2a2a3e' }, horzLines: { color: '#2a2a3e' } },
                 crosshair: {
@@ -523,6 +639,218 @@
                     drawMacdWaveLabels(lastMacdWaveData.times, lastMacdWaveData.waveEndLabels);
                 }
             });
+
+            // ==================== 绘图工具事件 ====================
+            // 绘图交互：click-click 方式（LightweightCharts 4.1.0 没有拖动API）
+            mainChart.subscribeClick(param => {
+                if (!currentTool || currentTool === 'select') return;
+                if (!param.time) return;
+
+                const endPrice = param.point && param.point.y !== undefined
+                    ? getChartPriceAtY(param.point.y)
+                    : (param.seriesData.get(candleSeries)?.close || 0);
+
+                if (!isDrawing) {
+                    // 第一步：记录起点
+                    drawStartPoint = {
+                        time: param.time,
+                        price: endPrice,
+                        x: param.point?.x || 0,
+                        y: param.point?.y || 0
+                    };
+                    isDrawing = true;
+                    updateDrawingHint();
+                } else {
+                    // 第二步：完成绘制
+                    finishDrawing(param.time, endPrice);
+                }
+            });
+
+            // 鼠标移动时预览（仅在开始绘制后）
+            mainChart.subscribeCrosshairMove(param => {
+                if (!isDrawing || !drawStartPoint || !currentTool) return;
+
+                const endTime = param.time;
+                const endPrice = param.point?.y !== undefined ? getChartPriceAtY(param.point.y) : drawStartPoint.price;
+                const color = document.getElementById('drawColor').value;
+
+                // 清除上次预览
+                if (tempDrawing) {
+                    tempDrawing.forEach(ser => ser.setData([]));
+                    tempDrawing = null;
+                }
+
+                // 绘制预览
+                const preview = [];
+                if (currentTool === 'hline') {
+                    const ser = mainChart.addLineSeries({ color, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, lastValueVisible: false, priceLineVisible: false });
+                    ser.setData([{ time: drawStartPoint.time, value: drawStartPoint.price }, { time: endTime, value: drawStartPoint.price }]);
+                    preview.push(ser);
+                } else if (currentTool === 'vline') {
+                    const ser = mainChart.addLineSeries({ color, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, lastValueVisible: false, priceLineVisible: false });
+                    ser.setData([{ time: drawStartPoint.time, value: 0 }, { time: drawStartPoint.time, value: 1 }]);
+                    preview.push(ser);
+                } else if (currentTool === 'line') {
+                    const ser = mainChart.addLineSeries({ color, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
+                    ser.setData([{ time: drawStartPoint.time, value: drawStartPoint.price }, { time: endTime, value: endPrice }]);
+                    preview.push(ser);
+                } else if (currentTool === 'rect') {
+                    const top = Math.max(drawStartPoint.price, endPrice);
+                    const bottom = Math.min(drawStartPoint.price, endPrice);
+                    const ser = mainChart.addLineSeries({ color, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
+                    ser.setData([
+                        { time: drawStartPoint.time, value: top },
+                        { time: endTime, value: top },
+                        { time: endTime, value: bottom },
+                        { time: drawStartPoint.time, value: bottom },
+                        { time: drawStartPoint.time, value: top }
+                    ]);
+                    preview.push(ser);
+                } else if (currentTool === 'ray') {
+                    const ser = mainChart.addLineSeries({ color, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
+                    ser.setData([{ time: drawStartPoint.time, value: drawStartPoint.price }, { time: endTime, value: endPrice }]);
+                    preview.push(ser);
+                }
+                tempDrawing = preview;
+            });
+
+            // 右键取消
+            mainChart.subscribeContextMenu(() => {
+                if (isDrawing) cancelDrawing();
+            });
+
+            // ESC键取消
+            document.addEventListener('keydown', e => {
+                if (e.key === 'Escape' && isDrawing) cancelDrawing();
+            });
+        }
+
+        // ==================== 绘图工具辅助函数 ====================
+
+        function getChartPriceAtY(y) {
+            if (!mainChart || !candleSeries) return 0;
+            const range = candleSeries.priceRange();
+            if (!range) return 0;
+            const height = document.getElementById('main-chart').clientHeight;
+            const top = range.retrievableFrom();
+            const bottom = range.retrievableTo();
+            return top - (y / height) * (top - bottom);
+        }
+
+        function cancelDrawing() {
+            if (tempDrawing) {
+                tempDrawing.forEach(ser => ser.setData([]));
+                tempDrawing = null;
+            }
+            drawStartPoint = null;
+            isDrawing = false;
+            updateDrawingHint();
+        }
+
+        function setDrawingTool(tool) {
+            if (isDrawing) cancelDrawing();
+            currentTool = (tool === 'select') ? null : tool;
+
+            document.querySelectorAll('.drawing-toolbar .tool-btn').forEach(btn => btn.classList.remove('active'));
+            if (currentTool) {
+                document.getElementById('tool-' + currentTool)?.classList.add('active');
+            }
+            updateDrawingHint();
+        }
+
+        function updateDrawingHint() {
+            const hint = document.getElementById('drawingHint');
+            if (!hint) return;
+            const names = { hline: '水平线', vline: '垂直线', line: '趋势线', rect: '矩形', ray: '射线' };
+            if (isDrawing) {
+                hint.style.display = 'inline';
+                hint.textContent = `点击终点完成绘制，右键/ESC取消`;
+            } else if (currentTool) {
+                hint.style.display = 'inline';
+                hint.textContent = `绘制${names[currentTool]}：点击起点，再点击终点`;
+            } else {
+                hint.style.display = 'none';
+            }
+        }
+
+        function finishDrawing(endTime, endPrice) {
+            if (!drawStartPoint || !currentTool) return;
+
+            const color = document.getElementById('drawColor').value;
+            const id = ++drawingIdCounter;
+
+            // 清除预览
+            if (tempDrawing) {
+                tempDrawing.forEach(ser => ser.setData([]));
+                tempDrawing = null;
+            }
+
+            let newDrawing = null;
+
+            if (currentTool === 'hline') {
+                const ser = mainChart.addLineSeries({ color, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, lastValueVisible: false, priceLineVisible: false });
+                ser.setData([
+                    { time: drawStartPoint.time, value: drawStartPoint.price },
+                    { time: endTime, value: drawStartPoint.price }
+                ]);
+                newDrawing = { id, type: 'hline', series: ser, color, price: drawStartPoint.price, time: drawStartPoint.time, endTime };
+            } else if (currentTool === 'vline') {
+                const ser = mainChart.addLineSeries({ color, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, lastValueVisible: false, priceLineVisible: false });
+                ser.setData([
+                    { time: drawStartPoint.time, value: 0 },
+                    { time: drawStartPoint.time, value: 1 }
+                ]);
+                newDrawing = { id, type: 'vline', series: ser, color, time: drawStartPoint.time };
+            } else if (currentTool === 'line') {
+                const ser = mainChart.addLineSeries({ color, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
+                ser.setData([
+                    { time: drawStartPoint.time, value: drawStartPoint.price },
+                    { time: endTime, value: endPrice }
+                ]);
+                newDrawing = { id, type: 'line', series: ser, color,
+                    points: [{ time: drawStartPoint.time, price: drawStartPoint.price }, { time: endTime, price: endPrice }] };
+            } else if (currentTool === 'rect') {
+                const top = Math.max(drawStartPoint.price, endPrice);
+                const bottom = Math.min(drawStartPoint.price, endPrice);
+                const ser = mainChart.addLineSeries({ color, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
+                ser.setData([
+                    { time: drawStartPoint.time, value: top },
+                    { time: endTime, value: top },
+                    { time: endTime, value: bottom },
+                    { time: drawStartPoint.time, value: bottom },
+                    { time: drawStartPoint.time, value: top }
+                ]);
+                newDrawing = { id, type: 'rect', series: ser, color, top, bottom, time: drawStartPoint.time, endTime };
+            } else if (currentTool === 'ray') {
+                const ser = mainChart.addLineSeries({ color, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
+                ser.setData([
+                    { time: drawStartPoint.time, value: drawStartPoint.price },
+                    { time: endTime, value: endPrice }
+                ]);
+                newDrawing = { id, type: 'ray', series: ser, color,
+                    points: [{ time: drawStartPoint.time, price: drawStartPoint.price }, { time: endTime, price: endPrice }] };
+            }
+
+            if (newDrawing) {
+                drawings.push(newDrawing);
+                drawingSeriesMap[id] = newDrawing.series;
+                console.log(`[绘图] #${id} ${currentTool} 完成，当前${drawings.length}个对象`);
+            }
+
+            drawStartPoint = null;
+            isDrawing = false;
+            updateDrawingHint();
+        }
+
+        function clearAllDrawings() {
+            drawings.forEach(d => d.series?.setData([]));
+            drawings = [];
+            drawingSeriesMap = {};
+            if (tempDrawing) { tempDrawing.forEach(s => s.setData([])); tempDrawing = null; }
+            drawStartPoint = null;
+            isDrawing = false;
+            updateDrawingHint();
+            console.log('[绘图] 已清空');
         }
 
         // ==================== 数据加载 ====================
