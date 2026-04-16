@@ -17,6 +17,11 @@ import numpy as np
 # 天勤量化 TqSdk
 from tqsdk import TqApi, TqAuth
 
+# 配置 TqSdk 日志级别，抑制每10秒的连接通知噪音
+import logging
+logging.getLogger("tqsdk").setLevel(logging.WARNING)
+logging.getLogger("tqsdk.ta").setLevel(logging.WARNING)
+
 # MACD多周期计算模块
 import macd_multiperiod as mmacd
 
