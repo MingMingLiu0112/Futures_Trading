@@ -4,6 +4,7 @@
 
 
 
+
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -79,7 +80,7 @@
             border-radius: 0 0 8px 8px;
             overflow: hidden;
         }
-        #main-chart { height: 400px; width: 100%; min-width: 600px; }
+        #main-chart { height: calc(100vh - 280px); width: 100%; min-width: 600px; }
         #macd-chart { height: 100px; }
         #kdj-chart { height: 100px; }
         
@@ -230,7 +231,7 @@
             <div style="display:flex;gap:15px;align-items:center;font-size:12px;">
                 <span id="pcrDisplay" style="display:none;color:#888;font-size:11px;"></span>
                 <span class="badge" style="background:#4CAF50;color:#fff;padding:2px 6px;font-size:11px;" id="ivThresholdBadge">IV:--</span>
-                <span class="badge" style="background:#9c27b0;color:#fff;padding:2px 6px;font-size:11px;" id="oiChangeBadge">仓:--</span>
+                <span style="color:#FF9800;font-size:11px;" id="noiseBadge">噪音:--</span>
                 <span style="color:#888;font-size:11px;">🟢升/🔴降 | 💛ATM | ±10档</span>
             </div>
             <button onclick="loadOptionChain()" style="background:#2196F3;color:#fff;border:none;padding:2px 8px;border-radius:4px;cursor:pointer;">刷新</button>
@@ -358,7 +359,7 @@
         async function initMainChart() {
             const container = document.getElementById('main-chart');
             mainChart = LightweightCharts.createChart(container, {
-                width: window.innerWidth - 40, height: 600,
+                width: container.clientWidth, height: container.clientHeight || window.innerHeight - 200,
                 layout: { background: { type: 'solid', color: '#1a1a2e' }, textColor: '#aaa' },
                 grid: { vertLines: { color: '#2a2a3e' }, horzLines: { color: '#2a2a3e' } },
                 crosshair: {
@@ -641,21 +642,31 @@
                 // KDJ
                 calculateAndDrawKDJ();
                 
-                // 同步所有图表时间轴 - 先fitContent再同步
-                const mainContainer = document.getElementById('main-chart');
-                const chartWidth = window.innerWidth - 40; // 减去左右padding
+                // 同步所有图表时间轴 - 先设置宽度，再fitContent，再同步可见范围
+                const chartWidth = window.innerWidth - 40;
+                
+                // 主图
                 mainChart.applyOptions({ width: chartWidth });
                 mainChart.timeScale().fitContent();
-                mainChart.resize(chartWidth, 400); // 强制resize
                 
-                kdjChart.timeScale().fitContent();
+                // MACD副图 - 刷新时也要设置宽度和fitContent
+                if (macdChart) {
+                    macdChart.applyOptions({ width: chartWidth });
+                    macdChart.timeScale().fitContent();
+                }
+                
+                // KDJ副图 - 刷新时也要设置宽度和fitContent
+                if (kdjChart) {
+                    kdjChart.applyOptions({ width: chartWidth });
+                    kdjChart.timeScale().fitContent();
+                }
                 
                 // 同步可见范围
                 setTimeout(() => {
                     const mainRange = mainChart.timeScale().getVisibleLogicalRange();
                     if (mainRange) {
-                        macdChart.timeScale().setVisibleLogicalRange(mainRange);
-                        kdjChart.timeScale().setVisibleLogicalRange(mainRange);
+                        if (macdChart) macdChart.timeScale().setVisibleLogicalRange(mainRange);
+                        if (kdjChart) kdjChart.timeScale().setVisibleLogicalRange(mainRange);
                     }
                 }, 100);
                 
@@ -1260,8 +1271,18 @@
                         const hvCurrent = volData.hv_current || 0;
                         const hvPercentile = volData.hv_percentile || 50;
                         
+                        // 按期限数值升序排列（避免字符串排序导致10日在5日前）
+                        const tenorIndices = volData.tenors.map((t, i) => ({ tenor: parseInt(t), idx: i }));
+                        tenorIndices.sort((a, b) => a.tenor - b.tenor);
+                        const sortedTenors = tenorIndices.map(ti => volData.tenors[ti.idx]);
+                        const sortedHvMax = tenorIndices.map(ti => volData.hv_max[ti.idx]);
+                        const sortedHv75 = tenorIndices.map(ti => volData.hv_75pct[ti.idx]);
+                        const sortedHvMed = tenorIndices.map(ti => volData.hv_median[ti.idx]);
+                        const sortedHv25 = tenorIndices.map(ti => volData.hv_25pct[ti.idx]);
+                        const sortedHvMin = tenorIndices.map(ti => volData.hv_min[ti.idx]);
+                        
                         // 当前HV标注数据（在最后一个期限位置）
-                        const currentHvData = volData.tenors.map((t, i) => i === volData.tenors.length - 1 ? hvCurrent : null);
+                        const currentHvData = sortedTenors.map((t, i) => i === sortedTenors.length - 1 ? hvCurrent : null);
                         
                         volConeChart.setOption({
                             tooltip: { 
@@ -1276,7 +1297,7 @@
                                         }
                                     });
                                     // 显示百分位信息
-                                    if (params[0].axisValue === volData.tenors[volData.tenors.length - 1]) {
+                                    if (params[0].axisValue === sortedTenors[sortedTenors.length - 1]) {
                                         res += '<br/><b>HV百分位: ' + hvPercentile.toFixed(1) + '%</b>';
                                     }
                                     return res;
@@ -1286,7 +1307,7 @@
                             grid: { left: '8%', right: '8%', bottom: '15%', top: '20%' },
                             xAxis: { 
                                 type: 'category', 
-                                data: volData.tenors, 
+                                data: sortedTenors, 
                                 axisLabel: { color: '#aaa', fontSize: 11 },
                                 axisLine: { lineStyle: { color: '#666' } },
                                 name: '期限',
@@ -1299,20 +1320,20 @@
                                 splitLine: { lineStyle: { color: '#333' } }
                             },
                             series: [
-                                { name: '最大值', type: 'line', data: volData.hv_max, 
+                                { name: '最大值', type: 'line', data: sortedHvMax, 
                                   itemStyle: { color: '#ff6b6b' }, lineStyle: { width: 1.5, type: 'dashed' },
                                   symbol: 'none', smooth: true },
-                                { name: '75%', type: 'line', data: volData.hv_75pct, 
+                                { name: '75%', type: 'line', data: sortedHv75, 
                                   itemStyle: { color: '#ffa500' }, lineStyle: { width: 2 },
                                   symbol: 'none', smooth: true,
                                   areaStyle: { color: 'rgba(255,165,0,0.1)' } },
-                                { name: '中位数', type: 'line', data: volData.hv_median, 
+                                { name: '中位数', type: 'line', data: sortedHvMed, 
                                   itemStyle: { color: '#4ecdc4' }, lineStyle: { width: 2.5 },
                                   symbol: 'none', smooth: true },
-                                { name: '25%', type: 'line', data: volData.hv_25pct, 
+                                { name: '25%', type: 'line', data: sortedHv25, 
                                   itemStyle: { color: '#45b7d1' }, lineStyle: { width: 2 },
                                   symbol: 'none', smooth: true },
-                                { name: '最小值', type: 'line', data: volData.hv_min, 
+                                { name: '最小值', type: 'line', data: sortedHvMin, 
                                   itemStyle: { color: '#96ceb4' }, lineStyle: { width: 1.5, type: 'dashed' },
                                   symbol: 'none', smooth: true },
                                 { name: '当前HV', type: 'line', data: currentHvData, 
@@ -1333,12 +1354,14 @@
         
         async function loadOptionChain() {
             try {
-                const [optRes, klineRes] = await Promise.all([
+                const [optRes, klineRes, volRes] = await Promise.all([
                     fetch('/api/options/chain'),
-                    fetch('/api/kline/data?symbol=TA0&period=1min')
+                    fetch('/api/kline/data?symbol=TA0&period=1min'),
+                    fetch('/api/options/vol_cone')
                 ]);
                 const data = await optRes.json();
                 const klineData = await klineRes.json();
+                const volData = await volRes.json();
                 
                 if (!data.success) {
                     document.getElementById('optionTableBody').innerHTML = 
@@ -1362,12 +1385,21 @@
                 const sortedRows = [...rows].sort((a, b) => a.strike - b.strike);
                 const totalOiChg = sortedRows.reduce((sum, r) => sum + (r.call_oi_change || 0) + (r.put_oi_change || 0), 0);
                 const oiChgThresh = totalOiChg > 5000 ? '大加仓' : (totalOiChg > 0 ? '小幅加仓' : (totalOiChg < -5000 ? '大减仓' : (totalOiChg < 0 ? '小幅减仓' : '中性')));
-                document.getElementById('oiChangeBadge').textContent = `仓:${totalOiChg > 0 ? '+' : ''}${(totalOiChg/1000).toFixed(0)}K(${oiChgThresh})`;
                 
-                // 计算IV阈值（自动跟踪当下隐波均值）
-                const avgIv = (data.stats?.avg_call_iv + data.stats?.avg_put_iv) / 2 || 20;
+                // 计算噪音：基于隐波波动率与历史波动率的偏离
+                // 优先使用ATM(平值)行权价的IV，如果没有则用全部IV均值
+                const atmRow = sortedRows.find(r => Math.abs(r.strike - atmStrike) < 25);
+                const atmCallIv = atmRow?.call_iv || 0;
+                const atmPutIv = atmRow?.put_iv || 0;
+                const atmIv = (atmCallIv + atmPutIv) / 2;
+                const avgIv = atmIv > 0 ? atmIv : ((data.stats?.avg_call_iv + data.stats?.avg_put_iv) / 2 || 20);
                 const ivThresh = avgIv < 15 ? '低' : (avgIv < 25 ? '中' : '高');
-                document.getElementById('ivThresholdBadge').textContent = `IV:${avgIv.toFixed(0)}%(${ivThresh})`;
+                document.getElementById('ivThresholdBadge').textContent = `IV:${avgIv.toFixed(1)}%(${ivThresh})`;
+                
+                const hvFromCone = volData?.hv_current || 20;
+                const ivDiff = avgIv - hvFromCone;  // IV与HV的差值
+                const noiseThresh = ivDiff > 3 ? '>+3%' : (ivDiff > 2 ? '<+3%' : (ivDiff > 1.5 ? '<+2%' : '<+1.5%'));
+                document.getElementById('noiseBadge').textContent = `噪音:${ivDiff > 0 ? '+' : ''}${ivDiff.toFixed(1)}%(${noiseThresh})`;
                 
                 // PCR显示 - 移到标题栏
                 const fmPcr = data.stats?.full_market_pcr || {};
