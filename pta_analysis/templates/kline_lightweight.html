@@ -649,20 +649,42 @@
 
                 const chartEl = mainChart.chartElement();
                 const rect = chartEl.getBoundingClientRect();
-                const x = e.clientX - rect.left;
+
+                // 获取图表内时间区域（排除左侧价格刻度和右边距）
+                const timeScale = mainChart.timeScale();
+                const leftOffset = timeScale.scrollPosition() >= 0 ? timeScale.width() * 0.0 : 0;
+                // 估算时间轴左侧偏移（价格刻度宽度约50px）
+                const priceScaleWidth = 60;
+                const x = e.clientX - rect.left - priceScaleWidth;
                 const y = e.clientY - rect.top;
 
-                console.log('[绘图DEBUG] 点击坐标', {x, y, chartW: rect.width, chartH: rect.height});
+                console.log('[绘图DEBUG] 点击坐标', {x, y, rawX: e.clientX - rect.left, chartW: rect.width, chartH: rect.height});
 
                 // 获取时间坐标
                 const timeCoord = mainChart.timeScale().coordinateToTime(x);
                 if (!timeCoord) {
-                    console.log('[绘图DEBUG] coordinateToTime返回null');
+                    console.log('[绘图DEBUG] coordinateToTime返回null，尝试用原始x');
+                    // 尝试不减去价格刻度宽度
+                    const timeCoord2 = mainChart.timeScale().coordinateToTime(e.clientX - rect.left);
+                    if (!timeCoord2) {
+                        console.log('[绘图DEBUG] 仍然返回null，跳过');
+                        return;
+                    }
+                    // 修正后重新计算Y
+                    const price2 = candleSeries.coordinateToPrice(y);
+                    console.log('[绘图DEBUG] 修正后计算得到', {timeCoord: timeCoord2, price: price2});
+                    if (!isDrawing) {
+                        drawStartPoint = { time: timeCoord2, price: price2 };
+                        isDrawing = true;
+                        updateDrawingHint();
+                    } else {
+                        finishDrawing(timeCoord2, price2);
+                    }
                     return;
                 }
 
-                // 获取价格 - 使用priceToCoordinate反推
-                const price = getChartPriceAtY(y);
+                // 获取价格 - 使用coordinateToPrice
+                const price = candleSeries.coordinateToPrice(y);
                 console.log('[绘图DEBUG] 计算得到', {timeCoord, price});
 
                 if (!isDrawing) {
