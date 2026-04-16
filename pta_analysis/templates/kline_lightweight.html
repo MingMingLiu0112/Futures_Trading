@@ -643,20 +643,24 @@
             // ==================== 绘图工具事件 ====================
             // 绘图交互：click-click 方式（LightweightCharts 4.1.0 无拖动API）
             mainChart.subscribeClick(param => {
+                console.log('[绘图DEBUG] subscribeClick fired', JSON.stringify({time: param.time, hasPoint: !!param.point, tool: currentTool, drawing: isDrawing}));
                 if (!currentTool || currentTool === 'select') return;
-                if (!param.time) return;
+                if (!param.time) {
+                    console.log('[绘图DEBUG] no time, ignoring click');
+                    return;
+                }
 
                 const endPrice = param.point?.y !== undefined
                     ? getChartPriceAtY(param.point.y)
                     : (param.seriesData.get(candleSeries)?.close || 0);
 
                 if (!isDrawing) {
-                    // 第一步：记录起点
                     drawStartPoint = { time: param.time, price: endPrice };
                     isDrawing = true;
+                    console.log('[绘图DEBUG] 起点已记录', drawStartPoint);
                     updateDrawingHint();
                 } else {
-                    // 第二步：完成绘制
+                    console.log('[绘图DEBUG] 完成绘制，调用finishDrawing');
                     finishDrawing(param.time, endPrice);
                 }
             });
@@ -711,9 +715,7 @@
             mainChart.subscribeDblClick(() => {
                 if (isDrawing) {
                     cancelDrawing();
-                    return true;
                 }
-                return false;
             });
 
             // ESC键取消绘制
