@@ -25,6 +25,9 @@ logging.getLogger("tqsdk.ta").setLevel(logging.WARNING)
 # MACD多周期计算模块
 import macd_multiperiod as mmacd
 
+# PTA产业基本面分析模块
+import industry_analysis as pta_industry
+
 # TqSdk 认证配置
 TQS_USER = os.environ.get('TQS_AUTH_USER', 'mingmingliu')
 TQS_PASS = os.environ.get('TQS_AUTH_PASS', 'Liuzhaoning2025')
@@ -175,6 +178,15 @@ def api_option_vol_cone():
         api = oca.get_option_api()
         result = api.get_volatility_cone()
         return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/fundamental')
+def api_fundamental():
+    """PTA基本面数据API"""
+    try:
+        data = pta_industry.get_pta_industry_data()
+        return jsonify(data)
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 

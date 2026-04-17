@@ -81,7 +81,7 @@
             border-radius: 0 0 8px 8px;
             overflow: hidden;
         }
-        #main-chart { height: calc(100vh - 280px); width: 100%; min-width: 600px; }
+        #main-chart { height: 500px; width: 100%; min-width: 600px; }
         #macd-chart { height: 130px; }
         #kdj-chart { height: 100px; }
         
@@ -303,19 +303,19 @@
         <span class="indicator-toggle active" data-ind="bs" onclick="toggleIndicator('bs')">买卖点</span>
         <div style="flex:1;"></div>
         <!-- 绘图工具栏 -->
-        <div class="drawing-toolbar">
+        <div class="drawing-toolbar" id="drawingToolbar">
             <label>绘图:</label>
-            <button class="tool-btn" id="tool-hline" onclick="setDrawingTool('hline')" title="水平线">━</button>
-            <button class="tool-btn" id="tool-vline" onclick="setDrawingTool('vline')" title="垂直线">┃</button>
-            <button class="tool-btn" id="tool-line" onclick="setDrawingTool('line')" title="趋势线">╱</button>
-            <button class="tool-btn" id="tool-rect" onclick="setDrawingTool('rect')" title="矩形">▢</button>
-            <button class="tool-btn" id="tool-ray" onclick="setDrawingTool('ray')" title="射线">╲</button>
+            <button class="tool-btn" id="tool-hline" onclick="event.stopPropagation();setDrawingTool('hline')" title="水平线" style="display:none;">━</button>
+            <button class="tool-btn" id="tool-vline" onclick="event.stopPropagation();setDrawingTool('vline')" title="垂直线" style="display:none;">┃</button>
+            <button class="tool-btn" id="tool-line" onclick="event.stopPropagation();setDrawingTool('line')" title="趋势线" style="display:none;">╱</button>
+            <button class="tool-btn" id="tool-rect" onclick="event.stopPropagation();setDrawingTool('rect')" title="矩形" style="display:none;">▢</button>
+            <button class="tool-btn" id="tool-ray" onclick="event.stopPropagation();setDrawingTool('ray')" title="射线" style="display:none;">╲</button>
             <div class="tool-separator"></div>
             <label>颜色:</label>
-            <button class="tool-btn draw-color-btn active" data-color="#FFD700" onclick="setDrawColor(this, '#FFD700')" title="黄色" style="background:#FFD700;color:#000;">&nbsp;</button>
-            <button class="tool-btn draw-color-btn" data-color="#FFFFFF" onclick="setDrawColor(this, '#FFFFFF')" title="白色" style="background:#FFFFFF;color:#000;">&nbsp;</button>
-            <button class="tool-btn draw-color-btn" data-color="#4CAF50" onclick="setDrawColor(this, '#4CAF50')" title="绿色" style="background:#4CAF50;color:#fff;">&nbsp;</button>
-            <button class="tool-btn draw-color-btn" data-color="#2196F3" onclick="setDrawColor(this, '#2196F3')" title="蓝色" style="background:#2196F3;color:#fff;">&nbsp;</button>
+            <button class="tool-btn draw-color-btn active" data-color="#FFD700" onclick="event.stopPropagation();setDrawColor(this, '#FFD700')" title="黄色" style="background:#FFD700;color:#000;">&nbsp;</button>
+            <button class="tool-btn draw-color-btn" data-color="#FFFFFF" onclick="event.stopPropagation();setDrawColor(this, '#FFFFFF')" title="白色" style="background:#FFFFFF;color:#000;">&nbsp;</button>
+            <button class="tool-btn draw-color-btn" data-color="#4CAF50" onclick="event.stopPropagation();setDrawColor(this, '#4CAF50')" title="绿色" style="background:#4CAF50;color:#fff;">&nbsp;</button>
+            <button class="tool-btn draw-color-btn" data-color="#2196F3" onclick="event.stopPropagation();setDrawColor(this, '#2196F3')" title="蓝色" style="background:#2196F3;color:#fff;">&nbsp;</button>
             <div class="tool-separator"></div>
             <label>线宽:</label>
             <select id="drawLineWidth" onchange="setDrawLineWidth(this.value)" style="background:#333;color:#aaa;border:1px solid #555;border-radius:4px;font-size:11px;padding:2px 4px;">
@@ -324,9 +324,9 @@
                 <option value="3">粗</option>
             </select>
             <div class="tool-separator"></div>
-            <button class="tool-btn" id="tool-select" onclick="setDrawingTool('select')" title="选择/退出">✕</button>
-            <button class="tool-btn" id="tool-delete" onclick="deleteSelectedDrawing()" title="删除选中" style="background:#c0392b;color:#fff;display:none;">🗑</button>
-            <button class="tool-btn clear-btn" onclick="clearAllDrawings()" title="清除所有">清空</button>
+            <button class="tool-btn" id="tool-select" onclick="event.stopPropagation();setDrawingTool('select')" title="选择/退出">✕</button>
+            <button class="tool-btn" id="tool-delete" onclick="event.stopPropagation();deleteSelectedDrawing()" title="删除选中" style="background:#c0392b;color:#fff;display:none;">🗑</button>
+            <button class="tool-btn clear-btn" onclick="event.stopPropagation();clearAllDrawings()" title="清除所有">清空</button>
         </div>
         <span id="drawingHint" class="drawing-hint" style="display:none;"></span>
     </div>
@@ -446,6 +446,18 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- 基本面信息 -->
+    <div class="option-section" id="fundamental-section">
+        <div class="section-title">
+            <span>📋 PTA基本面信息 <span id="fundamentalTime" style="color:#888;font-size:11px;"></span></span>
+            <button onclick="loadFundamental()" style="background:#2196F3;color:#fff;border:none;padding:2px 8px;border-radius:4px;cursor:pointer;">刷新</button>
+        </div>
+        <div id="fundamentalContent" style="padding:10px;background:#252538;border-radius:0 0 8px 8px;">
+            <div id="fundamentalStats" class="option-stats"></div>
+            <div id="fundamentalDetail" style="color:#ccc;font-size:12px;line-height:1.6;"></div>
         </div>
     </div>
 
@@ -933,6 +945,11 @@
                 isSelectMode = !isSelectMode;
                 currentTool = null;
                 document.querySelectorAll('.drawing-toolbar .tool-btn').forEach(btn => btn.classList.remove('active'));
+                // 显示/隐藏绘图工具按钮
+                ['hline','vline','line','rect','ray'].forEach(t => {
+                    const btn = document.getElementById('tool-' + t);
+                    if (btn) btn.style.display = isSelectMode ? 'none' : '';
+                });
                 if (isSelectMode) {
                     document.getElementById('tool-select')?.classList.add('active');
                 }
@@ -945,6 +962,11 @@
                 if (currentTool) {
                     document.getElementById('tool-' + currentTool)?.classList.add('active');
                 }
+                // 显示绘图工具按钮，隐藏选择按钮
+                ['hline','vline','line','rect','ray'].forEach(t => {
+                    const btn = document.getElementById('tool-' + t);
+                    if (btn) btn.style.display = '';
+                });
             }
             updateDrawingHint();
         }
@@ -1947,9 +1969,9 @@
                                 formatter: function(params) {
                                     let res = '<b>期限: ' + params[0].axisValue + '</b><br/>';
                                     params.forEach(p => {
-                                        if (p.seriesName === '当前IV位置') return;
-                                        if (p.value !== null && p.value !== '' && p.value !== undefined && p.value !== '-') {
-                                            res += '<span style="color:' + p.color + ';">■</span> ' + p.seriesName + ': ' + p.value.toFixed(1) + '%<br/>';
+                                        if (p.seriesName === '当前HV') return;
+                                        if (p.value !== null && p.value !== '' && p.value !== undefined && p.value !== '-' && p.value !== 'null') {
+                                            res += '<span style="color:' + p.color + ';">■</span> ' + p.seriesName + ': ' + (typeof p.value === 'number' ? p.value.toFixed(1) : p.value) + '%<br/>';
                                         }
                                     });
                                     return res;
@@ -1960,7 +1982,12 @@
                                 snap: false,
                                 crossStyle: { color: '#888', width: 1 }
                             },
-                            legend: { data: ['最大值', '75%', '中位数', '25%', '最小值', '当前HV', 'ATM-IV'], textStyle: { color: '#aaa' }, top: 5 },
+                            legend: { 
+                                data: ['最大值', '75%', '中位数', '25%', '最小值', '当前HV', 'ATM-IV'], 
+                                textStyle: { color: '#aaa' }, 
+                                top: 5,
+                                selected: {'当前HV': false, 'ATM-IV': true}
+                            },
                             grid: { left: '8%', right: '8%', bottom: '15%', top: '20%' },
                             xAxis: { 
                                 type: 'category', 
@@ -2016,6 +2043,108 @@
                 });
         }
         
+        async function loadFundamental() {
+            try {
+                const res = await fetch('/api/fundamental');
+                const result = await res.json();
+                const d = result.data || {};
+
+                // 更新时间
+                document.getElementById('fundamentalTime').textContent = result.timestamp || '';
+
+                // 上游
+                const up = d.upstream || {};
+                const brent = up.brent || {};
+                const px = up.px || {};
+                const naphtha = up.naphtha || {};
+
+                // PTA自身
+                const pta = d.pta || {};
+                const spot = pta.spot || {};
+                const fut = pta.futures || {};
+
+                // 成本
+                const cost = d.cost || {};
+                const ptaCost = cost.pta_cost || {};
+
+                // 开工率
+                const poly = d.polyester || {};
+                const ptaOp = d.pta_operating || {};
+
+                // 库存
+                const inv = d.inventory || {};
+
+                // ===== 统计卡片 =====
+                document.getElementById('fundamentalStats').innerHTML = `
+                    <div class="option-stat">
+                        <div class="option-stat-label">布伦特原油</div>
+                        <div class="option-stat-value" style="color:${brent.change_pct>0?'#26a69a':'#ef5350'}">${brent.price ? '$'+brent.price.toFixed(2) : '--'}</div>
+                    </div>
+                    <div class="option-stat">
+                        <div class="option-stat-label">PX现货</div>
+                        <div class="option-stat-value">${px.price ? px.price.toFixed(0)+' USD' : '--'}</div>
+                    </div>
+                    <div class="option-stat">
+                        <div class="option-stat-label">PTA成本</div>
+                        <div class="option-stat-value">${ptaCost.cost_mid ? ptaCost.cost_mid.toFixed(0) : '--'}</div>
+                    </div>
+                    <div class="option-stat">
+                        <div class="option-stat-label">PTA现货</div>
+                        <div class="option-stat-value">${spot.price ? spot.price.toFixed(0) : '--'}</div>
+                    </div>
+                    <div class="option-stat">
+                        <div class="option-stat-label">聚酯开工</div>
+                        <div class="option-stat-value">${poly.operating_rate ? poly.operating_rate+'%' : '--'}</div>
+                    </div>
+                    <div class="option-stat">
+                        <div class="option-stat-label">PTA开工</div>
+                        <div class="option-stat-value">${ptaOp.rate ? ptaOp.rate+'%' : '--'}</div>
+                    </div>
+                `;
+
+                // ===== 详细信息文本 =====
+                const brentChange = brent.change_pct ? (brent.change_pct > 0 ? '+'+brent.change_pct.toFixed(2)+'%' : brent.change_pct.toFixed(2)+'%') : '--';
+                const ptaChange = spot.change_pct ? (spot.change_pct > 0 ? '+'+spot.change_pct.toFixed(2)+'%' : spot.change_pct.toFixed(2)+'%') : '--';
+                const costRange = ptaCost.cost_low && ptaCost.cost_high ? ptaCost.cost_low.toFixed(0)+' - '+ptaCost.cost_high.toFixed(0) : '--';
+                const spotTime = spot.date || '--';
+                const pxTime = px.date || '--';
+                const inventoryNote = inv.note || (inv.total ? '总库存: '+inv.total+'万吨' : '暂无库存数据');
+                const polyNote = poly.description || '';
+                const ptaOpNote = ptaOp.description || '';
+
+                document.getElementById('fundamentalDetail').innerHTML = `
+                    <div style="margin-bottom:8px;">
+                        <strong style="color:#888;">🔗 产业链</strong>：
+                        原油(${brent.price?'$'+brent.price.toFixed(2):'--'}) → PX(${px.price?px.price.toFixed(0)+' USD':'--'}) → PTA(现货${spot.price?spot.price.toFixed(0):'--'},期货${fut.price?fut.price.toFixed(0):'--'})
+                    </div>
+                    <div style="margin-bottom:8px;">
+                        <strong style="color:#888;">📊 成本利润</strong>：
+                        PTA成本区间 <span style="color:#ffd700">${costRange}</span>，
+                        现货价格 <span style="color:${spot.price && ptaCost.cost_mid && spot.price > ptaCost.cost_mid ? '#26a69a':'#ef5350'}">${spot.price?spot.price.toFixed(0):'--'}</span>，
+                        ${spot.price && ptaCost.cost_mid ? (spot.price - ptaCost.cost_mid > 0 ? '利润':'亏损')+' '+Math.abs(spot.price - ptaCost.cost_mid).toFixed(0)+'元' : ''}
+                    </div>
+                    <div style="margin-bottom:8px;">
+                        <strong style="color:#888;">📅 数据时间</strong>：
+                        现货@${spotTime} | PX@${pxTime} | 更新于 ${result.timestamp || '--'}
+                    </div>
+                    <div style="margin-bottom:8px;">
+                        <strong style="color:#888;">🏭 开工率</strong>：
+                        ${ptaOpNote} ${ptaOp.rate?'PTA '+ptaOp.rate+'%':''} | ${polyNote} ${poly.operating_rate?'聚酯 '+poly.operating_rate+'%':''}
+                    </div>
+                    <div style="margin-bottom:8px;">
+                        <strong style="color:#888;">📦 库存</strong>：${inventoryNote}
+                    </div>
+                    <div style="color:#666;font-size:11px;margin-top:5px;">
+                        数据来源: 通达信/akshare实时数据 | ⚠️基本面信息仅供参考，不构成交易建议
+                    </div>
+                `;
+            } catch(e) {
+                document.getElementById('fundamentalStats').innerHTML = '<div style="color:#888;text-align:center;padding:20px;">基本面数据暂不可用</div>';
+                document.getElementById('fundamentalDetail').innerHTML = '<div style="color:#888;text-align:center;">请稍后刷新重试</div>';
+                console.error('loadFundamental error:', e);
+            }
+        }
+        
         async function loadOptionChain() {
             try {
                 const [optRes, klineRes, volRes] = await Promise.all([
@@ -2062,12 +2191,12 @@
                 document.getElementById('ivThresholdBadge').textContent = `IV:${avgIv.toFixed(1)}%(${ivEnvLabel})`;
                 
                 // 根据IV环境确定显著/重大变化阈值
-                // IV变阈值: 高波显著>3%重大>5%，中波显著>2%重大>3%，低波显著>1%重大>2%
-                const ivSigThresh = ivEnv === 'high' ? 3 : (ivEnv === 'mid' ? 2 : 1);
-                const ivMajorThresh = ivEnv === 'high' ? 5 : (ivEnv === 'mid' ? 3 : 2);
-                // OI变阈值: 高波显著>15%重大>30%，中波显著>10%重大>20%，低波显著>8%重大>15%
-                const oiSigThresh = ivEnv === 'high' ? 15 : (ivEnv === 'mid' ? 10 : 8);
-                const oiMajorThresh = ivEnv === 'high' ? 30 : (ivEnv === 'mid' ? 20 : 15);
+                // IV变阈值: 高波噪音<±3%显著3-6%重大>6%，中波噪音<±2%显著2-3%重大>3%，低波噪音<±1.5%显著1.5-2%重大>2%
+                // OI变阈值: 高波显著>5%重大>10%，中波显著>3.5%重大>7%，低波显著>2.5%重大>5%
+                const ivSigThresh = ivEnv === 'high' ? 3 : (ivEnv === 'mid' ? 2 : 1.5);
+                const ivMajorThresh = ivEnv === 'high' ? 6 : (ivEnv === 'mid' ? 3 : 2);
+                const oiSigThresh = ivEnv === 'high' ? 5 : (ivEnv === 'mid' ? 3.5 : 2.5);
+                const oiMajorThresh = ivEnv === 'high' ? 10 : (ivEnv === 'mid' ? 7 : 5);
                 
                 // PCR显示 - 移到标题栏
                 const fmPcr = data.stats?.full_market_pcr || {};
@@ -2367,6 +2496,7 @@
             // initMainChart() 会在 loadAllData() 内部调用，避免重复 fetch
             loadAllData();
             loadOptionChain();
+            loadFundamental();
             // 每秒增量刷新最后一根K线
             setInterval(incrementalUpdate, 10000);
         });
