@@ -467,8 +467,9 @@
         // 指标显示状态
         let showBi = true, showSeg = true, showZs = true, showBs = true;
 
-        // ========== 绘图工具状态 ==========
-        let currentTool = null;           // 'hline'|'vline'|'line'|'rect'|'ray'|'select'|null
+        // ==================== 绘图工具状态 ====================
+        let currentTool = null;           // 'hline'|'vline'|'line'|'rect'|'ray'|null
+        let isSelectMode = false;         // 选择模式（独立标志）
         let drawings = [];                // 所有绘制对象 [{id, type, series, obj, color, points}]
         let drawingIdCounter = 0;          // 绘制ID计数器
         let currentDrawColor = '#FFD700';  // 当前绘图颜色
@@ -730,7 +731,7 @@
             // 使用原生DOM事件避免LightweightCharts事件冲突
             mainChart.chartElement().addEventListener('click', (e) => {
                 // 选择模式下点击线条进行选择
-                if (currentTool === 'select') {
+                if (isSelectMode) {
                     const rect = mainChart.chartElement().getBoundingClientRect();
                     const x = e.clientX - rect.left;
                     const y = e.clientY - rect.top;
@@ -747,11 +748,12 @@
                     drawings.forEach(d => {
                         let dist = Infinity;
                         if (d.type === 'hline') {
-                            dist = Math.abs(clickPrice - d.price);
-                            if (dist < mainChart.priceScale('right').getPriceRange().priceRange * HIT_THRESHOLD_PRICE_RATIO) {
-                                dist = Math.abs(clickPrice - d.price);
-                            } else {
-                                dist = Infinity;
+                            const priceRange = mainChart.priceScale('right').getPriceRange();
+                            if (priceRange && priceRange.priceRange) {
+                                const threshold = priceRange.priceRange * HIT_THRESHOLD_PRICE_RATIO;
+                                if (Math.abs(clickPrice - d.price) <= threshold) {
+                                    dist = Math.abs(clickPrice - d.price);
+                                }
                             }
                         } else if (d.type === 'vline') {
                             const dTime = d.time;
@@ -765,10 +767,12 @@
                                 const maxT = Math.max(p1.time, p2.time) + HIT_THRESHOLD_TIME;
                                 if (clickTime >= minT && clickTime <= maxT) {
                                     // 计算价格比例距离
-                                    const avgPrice = (p1.price + p2.price) / 2;
-                                    const priceRange = mainChart.priceScale('right').getPriceRange().priceRange || 1;
-                                    const priceDist = Math.abs(clickPrice - ((p1.price + p2.price) / 2));
-                                    dist = priceDist / (priceRange * 0.1);
+                                    const priceRange = mainChart.priceScale('right').getPriceRange();
+                                    if (priceRange && priceRange.priceRange) {
+                                        const avgPrice = (p1.price + p2.price) / 2;
+                                        const priceDist = Math.abs(clickPrice - avgPrice);
+                                        dist = priceDist / (priceRange.priceRange * 0.1);
+                                    }
                                 }
                             }
                         }
@@ -916,16 +920,31 @@
             }
             drawStartPoint = null;
             isDrawing = false;
+            isSelectMode = false;
+            document.getElementById('tool-select')?.classList.remove('active');
             updateDrawingHint();
         }
 
         function setDrawingTool(tool) {
             if (isDrawing) cancelDrawing();
-            currentTool = (tool === 'select') ? null : tool;
-
-            document.querySelectorAll('.drawing-toolbar .tool-btn').forEach(btn => btn.classList.remove('active'));
-            if (currentTool) {
-                document.getElementById('tool-' + currentTool)?.classList.add('active');
+            
+            if (tool === 'select') {
+                // 切换选择模式
+                isSelectMode = !isSelectMode;
+                currentTool = null;
+                document.querySelectorAll('.drawing-toolbar .tool-btn').forEach(btn => btn.classList.remove('active'));
+                if (isSelectMode) {
+                    document.getElementById('tool-select')?.classList.add('active');
+                }
+            } else {
+                // 退出选择模式，切换到绘图工具
+                isSelectMode = false;
+                document.getElementById('tool-select')?.classList.remove('active');
+                currentTool = tool;
+                document.querySelectorAll('.drawing-toolbar .tool-btn').forEach(btn => btn.classList.remove('active'));
+                if (currentTool) {
+                    document.getElementById('tool-' + currentTool)?.classList.add('active');
+                }
             }
             updateDrawingHint();
         }
@@ -1036,6 +1055,9 @@
             drawStartPoint = null;
             isDrawing = false;
             selectedDrawingId = null;
+            isSelectMode = false;
+            document.getElementById('tool-select')?.classList.remove('active');
+            document.getElementById('tool-delete').style.display = 'none';
             updateDrawingHint();
             console.log('[绘图] 已清空');
         }

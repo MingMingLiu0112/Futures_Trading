@@ -600,7 +600,8 @@
                                 const datasetIndex = legendItem.datasetIndex;
                                 const ci = legend.chart;
                                 const meta = ci.getDatasetMeta(datasetIndex);
-                                meta.hidden = meta.hidden === null ? !ci.data.datasets[datasetIndex].hidden : null;
+                                // 直接toggle隐藏状态
+                                meta.hidden = meta.hidden === null ? true : null;
                                 ci.update();
                             }
                         },
