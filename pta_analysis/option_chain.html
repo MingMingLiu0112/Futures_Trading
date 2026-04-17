@@ -1,3 +1,5 @@
+
+
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -48,29 +50,16 @@
         }
         
         /* 高亮样式 */
-        .highlight-up {
-            background: rgba(0, 255, 0, 0.2) !important;
+        .highlight-significant {
+            background: rgba(52, 152, 219, 0.5) !important;  /* 蓝色-显著 */
+            color: #fff;
+            font-weight: bold;
         }
         
-        .highlight-down {
-            background: rgba(255, 0, 0, 0.2) !important;
-        }
-        
-        .highlight-oi-up {
-            background: rgba(0, 255, 0, 0.15) !important;
-        }
-        
-        .highlight-oi-down {
-            background: rgba(255, 0, 0, 0.15) !important;
-        }
-        
-        .highlight-iv-extreme {
-            background: rgba(255, 165, 0, 0.3) !important;
-        }
-        
-        .atm-row {
-            background: rgba(255, 215, 0, 0.2) !important;
-            border: 2px solid #ffd700 !important;
+        .highlight-major {
+            background: rgba(255, 235, 59, 0.5) !important;  /* 黄色-重大 */
+            font-weight: bold;
+            color: #000;
         }
         
         .expiry-tab {
@@ -87,6 +76,11 @@
         
         .expiry-tab:hover {
             background: #3d4a5f;
+        }
+        
+        .atm-row {
+            background: rgba(255, 215, 0, 0.2) !important;
+            border: 2px solid #ffd700 !important;
         }
         
         .stats-card {
@@ -222,6 +216,12 @@
             </div>
             <div class="col-md-2">
                 <div class="stats-card">
+                    <div class="stats-label">波动环境(ATM均IV)</div>
+                    <div class="stats-value" id="ivEnvironment">--</div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="stats-card">
                     <div class="stats-label">成交PCR(近月/全市场)</div>
                     <div class="stats-value" id="volPcr">--</div>
                     <div class="stats-value" style="font-size: 12px; color: #888;" id="volPcrAll">--</div>
@@ -255,17 +255,24 @@
                     <!-- IV阈值图例 -->
                     <div class="mb-2" style="font-size: 11px;">
                         <span class="badge bg-secondary me-2">IV变化阈值</span>
-                        <span class="me-3">低波(&lt;20%): &lt;±1.5% 噪音</span>
-                        <span class="me-3">中波(20-30%): &lt;±2% 噪音</span>
-                        <span class="me-3">高波(&gt;30%): &lt;±3% 噪音</span>
+                        <span class="me-3">低波(&lt;20%): ±1.5%~±3%显著 / &gt;±3%重大</span>
+                        <span class="me-3">中波(20-30%): ±2%~±4%显著 / &gt;±4%重大</span>
+                        <span class="me-3">高波(≥30%): ±3%~±6%显著 / &gt;±6%重大</span>
                     </div>
                     
                     <!-- 色块图例 -->
                     <div class="mb-2" style="font-size: 11px;">
                         <span class="badge me-2" style="background: rgba(255,215,0,0.4); color: #fff;">ATM行权价</span>
-                        <span class="badge me-2" style="background: rgba(0,255,0,0.3); color: #fff;">IV/持仓显著上升</span>
-                        <span class="badge me-2" style="background: rgba(255,0,0,0.3); color: #fff;">IV/持仓显著下降</span>
-                        <span class="badge me-2" style="background: rgba(255,165,0,0.4); color: #fff;">IV极端值</span>
+                        <span class="badge me-2" style="background: rgba(52,152,219,0.6); color: #fff;">IV/持仓显著变化(蓝色)</span>
+                        <span class="badge me-2" style="background: rgba(255,235,59,0.7); color: #000;">IV/持仓重大变化(黄色)</span>
+                    </div>
+                    
+                    <!-- 持仓量阈值说明 -->
+                    <div class="mb-2" style="font-size: 11px; color: #aaa;">
+                        <span class="badge bg-secondary me-2">持仓变化阈值</span>
+                        <span class="me-2">量级&lt;3000: ±10%~±25%显著/&gt;±25%重大</span>
+                        <span class="me-2">量级3000~10000: ±7%~±15%显著/&gt;±15%重大</span>
+                        <span class="me-2">量级&gt;10000: ±5%~±10%显著/&gt;±10%重大</span>
                     </div>
                     
                     <div class="table-responsive table-scroll">
@@ -366,18 +373,25 @@
         let oiChart = null;
         let greekChart = null;
         
-        // 常量
-        const IV_THRESHOLDS = {
-            low: { noise: 1.5, significant: 3, extreme: 4.5 },
-            mid: { noise: 2, significant: 4, extreme: 6 },
-            high: { noise: 3, significant: 6, extreme: 9 }
-        };
+        // IV变化阈值（基于ATM平均IV判断波动环境）
+        // 高波(IV≥30%): 噪音<±3%, 显著±3%~±6%, 重大>±6%
+        // 中波(20%≤IV<30%): 噪音<±2%, 显著±2%~±4%, 重大>±4%
+        // 低波(IV<20%): 噪音<±1.5%, 显著±1.5%~±3%, 重大>±3%
+        function getIvThresholds(avgIv) {
+            if (avgIv >= 30) return { noise: 3, significant: 6, extreme: 999 }; // 显著/重大用同一阈值体系
+            if (avgIv >= 20) return { noise: 2, significant: 4, extreme: 999 };
+            return { noise: 1.5, significant: 3, extreme: 999 };
+        }
         
-        const OI_THRESHOLDS = {
-            small: { noise: 10, significant: 25 },
-            medium: { noise: 7, significant: 15 },
-            large: { noise: 5, significant: 10 }
-        };
+        // 持仓量变化阈值（基于持仓量级）
+        // 持仓量级<3000: 噪音<±10%, 显著±10%~±25%, 重大>±25%
+        // 持仓量级3000~10000: 噪音<±7%, 显著±7%~±15%, 重大>±15%
+        // 持仓量级>10000: 噪音<±5%, 显著±5%~±10%, 重大>±10%
+        function getOiThresholds(oi) {
+            if (oi >= 10000) return { noise: 5, sigLow: 10, sigHigh: 999, extreme: 999 };
+            if (oi >= 3000) return { noise: 7, sigLow: 15, sigHigh: 999, extreme: 999 };
+            return { noise: 10, sigLow: 25, sigHigh: 999, extreme: 999 };
+        }
         
         // 初始化
         document.addEventListener('DOMContentLoaded', function() {
@@ -467,7 +481,16 @@
             // 统计概览
             document.getElementById('underlying').textContent = data.underlying;
             document.getElementById('underlyingPrice').textContent = data.underlying_price ? data.underlying_price.toFixed(0) : '--';
+            // 显示ATM IV和波动环境 - 使用ATM行权价对应的认购认沽IV均值
+            const atmStrike = data.atm_strike;
+            const atmRow = (data.strike_rows || []).find(r => r.strike === atmStrike);
+            const atmIv = atmRow ? ((atmRow.call_iv || 0) + (atmRow.put_iv || 0)) / 2 : 0;
+            const avgIv = atmIv || stats?.avg_call_iv || stats?.avg_put_iv || 0;
             document.getElementById('atmStrike').textContent = data.atm_strike || '--';
+            const ivEnv = avgIv >= 30 ? '高波(≥30%)' : (avgIv >= 20 ? '中波(20-30%)' : (avgIv > 0 ? '低波(<20%)' : '--'));
+            const ivEnvEl = document.getElementById('ivEnvironment');
+            ivEnvEl.textContent = ivEnv;
+            ivEnvEl.style.color = avgIv >= 30 ? '#ef5350' : (avgIv >= 20 ? '#ff9800' : '#26a69a');
 
             const stats = data.stats || {};
             updateStatsValue('volPcr', stats.volume_pcr, [0.8, 1.0]);
@@ -567,9 +590,12 @@
                 return;
             }
             
-            // 计算IV阈值
-            const avgIv = (optionData.stats?.avg_call_iv + optionData.stats?.avg_put_iv) / 2 || 20;
-            const ivThresholds = avgIv < 20 ? IV_THRESHOLDS.low : (avgIv < 30 ? IV_THRESHOLDS.mid : IV_THRESHOLDS.high);
+            // 计算IV阈值 - 基于ATM行权价对应的隐波均值（波动环境）
+            const atmStrike = optionData.atm_strike;
+            const atmRow = (optionData.strike_rows || []).find(r => r.strike === atmStrike);
+            const atmIv = atmRow ? ((atmRow.call_iv || 0) + (atmRow.put_iv || 0)) / 2 : 0;
+            const avgIv = atmIv || (optionData.stats?.avg_call_iv || optionData.stats?.avg_put_iv) || 20;
+            const ivThresholds = getIvThresholds(avgIv);
             
             strikeRows.forEach(row => {
                 const tr = document.createElement('tr');
@@ -632,7 +658,7 @@
                 tr.innerHTML += `<td class="call-side" style="cursor:pointer;" onclick="showOptionDetail(${JSON.stringify(row).replace(/"/g, '&quot;')}, 'C')">${formatPercent(row.call_iv)}</td>`;
                 tr.innerHTML += createCell(formatChange(row.call_iv_change), getIvChangeClass(row.call_iv_change, ivThresholds));
                 tr.innerHTML += createCell(formatNumber(row.call_oi), '');
-                tr.innerHTML += createCell(formatPercent(row.call_oi_change), getOiChangeClass(row.call_oi_change));
+                tr.innerHTML += createCell(formatPercent(row.call_oi_change), getOiChangeClass(row.call_oi_change, row.call_oi));
 
                 // 行权价 - 点击显示所有信息
                 tr.innerHTML += `<td class="strike-col" style="cursor:pointer;" onclick="showOptionDetail(${JSON.stringify(row).replace(/"/g, '&quot;')}, 'C')">${row.strike.toFixed(0)}</td>`;
@@ -642,7 +668,7 @@
                 tr.innerHTML += `<td class="put-side" style="cursor:pointer;" onclick="showOptionDetail(${JSON.stringify(row).replace(/"/g, '&quot;')}, 'P')">${formatPercent(row.put_iv)}</td>`;
                 tr.innerHTML += createCell(formatChange(row.put_iv_change), getIvChangeClass(row.put_iv_change, ivThresholds));
                 tr.innerHTML += createCell(formatNumber(row.put_oi), '');
-                tr.innerHTML += createCell(formatPercent(row.put_oi_change), getOiChangeClass(row.put_oi_change));
+                tr.innerHTML += createCell(formatPercent(row.put_oi_change), getOiChangeClass(row.put_oi_change, row.put_oi));
                 
                 tbody.appendChild(tr);
             });
@@ -691,29 +717,23 @@
             return 'call-side';
         }
         
-        // 获取IV变化样式
+        // 获取IV变化样式（基于波动环境的阈值）
         function getIvChangeClass(change, thresholds) {
             if (!change) return '';
-            
-            if (Math.abs(change) < thresholds.noise) {
-                return ''; // 噪音，无高亮
-            } else if (Math.abs(change) > thresholds.extreme) {
-                return change > 0 ? 'highlight-up' : 'highlight-down';
-            } else {
-                return change > 0 ? 'highlight-up' : 'highlight-down';
-            }
+            const abs = Math.abs(change);
+            if (abs < thresholds.noise) return ''; // 噪音
+            if (abs < thresholds.significant) return 'highlight-significant'; // 显著
+            return 'highlight-major'; // 重大
         }
         
-        // 获取持仓变化样式
-        function getOiChangeClass(change) {
+        // 获取持仓变化样式（基于持仓量级的阈值）
+        function getOiChangeClass(change, oi) {
             if (!change) return '';
-            
-            if (Math.abs(change) < 5) {
-                return ''; // 噪音
-            } else if (Math.abs(change) > 15) {
-                return change > 0 ? 'highlight-oi-up' : 'highlight-oi-down';
-            }
-            return '';
+            const abs = Math.abs(change);
+            const t = getOiThresholds(oi || 0);
+            if (abs < t.noise) return ''; // 噪音
+            if (abs < t.sigLow) return 'highlight-significant'; // 显著
+            return 'highlight-major'; // 重大
         }
         
         // 更新图表

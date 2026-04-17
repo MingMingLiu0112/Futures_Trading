@@ -85,7 +85,7 @@
         
         .chart-container {
             position: relative;
-            height: 400px;
+            height: 600px;
             width: 100%;
         }
         
@@ -507,64 +507,114 @@
             const q3s = chartData.map(d => d.q3);
             const currents = chartData.map(d => d.current);
             
+            // ATM IV 点：使用当前IV百分位对应的波动率值
+            // 从 iv-percentile 接口获取数据中取 atm_iv 和剩余天数
+            const atmIv = data.atm_iv || (data.current_iv || 0);
+            const remainingDays = data.remaining_days || null;
+            const atmPercentile = data.atm_percentile || null;
+            
+            // 构建 ATM IV 标注数据（只在对应窗口位置显示一个点）
+            const atmIvPoint = windows.map(w => {
+                // 如果有剩余天数，找到最近窗口；否则为空
+                if (remainingDays !== null && w === remainingDays) {
+                    return atmIv;
+                }
+                return null;
+            });
+            const hasAtmIvPoint = atmIvPoint.some(v => v !== null);
+            
+            const datasets = [
+                {
+                    label: '波动范围(max-min)',
+                    data: maxs,
+                    borderColor: 'rgba(52, 152, 219, 0.3)',
+                    backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                    fill: '+1',
+                    pointRadius: 0
+                },
+                {
+                    label: '25%-75%分位',
+                    data: q3s,
+                    borderColor: 'rgba(149, 165, 166, 0.5)',
+                    backgroundColor: 'rgba(149, 165, 166, 0.2)',
+                    fill: '-1',
+                    pointRadius: 0
+                },
+                {
+                    label: '均值',
+                    data: means,
+                    borderColor: '#f39c12',
+                    backgroundColor: '#f39c12',
+                    borderWidth: 2,
+                    pointRadius: 4,
+                    pointBackgroundColor: '#f39c12'
+                },
+                {
+                    label: '当前值',
+                    data: currents,
+                    borderColor: '#e74c3c',
+                    backgroundColor: '#e74c3c',
+                    borderWidth: 3,
+                    pointRadius: 6,
+                    pointStyle: 'rect',
+                    pointBackgroundColor: '#e74c3c'
+                }
+            ];
+            
+            // 如果有ATM IV数据，添加专用数据集
+            if (hasAtmIvPoint) {
+                datasets.push({
+                    label: `ATM IV: ${atmIv.toFixed(1)}% (剩余${remainingDays}天, 百分位${atmPercentile !== null ? atmPercentile.toFixed(0) + '%' : '--'})`,
+                    data: atmIvPoint,
+                    borderColor: '#00ff88',
+                    backgroundColor: '#00ff88',
+                    borderWidth: 3,
+                    pointRadius: 10,
+                    pointStyle: 'circle',
+                    pointBackgroundColor: '#00ff88',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2,
+                    showLine: false,
+                    spanGaps: false
+                });
+            }
+            
             coneChart = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: windows.map(w => `${w}天`),
-                    datasets: [
-                        {
-                            label: '波动范围',
-                            data: maxs,
-                            borderColor: 'rgba(52, 152, 219, 0.3)',
-                            backgroundColor: 'rgba(52, 152, 219, 0.1)',
-                            fill: '+1',
-                            pointRadius: 0
-                        },
-                        {
-                            label: '25%-75%分位',
-                            data: q3s,
-                            borderColor: 'rgba(149, 165, 166, 0.5)',
-                            backgroundColor: 'rgba(149, 165, 166, 0.2)',
-                            fill: '-1',
-                            pointRadius: 0
-                        },
-                        {
-                            label: '均值',
-                            data: means,
-                            borderColor: '#f39c12',
-                            backgroundColor: '#f39c12',
-                            borderWidth: 2,
-                            pointRadius: 4,
-                            pointBackgroundColor: '#f39c12'
-                        },
-                        {
-                            label: '当前值',
-                            data: currents,
-                            borderColor: '#e74c3c',
-                            backgroundColor: '#e74c3c',
-                            borderWidth: 3,
-                            pointRadius: 6,
-                            pointStyle: 'rect',
-                            pointBackgroundColor: '#e74c3c'
-                        }
-                    ]
+                    datasets: datasets
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'nearest',
+                        intersect: false
+                    },
                     plugins: {
                         legend: {
                             position: 'top',
+                            onClick: function(event, legendItem, legend) {
+                                // 点击图例项切换对应数据集的显示/隐藏
+                                const datasetIndex = legendItem.datasetIndex;
+                                const ci = legend.chart;
+                                const meta = ci.getDatasetMeta(datasetIndex);
+                                meta.hidden = meta.hidden === null ? !ci.data.datasets[datasetIndex].hidden : null;
+                                ci.update();
+                            }
                         },
                         tooltip: {
                             mode: 'index',
                             intersect: false,
+                            filter: function(tooltipItem) {
+                                // 过滤掉 null 值和 ATM IV 数据本身的 tooltip（已在 legend 显示）
+                                return tooltipItem.dataset.data[tooltipItem.dataIndex] !== null;
+                            },
                             callbacks: {
                                 label: function(context) {
                                     let label = context.dataset.label || '';
-                                    if (label) {
-                                        label += ': ';
-                                    }
+                                    if (label) { label += ': '; }
                                     if (context.parsed.y !== null) {
                                         label += context.parsed.y.toFixed(1) + '%';
                                     }

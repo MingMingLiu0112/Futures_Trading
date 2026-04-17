@@ -882,11 +882,32 @@ class OptionChainAPI:
             if rows and len(rows) >= 5:
                 tenors = [r[0] for r in rows]
                 conn.close()
+                
+                # 从self获取ATM IV和到期天数
+                try:
+                    chain = self.get_full_chain()
+                    atm_strike = chain.get('atm_strike', 0)
+                    strike_rows = chain.get('strike_rows', [])
+                    atm_row = next((r for r in strike_rows if r.strike == atm_strike), None)
+                    atm_call_iv = atm_row.call_iv if atm_row else 0
+                    atm_put_iv = atm_row.put_iv if atm_row else 0
+                    atm_iv = (atm_call_iv + atm_put_iv) / 2 if atm_call_iv or atm_put_iv else 0
+                    near_expiry = chain.get('near_expiry', '')
+                    if near_expiry:
+                        days_to_exp = calculate_days_to_expiry(near_expiry, today)
+                    else:
+                        days_to_exp = 24
+                except:
+                    atm_iv = 0
+                    days_to_exp = 24
+                
                 return {
                     'success': True,
                     'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                     'hv_current': rows[-1][1] if rows[-1][1] else 20.0,
                     'hv_percentile': 50.0,
+                    'atm_iv': atm_iv,
+                    'days_to_expiry': days_to_exp,
                     'tenors': tenors,
                     'hv_min': [r[2] for r in rows],
                     'hv_25pct': [r[3] for r in rows],
