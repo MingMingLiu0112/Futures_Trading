@@ -558,7 +558,39 @@
         let klineData = [], biData = [], segData = [], zsData = [], bsData = [];
         let macdDataCache = {}; // {period: {klineData, macdLine, signalLine, histogram}}
         let optionChainData = null; // 保存期权链数据
-        
+
+        // 模拟多周期数据（用于辅助计算价格范围）
+        const periodData = {};
+
+        // ==================== 绘图工具核心函数（来自 drawing_test）====================
+        function seededRandom(seed) {
+            let s = seed;
+            return function() {
+                s = (s * 1664525 + 1013904223) & 0xffffffff;
+                return (s >>> 0) / 0xffffffff;
+            };
+        }
+
+        function generatePeriodData(period) {
+            if (periodData[period]) return periodData[period];
+            const data = [];
+            const baseTime = 1713465600;
+            const rand = seededRandom(period.charCodeAt(0) * 123456 + period.length * 6543);
+            let basePrice = 5200 + rand() * 200;
+            for (let i = 200; i >= 0; i--) {
+                const barSec = period === '1min' ? 60 : period === '5min' ? 300 : period === '15min' ? 900 : 3600;
+                const t = baseTime + i * barSec;
+                const o = basePrice + (rand() - 0.5) * 20;
+                const c = o + (rand() - 0.5) * 30;
+                const h = Math.max(o, c) + rand() * 15;
+                const l = Math.min(o, c) - rand() * 15;
+                data.push({ time: t, open: +o.toFixed(2), high: +h.toFixed(2), low: +l.toFixed(2), close: +c.toFixed(2) });
+                basePrice = c;
+            }
+            periodData[period] = data;
+            return data;
+        }
+
         // 颜色
         const C = {
             up: '#ef5350', down: '#26a69a',
