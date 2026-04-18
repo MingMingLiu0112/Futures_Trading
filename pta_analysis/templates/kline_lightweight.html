@@ -1195,7 +1195,7 @@
         // ========== localStorage 持久化 ==========
         const STORAGE_KEY = 'kline_drawings_v1';
         // 所有可用周期（用于多级别显示 - 全局常量）
-        const ALL_PERIODS = ['1min','3min','5min','8min','10min','15min','18min','20min','25min','30min','35min','40min','45min','50min','55min','60min','1day','1week','1month'];
+        const ALL_PERIODS = ['1min','5min','15min','30min','60min','240min','1day','1week','1month'];
 
         function saveDrawingsToStorage() {
             try {
@@ -2903,6 +2903,52 @@ function ctxShowProps() {
     openPropsPanel(id);
 }
 
+// 复制图形（默认仅当前周期）
+function ctxDuplicate() {
+    if (ctxTargetId === null) return;
+    const src = drawings.find(d => d.id === ctxTargetId);
+    if (!src) return;
+    const newId = ++drawingIdCounter;
+    const color = src.color;
+    const lw = src.lineWidth;
+    const currentPeriod = document.getElementById('period').value;
+    let newSer = null, newD = null;
+
+    if (src.type === 'hline') {
+        newSer = chart.addLineSeries({ color, lineWidth: lw, lineStyle: LightweightCharts.LineStyle.Dashed, lastValueVisible: false, priceLineVisible: false });
+        newSer.setData([{ time: src.time, value: src.price }, { time: src.endTime, value: src.price }]);
+        newD = { id: newId, type: 'hline', series: newSer, color, lineWidth: lw, price: src.price, time: src.time, endTime: src.endTime, cycles: [currentPeriod], priceMin: src.priceMin, priceMax: src.priceMax };
+    } else if (src.type === 'vline') {
+        newSer = chart.addLineSeries({ color, lineWidth: lw, lineStyle: LightweightCharts.LineStyle.Dashed, lastValueVisible: false, priceLineVisible: false });
+        newSer.setData([{ time: src.time, value: 0 }, { time: src.time, value: 1 }]);
+        newD = { id: newId, type: 'vline', series: newSer, color, lineWidth: lw, time: src.time, cycles: [currentPeriod], priceMin: src.priceMin, priceMax: src.priceMax };
+    } else if (src.type === 'line' && src.points) {
+        newSer = chart.addLineSeries({ color, lineWidth: lw, lastValueVisible: false, priceLineVisible: false });
+        newSer.setData(src.points.map(p => ({ time: p.time, value: p.price })));
+        newD = { id: newId, type: 'line', series: newSer, color, lineWidth: lw, points: src.points.map(p => ({...p})), cycles: [currentPeriod], priceMin: src.priceMin, priceMax: src.priceMax };
+    } else if (src.type === 'rect') {
+        newSer = chart.addLineSeries({ color, lineWidth: lw, lastValueVisible: false, priceLineVisible: false });
+        newSer.setData([
+            { time: src.time, value: src.top },
+            { time: src.endTime, value: src.top },
+            { time: src.endTime, value: src.bottom },
+            { time: src.time, value: src.bottom },
+            { time: src.time, value: src.top }
+        ]);
+        newD = { id: newId, type: 'rect', series: newSer, color, lineWidth: lw, top: src.top, bottom: src.bottom, time: src.time, endTime: src.endTime, cycles: [currentPeriod], priceMin: src.priceMin, priceMax: src.priceMax };
+    } else if (src.type === 'ray' && src.points) {
+        newSer = chart.addLineSeries({ color, lineWidth: lw, lastValueVisible: false, priceLineVisible: false });
+        newSer.setData(src.points.map(p => ({ time: p.time, value: p.price })));
+        newD = { id: newId, type: 'ray', series: newSer, color, lineWidth: lw, points: src.points.map(p => ({...p})), cycles: [currentPeriod], priceMin: src.priceMin, priceMax: src.priceMax };
+    }
+
+    if (newD) {
+        drawings.push(newD);
+        saveDrawingsToStorage();
+        closeContextMenu();
+    }
+}
+
 function openPropsPanel(id) {
     window._currentPropsId = id;
     const d = drawings.find(d => d.id === id);
@@ -3061,6 +3107,8 @@ function restoreDrawingData(d) {
 <div class="context-menu" id="contextMenu" onmousedown="event.stopPropagation();">
     <div class="context-menu-item" onclick="ctxDeleteDrawing()">🗑 删除此图形</div>
     <div class="context-menu-item" onclick="ctxShowProps()">⚙ 属性设置</div>
+    <div class="context-menu-separator"></div>
+    <div class="context-menu-item" onclick="ctxDuplicate()">📋 复制图形</div>
 </div>
 
 <!-- 属性面板 -->
@@ -3081,21 +3129,11 @@ function restoreDrawingData(d) {
             <div class="prop-value">
                 <div class="period-tags" id="propCycles">
                     <span class="period-tag" data-period="1min" onclick="toggleCycleTag(this)">1min</span>
-                    <span class="period-tag" data-period="3min" onclick="toggleCycleTag(this)">3min</span>
                     <span class="period-tag" data-period="5min" onclick="toggleCycleTag(this)">5min</span>
-                    <span class="period-tag" data-period="8min" onclick="toggleCycleTag(this)">8min</span>
-                    <span class="period-tag" data-period="10min" onclick="toggleCycleTag(this)">10min</span>
                     <span class="period-tag" data-period="15min" onclick="toggleCycleTag(this)">15min</span>
-                    <span class="period-tag" data-period="18min" onclick="toggleCycleTag(this)">18min</span>
-                    <span class="period-tag" data-period="20min" onclick="toggleCycleTag(this)">20min</span>
-                    <span class="period-tag" data-period="25min" onclick="toggleCycleTag(this)">25min</span>
                     <span class="period-tag" data-period="30min" onclick="toggleCycleTag(this)">30min</span>
-                    <span class="period-tag" data-period="35min" onclick="toggleCycleTag(this)">35min</span>
-                    <span class="period-tag" data-period="40min" onclick="toggleCycleTag(this)">40min</span>
-                    <span class="period-tag" data-period="45min" onclick="toggleCycleTag(this)">45min</span>
-                    <span class="period-tag" data-period="50min" onclick="toggleCycleTag(this)">50min</span>
-                    <span class="period-tag" data-period="55min" onclick="toggleCycleTag(this)">55min</span>
                     <span class="period-tag" data-period="60min" onclick="toggleCycleTag(this)">60min</span>
+                    <span class="period-tag" data-period="240min" onclick="toggleCycleTag(this)">4H</span>
                     <span class="period-tag" data-period="1day" onclick="toggleCycleTag(this)">日线</span>
                     <span class="period-tag" data-period="1week" onclick="toggleCycleTag(this)">周线</span>
                     <span class="period-tag" data-period="1month" onclick="toggleCycleTag(this)">月线</span>
