@@ -2816,45 +2816,43 @@
         });
 
         document.addEventListener('DOMContentLoaded', () => {
-            // initMainChart() 会在 loadAllData() 内部调用，避免重复 fetch
-            // loadAllData 完成后会触发 restoreFromStorageOnInit (通过其内部的 tryRestore)
             loadAllData().then(() => {
                 // klineData 已就绪，从 localStorage 恢复图形
                 restoreFromStorageOnInit();
+
+                // ========== 右键菜单事件（必须在mainChart初始化后才能绑定）==========
+                mainChart.chartElement().addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                    const rect = mainChart.chartElement().getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
+                    const clickedDrawing = findDrawingAtPoint(x, y);
+                    if (clickedDrawing) {
+                        ctxTargetId = clickedDrawing.id;
+                        showContextMenu(e.clientX, e.clientY);
+                    }
+                });
+
+                // 点击空白处关闭菜单/属性面板
+                document.addEventListener('click', (e) => {
+                    if (!e.target.closest('.context-menu') && !e.target.closest('.props-panel')) {
+                        closeContextMenu();
+                        closePropsPanel();
+                    }
+                });
+
+                // ESC关闭
+                document.addEventListener('keydown', e => {
+                    if (e.key === 'Escape') {
+                        closeContextMenu();
+                        closePropsPanel();
+                    }
+                });
             });
             loadOptionChain();
             loadFundamental();
             // 每秒增量刷新最后一根K线
             setInterval(incrementalUpdate, 10000);
-
-            // ========== 右键菜单事件 ==========
-            mainChart.chartElement().addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                const rect = mainChart.chartElement().getBoundingClientRect();
-                const x = e.clientX - rect.left;
-                const y = e.clientY - rect.top;
-                const clickedDrawing = findDrawingAtPoint(x, y);
-                if (clickedDrawing) {
-                    ctxTargetId = clickedDrawing.id;
-                    showContextMenu(e.clientX, e.clientY);
-                }
-            });
-
-            // 点击空白处关闭菜单/属性面板
-            document.addEventListener('click', (e) => {
-                if (!e.target.closest('.context-menu') && !e.target.closest('.props-panel')) {
-                    closeContextMenu();
-                    closePropsPanel();
-                }
-            });
-
-            // ESC关闭
-            document.addEventListener('keydown', e => {
-                if (e.key === 'Escape') {
-                    closeContextMenu();
-                    closePropsPanel();
-                }
-            });
         });
     </script>
 
