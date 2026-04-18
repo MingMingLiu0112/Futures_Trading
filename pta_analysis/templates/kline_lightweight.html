@@ -2828,9 +2828,9 @@
             setInterval(incrementalUpdate, 10000);
 
             // ========== 右键菜单事件 ==========
-            document.getElementById('main-chart').addEventListener('contextmenu', (e) => {
+            mainChart.chartElement().addEventListener('contextmenu', (e) => {
                 e.preventDefault();
-                const rect = document.getElementById('main-chart').getBoundingClientRect();
+                const rect = mainChart.chartElement().getBoundingClientRect();
                 const x = e.clientX - rect.left;
                 const y = e.clientY - rect.top;
                 const clickedDrawing = findDrawingAtPoint(x, y);
@@ -2905,19 +2905,19 @@ function ctxDuplicate() {
     let newSer = null, newD = null;
 
     if (src.type === 'hline') {
-        newSer = chart.addLineSeries({ color, lineWidth: lw, lineStyle: LightweightCharts.LineStyle.Dashed, lastValueVisible: false, priceLineVisible: false });
+        newSer = mainChart.addLineSeries({ color, lineWidth: lw, lineStyle: LightweightCharts.LineStyle.Dashed, lastValueVisible: false, priceLineVisible: false });
         newSer.setData([{ time: src.time, value: src.price }, { time: src.endTime, value: src.price }]);
         newD = { id: newId, type: 'hline', series: newSer, color, lineWidth: lw, price: src.price, time: src.time, endTime: src.endTime, cycles: [currentPeriod], priceMin: src.priceMin, priceMax: src.priceMax };
     } else if (src.type === 'vline') {
-        newSer = chart.addLineSeries({ color, lineWidth: lw, lineStyle: LightweightCharts.LineStyle.Dashed, lastValueVisible: false, priceLineVisible: false });
+        newSer = mainChart.addLineSeries({ color, lineWidth: lw, lineStyle: LightweightCharts.LineStyle.Dashed, lastValueVisible: false, priceLineVisible: false });
         newSer.setData([{ time: src.time, value: 0 }, { time: src.time, value: 1 }]);
         newD = { id: newId, type: 'vline', series: newSer, color, lineWidth: lw, time: src.time, cycles: [currentPeriod], priceMin: src.priceMin, priceMax: src.priceMax };
     } else if (src.type === 'line' && src.points) {
-        newSer = chart.addLineSeries({ color, lineWidth: lw, lastValueVisible: false, priceLineVisible: false });
+        newSer = mainChart.addLineSeries({ color, lineWidth: lw, lastValueVisible: false, priceLineVisible: false });
         newSer.setData(src.points.map(p => ({ time: p.time, value: p.price })));
         newD = { id: newId, type: 'line', series: newSer, color, lineWidth: lw, points: src.points.map(p => ({...p})), cycles: [currentPeriod], priceMin: src.priceMin, priceMax: src.priceMax };
     } else if (src.type === 'rect') {
-        newSer = chart.addLineSeries({ color, lineWidth: lw, lastValueVisible: false, priceLineVisible: false });
+        newSer = mainChart.addLineSeries({ color, lineWidth: lw, lastValueVisible: false, priceLineVisible: false });
         newSer.setData([
             { time: src.time, value: src.top },
             { time: src.endTime, value: src.top },
@@ -2927,7 +2927,7 @@ function ctxDuplicate() {
         ]);
         newD = { id: newId, type: 'rect', series: newSer, color, lineWidth: lw, top: src.top, bottom: src.bottom, time: src.time, endTime: src.endTime, cycles: [currentPeriod], priceMin: src.priceMin, priceMax: src.priceMax };
     } else if (src.type === 'ray' && src.points) {
-        newSer = chart.addLineSeries({ color, lineWidth: lw, lastValueVisible: false, priceLineVisible: false });
+        newSer = mainChart.addLineSeries({ color, lineWidth: lw, lastValueVisible: false, priceLineVisible: false });
         newSer.setData(src.points.map(p => ({ time: p.time, value: p.price })));
         newD = { id: newId, type: 'ray', series: newSer, color, lineWidth: lw, points: src.points.map(p => ({...p})), cycles: [currentPeriod], priceMin: src.priceMin, priceMax: src.priceMax };
     }
