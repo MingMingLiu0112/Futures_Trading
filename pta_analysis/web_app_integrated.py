@@ -81,6 +81,20 @@ def index():
     except FileNotFoundError:
         return "页面正在开发中，请稍后访问", 404
 
+@app.route('/drawing_test')
+def drawing_test():
+    """绘图工具测试页面"""
+    try:
+        with open(os.path.join(WORKSPACE, 'templates', 'drawing_test.html'), 'r', encoding='utf-8') as f:
+            content = f.read()
+        resp = make_response(content)
+        resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        resp.headers['Pragma'] = 'no-cache'
+        resp.headers['Expires'] = '0'
+        return resp
+    except FileNotFoundError:
+        return "页面正在开发中，请稍后访问", 404
+
 # ==================== API接口 ====================
 
 @app.route('/api/status')
