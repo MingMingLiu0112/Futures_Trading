@@ -760,9 +760,11 @@
                     drawings.forEach(d => {
                         let dist = Infinity;
                         if (d.type === 'hline') {
-                            const priceRange = mainChart.priceScale('right').getPriceRange();
-                            if (priceRange && priceRange.priceRange) {
-                                const threshold = priceRange.priceRange * HIT_THRESHOLD_PRICE_RATIO;
+                            // 用candleSeries的visibleRange获取价格范围
+                            const visR = candleSeries.visibleRange();
+                            const priceRange = visR ? (visR.priceRange || (visR.maxPrice - visR.minPrice)) : null;
+                            if (priceRange) {
+                                const threshold = priceRange * HIT_THRESHOLD_PRICE_RATIO;
                                 if (Math.abs(clickPrice - d.price) <= threshold) {
                                     dist = Math.abs(clickPrice - d.price);
                                 }
@@ -779,11 +781,12 @@
                                 const maxT = Math.max(p1.time, p2.time) + HIT_THRESHOLD_TIME;
                                 if (clickTime >= minT && clickTime <= maxT) {
                                     // 计算价格比例距离
-                                    const priceRange = mainChart.priceScale('right').getPriceRange();
-                                    if (priceRange && priceRange.priceRange) {
+                                    const visR = candleSeries.visibleRange();
+                                    const priceRange = visR ? (visR.priceRange || (visR.maxPrice - visR.minPrice)) : null;
+                                    if (priceRange) {
                                         const avgPrice = (p1.price + p2.price) / 2;
                                         const priceDist = Math.abs(clickPrice - avgPrice);
-                                        dist = priceDist / (priceRange.priceRange * 0.1);
+                                        dist = priceDist / (priceRange * 0.1);
                                     }
                                 }
                             }
@@ -857,6 +860,18 @@
                 const rect = mainChart.chartElement().getBoundingClientRect();
                 const x = e.clientX - rect.left;
                 const y = e.clientY - rect.top;
+                const chartWidth = rect.width;
+                const chartHeight = rect.height;
+
+                // 严格边界检查：鼠标必须在图表可见区域内，否则不绘制预览
+                if (x < 0 || x > chartWidth || y < 0 || y > chartHeight) {
+                    if (tempDrawing) {
+                        tempDrawing.forEach(ser => ser.setData([]));
+                        tempDrawing = null;
+                    }
+                    return;
+                }
+
                 const endTime = mainChart.timeScale().coordinateToTime(x);
                 const endPrice = getChartPriceAtY(y);
                 const color = currentDrawColor;

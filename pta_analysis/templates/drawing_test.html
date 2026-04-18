@@ -1,0 +1,1136 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>绘图工具测试</title>
+<script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #1a1a2e; color: #e0e0e0; font-family: Arial, sans-serif; padding: 20px; }
+
+.container { max-width: 1200px; margin: 0 auto; }
+
+/* 绘图工具栏 */
+.drawing-toolbar {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    padding: 8px 12px;
+    background: #252538;
+    border-radius: 6px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+}
+.drawing-toolbar label { color: #aaa; font-size: 13px; margin-right: 4px; }
+.drawing-toolbar .tool-btn {
+    display: flex; align-items: center; justify-content: center;
+    width: 32px; height: 30px;
+    border: 1px solid #444; border-radius: 4px;
+    background: #333; color: #aaa;
+    cursor: pointer; font-size: 14px;
+    transition: all 0.15s;
+}
+.drawing-toolbar .tool-btn:hover { background: #444; border-color: #666; }
+.drawing-toolbar .tool-btn.active { background: #FF9800; border-color: #FF9800; color: #fff; }
+.drawing-toolbar .tool-separator { width: 1px; height: 20px; background: #444; margin: 0 4px; }
+.drawing-toolbar .draw-color-btn { width: 24px; height: 24px; font-size: 10px; padding: 0; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
+.drawing-toolbar .draw-color-btn.active { border-color: #fff; box-shadow: 0 0 6px rgba(255,255,255,0.5); }
+.drawing-toolbar select { background: #333; color: #aaa; border: 1px solid #555; border-radius: 4px; padding: 2px 6px; font-size: 12px; }
+.drawing-hint { color: #FF9800; font-size: 12px; margin-left: 10px; display: none; }
+
+/* 图表容器 */
+#chart { height: 500px; border: 1px solid #333; border-radius: 8px; background: #1a1a2e; }
+
+/* 右键菜单 */
+.context-menu {
+    position: fixed;
+    background: #2a2a3e;
+    border: 1px solid #444;
+    border-radius: 6px;
+    padding: 4px 0;
+    min-width: 160px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    z-index: 1000;
+    display: none;
+}
+.context-menu.show { display: block; }
+.context-menu-item {
+    padding: 8px 14px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #ddd;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.context-menu-item:hover { background: #3a3a5e; }
+.context-menu-item.danger { color: #ff6b6b; }
+.context-menu-item.danger:hover { background: rgba(255,107,107,0.15); }
+.context-menu-separator { height: 1px; background: #444; margin: 4px 0; }
+
+/* 属性面板 */
+.props-panel {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    background: #252538;
+    border: 1px solid #444;
+    border-radius: 10px;
+    padding: 20px 24px;
+    min-width: 320px;
+    max-width: 400px;
+    z-index: 1001;
+    display: none;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+.props-panel.show { display: block; }
+.props-panel h3 { color: #FF9800; margin-bottom: 16px; font-size: 15px; border-bottom: 1px solid #444; padding-bottom: 10px; }
+.props-panel .prop-row { display: flex; align-items: center; margin-bottom: 12px; gap: 10px; }
+.props-panel .prop-label { color: #aaa; font-size: 13px; min-width: 80px; }
+.props-panel .prop-value { flex: 1; }
+.props-panel input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+.props-panel input[type="number"] { background: #333; color: #ddd; border: 1px solid #555; border-radius: 4px; padding: 4px 8px; width: 80px; font-size: 13px; }
+.props-panel .prop-hint { color: #666; font-size: 11px; margin-top: 4px; }
+.props-panel .btn-row { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; border-top: 1px solid #444; padding-top: 14px; }
+.props-panel button { padding: 6px 16px; border-radius: 4px; border: none; cursor: pointer; font-size: 13px; }
+.props-panel .btn-ok { background: #FF9800; color: #fff; }
+.props-panel .btn-cancel { background: #444; color: #ddd; }
+.props-panel .btn-apply { background: #4CAF50; color: #fff; }
+
+/* 覆盖层遮罩 */
+.overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 1000;
+    display: none;
+}
+.overlay.show { display: block; }
+
+/* 周期选择 */
+.period-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.period-tag {
+    padding: 3px 10px; border-radius: 4px; font-size: 12px;
+    background: #333; color: #888; cursor: pointer; border: 1px solid #444;
+    transition: all 0.15s;
+}
+.period-tag.active { background: #FF9800; color: #fff; border-color: #FF9800; }
+
+/* 当前周期显示 */
+.current-cycle { color: #4CAF50; font-size: 12px; margin-left: 10px; }
+</style>
+</head>
+<body>
+<div class="container">
+    <h2 style="margin-bottom:12px;color:#FF9800;">📈 绘图工具属性测试</h2>
+
+    <div class="drawing-toolbar" id="drawingToolbar">
+        <label>绘图:</label>
+        <button class="tool-btn" id="tool-hline" onclick="setDrawingTool('hline')" title="水平线">━</button>
+        <button class="tool-btn" id="tool-vline" onclick="setDrawingTool('vline')" title="垂直线">┃</button>
+        <button class="tool-btn" id="tool-line" onclick="setDrawingTool('line')" title="趋势线">╱</button>
+        <button class="tool-btn" id="tool-rect" onclick="setDrawingTool('rect')" title="矩形">▢</button>
+        <button class="tool-btn" id="tool-ray" onclick="setDrawingTool('ray')" title="射线">╲</button>
+        <div class="tool-separator"></div>
+        <label>颜色:</label>
+        <button class="tool-btn draw-color-btn active" data-color="#FFD700" onclick="setDrawColor(this,'#FFD700')" title="黄色" style="background:#FFD700;color:#000;">&nbsp;</button>
+        <button class="tool-btn draw-color-btn" data-color="#FFFFFF" onclick="setDrawColor(this,'#FFFFFF')" title="白色" style="background:#fff;color:#000;">&nbsp;</button>
+        <button class="tool-btn draw-color-btn" data-color="#4CAF50" onclick="setDrawColor(this,'#4CAF50')" title="绿色" style="background:#4CAF50;color:#fff;">&nbsp;</button>
+        <button class="tool-btn draw-color-btn" data-color="#2196F3" onclick="setDrawColor(this,'#2196F3')" title="蓝色" style="background:#2196F3;color:#fff;">&nbsp;</button>
+        <div class="tool-separator"></div>
+        <label>线宽:</label>
+        <select id="drawLineWidth" onchange="setDrawLineWidth(this.value)">
+            <option value="1">细</option>
+            <option value="2" selected>中</option>
+            <option value="3">粗</option>
+        </select>
+        <div class="tool-separator"></div>
+        <button class="tool-btn" id="tool-select" onclick="setDrawingTool('select')" title="选择模式">✕</button>
+        <button class="tool-btn" id="tool-delete" onclick="deleteSelectedDrawing()" title="删除选中" style="background:#c0392b;color:#fff;display:none;">🗑</button>
+        <button class="tool-btn clear-btn" onclick="clearAllDrawings()" title="清空" style="background:#444;color:#ddd;">清空</button>
+        <span id="drawingHint" class="drawing-hint"></span>
+    </div>
+
+    <!-- 周期切换 -->
+    <div style="margin-bottom:10px;display:flex;align-items:center;">
+        <span style="color:#aaa;font-size:13px;">当前周期:</span>
+        <div class="period-tags" style="margin-left:8px;" id="periodTags">
+            <span class="period-tag active" data-period="1min" onclick="switchPeriod('1min')">1min</span>
+            <span class="period-tag" data-period="5min" onclick="switchPeriod('5min')">5min</span>
+            <span class="period-tag" data-period="15min" onclick="switchPeriod('15min')">15min</span>
+            <span class="period-tag" data-period="60min" onclick="switchPeriod('60min')">60min</span>
+        </div>
+        <span class="current-cycle" id="currentCycleLabel">← 当前</span>
+    </div>
+
+    <div id="chart"></div>
+    <div id="drawingList" style="margin-top:10px;color:#888;font-size:12px;"></div>
+</div>
+
+<!-- 右键菜单 -->
+<div class="context-menu" id="contextMenu" onmousedown="event.stopPropagation();">
+    <div class="context-menu-item" onclick="ctxDeleteDrawing()">🗑 删除此图形</div>
+    <div class="context-menu-item" onclick="ctxShowProps()">⚙ 属性设置</div>
+    <div class="context-menu-separator"></div>
+    <div class="context-menu-item" onclick="ctxDuplicate()">📋 复制图形</div>
+</div>
+
+<!-- 属性面板 -->
+<div class="overlay" id="propsOverlay"></div>
+<div class="props-panel" id="propsPanel">
+    <h3 id="propsTitle">📐 图形属性</h3>
+    <div id="propsContent">
+        <div class="prop-row">
+            <span class="prop-label">类型</span>
+            <span class="prop-value" id="propType" style="color:#FF9800;"></span>
+        </div>
+        <div class="prop-row">
+            <span class="prop-label">ID</span>
+            <span class="prop-value" id="propId" style="color:#888;font-size:12px;"></span>
+        </div>
+        <div class="prop-row" style="align-items:flex-start;">
+            <span class="prop-label">跨越周期</span>
+            <div class="prop-value">
+                <div class="period-tags" id="propCycles">
+                    <span class="period-tag" data-period="1min" onclick="toggleCycleTag(this)">1min</span>
+                    <span class="period-tag" data-period="5min" onclick="toggleCycleTag(this)">5min</span>
+                    <span class="period-tag" data-period="15min" onclick="toggleCycleTag(this)">15min</span>
+                    <span class="period-tag" data-period="60min" onclick="toggleCycleTag(this)">60min</span>
+                </div>
+                <div class="prop-hint">勾选后图形将在对应周期图表上同时显示</div>
+            </div>
+        </div>
+        <div class="prop-row">
+            <span class="prop-label">价格区间</span>
+            <div class="prop-value" style="display:flex;align-items:center;gap:8px;">
+                <input type="number" id="propPriceMin" placeholder="最低价" step="1">
+                <span style="color:#666;">~</span>
+                <input type="number" id="propPriceMax" placeholder="最高价" step="1">
+            </div>
+        </div>
+        <div class="prop-row">
+            <div class="prop-hint" style="margin-left:0;">留空表示不限制价格区间。勾选跨越周期后，其他周期也会应用相同的价格区间。</div>
+        </div>
+        <div class="prop-row">
+            <span class="prop-label">颜色</span>
+            <div class="prop-value">
+                <button class="tool-btn draw-color-btn" data-color="#FFD700" onclick="setPropColor('#FFD700')" style="background:#FFD700;color:#000;">&nbsp;</button>
+                <button class="tool-btn draw-color-btn" data-color="#FFFFFF" onclick="setPropColor('#FFFFFF')" style="background:#fff;color:#000;">&nbsp;</button>
+                <button class="tool-btn draw-color-btn" data-color="#4CAF50" onclick="setPropColor('#4CAF50')" style="background:#4CAF50;color:#fff;">&nbsp;</button>
+                <button class="tool-btn draw-color-btn" data-color="#2196F3" onclick="setPropColor('#2196F3')" style="background:#2196F3;color:#fff;">&nbsp;</button>
+                <button class="tool-btn draw-color-btn" data-color="#FF5722" onclick="setPropColor('#FF5722')" style="background:#FF5722;color:#fff;">&nbsp;</button>
+                <input type="color" id="propColorPicker" onchange="setPropColor(this.value)" style="background:#333;border:1px solid #555;border-radius:4px;width:30px;height:24px;cursor:pointer;">
+            </div>
+        </div>
+        <div class="prop-row">
+            <span class="prop-label">线宽</span>
+            <div class="prop-value">
+                <select id="propLineWidth">
+                    <option value="1">细</option>
+                    <option value="2">中</option>
+                    <option value="3">粗</option>
+                </select>
+            </div>
+        </div>
+    </div>
+    <div class="btn-row">
+        <button class="btn-apply" onclick="event.stopPropagation();console.log('btn-apply onclick');window._btnApply=1;applyProps();console.log('after applyProps ctxTargetId=' + window.ctxTargetId);">应用</button>
+        <button class="btn-ok" onclick="event.stopPropagation();console.log('btn-ok onclick');applyProps();console.log('ctxTargetId after applyProps=' + window.ctxTargetId);closePropsPanel();">确定</button>
+        <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
+    </div>
+</div>
+
+<script>
+// ==================== 全局变量 ====================
+let chart = null, candleSeries = null;
+let currentTool = null;
+let isSelectMode = false;
+let drawings = []; // {id, type, series, color, lineWidth, points, cycles, priceMin, priceMax, ctxMenuSeries}
+let drawingIdCounter = 0;
+let currentDrawColor = '#FFD700';
+let currentDrawLineWidth = 2;
+let tempDrawing = null;
+let drawStartPoint = null;
+let isDrawing = false;
+let selectedDrawingId = null;
+let currentPeriod = '1min';
+let ctxTargetId = null; // 右键目标图形ID
+
+// 模拟多周期数据
+const periodData = {};
+function generatePeriodData(period) {
+    if (periodData[period]) return periodData[period];
+    const data = [];
+    const now = Math.floor(Date.now() / 1000);
+    let basePrice = 5200 + Math.random() * 200;
+    for (let i = 200; i >= 0; i--) {
+        const t = now - i * (period === '1min' ? 60 : period === '5min' ? 300 : period === '15min' ? 900 : 3600);
+        const o = basePrice + (Math.random() - 0.5) * 20;
+        const c = o + (Math.random() - 0.5) * 30;
+        const h = Math.max(o, c) + Math.random() * 15;
+        const l = Math.min(o, c) - Math.random() * 15;
+        data.push({ time: t, open: +o.toFixed(2), high: +h.toFixed(2), low: +l.toFixed(2), close: +c.toFixed(2) });
+        basePrice = c;
+    }
+    periodData[period] = data;
+    return data;
+}
+
+// ==================== 图表初始化 ====================
+function initChart() {
+    const container = document.getElementById('chart');
+    chart = LightweightCharts.createChart(container, {
+        layout: { background: { color: '#1a1a2e' }, textColor: '#aaa' },
+        grid: { vertLines: { color: '#333' }, horzLines: { color: '#333' } },
+        crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+        rightPriceScale: { borderColor: '#444' },
+        timeScale: { borderColor: '#444', timeVisible: true },
+        handleScroll: true, handleScale: true,
+    });
+
+    candleSeries = chart.addCandlestickSeries({
+        upColor: '#4CAF50', downColor: '#f44336',
+        borderUpColor: '#4CAF50', borderDownColor: '#f44336',
+        wickUpColor: '#4CAF50', wickDownColor: '#f44336',
+    });
+
+    loadPeriodData(currentPeriod);
+
+    // 右键菜单
+    chart.chartElement().addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation(); // 防止冒泡
+        const rect = chart.chartElement().getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        console.log('[contextmenu] x=' + x + ' y=' + y + ' currentPeriod=' + currentPeriod + ' drawings=' + drawings.length);
+        const clickedDrawing = findDrawingAtPoint(x, y);
+        console.log('[contextmenu] findDrawingAtPoint result=', clickedDrawing ? 'id=' + clickedDrawing.id + ' type=' + clickedDrawing.type : 'null');
+        if (clickedDrawing) {
+            ctxTargetId = clickedDrawing.id;
+            console.log('[contextmenu] 显示菜单 ctxTargetId=' + ctxTargetId);
+            showContextMenu(e.clientX, e.clientY);
+        } else {
+            console.log('[contextmenu] 未命中任何图形，不显示菜单');
+        }
+    });
+
+    // 点击空白处关闭菜单/属性面板（按钮自身会处理关闭，这里只管外部点击）
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.context-menu') && !e.target.closest('.props-panel')) {
+            closeContextMenu();
+            closePropsPanel();
+        }
+    });
+
+    // ESC取消
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') {
+            if (isDrawing) cancelDrawing();
+            closeContextMenu();
+            closePropsPanel();
+        }
+    });
+
+    // 选择模式点击
+    chart.chartElement().addEventListener('click', (e) => {
+        if (isSelectMode) {
+            const rect = chart.chartElement().getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            const hit = findDrawingAtPoint(x, y);
+            if (hit) {
+                selectDrawingById(hit.id);
+            } else {
+                deselectAll();
+            }
+            return;
+        }
+        if (!currentTool) return;
+        handleDrawClick(e);
+    });
+
+    // 鼠标移动预览（也吸附到K线）
+    chart.chartElement().addEventListener('mousemove', (e) => {
+        if (!isDrawing || !drawStartPoint || !currentTool) return;
+        const rect = chart.chartElement().getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const timeCoord = chart.timeScale().coordinateToTime(x);
+        if (!timeCoord) return;
+        const snapped = snapToBar(timeCoord, y);
+        const endTime = snapped ? snapped.time : timeCoord;
+        const endPrice = snapped ? snapped.price : candleSeries.coordinateToPrice(y);
+        if (!endTime || !endPrice) return;
+        updateTempDrawing(endTime, endPrice);
+    });
+}
+
+function loadPeriodData(period, drawingTime, prevRange) {
+    const data = generatePeriodData(period);
+    candleSeries.setData(data);
+    chart.timeScale().fitContent();
+
+    // 计算K线在可见时间范围的价格范围
+    const times = chart.timeScale().getVisibleRange();
+    const klineInView = data.filter(b => b.time >= times.from && b.time <= times.to);
+    let klinePriceMin = Infinity, klinePriceMax = -Infinity;
+    klineInView.forEach(b => {
+        if (b.low < klinePriceMin) klinePriceMin = b.low;
+        if (b.high > klinePriceMax) klinePriceMax = b.high;
+    });
+
+    // 计算画线在当前周期的价格范围
+    const visibleDrawings = drawings.filter(d => d.cycles.includes(period) && d.points && d.points.length >= 2);
+    let drawingPriceMin = Infinity, drawingPriceMax = -Infinity;
+    if (visibleDrawings.length > 0) {
+        visibleDrawings.forEach(d => {
+            d.points.forEach(p => {
+                if (p.price < drawingPriceMin) drawingPriceMin = p.price;
+                if (p.price > drawingPriceMax) drawingPriceMax = p.price;
+            });
+        });
+        console.log('[loadPeriodData] K线价格:', klinePriceMin, '~', klinePriceMax, '画线价格:', drawingPriceMin, '~', drawingPriceMax);
+    }
+
+    // 计算联合范围：K线范围 + 画线范围
+    const combinedMin = Math.min(klinePriceMin, drawingPriceMin);
+    const combinedMax = Math.max(klinePriceMax, drawingPriceMax);
+    const margin = (combinedMax - combinedMin) * 0.05;
+    const finalMin = combinedMin - margin;
+    const finalMax = combinedMax + margin;
+    console.log('[loadPeriodData] 联合价格范围:', finalMin, '~', finalMax);
+
+    // 设置固定价格范围
+    candleSeries.priceScale().applyOptions({ autoScale: false });
+    candleSeries.applyOptions({ priceRange: { minValue: finalMin, maxValue: finalMax } });
+
+    if (drawingTime) {
+        const BAR_SECS = { '1min': 60, '5min': 300, '15min': 900, '60min': 3600 };
+        const barSec = BAR_SECS[period] || 300;
+        const totalBars = 180;
+        const targetFrom = drawingTime - Math.floor(totalBars * 0.65 * barSec);
+        const targetTo = drawingTime + Math.floor(totalBars * 0.35 * barSec);
+        chart.timeScale().setVisibleRange({ from: targetFrom, to: targetTo });
+    } else if (prevRange) {
+        chart.timeScale().setVisibleRange(prevRange);
+    }
+
+    renderDrawingsForPeriod(period);
+    updateDrawingList();
+}
+
+// ==================== 绘图交互 ====================
+// 将点击坐标吸附到最近K线的 high/low（根据点击位置在上部/中部/下部决定）
+function snapToBar(timeCoord, y) {
+    const data = candleSeries.data();
+    if (!data || data.length === 0) return null;
+    // 找到离 timeCoord 最近的K线
+    let closest = null, minDiff = Infinity;
+    for (const bar of data) {
+        const diff = Math.abs(bar.time - timeCoord);
+        if (diff < minDiff) { minDiff = diff; closest = bar; }
+    }
+    if (!closest) return null;
+    // 用像素判断点击在K线的相对位置
+    const barHighY = candleSeries.priceToCoordinate(closest.high);
+    const barLowY = candleSeries.priceToCoordinate(closest.low);
+    const midY = (barHighY + barLowY) / 2;
+    let snapPrice;
+    if (y < midY) {
+        snapPrice = y <= barHighY ? closest.high : closest.low; // 点击偏上→high，偏下→low
+    } else {
+        snapPrice = y >= barLowY ? closest.low : closest.high;
+    }
+    return { time: closest.time, price: snapPrice };
+}
+
+function handleDrawClick(e) {
+    const rect = chart.chartElement().getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const timeCoord = chart.timeScale().coordinateToTime(x);
+    if (!timeCoord) return;
+    // 吸附到K线
+    const snapped = snapToBar(timeCoord, y);
+    const snappedTime = snapped ? snapped.time : timeCoord;
+    const snappedPrice = snapped ? snapped.price : candleSeries.coordinateToPrice(y);
+    if (!snappedPrice) return;
+    console.log('[handleDrawClick] isDrawing=' + isDrawing + ' currentTool=' + currentTool + ' isSelectMode=' + isSelectMode + ' x=' + x + ' y=' + y + ' snappedTime=' + snappedTime + ' snappedPrice=' + snappedPrice);
+
+    if (!isDrawing) {
+        drawStartPoint = { time: snappedTime, price: snappedPrice };
+        isDrawing = true;
+        updateHint();
+    } else {
+        finishDrawing(snappedTime, snappedPrice);
+    }
+}
+
+function updateTempDrawing(endTime, endPrice) {
+    if (tempDrawing) {
+        tempDrawing.forEach(s => s.setData([]));
+        tempDrawing = null;
+    }
+    const color = currentDrawColor;
+    const lw = parseInt(currentDrawLineWidth);
+    const preview = [];
+    if (currentTool === 'hline') {
+        const s = chart.addLineSeries({ color, lineWidth: lw, lineStyle: LightweightCharts.LineStyle.Dashed, lastValueVisible: false, priceLineVisible: false });
+        s.setData([{ time: drawStartPoint.time, value: drawStartPoint.price }, { time: endTime, value: drawStartPoint.price }]);
+        preview.push(s);
+    } else if (currentTool === 'vline') {
+        const s = chart.addLineSeries({ color, lineWidth: lw, lineStyle: LightweightCharts.LineStyle.Dashed, lastValueVisible: false, priceLineVisible: false });
+        s.setData([{ time: drawStartPoint.time, value: 0 }, { time: drawStartPoint.time, value: 1 }]);
+        preview.push(s);
+    } else if (currentTool === 'line') {
+        const s = chart.addLineSeries({ color, lineWidth: lw, lastValueVisible: false, priceLineVisible: false });
+        s.setData([{ time: drawStartPoint.time, value: drawStartPoint.price }, { time: endTime, value: endPrice }]);
+        preview.push(s);
+    } else if (currentTool === 'rect') {
+        const top = Math.max(drawStartPoint.price, endPrice);
+        const bottom = Math.min(drawStartPoint.price, endPrice);
+        const s = chart.addLineSeries({ color, lineWidth: lw, lastValueVisible: false, priceLineVisible: false });
+        s.setData([
+            { time: drawStartPoint.time, value: top },
+            { time: endTime, value: top },
+            { time: endTime, value: bottom },
+            { time: drawStartPoint.time, value: bottom },
+            { time: drawStartPoint.time, value: top }
+        ]);
+        preview.push(s);
+    } else if (currentTool === 'ray') {
+        const s = chart.addLineSeries({ color, lineWidth: lw, lastValueVisible: false, priceLineVisible: false });
+        s.setData([{ time: drawStartPoint.time, value: drawStartPoint.price }, { time: endTime, value: endPrice }]);
+        preview.push(s);
+    }
+    tempDrawing = preview;
+}
+
+function finishDrawing(endTime, endPrice) {
+    if (tempDrawing) { tempDrawing.forEach(s => s.setData([])); tempDrawing = null; }
+    const color = currentDrawColor;
+    const lw = parseInt(currentDrawLineWidth);
+    const id = ++drawingIdCounter;
+    let newDrawing = null;
+
+    if (currentTool === 'hline') {
+        const ser = chart.addLineSeries({ color, lineWidth: lw, lineStyle: LightweightCharts.LineStyle.Dashed, lastValueVisible: false, priceLineVisible: false });
+        ser.setData([{ time: drawStartPoint.time, value: drawStartPoint.price }, { time: endTime, value: drawStartPoint.price }]);
+        newDrawing = { id, type: 'hline', series: ser, color, lineWidth: lw, price: drawStartPoint.price, time: drawStartPoint.time, endTime, cycles: [currentPeriod], priceMin: null, priceMax: null };
+    } else if (currentTool === 'vline') {
+        const ser = chart.addLineSeries({ color, lineWidth: lw, lineStyle: LightweightCharts.LineStyle.Dashed, lastValueVisible: false, priceLineVisible: false });
+        ser.setData([{ time: drawStartPoint.time, value: 0 }, { time: drawStartPoint.time, value: 1 }]);
+        newDrawing = { id, type: 'vline', series: ser, color, lineWidth: lw, time: drawStartPoint.time, cycles: [currentPeriod], priceMin: null, priceMax: null };
+    } else if (currentTool === 'line') {
+        const ser = chart.addLineSeries({ color, lineWidth: lw, lastValueVisible: false, priceLineVisible: false });
+        ser.setData([{ time: drawStartPoint.time, value: drawStartPoint.price }, { time: endTime, value: endPrice }]);
+        newDrawing = { id, type: 'line', series: ser, color, lineWidth: lw, points: [{ time: drawStartPoint.time, price: drawStartPoint.price }, { time: endTime, price: endPrice }], cycles: [currentPeriod], priceMin: null, priceMax: null };
+    } else if (currentTool === 'rect') {
+        const top = Math.max(drawStartPoint.price, endPrice);
+        const bottom = Math.min(drawStartPoint.price, endPrice);
+        const ser = chart.addLineSeries({ color, lineWidth: lw, lastValueVisible: false, priceLineVisible: false });
+        ser.setData([
+            { time: drawStartPoint.time, value: top },
+            { time: endTime, value: top },
+            { time: endTime, value: bottom },
+            { time: drawStartPoint.time, value: bottom },
+            { time: drawStartPoint.time, value: top }
+        ]);
+        newDrawing = { id, type: 'rect', series: ser, color, lineWidth: lw, top, bottom, time: drawStartPoint.time, endTime, cycles: [currentPeriod], priceMin: null, priceMax: null };
+    } else if (currentTool === 'ray') {
+        const ser = chart.addLineSeries({ color, lineWidth: lw, lastValueVisible: false, priceLineVisible: false });
+        ser.setData([{ time: drawStartPoint.time, value: drawStartPoint.price }, { time: endTime, value: endPrice }]);
+        newDrawing = { id, type: 'ray', series: ser, color, lineWidth: lw, points: [{ time: drawStartPoint.time, price: drawStartPoint.price }, { time: endTime, price: endPrice }], cycles: [currentPeriod], priceMin: null, priceMax: null };
+    }
+
+    if (newDrawing) {
+        drawings.push(newDrawing);
+        renderDrawingsForPeriod(currentPeriod);
+        updateDrawingList();
+        console.log(`[finishDrawing] 完成 #${id} ${currentTool}，cycles=${JSON.stringify(newDrawing.cycles)}，total drawings=${drawings.length}`);
+    }
+
+    drawStartPoint = null;
+    isDrawing = false;
+    updateHint();
+}
+
+function cancelDrawing() {
+    if (tempDrawing) { tempDrawing.forEach(s => s.setData([])); tempDrawing = null; }
+    drawStartPoint = null;
+    isDrawing = false;
+    updateHint();
+}
+
+function clearAllDrawings() {
+    drawings.forEach(d => d.series?.setData([]));
+    drawings = [];
+    renderDrawingsForPeriod(currentPeriod);
+    updateDrawingList();
+    deselectAll();
+    console.log('[绘图] 已清空');
+}
+
+// ==================== 图形选择 ====================
+function findDrawingAtPoint(x, y) {
+    const HIT_TIME_THRESH = 20; // 秒
+    const HIT_PRICE_RATIO = 0.015;
+    let best = null, bestDist = Infinity;
+
+    // 先把点击坐标转成时间和价格（全局定义，后面复用）
+    const clickTime = chart.timeScale().coordinateToTime(x);
+    const clickPrice = candleSeries.coordinateToPrice(y);
+
+    drawings.forEach(d => {
+        // 检查该图形是否在当前周期显示
+        if (!d.cycles.includes(currentPeriod)) return;
+
+        let dist = Infinity;
+
+        if (d.type === 'hline') {
+            if (clickPrice === null) return;
+            // LW4.x 没有 priceRange()，改用坐标计算可见价格区间
+            const chartHeight = chart.chartElement().clientHeight;
+            const topPrice = candleSeries.coordinateToPrice(0);
+            const bottomPrice = candleSeries.coordinateToPrice(chartHeight);
+            if (topPrice !== null && bottomPrice !== null) {
+                const visibleRange = topPrice - bottomPrice;
+                const threshold = visibleRange * HIT_PRICE_RATIO; // 1.5% of visible range
+                if (Math.abs(clickPrice - d.price) <= threshold) dist = Math.abs(clickPrice - d.price);
+            }
+        } else if (d.type === 'vline') {
+            if (clickTime === null) return;
+            if (Math.abs(clickTime - d.time) < HIT_TIME_THRESH) dist = 0;
+        } else if (d.points) {
+            if (clickTime === null) return;
+            const p1 = d.points[0], p2 = d.points[1];
+            if (p1 && p2) {
+                const minT = Math.min(p1.time, p2.time) - HIT_TIME_THRESH;
+                // 射线的maxT应该是当前视图最右边
+                const visibleRange = chart.timeScale().getVisibleRange();
+                const maxT = d.type === 'ray' && visibleRange
+                    ? visibleRange.to + HIT_TIME_THRESH
+                    : Math.max(p1.time, p2.time) + HIT_TIME_THRESH;
+                if (clickTime >= minT && clickTime <= maxT) dist = 1;
+            }
+        } else if (d.type === 'rect') {
+            if (clickTime === null || clickPrice === null) return;
+            if (Math.abs(clickTime - d.time) < HIT_TIME_THRESH) {
+                const midPrice = (d.top + d.bottom) / 2;
+                dist = Math.abs(clickPrice - midPrice);
+            }
+        }
+        if (dist < bestDist) { bestDist = dist; best = d; }
+    });
+    return best && bestDist < 30 ? best : null;
+}
+
+function selectDrawingById(id) {
+    if (selectedDrawingId !== null) {
+        const prev = drawings.find(d => d.id === selectedDrawingId);
+        if (prev) prev.series?.applyOptions({ lineWidth: prev.lineWidth });
+    }
+    selectedDrawingId = id;
+    const d = drawings.find(d => d.id === id);
+    if (d) {
+        d.series?.applyOptions({ lineWidth: d.lineWidth + 2 });
+        document.getElementById('tool-delete').style.display = 'inline-flex';
+    }
+}
+
+function deselectAll() {
+    if (selectedDrawingId !== null) {
+        const prev = drawings.find(d => d.id === selectedDrawingId);
+        if (prev) prev.series?.applyOptions({ lineWidth: prev.lineWidth });
+    }
+    selectedDrawingId = null;
+    document.getElementById('tool-delete').style.display = 'none';
+}
+
+function deleteSelectedDrawing() {
+    if (selectedDrawingId === null) return;
+    const idx = drawings.findIndex(d => d.id === selectedDrawingId);
+    if (idx !== -1) {
+        drawings[idx].series?.setData([]);
+        drawings.splice(idx, 1);
+        console.log(`[绘图] 删除 #${selectedDrawingId}`);
+    }
+    selectedDrawingId = null;
+    document.getElementById('tool-delete').style.display = 'none';
+    updateDrawingList();
+}
+
+// ==================== 多周期渲染 ====================
+// 切换周期时，重新渲染该周期应该显示的图形
+function switchPeriod(period) {
+    // 切换前保存当前图表可见范围，加载后恢复
+    const prevRange = chart.timeScale().getVisibleRange();
+    const drawingTime = drawings.length > 0 && drawings[0].points ? drawings[0].points[0].time : null;
+
+    currentPeriod = period;
+    document.querySelectorAll('.period-tag').forEach(t => {
+        t.classList.toggle('active', t.dataset.period === period);
+    });
+    document.getElementById('currentCycleLabel').textContent = period + ' ← 当前';
+    console.log('[switchPeriod] 切换到 ' + period + ' drawings=' + JSON.stringify(drawings.map(d => ({id:d.id, cycles:d.cycles}))));
+    // 重新加载该周期K线数据
+    loadPeriodData(period, drawingTime, prevRange);
+}
+
+// ==================== 多周期 + 价格区间过滤渲染 ====================
+// 判断某图形在当前周期+价格区间下是否应该显示
+function isDrawingVisible(d, period) {
+    // 1. 检查是否属于当前周期
+    if (!d.cycles.includes(period)) return false;
+    // 2. 检查价格区间（如果设置了）
+    if (d.priceMin !== null && d.priceMax !== null) {
+        const visibleRange = candleSeries.visibleRange();
+        if (visibleRange) {
+            const topPrice = candleSeries.coordinateToPrice(0);
+            const bottomPrice = candleSeries.coordinateToPrice(chart.chartElement().clientHeight);
+            if (topPrice === null || bottomPrice === null) return true;
+            // 图形价格区间与可视价格区间无交集则隐藏
+            if (d.priceMax < bottomPrice || d.priceMin > topPrice) return false;
+        }
+    }
+    return true;
+}
+
+// 根据价格区间裁剪图形数据
+// 对于水平线/垂直线：直接判断是否在价格区间内
+// 对于趋势线/射线/矩形：计算与价格区间的交点
+function clipDrawingData(d) {
+    if (d.priceMin === null || d.priceMax === null) return null; // 无价格区间限制，不裁剪
+
+    if (d.type === 'hline') {
+        // 水平线：检查价格是否在区间内
+        if (d.price >= d.priceMin && d.price <= d.priceMax) return null; // 不裁剪
+        return []; // 隐藏
+    }
+
+    if (d.type === 'vline') {
+        // 垂直线：不受价格区间影响（时间线）
+        return null;
+    }
+
+    if (d.type === 'line' || d.type === 'ray') {
+        if (!d.points || d.points.length < 2) return null;
+        const [p1, p2] = d.points;
+        // 计算线段与价格区间的交点
+        const x1 = timeToX(p1.time), x2 = timeToX(p2.time);
+        const y1 = priceToY(p1.price), y2 = priceToY(p2.price);
+        if (x1 === null || x2 === null || y1 === null || y2 === null) return null;
+
+        const minPrice = Math.min(p1.price, p2.price);
+        const maxPrice = Math.max(p1.price, p2.price);
+
+        // 如果线段完全在价格区间外
+        if (maxPrice < d.priceMin || minPrice > d.priceMax) return [];
+
+        // 计算线段与价格区间边界的交点
+        const result = [];
+        const times = chart.timeScale().getVisibleRange();
+        if (!times) return null;
+
+        // 取线段的时间范围（取较长延伸）
+        const tMin = Math.min(p1.time, p2.time);
+        const tMax = Math.max(p1.time, p2.time);
+
+        // 对于射线，向右无限延伸
+        const extendedTMax = d.type === 'ray' ? times.to : tMax;
+
+        // 收集所有交点
+        // 1. 线段起点（如果在价格区间内）
+        if (p1.price >= d.priceMin && p1.price <= d.priceMax) {
+            result.push({ time: snapTimeToBar(p1.time), value: p1.price });
+        }
+        // 2. 线段终点（如果在价格区间内）
+        if (p2.price >= d.priceMin && p2.price <= d.priceMax) {
+            result.push({ time: snapTimeToBar(p2.time), value: p2.price });
+        }
+        // 3. 与价格区间边界的交点
+        const slope = (y2 - y1) / (x2 - x1);
+        // 下边界交点
+        if (Math.abs(slope) > 0.001) {
+            // y = d.priceMin 在 x 处
+            // 线性插值：x = x1 + (d.priceMin - p1.price) / (p2.price - p1.price) * (x2 - x1)
+            if ((p1.price - d.priceMin) * (p2.price - d.priceMin) <= 0) {
+                const t = tMin + ((d.priceMin - Math.min(p1.price, p2.price)) / Math.abs(p2.price - p1.price)) * Math.abs(tMax - tMin);
+                if (t >= tMin && t <= extendedTMax) {
+                    result.push({ time: snapTimeToBar(t), value: d.priceMin });
+                }
+            }
+            // 上边界交点
+            if ((p1.price - d.priceMax) * (p2.price - d.priceMax) <= 0) {
+                const t = tMin + ((d.priceMax - Math.min(p1.price, p2.price)) / Math.abs(p2.price - p1.price)) * Math.abs(tMax - tMin);
+                if (t >= tMin && t <= extendedTMax) {
+                    result.push({ time: snapTimeToBar(t), value: d.priceMax });
+                }
+            }
+        }
+
+        if (result.length < 2) return result.length === 0 ? [] : null;
+        // 去重并按时间排序
+        const unique = [];
+        for (const p of result) {
+            if (!unique.some(u => Math.abs(u.time - p.time) < 1 && Math.abs(u.value - p.value) < 0.01)) {
+                unique.push(p);
+            }
+        }
+        unique.sort((a, b) => a.time - b.time);
+        return unique.length < 2 ? [] : unique;
+    }
+
+    if (d.type === 'rect') {
+        // 矩形：d.top是较高价格，d.bottom是较低价格
+        // 价格区间裁剪
+        const rectTop = d.top, rectBottom = d.bottom;
+        const clipTop = d.priceMax, clipBottom = d.priceMin;
+
+        // 如果矩形与价格区间完全无交集
+        if (rectBottom > clipTop || rectTop < clipBottom) return [];
+
+        // 计算裁剪后的矩形（在价格区间内的部分）
+        const newTop = Math.min(rectTop, clipTop);
+        const newBottom = Math.max(rectBottom, clipBottom);
+
+        // 返回裁剪后的矩形顶点（time吸附到当前K线）
+        const t1 = snapTimeToBar(d.time);
+        const t2 = snapTimeToBar(d.endTime);
+        return [
+            { time: t1, value: newTop },
+            { time: t2, value: newTop },
+            { time: t2, value: newBottom },
+            { time: t1, value: newBottom },
+            { time: t1, value: newTop }
+        ];
+    }
+
+    return null; // 不裁剪
+}
+
+// 辅助函数：找到最近存在的K线时间（用于跨周期时吸附）
+function snapTimeToBar(time) {
+    const data = candleSeries.data();
+    if (!data || data.length === 0) return time;
+    let closest = null, minDiff = Infinity;
+    for (const bar of data) {
+        const diff = Math.abs(bar.time - time);
+        if (diff < minDiff) { minDiff = diff; closest = bar; }
+    }
+    const result = closest ? closest.time : time;
+    console.log(`[snapTimeToBar] input=${time} → output=${result} (bar count=${data.length})`);
+    return result;
+}
+
+// 辅助函数：时间转X坐标
+function timeToX(time) {
+    const coord = chart.timeScale().timeToCoordinate(time);
+    return coord;
+}
+
+// 辅助函数：价格转Y坐标
+function priceToY(price) {
+    const coord = candleSeries.priceToCoordinate(price);
+    return coord;
+}
+
+// 渲染当前周期应该显示的图形
+// cycles控制可见性 + 价格区间裁剪
+function renderDrawingsForPeriod(period) {
+    console.log('[renderDrawingsForPeriod] period=' + period + ' drawings count=' + drawings.length);
+    drawings.forEach(d => {
+        const visible = isDrawingVisible(d, period);
+        console.log('[render] id=' + d.id + ' visible=' + visible + ' cycles=' + JSON.stringify(d.cycles) + ' includes(' + period + ')=' + d.cycles.includes(period) + ' priceMin=' + d.priceMin + ' priceMax=' + d.priceMax);
+        if (!visible) {
+            d.series.setData([]);
+            return;
+        }
+
+        // 无条件恢复原始数据（不做价格裁剪，autoScale会自动包含所有线）
+        restoreDrawingData(d);
+    });
+    updateDrawingList();
+}
+
+// 恢复图形的原始数据（去除价格区间裁剪后），time吸附到当前周期的K线
+function restoreDrawingData(d) {
+    console.log('[restoreDrawingData] id=' + d.id + ' d.time=' + d.time + ' d.points=' + JSON.stringify(d.points));
+    // line/ray 类型把起点时间存在 points[0]，没有顶层的 time 字段
+    const firstPoint = d.points && d.points.length > 0 ? d.points[0] : null;
+    const t1 = snapTimeToBar(d.time !== undefined ? d.time : (firstPoint ? firstPoint.time : undefined));
+    const t2 = d.endTime ? snapTimeToBar(d.endTime) : t1 + 86400;
+    if (d.type === 'hline') {
+        d.series.setData([
+            { time: t1, value: d.price },
+            { time: t2, value: d.price }
+        ]);
+    } else if (d.type === 'vline') {
+        d.series.setData([
+            { time: t1, value: 0 },
+            { time: t1, value: 1 }
+        ]);
+    } else if (d.type === 'line' || d.type === 'ray') {
+        if (d.points) {
+            const mapped = d.points.map(p => ({ time: snapTimeToBar(p.time), value: p.price }));
+            console.log('[restoreDrawingData] line/ray setData mapped=', JSON.stringify(mapped), '| 可见范围times=', JSON.stringify(chart.timeScale().getVisibleRange()));
+            d.series.setData(mapped);
+        }
+    } else if (d.type === 'rect') {
+        d.series.setData([
+            { time: t1, value: d.top },
+            { time: t2, value: d.top },
+            { time: t2, value: d.bottom },
+            { time: t1, value: d.bottom },
+            { time: t1, value: d.top }
+        ]);
+    }
+}
+
+// ==================== 右键菜单 ====================
+function showContextMenu(x, y) {
+    console.log('[showContextMenu] called x=' + x + ' y=' + y);
+    const menu = document.getElementById('contextMenu');
+    menu.style.left = x + 'px';
+    menu.style.top = y + 'px';
+    menu.classList.add('show');
+    console.log('[showContextMenu] menu classes=' + menu.className);
+}
+
+function closeContextMenu() {
+    document.getElementById('contextMenu').classList.remove('show');
+    ctxTargetId = null;
+}
+
+function ctxDeleteDrawing() {
+    if (ctxTargetId === null) return;
+    const idx = drawings.findIndex(d => d.id === ctxTargetId);
+    if (idx !== -1) {
+        drawings[idx].series?.setData([]);
+        drawings.splice(idx, 1);
+        console.log(`[绘图] 右键删除 #${ctxTargetId}`);
+    }
+    closeContextMenu();
+    renderDrawingsForPeriod(currentPeriod);
+    updateDrawingList();
+}
+
+function ctxShowProps() {
+    const id = ctxTargetId; // 先保存
+    console.log('[ctxShowProps] 入口 ctxTargetId(global)=' + ctxTargetId + ' id(local)=' + id);
+    closeContextMenu(); // 关菜单（会清 ctxTargetId）
+    if (id === null) { console.warn('[ctxShowProps] id是null，无法打开属性面板'); return; }
+    console.log('[ctxShowProps] 准备打开属性面板 id=' + id);
+    openPropsPanel(id);
+}
+
+function ctxDuplicate() {
+    if (ctxTargetId === null) return;
+    const src = drawings.find(d => d.id === ctxTargetId);
+    if (!src) return;
+    // 复制图形，ID递增，cycles=[当前周期]
+    const newId = ++drawingIdCounter;
+    const color = src.color;
+    const lw = src.lineWidth;
+    let newSer = null, newD = null;
+
+    if (src.type === 'hline') {
+        newSer = chart.addLineSeries({ color, lineWidth: lw, lineStyle: LightweightCharts.LineStyle.Dashed, lastValueVisible: false, priceLineVisible: false });
+        newSer.setData([{ time: src.time, value: src.price }, { time: src.endTime, value: src.price }]);
+        newD = { id: newId, type: 'hline', series: newSer, color, lineWidth: lw, price: src.price, time: src.time, endTime: src.endTime, cycles: [currentPeriod], priceMin: src.priceMin, priceMax: src.priceMax };
+    } else if (src.type === 'vline') {
+        newSer = chart.addLineSeries({ color, lineWidth: lw, lineStyle: LightweightCharts.LineStyle.Dashed, lastValueVisible: false, priceLineVisible: false });
+        newSer.setData([{ time: src.time, value: 0 }, { time: src.time, value: 1 }]);
+        newD = { id: newId, type: 'vline', series: newSer, color, lineWidth: lw, time: src.time, cycles: [currentPeriod], priceMin: src.priceMin, priceMax: src.priceMax };
+    } else if (src.type === 'line' && src.points) {
+        newSer = chart.addLineSeries({ color, lineWidth: lw, lastValueVisible: false, priceLineVisible: false });
+        newSer.setData(src.points.map(p => ({ time: p.time, value: p.price })));
+        newD = { id: newId, type: 'line', series: newSer, color, lineWidth: lw, points: src.points.map(p => ({...p})), cycles: [currentPeriod], priceMin: src.priceMin, priceMax: src.priceMax };
+    } else if (src.type === 'rect') {
+        newSer = chart.addLineSeries({ color, lineWidth: lw, lastValueVisible: false, priceLineVisible: false });
+        newSer.setData([
+            { time: src.time, value: src.top },
+            { time: src.endTime, value: src.top },
+            { time: src.endTime, value: src.bottom },
+            { time: src.time, value: src.bottom },
+            { time: src.time, value: src.top }
+        ]);
+        newD = { id: newId, type: 'rect', series: newSer, color, lineWidth: lw, top: src.top, bottom: src.bottom, time: src.time, endTime: src.endTime, cycles: [currentPeriod], priceMin: src.priceMin, priceMax: src.priceMax };
+    } else if (src.type === 'ray' && src.points) {
+        newSer = chart.addLineSeries({ color, lineWidth: lw, lastValueVisible: false, priceLineVisible: false });
+        newSer.setData(src.points.map(p => ({ time: p.time, value: p.price })));
+        newD = { id: newId, type: 'ray', series: newSer, color, lineWidth: lw, points: src.points.map(p => ({...p})), cycles: [currentPeriod], priceMin: src.priceMin, priceMax: src.priceMax };
+    }
+
+    if (newD) {
+        drawings.push(newD);
+        updateDrawingList();
+        console.log(`[绘图] 复制 #${ctxTargetId} → #${newId}`);
+    }
+    closeContextMenu();
+}
+
+// ==================== 属性面板 ====================
+function openPropsPanel(id) {
+    // 保存到 window 确保 applyProps 能拿到（不受 ctxTargetId 影响）
+    window._currentPropsId = id;
+    const d = drawings.find(d => d.id === id);
+    console.log('[openPropsPanel] id=' + id + ' found=' + (d ? 'YES type=' + d.type : 'NO') + ' total drawings=' + drawings.length);
+    if (!d) return;
+
+    const typeNames = { hline: '水平线', vline: '垂直线', line: '趋势线', rect: '矩形', ray: '射线' };
+    document.getElementById('propsTitle').textContent = `📐 ${typeNames[d.type]} 属性`;
+    document.getElementById('propType').textContent = typeNames[d.type];
+    document.getElementById('propId').textContent = `#${d.id}`;
+    document.getElementById('propPriceMin').value = d.priceMin !== null ? d.priceMin : '';
+    document.getElementById('propPriceMax').value = d.priceMax !== null ? d.priceMax : '';
+
+    // 周期标签
+    document.querySelectorAll('#propCycles .period-tag').forEach(t => {
+        t.classList.toggle('active', d.cycles.includes(t.dataset.period));
+    });
+
+    // 颜色
+    document.querySelectorAll('#propsContent .draw-color-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.color === d.color);
+    });
+    document.getElementById('propColorPicker').value = d.color;
+
+    // 线宽
+    document.getElementById('propLineWidth').value = d.lineWidth;
+
+    // overlay pointer-events: none — 让按钮可以点，但点击 overlay 本身不会触发 closePropsPanel
+    document.getElementById('propsOverlay').style.pointerEvents = 'none';
+    document.getElementById('propsOverlay').classList.add('show');
+    document.getElementById('propsPanel').classList.add('show');
+    console.log('[openPropsPanel] 面板已显示 ctxTargetId=' + ctxTargetId);
+}
+
+function closePropsPanel() {
+    document.getElementById('propsOverlay').classList.remove('show');
+    document.getElementById('propsOverlay').style.pointerEvents = 'auto';
+    document.getElementById('propsPanel').classList.remove('show');
+}
+
+function toggleCycleTag(el) {
+    el.classList.toggle('active');
+}
+
+function setPropColor(color) {
+    document.querySelectorAll('#propsContent .draw-color-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('propColorPicker').value = color;
+}
+
+function applyProps() {
+    const id = window._currentPropsId;
+    console.log('[applyProps] 入口! _currentPropsId=' + id);
+    const d = drawings.find(d => d.id === id);
+    if (!d) { console.warn('[applyProps] 未找到图形 id=' + id); return; }
+
+    // 周期
+    d.cycles = Array.from(document.querySelectorAll('#propCycles .period-tag.active'))
+        .map(t => t.dataset.period);
+    if (d.cycles.length === 0) d.cycles = [currentPeriod];
+
+    // 价格区间
+    const pMin = document.getElementById('propPriceMin').value;
+    const pMax = document.getElementById('propPriceMax').value;
+    d.priceMin = pMin !== '' ? parseFloat(pMin) : null;
+    d.priceMax = pMax !== '' ? parseFloat(pMax) : null;
+
+    // 颜色
+    d.color = document.getElementById('propColorPicker').value;
+
+    // 线宽
+    d.lineWidth = parseInt(document.getElementById('propLineWidth').value);
+
+    // 重新渲染
+    d.series?.applyOptions({ color: d.color, lineWidth: d.lineWidth });
+
+    // 关键修复：应用属性后立即重新渲染当前周期
+    // 否则需要切换周期才能看到效果
+    console.log('[applyProps] 调用前 ctxTargetId=' + ctxTargetId + ' currentPeriod=' + currentPeriod + ' cycles=' + JSON.stringify(d.cycles));
+    renderDrawingsForPeriod(currentPeriod);
+    console.log('[applyProps] 调用后 drawings状态=' + JSON.stringify(drawings.map(d2 => ({id:d2.id, cycles:d2.cycles, priceMin:d2.priceMin, priceMax:d2.priceMax}))));
+
+    if (d.priceMin !== null && d.priceMax !== null) {
+        console.log(`[属性] #${d.id} 设置价格区间 ${d.priceMin} ~ ${d.priceMax}`);
+    }
+
+    updateDrawingList();
+    console.log(`[属性] #${d.id} 已更新`, { cycles: d.cycles, priceMin: d.priceMin, priceMax: d.priceMax, color: d.color, lineWidth: d.lineWidth });
+}
+
+// ==================== 工具函数 ====================
+function setDrawingTool(tool) {
+    if (isDrawing) cancelDrawing();
+    if (tool === 'select') {
+        isSelectMode = !isSelectMode;
+        currentTool = null;
+        document.querySelectorAll('.drawing-toolbar .tool-btn').forEach(btn => btn.classList.remove('active'));
+        document.getElementById('tool-select').classList.toggle('active', isSelectMode);
+    } else {
+        isSelectMode = false;
+        currentTool = tool;
+        document.querySelectorAll('.drawing-toolbar .tool-btn').forEach(btn => btn.classList.remove('active'));
+        document.getElementById('tool-' + tool)?.classList.add('active');
+    }
+    updateHint();
+}
+
+function setDrawColor(btn, color) {
+    currentDrawColor = color;
+    document.querySelectorAll('.draw-color-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+}
+
+function setDrawLineWidth(w) { currentDrawLineWidth = w; }
+
+function updateHint() {
+    const hint = document.getElementById('drawingHint');
+    const names = { hline: '水平线', vline: '垂直线', line: '趋势线', rect: '矩形', ray: '射线' };
+    if (isDrawing) {
+        hint.style.display = 'inline';
+        hint.textContent = '点击终点完成，右键/ESC取消';
+    } else if (currentTool) {
+        hint.style.display = 'inline';
+        hint.textContent = `绘制${names[currentTool]}：点击起点，再点终点`;
+    } else if (isSelectMode) {
+        hint.style.display = 'inline';
+        hint.textContent = '点击图形选中，右键设置属性';
+    } else {
+        hint.style.display = 'none';
+    }
+}
+
+function updateDrawingList() {
+    const el = document.getElementById('drawingList');
+    if (drawings.length === 0) {
+        el.innerHTML = '';
+        return;
+    }
+    el.innerHTML = '已绘制: ' + drawings.map(d => {
+        const typeNames = { hline: '水平线', vline: '垂直线', line: '趋势线', rect: '矩形', ray: '射线' };
+        return `<span style="color:${d.color};">■</span>#${d.id}${typeNames[d.type]}(${d.cycles.join(',')})`;
+    }).join(' &nbsp; ');
+}
+
+// ==================== 启动 ====================
+initChart();
+</script>
+</body>
+</html>

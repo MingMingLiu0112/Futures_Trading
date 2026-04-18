@@ -201,6 +201,19 @@ def option_chain_page():
     except Exception as e:
         return f"Error loading page: {e}", 500
 
+@app.route('/drawing_test')
+def drawing_test_page():
+    """绘图工具测试页面"""
+    try:
+        with open(os.path.join(WORKSPACE, 'templates', 'drawing_test.html'), 'r', encoding='utf-8') as f:
+            content = f.read()
+        from flask import make_response
+        resp = make_response(content)
+        resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        return resp
+    except FileNotFoundError:
+        return "页面正在开发中，请稍后访问", 404
+
 @app.route('/kline')
 def kline_page():
     """K线图页面已迁移到 /，此路径保留重定向"""
