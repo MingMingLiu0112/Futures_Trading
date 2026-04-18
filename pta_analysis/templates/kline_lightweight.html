@@ -330,22 +330,12 @@
             </select>
             <select id="period">
                 <option value="1min">1分钟</option>
-                <option value="3min">3分钟</option>
                 <option value="5min">5分钟</option>
-                <option value="8min">8分钟</option>
-                <option value="10min">10分钟</option>
                 <option value="15min">15分钟</option>
-                <option value="18min">18分钟</option>
-                <option value="20min">20分钟</option>
-                <option value="25min">25分钟</option>
                 <option value="30min">30分钟</option>
-                <option value="35min">35分钟</option>
-                <option value="40min">40分钟</option>
-                <option value="45min">45分钟</option>
-                <option value="50min">50分钟</option>
-                <option value="55min">55分钟</option>
                 <option value="60min">60分钟</option>
-                <option value="1min" selected>1分钟</option>
+                <option value="240min">4小时</option>
+                <option value="1day">日线</option>
                 <option value="1week">周线</option>
                 <option value="1month">月线</option>
             </select>
@@ -2960,7 +2950,7 @@ function openPropsPanel(id) {
     document.getElementById('propId').textContent = `#${d.id}`;
 
     // 周期标签 - 默认全部选中（跨所有周期）
-    const allPeriods = ['1min','3min','5min','8min','10min','15min','18min','20min','25min','30min','35min','40min','45min','50min','55min','60min','1day','1week','1month'];
+    const allPeriods = ['1min','5min','15min','30min','60min','240min','1day','1week','1month'];
     document.querySelectorAll('#propCycles .period-tag').forEach(t => {
         t.classList.toggle('active', (d.cycles && d.cycles.length > 0) ? d.cycles.includes(t.dataset.period) : allPeriods.includes(t.dataset.period));
     });
