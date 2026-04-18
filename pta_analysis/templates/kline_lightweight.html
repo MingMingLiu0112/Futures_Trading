@@ -250,6 +250,75 @@
             pointer-events: none;
             white-space: nowrap;
         }
+
+        /* 右键菜单 */
+        .context-menu {
+            position: fixed;
+            background: #2a2a3e;
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 4px 0;
+            min-width: 160px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            z-index: 1000;
+            display: none;
+        }
+        .context-menu.show { display: block; }
+        .context-menu-item {
+            padding: 8px 14px;
+            cursor: pointer;
+            font-size: 13px;
+            color: #ddd;
+        }
+        .context-menu-item:hover { background: #3a3a5e; }
+        .context-menu-item.danger { color: #ff6b6b; }
+        .context-menu-item.danger:hover { background: rgba(255,107,107,0.15); }
+        .context-menu-separator { height: 1px; background: #444; margin: 4px 0; }
+
+        /* 属性面板 */
+        .props-panel {
+            position: fixed;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: #252538;
+            border: 1px solid #444;
+            border-radius: 10px;
+            padding: 20px 24px;
+            min-width: 320px;
+            max-width: 400px;
+            z-index: 1001;
+            display: none;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        }
+        .props-panel.show { display: block; }
+        .props-panel h3 { color: #FF9800; margin-bottom: 16px; font-size: 15px; border-bottom: 1px solid #444; padding-bottom: 10px; }
+        .props-panel .prop-row { display: flex; align-items: center; margin-bottom: 12px; gap: 10px; }
+        .props-panel .prop-label { color: #aaa; font-size: 13px; min-width: 80px; }
+        .props-panel .prop-value { flex: 1; }
+        .props-panel input[type="number"] { background: #333; color: #ddd; border: 1px solid #555; border-radius: 4px; padding: 4px 8px; width: 80px; font-size: 13px; }
+        .props-panel .prop-hint { color: #666; font-size: 11px; margin-top: 4px; }
+        .props-panel .btn-row { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; border-top: 1px solid #444; padding-top: 14px; }
+        .props-panel button { padding: 6px 16px; border-radius: 4px; border: none; cursor: pointer; font-size: 13px; }
+        .props-panel .btn-ok { background: #FF9800; color: #fff; }
+        .props-panel .btn-cancel { background: #444; color: #ddd; }
+
+        /* 覆盖层遮罩 */
+        .overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            display: none;
+        }
+        .overlay.show { display: block; }
+
+        /* 周期标签 */
+        .period-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+        .period-tag {
+            padding: 3px 10px; border-radius: 4px; font-size: 12px;
+            background: #333; color: #888; cursor: pointer; border: 1px solid #444;
+            transition: all 0.15s;
+        }
+        .period-tag.active { background: #FF9800; color: #fff; border-color: #FF9800; }
     </style>
 </head>
 <body>
@@ -491,6 +560,7 @@
         let drawStartPoint = null;        // 绘制起点 {time, price, x, y}
         let isDrawing = false;            // 是否正在绘制
         let selectedDrawingId = null;     // 当前选中的绘制对象ID
+        let ctxTargetId = null;            // 右键目标图形ID（用于属性面板）
 
         // 保存所有绘图series（每个主图数据对应一个lineSeries，用于精准删除）
 
@@ -1035,14 +1105,14 @@
                     { time: drawStartPoint.time, value: drawStartPoint.price },
                     { time: endTime, value: drawStartPoint.price }
                 ]);
-                newDrawing = { id, type: 'hline', series: ser, color, lineWidth, price: drawStartPoint.price, time: drawStartPoint.time, endTime };
+                newDrawing = { id, type: 'hline', series: ser, color, lineWidth, price: drawStartPoint.price, time: drawStartPoint.time, endTime, cycles: [document.getElementById('period').value], priceMin: null, priceMax: null };
             } else if (currentTool === 'vline') {
                 const ser = mainChart.addLineSeries({ color, lineWidth, lineStyle: LightweightCharts.LineStyle.Dashed, lastValueVisible: false, priceLineVisible: false });
                 ser.setData([
                     { time: drawStartPoint.time, value: 0 },
                     { time: drawStartPoint.time, value: 1 }
                 ]);
-                newDrawing = { id, type: 'vline', series: ser, color, lineWidth, time: drawStartPoint.time };
+                newDrawing = { id, type: 'vline', series: ser, color, lineWidth, time: drawStartPoint.time, cycles: [document.getElementById('period').value], priceMin: null, priceMax: null };
             } else if (currentTool === 'line') {
                 const ser = mainChart.addLineSeries({ color, lineWidth, lastValueVisible: false, priceLineVisible: false });
                 ser.setData([
@@ -1050,7 +1120,7 @@
                     { time: endTime, value: endPrice }
                 ]);
                 newDrawing = { id, type: 'line', series: ser, color, lineWidth,
-                    points: [{ time: drawStartPoint.time, price: drawStartPoint.price }, { time: endTime, price: endPrice }] };
+                    points: [{ time: drawStartPoint.time, price: drawStartPoint.price }, { time: endTime, price: endPrice }], cycles: [document.getElementById('period').value], priceMin: null, priceMax: null };
             } else if (currentTool === 'rect') {
                 const top = Math.max(drawStartPoint.price, endPrice);
                 const bottom = Math.min(drawStartPoint.price, endPrice);
@@ -1062,7 +1132,7 @@
                     { time: drawStartPoint.time, value: bottom },
                     { time: drawStartPoint.time, value: top }
                 ]);
-                newDrawing = { id, type: 'rect', series: ser, color, lineWidth, top, bottom, time: drawStartPoint.time, endTime };
+                newDrawing = { id, type: 'rect', series: ser, color, lineWidth, top, bottom, time: drawStartPoint.time, endTime, cycles: [document.getElementById('period').value], priceMin: null, priceMax: null };
             } else if (currentTool === 'ray') {
                 const ser = mainChart.addLineSeries({ color, lineWidth, lastValueVisible: false, priceLineVisible: false });
                 ser.setData([
@@ -1070,7 +1140,7 @@
                     { time: endTime, value: endPrice }
                 ]);
                 newDrawing = { id, type: 'ray', series: ser, color, lineWidth,
-                    points: [{ time: drawStartPoint.time, price: drawStartPoint.price }, { time: endTime, price: endPrice }] };
+                    points: [{ time: drawStartPoint.time, price: drawStartPoint.price }, { time: endTime, price: endPrice }], cycles: [document.getElementById('period').value], priceMin: null, priceMax: null };
             }
 
             if (newDrawing) {
@@ -2352,7 +2422,9 @@
                 id: d.id, type: d.type, color: d.color, lineWidth: d.lineWidth,
                 price: d.price, time: d.time, endTime: d.endTime,
                 points: d.points ? [...d.points] : undefined,
-                top: d.top, bottom: d.bottom
+                top: d.top, bottom: d.bottom,
+                cycles: d.cycles ? [...d.cycles] : [document.getElementById('period').value],
+                priceMin: d.priceMin, priceMax: d.priceMax
             }));
             
             // 清空旧绘制（先清空数据再调用loadAllData，避免图表重建后数据残留）
@@ -2471,7 +2543,9 @@
                                 id: saved.id, type: saved.type, series: ser,
                                 color: saved.color, lineWidth: saved.lineWidth,
                                 price: saved.price, time: saved.time, endTime: saved.endTime,
-                                points: saved.points, top: saved.top, bottom: saved.bottom
+                                points: saved.points, top: saved.top, bottom: saved.bottom,
+                                cycles: saved.cycles,
+                                priceMin: saved.priceMin, priceMax: saved.priceMax
                             });
                             drawingSeriesMap[saved.id] = ser;
                         }
@@ -2514,7 +2588,242 @@
             loadFundamental();
             // 每秒增量刷新最后一根K线
             setInterval(incrementalUpdate, 10000);
+
+            // ========== 右键菜单事件 ==========
+            document.getElementById('main-chart').addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                const rect = document.getElementById('main-chart').getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                const clickedDrawing = findDrawingAtPoint(x, y);
+                if (clickedDrawing) {
+                    ctxTargetId = clickedDrawing.id;
+                    showContextMenu(e.clientX, e.clientY);
+                }
+            });
+
+            // 点击空白处关闭菜单/属性面板
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('.context-menu') && !e.target.closest('.props-panel')) {
+                    closeContextMenu();
+                    closePropsPanel();
+                }
+            });
+
+            // ESC关闭
+            document.addEventListener('keydown', e => {
+                if (e.key === 'Escape') {
+                    closeContextMenu();
+                    closePropsPanel();
+                }
+            });
         });
     </script>
+
+<!-- ========== 右键菜单和属性面板 JS ========== -->
+<script>
+// 右键菜单显示/关闭
+function showContextMenu(x, y) {
+    const menu = document.getElementById('contextMenu');
+    menu.style.left = x + 'px';
+    menu.style.top = y + 'px';
+    menu.classList.add('show');
+}
+function closeContextMenu() {
+    document.getElementById('contextMenu').classList.remove('show');
+    ctxTargetId = null;
+}
+
+// 右键删除
+function ctxDeleteDrawing() {
+    if (ctxTargetId === null) return;
+    const idx = drawings.findIndex(d => d.id === ctxTargetId);
+    if (idx !== -1) {
+        drawings[idx].series?.setData([]);
+        drawings.splice(idx, 1);
+    }
+    closeContextMenu();
+}
+
+// 打开属性面板
+function ctxShowProps() {
+    const id = ctxTargetId;
+    closeContextMenu();
+    if (id === null) return;
+    openPropsPanel(id);
+}
+
+function openPropsPanel(id) {
+    window._currentPropsId = id;
+    const d = drawings.find(d => d.id === id);
+    if (!d) return;
+
+    const typeNames = { hline: '水平线', vline: '垂直线', line: '趋势线', rect: '矩形', ray: '射线' };
+    document.getElementById('propsTitle').textContent = `📐 ${typeNames[d.type]} 属性`;
+    document.getElementById('propType').textContent = typeNames[d.type];
+    document.getElementById('propId').textContent = `#${d.id}`;
+
+    // 周期标签
+    document.querySelectorAll('#propCycles .period-tag').forEach(t => {
+        t.classList.toggle('active', (d.cycles || []).includes(t.dataset.period));
+    });
+
+    // 颜色
+    document.querySelectorAll('#propsContent .draw-color-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.color === d.color);
+    });
+    document.getElementById('propColorPicker').value = d.color || '#FFD700';
+
+    // 线宽
+    document.getElementById('propLineWidth').value = d.lineWidth || 2;
+
+    document.getElementById('propsOverlay').style.pointerEvents = 'none';
+    document.getElementById('propsOverlay').classList.add('show');
+    document.getElementById('propsPanel').classList.add('show');
+}
+
+function closePropsPanel() {
+    document.getElementById('propsOverlay').classList.remove('show');
+    document.getElementById('propsOverlay').style.pointerEvents = 'auto';
+    document.getElementById('propsPanel').classList.remove('show');
+}
+
+function toggleCycleTag(el) {
+    el.classList.toggle('active');
+}
+
+function setPropColor(color) {
+    document.querySelectorAll('#propsContent .draw-color-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('propColorPicker').value = color;
+}
+
+function applyProps() {
+    const id = window._currentPropsId;
+    const d = drawings.find(d => d.id === id);
+    if (!d) return;
+
+    // 周期
+    d.cycles = Array.from(document.querySelectorAll('#propCycles .period-tag.active'))
+        .map(t => t.dataset.period);
+    if (d.cycles.length === 0) d.cycles = [document.getElementById('period').value];
+
+    // 颜色和线宽
+    d.color = document.getElementById('propColorPicker').value;
+    d.lineWidth = parseInt(document.getElementById('propLineWidth').value);
+
+    // 应用到 series
+    d.series?.applyOptions({ color: d.color, lineWidth: d.lineWidth });
+
+    // 重新渲染（按 cycles 过滤）
+    renderDrawingsForPeriod();
+}
+
+// 根据当前周期渲染应显示的图形
+function renderDrawingsForPeriod() {
+    const period = document.getElementById('period').value;
+    drawings.forEach(d => {
+        if (!(d.cycles || [period]).includes(period)) {
+            d.series?.setData([]);
+            return;
+        }
+        // 恢复图形数据
+        restoreDrawingData(d);
+    });
+}
+
+// 恢复单个图形的原始数据
+function restoreDrawingData(d) {
+    const period = document.getElementById('period').value;
+    if (!d.points && d.type !== 'hline' && d.type !== 'vline') return;
+
+    if (d.type === 'hline') {
+        const visibleRange = mainChart.timeScale().getVisibleRange();
+        if (visibleRange) {
+            d.series.setData([
+                { time: visibleRange.from, value: d.price },
+                { time: visibleRange.to, value: d.price }
+            ]);
+        }
+    } else if (d.type === 'vline') {
+        const visibleRange = mainChart.timeScale().getVisibleRange();
+        if (visibleRange) {
+            d.series.setData([
+                { time: d.time, value: 0 },
+                { time: d.time, value: 1 }
+            ]);
+        }
+    } else if (d.type === 'line' || d.type === 'ray') {
+        if (d.points && d.points.length >= 2) {
+            d.series.setData(d.points.map(p => ({ time: p.time, value: p.price })));
+        }
+    } else if (d.type === 'rect') {
+        d.series.setData([
+            { time: d.time, value: d.top },
+            { time: d.endTime, value: d.top },
+            { time: d.endTime, value: d.bottom },
+            { time: d.time, value: d.bottom },
+            { time: d.time, value: d.top }
+        ]);
+    }
+}
+</script>
+
+<!-- 右键菜单 -->
+<div class="context-menu" id="contextMenu" onmousedown="event.stopPropagation();">
+    <div class="context-menu-item" onclick="ctxDeleteDrawing()">🗑 删除此图形</div>
+    <div class="context-menu-item" onclick="ctxShowProps()">⚙ 属性设置</div>
+</div>
+
+<!-- 属性面板 -->
+<div class="overlay" id="propsOverlay"></div>
+<div class="props-panel" id="propsPanel">
+    <h3 id="propsTitle">📐 图形属性</h3>
+    <div id="propsContent">
+        <div class="prop-row">
+            <span class="prop-label">类型</span>
+            <span class="prop-value" id="propType" style="color:#FF9800;"></span>
+        </div>
+        <div class="prop-row">
+            <span class="prop-label">ID</span>
+            <span class="prop-value" id="propId" style="color:#888;font-size:12px;"></span>
+        </div>
+        <div class="prop-row" style="align-items:flex-start;">
+            <span class="prop-label">跨越周期</span>
+            <div class="prop-value">
+                <div class="period-tags" id="propCycles">
+                    <span class="period-tag" data-period="1min" onclick="toggleCycleTag(this)">1min</span>
+                    <span class="period-tag" data-period="5min" onclick="toggleCycleTag(this)">5min</span>
+                    <span class="period-tag" data-period="15min" onclick="toggleCycleTag(this)">15min</span>
+                    <span class="period-tag" data-period="60min" onclick="toggleCycleTag(this)">60min</span>
+                </div>
+                <div class="prop-hint">勾选后图形将在对应周期图表上同时显示</div>
+            </div>
+        </div>
+        <div class="prop-row">
+            <span class="prop-label">颜色</span>
+            <div class="prop-value">
+                <button class="tool-btn draw-color-btn" data-color="#FFD700" onclick="setPropColor('#FFD700')" style="background:#FFD700;color:#000;">&nbsp;</button>
+                <button class="tool-btn draw-color-btn" data-color="#FFFFFF" onclick="setPropColor('#FFFFFF')" style="background:#fff;color:#000;">&nbsp;</button>
+                <button class="tool-btn draw-color-btn" data-color="#4CAF50" onclick="setPropColor('#4CAF50')" style="background:#4CAF50;color:#fff;">&nbsp;</button>
+                <button class="tool-btn draw-color-btn" data-color="#2196F3" onclick="setPropColor('#2196F3')" style="background:#2196F3;color:#fff;">&nbsp;</button>
+                <input type="color" id="propColorPicker" onchange="setPropColor(this.value)" style="background:#333;border:1px solid #555;border-radius:4px;width:30px;height:24px;cursor:pointer;">
+            </div>
+        </div>
+        <div class="prop-row">
+            <span class="prop-label">线宽</span>
+            <div class="prop-value">
+                <select id="propLineWidth">
+                    <option value="1">细</option>
+                    <option value="2">中</option>
+                    <option value="3">粗</option>
+                </select>
+            </div>
+        </div>
+    </div>
+    <div class="btn-row">
+        <button class="btn-ok" onclick="event.stopPropagation();applyProps();closePropsPanel();">确定</button>
+        <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
+    </div>
+</div>
 </body>
 </html>
