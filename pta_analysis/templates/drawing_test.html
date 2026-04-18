@@ -11,13 +11,14 @@
 
 
 
+
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>绘图工具测试</title>
-<script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js?v=20250418"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { background: #1a1a2e; color: #e0e0e0; font-family: Arial, sans-serif; padding: 20px; }
@@ -373,7 +374,7 @@ function initChart() {
         if (!timeCoord) return;
         const snapped = snapToBar(timeCoord, y);
         const endTime = snapped ? snapped.time : timeCoord;
-        const endPrice = snapped ? snapped.price : candleSeries.coordinateToPrice(y);
+        const endPrice = snapped ? snapped.price : (candleSeries.coordinateToPrice(y) ?? null);
         if (!endTime || !endPrice) return;
         updateTempDrawing(endTime, endPrice);
     });
@@ -448,6 +449,7 @@ function snapToBar(timeCoord, y) {
     // 用像素判断点击在K线的相对位置
     const barHighY = candleSeries.priceToCoordinate(closest.high);
     const barLowY = candleSeries.priceToCoordinate(closest.low);
+    if (barHighY === null || barLowY === null) return null;
     const midY = (barHighY + barLowY) / 2;
     let snapPrice;
     if (y < midY) {
@@ -467,7 +469,7 @@ function handleDrawClick(e) {
     // 吸附到K线
     const snapped = snapToBar(timeCoord, y);
     const snappedTime = snapped ? snapped.time : timeCoord;
-    const snappedPrice = snapped ? snapped.price : candleSeries.coordinateToPrice(y);
+    const snappedPrice = snapped ? snapped.price : (candleSeries.coordinateToPrice(y) ?? (console.log('[handleDrawClick] coordinateToPrice returned null, giving up'), null));
     if (!snappedPrice) return;
     console.log('[handleDrawClick] isDrawing=' + isDrawing + ' currentTool=' + currentTool + ' isSelectMode=' + isSelectMode + ' x=' + x + ' y=' + y + ' snappedTime=' + snappedTime + ' snappedPrice=' + snappedPrice);
 
@@ -536,10 +538,12 @@ function finishDrawing(endTime, endPrice) {
         ser.setData([{ time: drawStartPoint.time, value: 0 }, { time: drawStartPoint.time, value: 1 }]);
         newDrawing = { id, type: 'vline', series: ser, color, lineWidth: lw, time: drawStartPoint.time, cycles: [currentPeriod], priceMin: null, priceMax: null };
     } else if (currentTool === 'line') {
+        if (endPrice === null || endPrice === undefined) { cancelDrawing(); return; }
         const ser = chart.addLineSeries({ color, lineWidth: lw, lastValueVisible: false, priceLineVisible: false });
         ser.setData([{ time: drawStartPoint.time, value: drawStartPoint.price }, { time: endTime, value: endPrice }]);
         newDrawing = { id, type: 'line', series: ser, color, lineWidth: lw, points: [{ time: drawStartPoint.time, price: drawStartPoint.price }, { time: endTime, price: endPrice }], cycles: [currentPeriod], priceMin: null, priceMax: null };
     } else if (currentTool === 'rect') {
+        if (endPrice === null || endPrice === undefined) { cancelDrawing(); return; }
         const top = Math.max(drawStartPoint.price, endPrice);
         const bottom = Math.min(drawStartPoint.price, endPrice);
         const ser = chart.addLineSeries({ color, lineWidth: lw, lastValueVisible: false, priceLineVisible: false });
@@ -587,56 +591,66 @@ function clearAllDrawings() {
 
 // ==================== 图形选择 ====================
 function findDrawingAtPoint(x, y) {
-    const HIT_TIME_THRESH = 20; // 秒
-    const HIT_PRICE_RATIO = 0.015;
-    let best = null, bestDist = Infinity;
+    const HIT_PX = 15; // 像素命中半径
 
-    // 先把点击坐标转成时间和价格（全局定义，后面复用）
+    // 先把点击坐标转成时间和价格
     const clickTime = chart.timeScale().coordinateToTime(x);
     const clickPrice = candleSeries.coordinateToPrice(y);
 
+    let best = null, bestDist = Infinity;
+
     drawings.forEach(d => {
-        // 检查该图形是否在当前周期显示
         if (!d.cycles.includes(currentPeriod)) return;
 
         let dist = Infinity;
 
         if (d.type === 'hline') {
             if (clickPrice === null) return;
-            // LW4.x 没有 priceRange()，改用坐标计算可见价格区间
             const chartHeight = chart.chartElement().clientHeight;
             const topPrice = candleSeries.coordinateToPrice(0);
             const bottomPrice = candleSeries.coordinateToPrice(chartHeight);
             if (topPrice !== null && bottomPrice !== null) {
                 const visibleRange = topPrice - bottomPrice;
-                const threshold = visibleRange * HIT_PRICE_RATIO; // 1.5% of visible range
-                if (Math.abs(clickPrice - d.price) <= threshold) dist = Math.abs(clickPrice - d.price);
+                const threshold = visibleRange * 0.015;
+                if (Math.abs(clickPrice - d.price) <= threshold) {
+                    dist = Math.abs(clickPrice - d.price) / visibleRange * chartHeight;
+                }
             }
         } else if (d.type === 'vline') {
             if (clickTime === null) return;
-            if (Math.abs(clickTime - d.time) < HIT_TIME_THRESH) dist = 0;
-        } else if (d.points) {
-            if (clickTime === null) return;
-            const p1 = d.points[0], p2 = d.points[1];
-            if (p1 && p2) {
-                const minT = Math.min(p1.time, p2.time) - HIT_TIME_THRESH;
-                // 射线的maxT应该是当前视图最右边
-                const visibleRange = chart.timeScale().getVisibleRange();
-                const maxT = d.type === 'ray' && visibleRange
-                    ? visibleRange.to + HIT_TIME_THRESH
-                    : Math.max(p1.time, p2.time) + HIT_TIME_THRESH;
-                if (clickTime >= minT && clickTime <= maxT) dist = 1;
-            }
+            const t = chart.timeScale().coordinateToTime(x);
+            const barPx = 10;
+            if (t !== null) dist = Math.abs(t - d.time) / 300 * barPx; // 5min bar ≈ 300s
+        } else if (d.type === 'line' || d.type === 'ray') {
+            if (!d.points || d.points.length < 2 || clickTime === null || clickPrice === null) return;
+            const [p1, p2] = d.points;
+            // 计算点击到线段的垂直像素距离
+            const x1 = chart.timeScale().timeToCoordinate(p1.time);
+            const x2 = chart.timeScale().timeToCoordinate(p2.time);
+            const y1 = candleSeries.priceToCoordinate(p1.price);
+            const y2 = candleSeries.priceToCoordinate(p2.price);
+            if (x1 === null || x2 === null || y1 === null || y2 === null) return;
+            // 点到线段的垂直距离（像素）
+            const dx = x2 - x1, dy = y2 - y1;
+            if (Math.abs(dx) < 1) dx = 1; // 避免除零
+            const t = Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / (dx * dx + dy * dy)));
+            const nearestX = x1 + t * dx, nearestY = y1 + t * dy;
+            dist = Math.sqrt((x - nearestX) ** 2 + (y - nearestY) ** 2);
         } else if (d.type === 'rect') {
             if (clickTime === null || clickPrice === null) return;
-            if (Math.abs(clickTime - d.time) < HIT_TIME_THRESH) {
-                const midPrice = (d.top + d.bottom) / 2;
-                dist = Math.abs(clickPrice - midPrice);
-            }
+            const x1 = chart.timeScale().timeToCoordinate(d.time);
+            const x2 = chart.timeScale().timeToCoordinate(d.endTime);
+            if (x1 === null || x2 === null) return;
+            const inX = x >= Math.min(x1, x2) - HIT_PX && x <= Math.max(x1, x2) + HIT_PX;
+            const inY = clickPrice >= d.bottom - 5 && clickPrice <= d.top + 5;
+            if (inX && inY) dist = 0;
         }
+
         if (dist < bestDist) { bestDist = dist; best = d; }
     });
-    return best && bestDist < 30 ? best : null;
+
+    console.log('[findDrawingAtPoint] x=' + x + ' y=' + y + ' clickTime=' + clickTime + ' best=' + (best ? best.id : null) + ' bestDist=' + bestDist + ' threshold=' + HIT_PX);
+    return best && bestDist <= HIT_PX ? best : null;
 }
 
 function selectDrawingById(id) {
@@ -696,13 +710,11 @@ function switchPeriod(period) {
 function isDrawingVisible(d, period) {
     // 1. 检查是否属于当前周期
     if (!d.cycles.includes(period)) return false;
-    // 2. 检查价格区间（如果设置了）
+    // 2. 价格区间检查（使用坐标计算可见范围，不再调用不存在的 visibleRange()）
     if (d.priceMin !== null && d.priceMax !== null) {
-        const visibleRange = candleSeries.visibleRange();
-        if (visibleRange) {
-            const topPrice = candleSeries.coordinateToPrice(0);
-            const bottomPrice = candleSeries.coordinateToPrice(chart.chartElement().clientHeight);
-            if (topPrice === null || bottomPrice === null) return true;
+        const topPrice = candleSeries.coordinateToPrice(0);
+        const bottomPrice = candleSeries.coordinateToPrice(chart.chartElement().clientHeight);
+        if (topPrice !== null && bottomPrice !== null) {
             // 图形价格区间与可视价格区间无交集则隐藏
             if (d.priceMax < bottomPrice || d.priceMin > topPrice) return false;
         }
@@ -886,7 +898,14 @@ function restoreDrawingData(d) {
         ]);
     } else if (d.type === 'line' || d.type === 'ray') {
         if (d.points) {
-            const mapped = d.points.map(p => ({ time: snapTimeToBar(p.time), value: p.price }));
+            const mapped = d.points
+                .map(p => {
+                    const t = snapTimeToBar(p.time);
+                    if (t === null || t === undefined) return null;
+                    return { time: t, value: p.price };
+                })
+                .filter(p => p !== null);
+            if (mapped.length < 2) return;
             console.log('[restoreDrawingData] line/ray setData mapped=', JSON.stringify(mapped), '| 可见范围times=', JSON.stringify(chart.timeScale().getVisibleRange()));
             d.series.setData(mapped);
         }
@@ -1127,6 +1146,85 @@ function updateDrawingList() {
         const typeNames = { hline: '水平线', vline: '垂直线', line: '趋势线', rect: '矩形', ray: '射线' };
         return `<span style="color:${d.color};">■</span>#${d.id}${typeNames[d.type]}(${d.cycles.join(',')})`;
     }).join(' &nbsp; ');
+}
+
+// ==================== 右键菜单 ====================
+function showContextMenu(x, y) {
+    const menu = document.getElementById('contextMenu');
+    menu.style.left = x + 'px';
+    menu.style.top = y + 'px';
+    menu.classList.add('show');
+}
+
+function closeContextMenu() {
+    document.getElementById('contextMenu').classList.remove('show');
+}
+
+function ctxDeleteDrawing() {
+    if (!ctxTargetId) return;
+    const idx = drawings.findIndex(d => d.id === ctxTargetId);
+    if (idx !== -1) {
+        drawings[idx].series.setData([]);
+        drawings.splice(idx, 1);
+    }
+    closeContextMenu();
+    renderDrawingsForPeriod(currentPeriod);
+    updateDrawingList();
+    ctxTargetId = null;
+}
+
+function ctxShowProps() {
+    if (!ctxTargetId) return;
+    closeContextMenu();
+    showPropsPanelForDrawing(ctxTargetId);
+}
+
+function ctxDuplicate() {
+    if (!ctxTargetId) return;
+    const src = drawings.find(d => d.id === ctxTargetId);
+    if (!src) return;
+    const newId = ++drawingIdCounter;
+    const color = src.color, lw = src.lineWidth;
+    const ser = chart.addLineSeries({ color, lineWidth: lw, lastValueVisible: false, priceLineVisible: false });
+    const newPoints = src.points ? src.points.map(p => ({ time: p.time + 60, price: p.price })) : null;
+    if (newPoints) ser.setData(newPoints.map(p => ({ time: p.time, value: p.price })));
+    const newDrawing = {
+        id: newId, type: src.type, series: ser, color, lineWidth: lw,
+        points: newPoints,
+        top: src.top, bottom: src.bottom,
+        time: src.time !== undefined ? src.time + 60 : undefined,
+        endTime: src.endTime ? src.endTime + 60 : undefined,
+        cycles: [...src.cycles],
+        priceMin: src.priceMin, priceMax: src.priceMax
+    };
+    drawings.push(newDrawing);
+    closeContextMenu();
+    renderDrawingsForPeriod(currentPeriod);
+    updateDrawingList();
+}
+
+// ==================== 属性面板 ====================
+function showPropsPanelForDrawing(id) {
+    const d = drawings.find(d2 => d2.id === id);
+    if (!d) return;
+    document.getElementById('propType').textContent = { hline: '水平线', vline: '垂直线', line: '趋势线', rect: '矩形', ray: '射线' }[d.type];
+    document.getElementById('propId').textContent = '#' + d.id;
+    document.getElementById('propColorPicker').value = d.color;
+    document.getElementById('propLineWidth').value = d.lineWidth;
+    document.getElementById('propPriceMin').value = d.priceMin !== null ? d.priceMin : '';
+    document.getElementById('propPriceMax').value = d.priceMax !== null ? d.priceMax : '';
+    // 周期标签
+    document.querySelectorAll('#propCycles .period-tag').forEach(t => {
+        t.classList.toggle('active', d.cycles.includes(t.dataset.period));
+    });
+    document.getElementById('propsPanel').style.display = 'block';
+    document.getElementById('propsOverlay').style.display = 'block';
+    ctxTargetId = id;
+}
+
+function closePropsPanel() {
+    document.getElementById('propsPanel').style.display = 'none';
+    document.getElementById('propsOverlay').style.display = 'none';
 }
 
 // ==================== 启动 ====================

@@ -345,7 +345,7 @@
                 <option value="50min">50分钟</option>
                 <option value="55min">55分钟</option>
                 <option value="60min">60分钟</option>
-                <option value="1day" selected>日线</option>
+                <option value="1min" selected>1分钟</option>
                 <option value="1week">周线</option>
                 <option value="1month">月线</option>
             </select>
@@ -893,26 +893,28 @@
 
                 // 获取时间坐标
                 const timeCoord = mainChart.timeScale().coordinateToTime(x);
+                // 严格检查：坐标超出图表可见区域时取消绘制
                 if (!timeCoord) {
-                    // 如果失败，尝试用图表宽度的比例来估算
-                    const scrollPos = mainChart.timeScale().scrollPosition();
-                    const chartWidth = mainChart.timeScale().width();
-                    const estimatedX = chartWidth * 0.5; // 默认中间
-                    const timeCoord2 = mainChart.timeScale().coordinateToTime(estimatedX);
-                    if (!timeCoord2) return;
-                    const price2 = candleSeries.coordinateToPrice(y);
-                    if (!isDrawing) {
-                        drawStartPoint = { time: timeCoord2, price: price2 };
-                        isDrawing = true;
-                        updateDrawingHint();
-                    } else {
-                        finishDrawing(timeCoord2, price2);
-                    }
+                    console.log('[绘图] 鼠标位置超出图表时间范围，取消');
+                    if (tempDrawing) { tempDrawing.forEach(ser => ser.setData([])); tempDrawing = null; }
+                    drawStartPoint = null;
+                    isDrawing = false;
+                    updateDrawingHint();
                     return;
                 }
 
                 // 获取价格 - 使用coordinateToPrice
-                const price = candleSeries.coordinateToPrice(y);
+                const price = getChartPriceAtY(y);
+
+                // 严格检查：价格坐标无效时取消绘制
+                if (price === null || price === undefined) {
+                    console.log('[绘图] 鼠标位置超出图表价格范围，取消');
+                    if (tempDrawing) { tempDrawing.forEach(ser => ser.setData([])); tempDrawing = null; }
+                    drawStartPoint = null;
+                    isDrawing = false;
+                    updateDrawingHint();
+                    return;
+                }
 
                 if (!isDrawing) {
                     drawStartPoint = { time: timeCoord, price };
@@ -947,7 +949,14 @@
                 const color = currentDrawColor;
                 const lineWidth = currentDrawLineWidth;
 
-                if (!endTime || !endPrice) return;
+                if (!endTime || !endPrice) {
+                    console.log('[绘图预览] 终点坐标无效，不绘制预览');
+                    if (tempDrawing) {
+                        tempDrawing.forEach(ser => ser.setData([]));
+                        tempDrawing = null;
+                    }
+                    return;
+                }
 
                 if (tempDrawing) {
                     tempDrawing.forEach(ser => ser.setData([]));
@@ -1007,6 +1016,9 @@
             if (!mainChart || !candleSeries) return 0;
             // LightweightCharts 4.x 使用 coordinateToPrice 将 Y 坐标转换为价格
             // Y 坐标：0 = 顶部（高价），正值向下
+            // 严格检查：超出图表范围时返回null
+            const chartHeight = mainChart.chartElement().clientHeight;
+            if (y < 0 || y > chartHeight) return null;
             return candleSeries.coordinateToPrice(y);
         }
 
@@ -1086,6 +1098,15 @@
             if (!drawStartPoint || !currentTool) {
                 return;
             }
+            // 严格检查：endTime/endPrice不能为null，否则 lightweight-charts 报 "Value is null"
+            if (endTime === null || endTime === undefined || endPrice === null || endPrice === undefined) {
+                console.warn('[绘图] 终点坐标无效，取消绘制');
+                if (tempDrawing) { tempDrawing.forEach(ser => ser.setData([])); tempDrawing = null; }
+                drawStartPoint = null;
+                isDrawing = false;
+                updateDrawingHint();
+                return;
+            }
 
             const color = currentDrawColor;
             const lineWidth = currentDrawLineWidth;
@@ -1105,14 +1126,14 @@
                     { time: drawStartPoint.time, value: drawStartPoint.price },
                     { time: endTime, value: drawStartPoint.price }
                 ]);
-                newDrawing = { id, type: 'hline', series: ser, color, lineWidth, price: drawStartPoint.price, time: drawStartPoint.time, endTime, cycles: [document.getElementById('period').value], priceMin: null, priceMax: null };
+                newDrawing = { id, type: 'hline', series: ser, color, lineWidth, price: drawStartPoint.price, time: drawStartPoint.time, endTime, cycles: [...ALL_PERIODS], priceMin: null, priceMax: null };
             } else if (currentTool === 'vline') {
                 const ser = mainChart.addLineSeries({ color, lineWidth, lineStyle: LightweightCharts.LineStyle.Dashed, lastValueVisible: false, priceLineVisible: false });
                 ser.setData([
                     { time: drawStartPoint.time, value: 0 },
                     { time: drawStartPoint.time, value: 1 }
                 ]);
-                newDrawing = { id, type: 'vline', series: ser, color, lineWidth, time: drawStartPoint.time, cycles: [document.getElementById('period').value], priceMin: null, priceMax: null };
+                newDrawing = { id, type: 'vline', series: ser, color, lineWidth, time: drawStartPoint.time, cycles: [...ALL_PERIODS], priceMin: null, priceMax: null };
             } else if (currentTool === 'line') {
                 const ser = mainChart.addLineSeries({ color, lineWidth, lastValueVisible: false, priceLineVisible: false });
                 ser.setData([
@@ -1120,7 +1141,7 @@
                     { time: endTime, value: endPrice }
                 ]);
                 newDrawing = { id, type: 'line', series: ser, color, lineWidth,
-                    points: [{ time: drawStartPoint.time, price: drawStartPoint.price }, { time: endTime, price: endPrice }], cycles: [document.getElementById('period').value], priceMin: null, priceMax: null };
+                    points: [{ time: drawStartPoint.time, price: drawStartPoint.price }, { time: endTime, price: endPrice }], cycles: [...ALL_PERIODS], priceMin: null, priceMax: null };
             } else if (currentTool === 'rect') {
                 const top = Math.max(drawStartPoint.price, endPrice);
                 const bottom = Math.min(drawStartPoint.price, endPrice);
@@ -1132,7 +1153,7 @@
                     { time: drawStartPoint.time, value: bottom },
                     { time: drawStartPoint.time, value: top }
                 ]);
-                newDrawing = { id, type: 'rect', series: ser, color, lineWidth, top, bottom, time: drawStartPoint.time, endTime, cycles: [document.getElementById('period').value], priceMin: null, priceMax: null };
+                newDrawing = { id, type: 'rect', series: ser, color, lineWidth, top, bottom, time: drawStartPoint.time, endTime, cycles: [...ALL_PERIODS], priceMin: null, priceMax: null };
             } else if (currentTool === 'ray') {
                 const ser = mainChart.addLineSeries({ color, lineWidth, lastValueVisible: false, priceLineVisible: false });
                 ser.setData([
@@ -1140,12 +1161,13 @@
                     { time: endTime, value: endPrice }
                 ]);
                 newDrawing = { id, type: 'ray', series: ser, color, lineWidth,
-                    points: [{ time: drawStartPoint.time, price: drawStartPoint.price }, { time: endTime, price: endPrice }], cycles: [document.getElementById('period').value], priceMin: null, priceMax: null };
+                    points: [{ time: drawStartPoint.time, price: drawStartPoint.price }, { time: endTime, price: endPrice }], cycles: [...ALL_PERIODS], priceMin: null, priceMax: null };
             }
 
             if (newDrawing) {
                 drawings.push(newDrawing);
                 drawingSeriesMap[id] = newDrawing.series;
+                saveDrawingsToStorage();
                 console.log(`[绘图] #${id} ${currentTool} 完成，当前${drawings.length}个对象`);
             }
 
@@ -1166,7 +1188,170 @@
             document.getElementById('tool-select')?.classList.remove('active');
             document.getElementById('tool-delete').style.display = 'none';
             updateDrawingHint();
+            saveDrawingsToStorage();
             console.log('[绘图] 已清空');
+        }
+
+        // ========== localStorage 持久化 ==========
+        const STORAGE_KEY = 'kline_drawings_v1';
+        // 所有可用周期（用于多级别显示 - 全局常量）
+        const ALL_PERIODS = ['1min','3min','5min','8min','10min','15min','18min','20min','25min','30min','35min','40min','45min','50min','55min','60min','1day','1week','1month'];
+
+        function saveDrawingsToStorage() {
+            try {
+                const serializable = drawings.map(d => ({
+                    id: d.id,
+                    type: d.type,
+                    color: d.color,
+                    lineWidth: d.lineWidth,
+                    price: d.price,
+                    time: d.time,
+                    endTime: d.endTime,
+                    points: d.points ? [...d.points] : undefined,
+                    top: d.top,
+                    bottom: d.bottom,
+                    cycles: d.cycles ? [...d.cycles] : [...ALL_PERIODS],
+                    priceMin: d.priceMin,
+                    priceMax: d.priceMax
+                }));
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(serializable));
+                console.log(`[绘图存储] 已保存 ${drawings.length} 个图形到localStorage`);
+            } catch(e) {
+                console.error('[绘图存储] 保存失败:', e);
+            }
+        }
+
+        function loadDrawingsFromStorage() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (!raw) {
+                    console.log('[绘图存储] 无已保存的图形');
+                    return [];
+                }
+                const parsed = JSON.parse(raw);
+                if (!Array.isArray(parsed)) return [];
+                console.log(`[绘图存储] 从localStorage加载了 ${parsed.length} 个图形`);
+                return parsed;
+            } catch(e) {
+                console.error('[绘图存储] 加载失败:', e);
+                return [];
+            }
+        }
+
+        function deleteDrawingFromStorage(id) {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (!raw) return;
+                const arr = JSON.parse(raw);
+                const filtered = arr.filter(d => d.id !== id);
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+            } catch(e) {
+                console.error('[绘图存储] 删除失败:', e);
+            }
+        }
+
+        // 页面初始化时从localStorage恢复图形
+        function restoreFromStorageOnInit() {
+            const saved = loadDrawingsFromStorage();
+            if (saved.length === 0) return;
+
+            // 更新全局drawingIdCounter，确保新图形ID不冲突
+            const maxId = saved.reduce((m, d) => Math.max(m, d.id || 0), 0);
+            if (maxId > drawingIdCounter) drawingIdCounter = maxId + 1;
+
+            // 直接用 loadAllData 后恢复的流程，只是用 localStorage 的数据
+            const tryRestore = () => {
+                if (klineData && klineData.length > 0 && klineData[0].time) {
+                    console.log(`[绘图存储] 开始恢复 ${saved.length} 个图形`);
+                    saved.forEach(savedDrawing => {
+                        let ser = null;
+                        try {
+                            if (savedDrawing.type === 'hline') {
+                                ser = mainChart.addLineSeries({
+                                    color: savedDrawing.color,
+                                    lineWidth: savedDrawing.lineWidth,
+                                    lineStyle: LightweightCharts.LineStyle.Dashed,
+                                    lastValueVisible: false,
+                                    priceLineVisible: false
+                                });
+                                const vr = mainChart.timeScale().visibleRange();
+                                if (vr) {
+                                    ser.setData([
+                                        { time: vr.from, value: savedDrawing.price },
+                                        { time: vr.to, value: savedDrawing.price }
+                                    ]);
+                                }
+                            } else if (savedDrawing.type === 'vline') {
+                                ser = mainChart.addLineSeries({
+                                    color: savedDrawing.color,
+                                    lineWidth: savedDrawing.lineWidth,
+                                    lineStyle: LightweightCharts.LineStyle.Dashed,
+                                    lastValueVisible: false,
+                                    priceLineVisible: false
+                                });
+                                const topPrice = candleSeries.coordinateToPrice(0);
+                                const bottomPrice = candleSeries.coordinateToPrice(mainChart.chartElement().clientHeight);
+                                if (topPrice !== null && bottomPrice !== null) {
+                                    ser.setData([
+                                        { time: savedDrawing.time, value: topPrice },
+                                        { time: savedDrawing.time, value: bottomPrice }
+                                    ]);
+                                }
+                            } else if ((savedDrawing.type === 'line' || savedDrawing.type === 'ray') && savedDrawing.points) {
+                                ser = mainChart.addLineSeries({
+                                    color: savedDrawing.color,
+                                    lineWidth: savedDrawing.lineWidth,
+                                    lastValueVisible: false,
+                                    priceLineVisible: false
+                                });
+                                ser.setData(savedDrawing.points.map(p => ({ time: p.time, value: p.price })));
+                            } else if (savedDrawing.type === 'rect' && savedDrawing.points) {
+                                ser = mainChart.addLineSeries({
+                                    color: savedDrawing.color,
+                                    lineWidth: savedDrawing.lineWidth,
+                                    lastValueVisible: false,
+                                    priceLineVisible: false
+                                });
+                                const top = savedDrawing.top, bottom = savedDrawing.bottom;
+                                const t = savedDrawing.time, et = savedDrawing.endTime;
+                                ser.setData([
+                                    { time: t, value: top },
+                                    { time: et, value: top },
+                                    { time: et, value: bottom },
+                                    { time: t, value: bottom },
+                                    { time: t, value: top }
+                                ]);
+                            }
+
+                            if (ser) {
+                                drawings.push({
+                                    id: savedDrawing.id,
+                                    type: savedDrawing.type,
+                                    series: ser,
+                                    color: savedDrawing.color,
+                                    lineWidth: savedDrawing.lineWidth,
+                                    price: savedDrawing.price,
+                                    time: savedDrawing.time,
+                                    endTime: savedDrawing.endTime,
+                                    points: savedDrawing.points ? [...savedDrawing.points] : undefined,
+                                    top: savedDrawing.top,
+                                    bottom: savedDrawing.bottom,
+                                    cycles: savedDrawing.cycles || [...ALL_PERIODS],
+                                    priceMin: savedDrawing.priceMin,
+                                    priceMax: savedDrawing.priceMax
+                                });
+                                drawingSeriesMap[savedDrawing.id] = ser;
+                            }
+                        } catch(e) {
+                            console.error(`[绘图存储] 恢复 #${savedDrawing.id} 失败:`, e);
+                        }
+                    });
+                    console.log(`[绘图存储] 恢复完成，共 ${drawings.length} 个对象`);
+                } else {
+                    setTimeout(tryRestore, 50);
+                }
+            };
+            tryRestore();
         }
 
         function deleteSelectedDrawing() {
@@ -1176,11 +1361,64 @@
                 drawings[idx].series?.setData([]);
                 drawings.splice(idx, 1);
                 delete drawingSeriesMap[selectedDrawingId];
+                deleteDrawingFromStorage(selectedDrawingId);
                 console.log(`[绘图] 删除 #${selectedDrawingId}`);
             }
             selectedDrawingId = null;
             document.getElementById('tool-delete').style.display = 'none';
             updateDrawingHint();
+        }
+
+        // 在图表指定像素坐标处查找最近的图形
+        function findDrawingAtPoint(x, y) {
+            const HIT_TIME_THRESH = 20; // 秒
+            const HIT_PRICE_RATIO = 0.015;
+            let best = null, bestDist = Infinity;
+
+            const clickTime = mainChart.timeScale().coordinateToTime(x);
+            const clickPrice = candleSeries.coordinateToPrice(y);
+            const currentPeriod = document.getElementById('period').value;
+
+            drawings.forEach(d => {
+                // 检查该图形是否在当前周期显示
+                if (!(d.cycles || [currentPeriod]).includes(currentPeriod)) return;
+
+                let dist = Infinity;
+
+                if (d.type === 'hline') {
+                    if (clickPrice === null) return;
+                    const chartHeight = mainChart.chartElement().clientHeight;
+                    const topPrice = candleSeries.coordinateToPrice(0);
+                    const bottomPrice = candleSeries.coordinateToPrice(chartHeight);
+                    if (topPrice !== null && bottomPrice !== null) {
+                        const visibleRange = topPrice - bottomPrice;
+                        const threshold = visibleRange * HIT_PRICE_RATIO;
+                        if (Math.abs(clickPrice - d.price) <= threshold) dist = Math.abs(clickPrice - d.price);
+                    }
+                } else if (d.type === 'vline') {
+                    if (clickTime === null) return;
+                    if (Math.abs(clickTime - d.time) < HIT_TIME_THRESH) dist = 0;
+                } else if (d.points) {
+                    if (clickTime === null) return;
+                    const p1 = d.points[0], p2 = d.points[1];
+                    if (p1 && p2) {
+                        const minT = Math.min(p1.time, p2.time) - HIT_TIME_THRESH;
+                        const visibleRange = mainChart.timeScale().visibleRange();
+                        const maxT = d.type === 'ray' && visibleRange
+                            ? visibleRange.to + HIT_TIME_THRESH
+                            : Math.max(p1.time, p2.time) + HIT_TIME_THRESH;
+                        if (clickTime >= minT && clickTime <= maxT) dist = 1;
+                    }
+                } else if (d.type === 'rect') {
+                    if (clickTime === null || clickPrice === null) return;
+                    if (Math.abs(clickTime - d.time) < HIT_TIME_THRESH) {
+                        const midPrice = (d.top + d.bottom) / 2;
+                        dist = Math.abs(clickPrice - midPrice);
+                    }
+                }
+                if (dist < bestDist) { bestDist = dist; best = d; }
+            });
+            return best && bestDist < 30 ? best : null;
         }
 
         function selectDrawingById(id) {
@@ -1470,7 +1708,7 @@
             // 获取MACD图表的可见时间范围
             let visibleRange = null;
             try {
-                visibleRange = macdChart.timeScale().getVisibleRange();
+                visibleRange = macdChart.timeScale().visibleRange();
             } catch(e) {}
             
             // 从histogram数据计算零轴位置（基于实际数据范围）
@@ -2458,7 +2696,7 @@
                                 lastValueVisible: false,
                                 priceLineVisible: false
                             });
-                            const visibleRange = mainChart.timeScale().getVisibleRange();
+                            const visibleRange = mainChart.timeScale().visibleRange();
                             if (visibleRange) {
                                 ser.setData([
                                     { time: visibleRange.from, value: saved.price },
@@ -2481,10 +2719,14 @@
                                     lastValueVisible: false,
                                     priceLineVisible: false
                                 });
-                                ser.setData([
-                                    { time: closestBar.time, value: 0 },
-                                    { time: closestBar.time, value: 1 }
-                                ]);
+                                const topPrice = candleSeries.coordinateToPrice(0);
+                                const bottomPrice = candleSeries.coordinateToPrice(mainChart.chartElement().clientHeight);
+                                if (topPrice !== null && bottomPrice !== null) {
+                                    ser.setData([
+                                        { time: closestBar.time, value: topPrice },
+                                        { time: closestBar.time, value: bottomPrice }
+                                    ]);
+                                }
                                 console.log(`[跨周期] 恢复垂直线 #${saved.id} @ ${closestBar.time}`);
                             }
                             
@@ -2569,6 +2811,8 @@
                     if (klineData && klineData.length > 0 && klineData[0].time) {
                         console.log(`[跨周期] klineData已就绪 (${klineData.length}条)，开始恢复线条`);
                         restoreDrawings(klineData);
+                        // 恢复后按 cycles 过滤显示
+                        renderDrawingsForPeriod();
                     } else if (waited < maxWait) {
                         waited += interval;
                         setTimeout(tryRestore, interval);
@@ -2583,7 +2827,11 @@
 
         document.addEventListener('DOMContentLoaded', () => {
             // initMainChart() 会在 loadAllData() 内部调用，避免重复 fetch
-            loadAllData();
+            // loadAllData 完成后会触发 restoreFromStorageOnInit (通过其内部的 tryRestore)
+            loadAllData().then(() => {
+                // klineData 已就绪，从 localStorage 恢复图形
+                restoreFromStorageOnInit();
+            });
             loadOptionChain();
             loadFundamental();
             // 每秒增量刷新最后一根K线
@@ -2641,6 +2889,8 @@ function ctxDeleteDrawing() {
     if (idx !== -1) {
         drawings[idx].series?.setData([]);
         drawings.splice(idx, 1);
+        deleteDrawingFromStorage(ctxTargetId);
+        delete drawingSeriesMap[ctxTargetId];
     }
     closeContextMenu();
 }
@@ -2663,10 +2913,15 @@ function openPropsPanel(id) {
     document.getElementById('propType').textContent = typeNames[d.type];
     document.getElementById('propId').textContent = `#${d.id}`;
 
-    // 周期标签
+    // 周期标签 - 默认全部选中（跨所有周期）
+    const allPeriods = ['1min','3min','5min','8min','10min','15min','18min','20min','25min','30min','35min','40min','45min','50min','55min','60min','1day','1week','1month'];
     document.querySelectorAll('#propCycles .period-tag').forEach(t => {
-        t.classList.toggle('active', (d.cycles || []).includes(t.dataset.period));
+        t.classList.toggle('active', (d.cycles && d.cycles.length > 0) ? d.cycles.includes(t.dataset.period) : allPeriods.includes(t.dataset.period));
     });
+
+    // 价格区间
+    document.getElementById('propPriceMin').value = d.priceMin !== null && d.priceMin !== undefined ? d.priceMin : '';
+    document.getElementById('propPriceMax').value = d.priceMax !== null && d.priceMax !== undefined ? d.priceMax : '';
 
     // 颜色
     document.querySelectorAll('#propsContent .draw-color-btn').forEach(b => {
@@ -2695,6 +2950,10 @@ function toggleCycleTag(el) {
 function setPropColor(color) {
     document.querySelectorAll('#propsContent .draw-color-btn').forEach(b => b.classList.remove('active'));
     document.getElementById('propColorPicker').value = color;
+    // 同时高亮对应的颜色按钮
+    document.querySelectorAll('#propsContent .draw-color-btn').forEach(b => {
+        if (b.dataset.color === color) b.classList.add('active');
+    });
 }
 
 function applyProps() {
@@ -2702,10 +2961,19 @@ function applyProps() {
     const d = drawings.find(d => d.id === id);
     if (!d) return;
 
-    // 周期
-    d.cycles = Array.from(document.querySelectorAll('#propCycles .period-tag.active'))
+    // 周期 - 收集所有选中的周期
+    const selectedCycles = Array.from(document.querySelectorAll('#propCycles .period-tag.active'))
         .map(t => t.dataset.period);
-    if (d.cycles.length === 0) d.cycles = [document.getElementById('period').value];
+    
+    // 如果一个都没选，默认当前周期
+    const currentPeriodVal = document.getElementById('period').value;
+    d.cycles = selectedCycles.length > 0 ? selectedCycles : [currentPeriodVal];
+
+    // 价格区间
+    const pMin = document.getElementById('propPriceMin').value;
+    const pMax = document.getElementById('propPriceMax').value;
+    d.priceMin = pMin !== '' ? parseFloat(pMin) : null;
+    d.priceMax = pMax !== '' ? parseFloat(pMax) : null;
 
     // 颜色和线宽
     d.color = document.getElementById('propColorPicker').value;
@@ -2716,15 +2984,31 @@ function applyProps() {
 
     // 重新渲染（按 cycles 过滤）
     renderDrawingsForPeriod();
+
+    // 保存到localStorage
+    saveDrawingsToStorage();
 }
 
 // 根据当前周期渲染应显示的图形
 function renderDrawingsForPeriod() {
     const period = document.getElementById('period').value;
     drawings.forEach(d => {
+        // 检查周期是否匹配
         if (!(d.cycles || [period]).includes(period)) {
             d.series?.setData([]);
             return;
+        }
+        // 价格区间过滤
+        if (d.priceMin !== null && d.priceMax !== null) {
+            const topPrice = candleSeries.coordinateToPrice(0);
+            const bottomPrice = candleSeries.coordinateToPrice(mainChart.chartElement().clientHeight);
+            if (topPrice !== null && bottomPrice !== null) {
+                // 图形价格区间与可视价格区间无交集则隐藏
+                if (d.priceMax < bottomPrice || d.priceMin > topPrice) {
+                    d.series?.setData([]);
+                    return;
+                }
+            }
         }
         // 恢复图形数据
         restoreDrawingData(d);
@@ -2734,10 +3018,9 @@ function renderDrawingsForPeriod() {
 // 恢复单个图形的原始数据
 function restoreDrawingData(d) {
     const period = document.getElementById('period').value;
-    if (!d.points && d.type !== 'hline' && d.type !== 'vline') return;
 
     if (d.type === 'hline') {
-        const visibleRange = mainChart.timeScale().getVisibleRange();
+        const visibleRange = mainChart.timeScale().visibleRange();
         if (visibleRange) {
             d.series.setData([
                 { time: visibleRange.from, value: d.price },
@@ -2745,12 +3028,18 @@ function restoreDrawingData(d) {
             ]);
         }
     } else if (d.type === 'vline') {
-        const visibleRange = mainChart.timeScale().getVisibleRange();
+        // 垂直线：使用价格范围的最大最小值，迫使线画满整个Y轴
+        const visibleRange = mainChart.timeScale().visibleRange();
         if (visibleRange) {
-            d.series.setData([
-                { time: d.time, value: 0 },
-                { time: d.time, value: 1 }
-            ]);
+            // 用主图candleSeries的价格范围来画垂直线
+            const topPrice = candleSeries.coordinateToPrice(0);
+            const bottomPrice = candleSeries.coordinateToPrice(mainChart.chartElement().clientHeight);
+            if (topPrice !== null && bottomPrice !== null) {
+                d.series.setData([
+                    { time: d.time, value: topPrice },
+                    { time: d.time, value: bottomPrice }
+                ]);
+            }
         }
     } else if (d.type === 'line' || d.type === 'ray') {
         if (d.points && d.points.length >= 2) {
@@ -2792,21 +3081,48 @@ function restoreDrawingData(d) {
             <div class="prop-value">
                 <div class="period-tags" id="propCycles">
                     <span class="period-tag" data-period="1min" onclick="toggleCycleTag(this)">1min</span>
+                    <span class="period-tag" data-period="3min" onclick="toggleCycleTag(this)">3min</span>
                     <span class="period-tag" data-period="5min" onclick="toggleCycleTag(this)">5min</span>
+                    <span class="period-tag" data-period="8min" onclick="toggleCycleTag(this)">8min</span>
+                    <span class="period-tag" data-period="10min" onclick="toggleCycleTag(this)">10min</span>
                     <span class="period-tag" data-period="15min" onclick="toggleCycleTag(this)">15min</span>
+                    <span class="period-tag" data-period="18min" onclick="toggleCycleTag(this)">18min</span>
+                    <span class="period-tag" data-period="20min" onclick="toggleCycleTag(this)">20min</span>
+                    <span class="period-tag" data-period="25min" onclick="toggleCycleTag(this)">25min</span>
+                    <span class="period-tag" data-period="30min" onclick="toggleCycleTag(this)">30min</span>
+                    <span class="period-tag" data-period="35min" onclick="toggleCycleTag(this)">35min</span>
+                    <span class="period-tag" data-period="40min" onclick="toggleCycleTag(this)">40min</span>
+                    <span class="period-tag" data-period="45min" onclick="toggleCycleTag(this)">45min</span>
+                    <span class="period-tag" data-period="50min" onclick="toggleCycleTag(this)">50min</span>
+                    <span class="period-tag" data-period="55min" onclick="toggleCycleTag(this)">55min</span>
                     <span class="period-tag" data-period="60min" onclick="toggleCycleTag(this)">60min</span>
+                    <span class="period-tag" data-period="1day" onclick="toggleCycleTag(this)">日线</span>
+                    <span class="period-tag" data-period="1week" onclick="toggleCycleTag(this)">周线</span>
+                    <span class="period-tag" data-period="1month" onclick="toggleCycleTag(this)">月线</span>
                 </div>
-                <div class="prop-hint">勾选后图形将在对应周期图表上同时显示</div>
+                <div class="prop-hint">勾选后图形将在对应周期图表上同时显示（留空=仅当前周期）</div>
             </div>
+        </div>
+        <div class="prop-row">
+            <span class="prop-label">价格区间</span>
+            <div class="prop-value" style="display:flex;align-items:center;gap:8px;">
+                <input type="number" id="propPriceMin" placeholder="最低价" step="1" style="background:#333;color:#ddd;border:1px solid #555;border-radius:4px;padding:4px 8px;width:80px;font-size:13px;">
+                <span style="color:#666;">~</span>
+                <input type="number" id="propPriceMax" placeholder="最高价" step="1" style="background:#333;color:#ddd;border:1px solid #555;border-radius:4px;padding:4px 8px;width:80px;font-size:13px;">
+            </div>
+        </div>
+        <div class="prop-row">
+            <div class="prop-hint" style="margin-left:0;">留空表示不限制价格区间，图形在各周期均可显示</div>
         </div>
         <div class="prop-row">
             <span class="prop-label">颜色</span>
             <div class="prop-value">
-                <button class="tool-btn draw-color-btn" data-color="#FFD700" onclick="setPropColor('#FFD700')" style="background:#FFD700;color:#000;">&nbsp;</button>
-                <button class="tool-btn draw-color-btn" data-color="#FFFFFF" onclick="setPropColor('#FFFFFF')" style="background:#fff;color:#000;">&nbsp;</button>
-                <button class="tool-btn draw-color-btn" data-color="#4CAF50" onclick="setPropColor('#4CAF50')" style="background:#4CAF50;color:#fff;">&nbsp;</button>
-                <button class="tool-btn draw-color-btn" data-color="#2196F3" onclick="setPropColor('#2196F3')" style="background:#2196F3;color:#fff;">&nbsp;</button>
-                <input type="color" id="propColorPicker" onchange="setPropColor(this.value)" style="background:#333;border:1px solid #555;border-radius:4px;width:30px;height:24px;cursor:pointer;">
+                <button class="tool-btn draw-color-btn" data-color="#FFD700" onclick="setPropColor('#FFD700')" style="background:#FFD700;color:#000;border-radius:50%;">&nbsp;</button>
+                <button class="tool-btn draw-color-btn" data-color="#FFFFFF" onclick="setPropColor('#FFFFFF')" style="background:#fff;color:#000;border-radius:50%;">&nbsp;</button>
+                <button class="tool-btn draw-color-btn" data-color="#4CAF50" onclick="setPropColor('#4CAF50')" style="background:#4CAF50;color:#fff;border-radius:50%;">&nbsp;</button>
+                <button class="tool-btn draw-color-btn" data-color="#2196F3" onclick="setPropColor('#2196F3')" style="background:#2196F3;color:#fff;border-radius:50%;">&nbsp;</button>
+                <button class="tool-btn draw-color-btn" data-color="#FF5722" onclick="setPropColor('#FF5722')" style="background:#FF5722;color:#fff;border-radius:50%;">&nbsp;</button>
+                <input type="color" id="propColorPicker" onchange="setPropColor(this.value)" style="background:#333;border:1px solid #555;border-radius:4px;width:30px;height:24px;cursor:pointer;margin-left:4px;">
             </div>
         </div>
         <div class="prop-row">
@@ -2821,6 +3137,7 @@ function restoreDrawingData(d) {
         </div>
     </div>
     <div class="btn-row">
+        <button class="btn-apply" onclick="event.stopPropagation();applyProps();console.log('after applyProps ctxTargetId=' + window._currentPropsId);" style="padding:6px 16px;border-radius:4px;border:none;cursor:pointer;font-size:13px;background:#4CAF50;color:#fff;">应用</button>
         <button class="btn-ok" onclick="event.stopPropagation();applyProps();closePropsPanel();">确定</button>
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
