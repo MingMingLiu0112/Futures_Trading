@@ -2933,8 +2933,8 @@
                             );
                             if (closestBar) {
                                 ser = mainChart.addLineSeries({
-                                    color: saved.color,
-                                    lineWidth: saved.lineWidth,
+                                    color: saved.color || '#ff0000',
+                                    lineWidth: saved.lineWidth || 1,
                                     lineStyle: LightweightCharts.LineStyle.Dashed,
                                     lastValueVisible: false,
                                     priceLineVisible: false
@@ -2955,8 +2955,8 @@
                                 console.warn(`[跨周期] 跳过 #${saved.id}（points数据不完整）`);
                             } else {
                                 ser = mainChart.addLineSeries({
-                                    color: saved.color,
-                                    lineWidth: saved.lineWidth,
+                                    color: saved.color || '#ff0000',
+                                    lineWidth: saved.lineWidth || 1,
                                     lastValueVisible: false,
                                     priceLineVisible: false
                                 });
@@ -2978,8 +2978,8 @@
                                 const top = saved.top, bottom = saved.bottom;
                                 const t = rectTime, et = rectEndTime;
                                 ser = mainChart.addLineSeries({
-                                    color: saved.color,
-                                    lineWidth: saved.lineWidth,
+                                    color: saved.color || '#ff0000',
+                                    lineWidth: saved.lineWidth || 1,
                                     lastValueVisible: false,
                                     priceLineVisible: false
                                 });
