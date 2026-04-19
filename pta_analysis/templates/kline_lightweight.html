@@ -1429,13 +1429,43 @@
                         const maxT = d.type === 'ray' && visibleRange
                             ? visibleRange.to + HIT_TIME_THRESH
                             : Math.max(p1.time, p2.time) + HIT_TIME_THRESH;
-                        if (clickTime >= minT && clickTime <= maxT) dist = 1;
+                        if (clickTime >= minT && clickTime <= maxT) {
+                            // 计算点击位置沿线的理论价格
+                            const t1 = p1.time, t2 = p2.time;
+                            const p1p = p1.price, p2p = p2.price;
+                            if (t2 !== t1) {
+                                const ratio = (clickTime - t1) / (t2 - t1);
+                                const expectedPrice = p1p + ratio * (p2p - p1p);
+                                if (clickPrice !== null) {
+                                    // 使用价格容差
+                                    const visR = candleSeries.visibleRange();
+                                    const priceRange = visR ? (visR.priceRange || (visR.maxPrice - visR.minPrice)) : 0;
+                                    const priceThresh = priceRange * HIT_PRICE_RATIO;
+                                    if (Math.abs(clickPrice - expectedPrice) <= priceThresh) {
+                                        dist = Math.abs(clickPrice - expectedPrice);
+                                    }
+                                }
+                            }
+                        }
                     }
                 } else if (d.type === 'rect') {
                     if (clickTime === null || clickPrice === null) return;
-                    if (Math.abs(clickTime - d.time) < HIT_TIME_THRESH) {
-                        const midPrice = (d.top + d.bottom) / 2;
-                        dist = Math.abs(clickPrice - midPrice);
+                    // 检查点击时间是否在矩形时间范围内
+                    const rectStartTime = d.time;
+                    const rectEndTime = d.endTime || rectStartTime;
+                    const minT = Math.min(rectStartTime, rectEndTime) - HIT_TIME_THRESH;
+                    const maxT = Math.max(rectStartTime, rectEndTime) + HIT_TIME_THRESH;
+                    if (clickTime >= minT && clickTime <= maxT) {
+                        // 检查点击价格是否在矩形价格范围内
+                        const top = d.top, bottom = d.bottom;
+                        if (clickPrice >= bottom && clickPrice <= top) {
+                            dist = 0; // 完全在矩形内
+                        } else {
+                            // 点击在矩形附近（垂直方向超出，水平方向在范围内）
+                            const distToTop = Math.abs(clickPrice - top);
+                            const distToBottom = Math.abs(clickPrice - bottom);
+                            dist = Math.min(distToTop, distToBottom);
+                        }
                     }
                 }
                 if (dist < bestDist) { bestDist = dist; best = d; }
@@ -2675,42 +2705,51 @@
         // ==================== 初始化 ====================
 
         document.getElementById('period').addEventListener('change', () => {
-            // ========== 保存当前 drawings ==========
-            // 水平线：保存价格（跨周期仍有效）
-            // 垂直线/趋势线：保存时间戳+价格，恢复时匹配最近K线
-            const savedDrawings = drawings.map(d => ({
-                id: d.id, type: d.type, color: d.color, lineWidth: d.lineWidth,
-                price: d.price, time: d.time, endTime: d.endTime,
-                points: d.points ? [...d.points] : undefined,
-                top: d.top, bottom: d.bottom,
-                cycles: d.cycles ? [...d.cycles] : [document.getElementById('period').value],
-                priceMin: d.priceMin, priceMax: d.priceMax
-            }));
-            
-            // 清空旧绘制（先清空数据再调用loadAllData，避免图表重建后数据残留）
+            // ========== 保存当前 drawings 到 localStorage ==========
+            try {
+                const serializable = drawings.map(d => ({
+                    id: d.id, type: d.type, color: d.color, lineWidth: d.lineWidth,
+                    price: d.price, time: d.time, endTime: d.endTime,
+                    points: d.points ? [...d.points] : undefined,
+                    top: d.top, bottom: d.bottom,
+                    cycles: d.cycles ? [...d.cycles] : [document.getElementById('period').value],
+                    priceMin: d.priceMin, priceMax: d.priceMax
+                }));
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(serializable));
+                console.log(`[跨周期] 已保存 ${serializable.length} 个图形到localStorage`);
+            } catch(e) {
+                console.error('[跨周期] 保存失败:', e);
+            }
+
+            // 清空旧绘制
             drawings.forEach(d => d.series?.setData([]));
             drawings = [];
             drawingSeriesMap = {};
-            
-            // ========== 跨周期恢复函数 ==========
-            const restoreDrawings = (klineArr) => {
-                if (!klineArr || klineArr.length === 0) {
+
+            // ========== 加载新周期数据 ==========
+            loadAllData().then(() => {
+                // ========== 跨周期恢复 ==========
+                if (!klineData || klineData.length === 0) {
                     console.log('[跨周期] klineData为空，跳过恢复');
                     return;
                 }
-                
-                // 将时间戳数组转为klineData格式（带time字段）用于匹配
-                const dataArr = klineArr.map(k => ({
+
+                // 从 localStorage 读取完整数据
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (!raw) return;
+                const savedDrawings = JSON.parse(raw);
+                console.log(`[跨周期] 从localStorage加载 ${savedDrawings.length} 个图形`);
+
+                // 将kline数组转为带time字段的格式
+                const dataArr = klineData.map(k => ({
                     time: k.time || (typeof k === 'object' && k.time !== undefined ? k.time : k),
-                    // 如果是对象格式，保留其他字段
                     ...(typeof k === 'object' ? k : {})
                 })).filter(k => k.time !== undefined);
-                
+
                 savedDrawings.forEach(saved => {
                     let ser = null;
                     try {
                         if (saved.type === 'hline') {
-                            // 水平线：直接用价格，不依赖时间
                             ser = mainChart.addLineSeries({
                                 color: saved.color,
                                 lineWidth: saved.lineWidth,
@@ -2718,19 +2757,17 @@
                                 lastValueVisible: false,
                                 priceLineVisible: false
                             });
-                            const visibleRange = mainChart.timeScale().visibleRange();
-                            if (visibleRange) {
+                            const vr = mainChart.timeScale().visibleRange();
+                            if (vr) {
                                 ser.setData([
-                                    { time: visibleRange.from, value: saved.price },
-                                    { time: visibleRange.to, value: saved.price }
+                                    { time: vr.from, value: saved.price },
+                                    { time: vr.to, value: saved.price }
                                 ]);
                             }
                             console.log(`[跨周期] 恢复水平线 #${saved.id} @ ${saved.price}`);
-                            
                         } else if (saved.type === 'vline') {
-                            // 垂直线：匹配最近时间点
                             const targetTime = saved.time;
-                            const closestBar = dataArr.reduce((prev, curr) => 
+                            const closestBar = dataArr.reduce((prev, curr) =>
                                 Math.abs(curr.time - targetTime) < Math.abs(prev.time - targetTime) ? curr : prev
                             );
                             if (closestBar) {
@@ -2751,14 +2788,12 @@
                                 }
                                 console.log(`[跨周期] 恢复垂直线 #${saved.id} @ ${closestBar.time}`);
                             }
-                            
                         } else if ((saved.type === 'line' || saved.type === 'ray') && saved.points) {
-                            // 趋势线/射线：匹配起点和终点时间
                             const p1 = saved.points[0], p2 = saved.points[1];
-                            const bar1 = dataArr.reduce((prev, curr) => 
+                            const bar1 = dataArr.reduce((prev, curr) =>
                                 Math.abs(curr.time - p1.time) < Math.abs(prev.time - p1.time) ? curr : prev
                             );
-                            const bar2 = dataArr.reduce((prev, curr) => 
+                            const bar2 = dataArr.reduce((prev, curr) =>
                                 Math.abs(curr.time - p2.time) < Math.abs(prev.time - p2.time) ? curr : prev
                             );
                             if (bar1 && bar2) {
@@ -2774,13 +2809,12 @@
                                 ]);
                                 console.log(`[跨周期] 恢复${saved.type} #${saved.id}`);
                             }
-                            
                         } else if (saved.type === 'rect' && saved.points) {
                             const p1 = saved.points[0], p2 = saved.points[1];
-                            const bar1 = dataArr.reduce((prev, curr) => 
+                            const bar1 = dataArr.reduce((prev, curr) =>
                                 Math.abs(curr.time - p1.time) < Math.abs(prev.time - p1.time) ? curr : prev
                             );
-                            const bar2 = dataArr.reduce((prev, curr) => 
+                            const bar2 = dataArr.reduce((prev, curr) =>
                                 Math.abs(curr.time - p2.time) < Math.abs(prev.time - p2.time) ? curr : prev
                             );
                             if (bar1 && bar2) {
@@ -2801,7 +2835,7 @@
                                 console.log(`[跨周期] 恢复矩形 #${saved.id}`);
                             }
                         }
-                        
+
                         if (ser) {
                             drawings.push({
                                 id: saved.id, type: saved.type, series: ser,
@@ -2818,32 +2852,6 @@
                     }
                 });
                 console.log(`[跨周期] 恢复完成，共 ${drawings.length} 个对象`);
-            };
-            
-            // ========== 加载新周期数据并等待klineData就绪 ==========
-            loadAllData().then(() => {
-                // 等待 klineData 被 loadAllData 更新后再恢复
-                const maxWait = 2000;
-                const interval = 50;
-                let waited = 0;
-                
-                const tryRestore = () => {
-                    // klineData 在 loadAllData 中被赋值为 kData.data (原始数组)
-                    // 其内部元素格式: {time, open, high, low, close, volume, ...}
-                    if (klineData && klineData.length > 0 && klineData[0].time) {
-                        console.log(`[跨周期] klineData已就绪 (${klineData.length}条)，开始恢复线条`);
-                        restoreDrawings(klineData);
-                        // 恢复后按 cycles 过滤显示
-                        renderDrawingsForPeriod();
-                    } else if (waited < maxWait) {
-                        waited += interval;
-                        setTimeout(tryRestore, interval);
-                    } else {
-                        console.warn('[跨周期] klineData等待超时，使用默认数据恢复');
-                        restoreDrawings([]);
-                    }
-                };
-                tryRestore();
             });
         });
 
