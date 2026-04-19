@@ -2,8 +2,8 @@
 """PTA缠论分析 - chan_core 封装 (支持多级别)"""
 import sys, time
 
-# chan_core 在同目录
-from chan_core import (
+# chan_core 在 legacy 目录
+from legacy.chan_core import (
     kl_to_kls, merge_include, find_fenxing,
     build_bi, build_seg, build_zs, find_bs_points,
     aggregate_klines_fixed, aggregate_by_bi, multi_level_analysis,

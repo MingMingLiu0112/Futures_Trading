@@ -23,10 +23,10 @@ logging.getLogger("tqsdk").setLevel(logging.WARNING)
 logging.getLogger("tqsdk.ta").setLevel(logging.WARNING)
 
 # MACD多周期计算模块
-import macd_multiperiod as mmacd
+from indicators import macd_multiperiod as mmacd
 
 # PTA产业基本面分析模块
-import industry_analysis as pta_industry
+from analysis import industry_analysis as pta_industry
 
 # TqSdk 认证配置
 TQS_USER = os.environ.get('TQS_AUTH_USER', 'mingmingliu')
@@ -83,17 +83,8 @@ def index():
 
 @app.route('/drawing_test')
 def drawing_test():
-    """绘图工具测试页面"""
-    try:
-        with open(os.path.join(WORKSPACE, 'templates', 'drawing_test.html'), 'r', encoding='utf-8') as f:
-            content = f.read()
-        resp = make_response(content)
-        resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-        resp.headers['Pragma'] = 'no-cache'
-        resp.headers['Expires'] = '0'
-        return resp
-    except FileNotFoundError:
-        return "页面正在开发中，请稍后访问", 404
+    """绘图工具已合并到主页面 /kline"""
+    return redirect('/kline')
 
 # ==================== API接口 ====================
 
@@ -217,16 +208,9 @@ def option_chain_page():
 
 @app.route('/drawing_test')
 def drawing_test_page():
-    """绘图工具测试页面"""
-    try:
-        with open(os.path.join(WORKSPACE, 'templates', 'drawing_test.html'), 'r', encoding='utf-8') as f:
-            content = f.read()
-        from flask import make_response
-        resp = make_response(content)
-        resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-        return resp
-    except FileNotFoundError:
-        return "页面正在开发中，请稍后访问", 404
+    """绘图工具已合并到主页面 /kline"""
+    from flask import redirect
+    return redirect('/kline')
 
 @app.route('/kline')
 def kline_page():
@@ -549,8 +533,8 @@ def api_kline_macd_all_periods():
 # ==================== 启动应用 ====================
 
 # ==================== 缠论分析 API ====================
-import chan_core_wrapper as cw
-import option_chain_api as oca
+from core import chan_core_wrapper as cw
+from analysis import option_chain_api as oca
 
 @app.route('/api/chan/analysis')
 def api_chan_analysis():
