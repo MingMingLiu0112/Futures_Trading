@@ -2922,8 +2922,8 @@
                                 const FIXED_TIME_LEFT = 946684800; // 2000-01-01
                                 const FIXED_TIME_RIGHT = 4102444800; // 2100-01-01
                                 ser.setData([
-                                    { time: FIXED_TIME_LEFT, value: saved.price },
-                                    { time: FIXED_TIME_RIGHT, value: saved.price }
+                                    { time: FIXED_TIME_LEFT, value: Number(saved.price) },
+                                    { time: FIXED_TIME_RIGHT, value: Number(saved.price) }
                                 ]);
                                 console.log(`[跨周期] 恢复水平线 #${saved.id} @ ${saved.price}`);
                             }
@@ -2968,8 +2968,8 @@
                                 });
                                 // 直接用原始p1.time/p2.time，不替换为closestBar.time（关键修复）
                                 ser.setData([
-                                    { time: p1.time, value: p1.price },
-                                    { time: p2.time, value: p2.price }
+                                    { time: Number(p1.time), value: Number(p1.price) },
+                                    { time: Number(p2.time), value: Number(p2.price) }
                                 ]);
                                 console.log(`[跨周期] 恢复${saved.type} #${saved.id}`);
                             }
@@ -2989,12 +2989,17 @@
                                     lastValueVisible: false,
                                     priceLineVisible: false
                                 });
+                                // 强制转为Number，防止字符串时间戳或字符串价格导致lightweight-charts抛出"Value is null"
+                                const topVal = Number(saved.top);
+                                const bottomVal = Number(saved.bottom);
+                                const tVal = Number(rectTime);
+                                const etVal = Number(rectEndTime);
                                 ser.setData([
-                                    { time: t, value: top },
-                                    { time: et, value: top },
-                                    { time: et, value: bottom },
-                                    { time: t, value: bottom },
-                                    { time: t, value: top }
+                                    { time: tVal, value: topVal },
+                                    { time: etVal, value: topVal },
+                                    { time: etVal, value: bottomVal },
+                                    { time: tVal, value: bottomVal },
+                                    { time: tVal, value: topVal }
                                 ]);
                                 console.log(`[跨周期] 恢复矩形 #${saved.id}`);
                             }
