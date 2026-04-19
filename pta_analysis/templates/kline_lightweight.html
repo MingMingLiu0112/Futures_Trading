@@ -1575,27 +1575,35 @@
                     .sort((a, b) => a.time - b.time);
                 volumeSeries.setData(volData);
                 
-                // 更新统计
+                // 更新统计（使用API返回的数据）
                 const last = klineData[klineData.length - 1];
-                const first = klineData[0];
-                if (last && first) {
-                    const change = ((last.close - first.close) / first.close * 100).toFixed(2);
-                    const priceChangeFromPrev = (last.close - klineData[klineData.length - 2].close).toFixed(0);
-                    const volumeChangeFromPrev = (last.volume - klineData[klineData.length - 2].volume).toFixed(0);
+                if (last) {
+                    // 使用API返回的涨跌（较昨日收盘价）
+                    const apiChange = kData.change || 0;
+                    const apiChangePct = kData.change_pct || 0;
+                    const apiChangePctStr = (apiChangePct >= 0 ? '+' : '') + apiChangePct.toFixed(2);
+                    
+                    // 较前一根K线的价格变化（前端自己算）
+                    const priceChangeFromPrev = klineData.length >= 2
+                        ? (last.close - klineData[klineData.length - 2].close).toFixed(0)
+                        : 0;
+                    
+                    // 使用API返回的成交量和持仓量增减值
+                    const volumeChangeFromPrev = last.volume_change || 0;
+                    const oiChange = last.open_interest_change || 0;
+                    
                     const totalVolume = klineData.reduce((s, k) => s + parseFloat(k.volume), 0);
                     
                     document.getElementById('lastPrice').textContent = last.close.toFixed(0);
-                    document.getElementById('lastPrice').className = change >= 0 ? 'stat-value up' : 'stat-value down';
+                    document.getElementById('lastPrice').className = apiChange >= 0 ? 'stat-value up' : 'stat-value down';
                     document.getElementById('priceChange').textContent = `(${priceChangeFromPrev >= 0 ? '+' : ''}${priceChangeFromPrev})`;
                     document.getElementById('priceChange').className = priceChangeFromPrev >= 0 ? 'text-success' : 'text-danger';
-                    document.getElementById('change').textContent = `${change >= 0 ? '+' : ''}${change}%`;
-                    document.getElementById('change').className = change >= 0 ? 'stat-value up' : 'stat-value down';
+                    document.getElementById('change').textContent = apiChangePctStr + '%';
+                    document.getElementById('change').className = apiChange >= 0 ? 'stat-value up' : 'stat-value down';
                     document.getElementById('volume').textContent = totalVolume.toFixed(0);
                     document.getElementById('volumeChange').textContent = `(${volumeChangeFromPrev >= 0 ? '+' : ''}${volumeChangeFromPrev})`;
                     document.getElementById('volumeChange').className = volumeChangeFromPrev >= 0 ? 'text-success' : 'text-danger';
                     const oi = last.open_interest || 0;
-                    const oiPrev = klineData.length >= 2 ? (klineData[klineData.length - 2].open_interest || 0) : oi;
-                    const oiChange = oi - oiPrev;
                     const oiEl = document.getElementById('openInterest');
                     if (oiEl) oiEl.textContent = typeof oi === 'number' ? oi.toFixed(0) : '--';
                     const oiChangeEl = document.getElementById('oiChange');
@@ -1933,7 +1941,7 @@
             const price = parseFloat(k.close);
             const vol = parseFloat(k.volume);
             const priceChange = idx > 0 ? (price - klineData[idx-1].close).toFixed(0) : '0';
-            const volChange = idx > 0 ? (vol - klineData[idx-1].volume).toFixed(0) : '0';
+            const volChange = k.volume_change || (idx > 0 ? (vol - klineData[idx-1].volume).toFixed(0) : '0');
             
             // 更新价格和成交量显示
             document.getElementById('lastPrice').textContent = price.toFixed(0);
