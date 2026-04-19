@@ -2808,25 +2808,18 @@
                             if (!p1 || !p2 || p1.time == null || p2.time == null || p1.price == null || p2.price == null) {
                                 console.warn(`[跨周期] 跳过 #${saved.id}（points数据不完整）`);
                             } else {
-                                const bar1 = dataArr.reduce((prev, curr) =>
-                                    Math.abs(curr.time - p1.time) < Math.abs(prev.time - p1.time) ? curr : prev
-                                );
-                                const bar2 = dataArr.reduce((prev, curr) =>
-                                    Math.abs(curr.time - p2.time) < Math.abs(prev.time - p2.time) ? curr : prev
-                                );
-                                if (bar1 && bar2) {
-                                    ser = mainChart.addLineSeries({
-                                        color: saved.color,
-                                        lineWidth: saved.lineWidth,
-                                        lastValueVisible: false,
-                                        priceLineVisible: false
-                                    });
-                                    ser.setData([
-                                        { time: bar1.time, value: p1.price },
-                                        { time: bar2.time, value: p2.price }
-                                    ]);
-                                    console.log(`[跨周期] 恢复${saved.type} #${saved.id}`);
-                                }
+                                ser = mainChart.addLineSeries({
+                                    color: saved.color,
+                                    lineWidth: saved.lineWidth,
+                                    lastValueVisible: false,
+                                    priceLineVisible: false
+                                });
+                                // 直接用原始p1.time/p2.time，不替换为closestBar.time（关键修复）
+                                ser.setData([
+                                    { time: p1.time, value: p1.price },
+                                    { time: p2.time, value: p2.price }
+                                ]);
+                                console.log(`[跨周期] 恢复${saved.type} #${saved.id}`);
                             }
                         } else if (saved.type === 'rect' && (saved.top !== undefined || saved.bottom !== undefined)) {
                             // 矩形用 top/bottom/time/endTime（不是points）
@@ -2836,29 +2829,23 @@
                             if (rectTime == null || rectEndTime == null || saved.top == null || saved.bottom == null) {
                                 console.warn(`[跨周期] 跳过矩形 #${saved.id}（数据不完整）`);
                             } else {
-                                const closestStart = dataArr.reduce((prev, curr) =>
-                                    Math.abs(curr.time - rectTime) < Math.abs(prev.time - rectTime) ? curr : prev
-                                );
-                                const closestEnd = dataArr.reduce((prev, curr) =>
-                                    Math.abs(curr.time - rectEndTime) < Math.abs(prev.time - rectEndTime) ? curr : prev
-                                );
-                                if (closestStart && closestEnd) {
-                                    const top = saved.top, bottom = saved.bottom;
-                                    ser = mainChart.addLineSeries({
-                                        color: saved.color,
-                                        lineWidth: saved.lineWidth,
-                                        lastValueVisible: false,
-                                        priceLineVisible: false
-                                    });
-                                    ser.setData([
-                                        { time: closestStart.time, value: top },
-                                        { time: closestEnd.time, value: top },
-                                        { time: closestEnd.time, value: bottom },
-                                        { time: closestStart.time, value: bottom },
-                                        { time: closestStart.time, value: top }
-                                    ]);
-                                    console.log(`[跨周期] 恢复矩形 #${saved.id}`);
-                                }
+                                const top = saved.top, bottom = saved.bottom;
+                                const t = rectTime, et = rectEndTime;
+                                ser = mainChart.addLineSeries({
+                                    color: saved.color,
+                                    lineWidth: saved.lineWidth,
+                                    lastValueVisible: false,
+                                    priceLineVisible: false
+                                });
+                                // 直接用原始t/et，不替换为closestStart.time/closestEnd.time
+                                ser.setData([
+                                    { time: t, value: top },
+                                    { time: et, value: top },
+                                    { time: et, value: bottom },
+                                    { time: t, value: bottom },
+                                    { time: t, value: top }
+                                ]);
+                                console.log(`[跨周期] 恢复矩形 #${saved.id}`);
                             }
                         }
 
