@@ -1297,11 +1297,17 @@
                     console.log(`[绘图存储] 开始恢复 ${saved.length} 个图形`);
                     saved.forEach(savedDrawing => {
                         let ser = null;
+                        // 检查price值是否有效（NaN或null会导致Value is null错误）
+                        const isValidPrice = (v) => v !== null && v !== undefined && isFinite(v);
+                        if (savedDrawing.type === 'hline' && !isValidPrice(savedDrawing.price)) {
+                            console.warn(`[绘图存储] 跳过水平线 #${savedDrawing.id}（price无效: ${savedDrawing.price}）`);
+                            return;
+                        }
                         try {
                             if (savedDrawing.type === 'hline') {
                                 ser = mainChart.addLineSeries({
-                                    color: savedDrawing.color,
-                                    lineWidth: savedDrawing.lineWidth,
+                                    color: savedDrawing.color || '#ff0000',
+                                    lineWidth: savedDrawing.lineWidth || 1,
                                     lineStyle: LightweightCharts.LineStyle.Dashed,
                                     lastValueVisible: false,
                                     priceLineVisible: false
@@ -1314,8 +1320,8 @@
                                 ]);
                             } else if (savedDrawing.type === 'vline') {
                                 ser = mainChart.addLineSeries({
-                                    color: savedDrawing.color,
-                                    lineWidth: savedDrawing.lineWidth,
+                                    color: savedDrawing.color || '#ff0000',
+                                    lineWidth: savedDrawing.lineWidth || 1,
                                     lineStyle: LightweightCharts.LineStyle.Dashed,
                                     lastValueVisible: false,
                                     priceLineVisible: false
@@ -1330,12 +1336,12 @@
                                 }
                             } else if ((savedDrawing.type === 'line' || savedDrawing.type === 'ray') && savedDrawing.points) {
                                 const p1 = savedDrawing.points[0], p2 = savedDrawing.points[1];
-                                if (!p1 || !p2 || p1.time == null || p2.time == null || p1.price == null || p2.price == null) {
-                                    console.warn(`[绘图存储] 恢复 #${savedDrawing.id} 失败: points数据含null`);
+                                if (!p1 || !p2 || !isValidPrice(p1.price) || !isValidPrice(p2.price)) {
+                                    console.warn(`[绘图存储] 恢复 #${savedDrawing.id} 失败: points数据含无效值`);
                                 } else {
                                     ser = mainChart.addLineSeries({
-                                        color: savedDrawing.color,
-                                        lineWidth: savedDrawing.lineWidth,
+                                        color: savedDrawing.color || '#ff0000',
+                                        lineWidth: savedDrawing.lineWidth || 1,
                                         lastValueVisible: false,
                                         priceLineVisible: false
                                     });
@@ -1344,15 +1350,15 @@
                                         { time: p2.time, value: p2.price }
                                     ]);
                                 }
-                            } else if (savedDrawing.type === 'rect' && savedDrawing.points) {
+                            } else if (savedDrawing.type === 'rect' && (savedDrawing.top !== undefined || savedDrawing.bottom !== undefined)) {
                                 const top = savedDrawing.top, bottom = savedDrawing.bottom;
                                 const t = savedDrawing.time, et = savedDrawing.endTime;
-                                if (t == null || et == null || top == null || bottom == null) {
-                                    console.warn(`[绘图存储] 恢复 #${savedDrawing.id} 失败: rect数据含null`);
+                                if (!isValidPrice(top) || !isValidPrice(bottom) || t == null || et == null) {
+                                    console.warn(`[绘图存储] 恢复矩形 #${savedDrawing.id} 失败: 数据含无效值`);
                                 } else {
                                     ser = mainChart.addLineSeries({
-                                        color: savedDrawing.color,
-                                        lineWidth: savedDrawing.lineWidth,
+                                        color: savedDrawing.color || '#ff0000',
+                                        lineWidth: savedDrawing.lineWidth || 1,
                                         lastValueVisible: false,
                                         priceLineVisible: false
                                     });
@@ -1639,17 +1645,26 @@
                 
                 // 转换时间格式
                 const chartData = klineData
-                    .filter(k => k.open && k.high && k.low && k.close)
+                    .filter(k => k.open && k.high && k.low && k.close && k.time)
                     .map(k => {
                         const ts = k.time + 8 * 3600;
+                        const open = parseFloat(k.open);
+                        const high = parseFloat(k.high);
+                        const low = parseFloat(k.low);
+                        const close = parseFloat(k.close);
+                        // 严格检查：所有值必须是有限数值
+                        if (!isFinite(ts) || !isFinite(open) || !isFinite(high) || !isFinite(low) || !isFinite(close)) {
+                            return null;
+                        }
                         return {
                             time: ts,
-                            open: parseFloat(k.open),
-                            high: parseFloat(k.high),
-                            low: parseFloat(k.low),
-                            close: parseFloat(k.close),
+                            open: open,
+                            high: high,
+                            low: low,
+                            close: close,
                         };
                     })
+                    .filter(k => k !== null)
                     .sort((a, b) => a.time - b.time);
                 
                 // 清除旧数据
@@ -1730,7 +1745,7 @@
                 // 同步所有图表时间轴 - 先设置宽度，再fitContent，再同步可见范围
                 const chartWidth = window.innerWidth - 40;
                 
-                // 主图
+                // 主图 - 先设置宽度确保布局完成，再fitContent
                 mainChart.applyOptions({ width: chartWidth });
                 mainChart.timeScale().fitContent();
                 
@@ -1745,6 +1760,13 @@
                     kdjChart.applyOptions({ width: chartWidth });
                     kdjChart.timeScale().fitContent();
                 }
+                
+                // 多次调用fitContent确保K线完全贴合
+                setTimeout(() => {
+                    mainChart.timeScale().fitContent();
+                    if (macdChart) macdChart.timeScale().fitContent();
+                    if (kdjChart) kdjChart.timeScale().fitContent();
+                }, 50);
                 
                 // 同步可见范围
                 setTimeout(() => {
@@ -2867,21 +2889,41 @@
 
                 savedDrawings.forEach(saved => {
                     let ser = null;
+                    // 检查price值是否有效（NaN或null会导致Value is null错误）
+                    const isValidPrice = (v) => v !== null && v !== undefined && isFinite(v);
+                    if (saved.type === 'hline' && !isValidPrice(saved.price)) {
+                        console.warn(`[跨周期] 跳过水平线 #${saved.id}（price无效: ${saved.price}）`);
+                        return;
+                    }
+                    if ((saved.type === 'line' || saved.type === 'ray') && saved.points) {
+                        const p1 = saved.points[0], p2 = saved.points[1];
+                        if (!p1 || !p2 || !isValidPrice(p1.price) || !isValidPrice(p2.price)) {
+                            console.warn(`[跨周期] 跳过 #${saved.id}（points数据无效）`);
+                            return;
+                        }
+                    }
+                    if (saved.type === 'rect' && (!isValidPrice(saved.top) || !isValidPrice(saved.bottom))) {
+                        console.warn(`[跨周期] 跳过矩形 #${saved.id}（top/bottom无效）`);
+                        return;
+                    }
                     try {
                         if (saved.type === 'hline') {
                             ser = mainChart.addLineSeries({
-                                color: saved.color,
-                                lineWidth: saved.lineWidth,
+                                color: saved.color || '#ff0000',
+                                lineWidth: saved.lineWidth || 1,
                                 lineStyle: LightweightCharts.LineStyle.Dashed,
                                 lastValueVisible: false,
                                 priceLineVisible: false
                             });
                             const FIXED_TIME_LEFT = 946684800; // 2000-01-01
                             const FIXED_TIME_RIGHT = 4102444800; // 2100-01-01
-                            ser.setData([
+                            const lineData = [
                                 { time: FIXED_TIME_LEFT, value: saved.price },
                                 { time: FIXED_TIME_RIGHT, value: saved.price }
-                            ]);
+                            ];
+                            if (isValidPrice(saved.price)) {
+                                ser.setData(lineData);
+                            }
                             console.log(`[跨周期] 恢复水平线 #${saved.id} @ ${saved.price}`);
                         } else if (saved.type === 'vline') {
                             // vline跨周期恢复：用固定长线段跨越可见价格范围
