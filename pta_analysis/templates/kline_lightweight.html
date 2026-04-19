@@ -325,11 +325,7 @@
     <div class="header">
         <div class="title">📈 PTA期货综合分析</div>
         <div class="controls">
-            <input list="symbolList" id="symbolInput" placeholder="选择/搜索合约…" value="TA609" style="width:140px;padding:6px 10px;border-radius:4px;border:1px solid #444;background:#2d2d44;color:#fff;font-size:13px;">
-            <datalist id="symbolList">
-                <option value="TA609">PTA9月 (TA609)
-                <option value="TA0">PTA主力 (TA0)
-            </datalist>
+            <button id="symbolBtn" onclick="openSymbolModal()" style="padding:6px 12px;border-radius:4px;border:1px solid #444;background:#2d2d44;color:#fff;cursor:pointer;font-size:13px;min-width:120px;text-align:left;">📋 TA609 ▼</button>
             <select id="period">
                 <option value="1min">1分钟</option>
                 <option value="5min">5分钟</option>
@@ -342,6 +338,18 @@
                 <option value="1month">月线</option>
             </select>
             <button onclick="loadAllData()">🔄 刷新</button>
+        </div>
+    </div>
+
+    <!-- 合约选择弹窗 -->
+    <div id="symbolModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:#1e1e2e;border:1px solid #444;border-radius:10px;padding:20px;width:360px;max-height:500px;overflow-y:auto;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">
+                <span style="font-size:16px;font-weight:bold;">选择合约</span>
+                <button onclick="closeSymbolModal()" style="background:none;border:none;color:#888;font-size:20px;cursor:pointer;">×</button>
+            </div>
+            <input type="text" id="symbolSearch" placeholder="搜索合约代码或名称…" oninput="filterSymbols()" style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #444;background:#2d2d44;color:#fff;font-size:13px;box-sizing:border-box;margin-bottom:10px;">
+            <div id="symbolListContainer" style="max-height:350px;overflow-y:auto;"></div>
         </div>
     </div>
 
@@ -1508,6 +1516,89 @@
             }
         }
 
+        // ==================== 合约选择弹窗 ====================
+
+        const allSymbols = [
+            { code: 'TA609', name: 'PTA9月', desc: '主力合约' },
+            { code: 'TA0',   name: 'PTA主力', desc: '指数连续' },
+            { code: 'TA701', name: 'PTA7月',  desc: '' },
+            { code: 'TA801', name: 'PTA8月',  desc: '' },
+            { code: 'TA901', name: 'PTA9月',  desc: '' },
+            { code: 'TA101', name: 'PTA10月', desc: '' },
+            { code: 'TA011', name: 'PTA1月',  desc: '' },
+            { code: 'TA111', name: 'PTA11月', desc: '' },
+            { code: 'MA0',   name: '甲醇主力', desc: '指数连续' },
+            { code: 'MA609', name: '甲醇6月',  desc: '' },
+            { code: 'MA701', name: '甲醇7月',  desc: '' },
+            { code: 'MA801', name: '甲醇8月',  desc: '' },
+            { code: 'MA901', name: '甲醇9月',  desc: '' },
+            { code: 'MA101', name: '甲醇10月', desc: '' },
+            { code: 'MA011', name: '甲醇1月',  desc: '' },
+            { code: 'MA111', name: '甲醇11月', desc: '' },
+            { code: 'PF0',   name: '短纤主力', desc: '指数连续' },
+            { code: 'PF609', name: '短纤6月',  desc: '' },
+            { code: 'PF701', name: '短纤7月',  desc: '' },
+            { code: 'PF801', name: '短纤8月',  desc: '' },
+            { code: 'PF901', name: '短纤9月',  desc: '' },
+        ];
+        let currentSymbol = 'TA609';
+
+        function openSymbolModal() {
+            document.getElementById('symbolModal').style.display = 'flex';
+            document.getElementById('symbolSearch').value = '';
+            renderSymbolList('');
+            document.getElementById('symbolSearch').focus();
+        }
+
+        function closeSymbolModal() {
+            document.getElementById('symbolModal').style.display = 'none';
+        }
+
+        function filterSymbols() {
+            const kw = document.getElementById('symbolSearch').value.trim().toLowerCase();
+            renderSymbolList(kw);
+        }
+
+        function renderSymbolList(keyword) {
+            const container = document.getElementById('symbolListContainer');
+            const filtered = keyword
+                ? allSymbols.filter(s =>
+                    s.code.toLowerCase().includes(keyword) ||
+                    s.name.toLowerCase().includes(keyword))
+                : allSymbols;
+            if (filtered.length === 0) {
+                container.innerHTML = '<div style="color:#888;text-align:center;padding:20px;">无匹配合约</div>';
+                return;
+            }
+            container.innerHTML = filtered.map(s => `
+                <div onclick="selectSymbol('${s.code}')"
+                     style="padding:8px 12px;cursor:pointer;border-radius:6px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;${s.code === currentSymbol ? 'background:#2d4a6e;' : 'background:#2d2d44;'}"
+                     onmouseover="this.style.background='#3d3d54'" onmouseout="this.style.background='${s.code === currentSymbol ? '#2d4a6e' : '#2d2d44'}'">
+                    <span>
+                        <span style="font-weight:bold;color:#fff;">${s.code}</span>
+                        <span style="color:#aaa;margin-left:8px;">${s.name}</span>
+                        ${s.desc ? `<span style="color:#666;font-size:11px;margin-left:6px;">${s.desc}</span>` : ''}
+                    </span>
+                    ${s.code === currentSymbol ? '<span style="color:#4CAF50;font-size:12px;">✓</span>' : ''}
+                </div>
+            `).join('');
+        }
+
+        function selectSymbol(code) {
+            currentSymbol = code;
+            document.getElementById('symbolBtn').innerHTML = `📋 ${code} ▼`;
+            closeSymbolModal();
+            loadAllData();
+        }
+
+        // 点击弹窗背景关闭
+        document.addEventListener('click', function(e) {
+            const modal = document.getElementById('symbolModal');
+            if (modal && modal.style.display !== 'none' && e.target === modal) {
+                closeSymbolModal();
+            }
+        });
+
         // ==================== 数据加载 ====================
 
         async function loadAllData() {
@@ -1520,11 +1611,10 @@
                 }
                 
                 const period = document.getElementById('period').value;
-                const symbol = document.getElementById('symbolInput').value || 'TA609';
                 
                 // 并行加载K线数据和缠论数据
                 const [kRes, chanRes] = await Promise.all([
-                    fetch(`/api/kline/data?symbol=${symbol}&period=${period}`),
+                    fetch(`/api/kline/data?symbol=${currentSymbol}&period=${period}`),
                     fetch(`/api/chan/analysis?period=${period}`)
                 ]);
                 const kData = await kRes.json();
@@ -2099,10 +2189,9 @@
 
         async function changeMacdPeriod() {
                 const period = document.getElementById('macdPeriod').value;
-                const symbol = document.getElementById('symbolInput').value || 'TA609';
                 try {
                 // Fetch K-line data for this period
-                const kRes = await fetch(`/api/kline/data?symbol=${symbol}&period=${period}`);
+                const kRes = await fetch(`/api/kline/data?symbol=${currentSymbol}&period=${period}`);
                 const kData = await kRes.json();
                 
                 if (!kData.data || kData.data.length === 0) {
@@ -2694,8 +2783,7 @@
             if (!mainChart || !candleSeries) return;
             try {
                 const period = document.getElementById('period').value;
-                const symbol = document.getElementById('symbolInput').value || 'TA609';
-                const res = await fetch(`/api/kline/data?symbol=${symbol}&period=` + period);
+                const res = await fetch(`/api/kline/data?symbol=${currentSymbol}&period=` + period);
                 const data = await res.json();
                 if (data.error || !data.data || data.data.length === 0) return;
                 const newData = data.data;
