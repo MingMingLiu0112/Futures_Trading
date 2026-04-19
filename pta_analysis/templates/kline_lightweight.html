@@ -1296,13 +1296,12 @@
                                     lastValueVisible: false,
                                     priceLineVisible: false
                                 });
-                                const vr = mainChart.timeScale().visibleRange();
-                                if (vr) {
-                                    ser.setData([
-                                        { time: vr.from, value: savedDrawing.price },
-                                        { time: vr.to, value: savedDrawing.price }
-                                    ]);
-                                }
+                                const FIXED_TIME_LEFT = 946684800;
+                                const FIXED_TIME_RIGHT = 4102444800;
+                                ser.setData([
+                                    { time: FIXED_TIME_LEFT, value: savedDrawing.price },
+                                    { time: FIXED_TIME_RIGHT, value: savedDrawing.price }
+                                ]);
                             } else if (savedDrawing.type === 'vline') {
                                 ser = mainChart.addLineSeries({
                                     color: savedDrawing.color,
@@ -1320,29 +1319,41 @@
                                     ]);
                                 }
                             } else if ((savedDrawing.type === 'line' || savedDrawing.type === 'ray') && savedDrawing.points) {
-                                ser = mainChart.addLineSeries({
-                                    color: savedDrawing.color,
-                                    lineWidth: savedDrawing.lineWidth,
-                                    lastValueVisible: false,
-                                    priceLineVisible: false
-                                });
-                                ser.setData(savedDrawing.points.map(p => ({ time: p.time, value: p.price })));
+                                const p1 = savedDrawing.points[0], p2 = savedDrawing.points[1];
+                                if (!p1 || !p2 || p1.time == null || p2.time == null || p1.price == null || p2.price == null) {
+                                    console.warn(`[绘图存储] 恢复 #${savedDrawing.id} 失败: points数据含null`);
+                                } else {
+                                    ser = mainChart.addLineSeries({
+                                        color: savedDrawing.color,
+                                        lineWidth: savedDrawing.lineWidth,
+                                        lastValueVisible: false,
+                                        priceLineVisible: false
+                                    });
+                                    ser.setData([
+                                        { time: p1.time, value: p1.price },
+                                        { time: p2.time, value: p2.price }
+                                    ]);
+                                }
                             } else if (savedDrawing.type === 'rect' && savedDrawing.points) {
-                                ser = mainChart.addLineSeries({
-                                    color: savedDrawing.color,
-                                    lineWidth: savedDrawing.lineWidth,
-                                    lastValueVisible: false,
-                                    priceLineVisible: false
-                                });
                                 const top = savedDrawing.top, bottom = savedDrawing.bottom;
                                 const t = savedDrawing.time, et = savedDrawing.endTime;
-                                ser.setData([
-                                    { time: t, value: top },
-                                    { time: et, value: top },
-                                    { time: et, value: bottom },
-                                    { time: t, value: bottom },
-                                    { time: t, value: top }
-                                ]);
+                                if (t == null || et == null || top == null || bottom == null) {
+                                    console.warn(`[绘图存储] 恢复 #${savedDrawing.id} 失败: rect数据含null`);
+                                } else {
+                                    ser = mainChart.addLineSeries({
+                                        color: savedDrawing.color,
+                                        lineWidth: savedDrawing.lineWidth,
+                                        lastValueVisible: false,
+                                        priceLineVisible: false
+                                    });
+                                    ser.setData([
+                                        { time: t, value: top },
+                                        { time: et, value: top },
+                                        { time: et, value: bottom },
+                                        { time: t, value: bottom },
+                                        { time: t, value: top }
+                                    ]);
+                                }
                             }
 
                             if (ser) {
@@ -1764,7 +1775,7 @@
             // 获取MACD图表的可见时间范围
             let visibleRange = null;
             try {
-                visibleRange = macdChart.timeScale().visibleRange();
+                visibleRange = macdChart.timeScale().getVisibleLogicalRange();
             } catch(e) {}
             
             // 从histogram数据计算零轴位置（基于实际数据范围）
@@ -3109,18 +3120,16 @@ function restoreDrawingData(d) {
     const period = document.getElementById('period').value;
 
     if (d.type === 'hline') {
-        const visibleRange = mainChart.timeScale().visibleRange();
-        if (visibleRange) {
+        const lr = mainChart.timeScale().getVisibleLogicalRange();
+        if (lr) {
             d.series.setData([
-                { time: visibleRange.from, value: d.price },
-                { time: visibleRange.to, value: d.price }
+                { time: mainChart.timeScale().logicalToTime(lr.from), value: d.price },
+                { time: mainChart.timeScale().logicalToTime(lr.to), value: d.price }
             ]);
         }
     } else if (d.type === 'vline') {
-        // 垂直线：使用价格范围的最大最小值，迫使线画满整个Y轴
-        const visibleRange = mainChart.timeScale().visibleRange();
-        if (visibleRange) {
-            // 用主图candleSeries的价格范围来画垂直线
+        const lr = mainChart.timeScale().getVisibleLogicalRange();
+        if (lr) {
             const topPrice = candleSeries.coordinateToPrice(0);
             const bottomPrice = candleSeries.coordinateToPrice(mainChart.chartElement().clientHeight);
             if (topPrice !== null && bottomPrice !== null) {
