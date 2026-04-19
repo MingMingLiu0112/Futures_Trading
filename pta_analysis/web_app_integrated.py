@@ -5,7 +5,7 @@ PTA期货分析平台 - 快速集成版本
 包含所有5个期权功能模块 + K线图功能
 """
 
-import os, sys, json, time, sqlite3, threading, warnings
+import os, sys, json, time, sqlite3, threading, warnings, math
 from datetime import datetime as dt_datetime, timedelta
 import datetime as dt
 from typing import Optional, Dict, List
@@ -438,7 +438,7 @@ def api_kline_data():
             'source': 'akshare'
         })
     except Exception as e2:
-        return jsonify({'error': f'获取失败: {str(e)}, {str(e2)}', 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0})
+        return jsonify({'error': f'获取失败: {str(e2)}', 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0})
 
 
 
