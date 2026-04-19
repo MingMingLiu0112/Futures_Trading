@@ -5,8 +5,9 @@ PTA期货分析平台 - 快速集成版本
 包含所有5个期权功能模块 + K线图功能
 """
 
-import os, sys, json, time, sqlite3, threading, warnings
-from datetime import datetime, timedelta
+import os, sys, json, time, sqlite3, threading, warnings, math
+from datetime import datetime as dt_datetime, timedelta
+import datetime as dt
 from typing import Optional, Dict, List
 
 from flask import Flask, render_template, jsonify, request, send_file, redirect, url_for, render_template_string
@@ -102,7 +103,7 @@ def api_status():
             'excel_export': {'status': 'completed', 'version': '1.0'},
             'kline_chart': {'status': 'developing', 'version': '0.5'}
         },
-        'timestamp': datetime.now().isoformat()
+        'timestamp': dt_datetime.now().isoformat()
     })
 
 @app.route('/api/options/chain')
@@ -144,7 +145,7 @@ def api_save_session_snapshot():
         store = api.store
         
         # 获取当前时间
-        now = datetime.now()
+        now = dt_datetime.now()
         trade_date = now.strftime('%Y%m%d')
         
         # 根据时间判断session类型
@@ -259,22 +260,102 @@ def mini_page():
     except FileNotFoundError:
         return "Mini test page not found", 404
 
+def _safe_val(v, default=0):
+    """安全处理NaN/Inf值"""
+    if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+        return default
+    return v
+
+def _parse_kline_time(dt_val):
+    """解析K线时间为Unix时间戳（秒）"""
+    if isinstance(dt_val, (int, float)) and math.isfinite(dt_val) and dt_val > 0:
+        return int(dt_val / 1e9)
+    dt_str = str(dt_val).replace('T', ' ')
+    dt_obj = dt.datetime.strptime(dt_str, '%Y-%m-%d %H:%M:%S')
+    return int((dt_obj - dt.datetime(1970, 1, 1)).total_seconds())
+
+def _build_kline_bar(row, close, use_tqsdk=False):
+    """构建单根K线数据字典"""
+    return {
+        'time': _parse_kline_time(row['datetime']),
+        'open': _safe_val(float(row['open']), close),
+        'high': _safe_val(float(row['high']), close),
+        'low': _safe_val(float(row['low']), close),
+        'close': close,
+        'volume': _safe_val(float(row['volume']), 0),
+        'open_interest': _safe_val(float(row['close_oi'] if use_tqsdk else row.get('hold', row.get('open_interest', 0))), 0)
+    }
+
+def _add_kline_changes(data):
+    """为K线数据列表添加增减值（较前一根K线）"""
+    for i, bar in enumerate(data):
+        if i == 0:
+            bar['volume_change'] = 0
+            bar['open_interest_change'] = 0
+        else:
+            prev = data[i - 1]
+            bar['volume_change'] = round(_safe_val(bar['volume'] - prev['volume'], 0), 2)
+            bar['open_interest_change'] = round(_safe_val(bar['open_interest'] - prev['open_interest'], 0), 0)
+
+def _get_yesterday_close_tqsdk(symbol='CZCE.TA609'):
+    """通过TqSdk获取昨日收盘价（用于计算涨跌）"""
+    try:
+        api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS))
+        # 获取2根日K线，取倒数第2根的收盘价作为昨日收盘价
+        daily_klines = api.get_kline_serial(symbol, 86400, data_length=10)
+        api.close()
+        if len(daily_klines) >= 2:
+            # 取倒数第2根（上一交易日）
+            prev_close = float(daily_klines.iloc[-2]['close'])
+            if math.isfinite(prev_close) and prev_close > 0:
+                return prev_close
+        return None
+    except:
+        return None
+
+def _get_yesterday_close_akshare(symbol='TA0'):
+    """通过akshare获取昨日收盘价"""
+    try:
+        df = ak.futures_zh_minute_sina(symbol=symbol, period='1d')
+        df.columns = [c.strip() for c in df.columns]
+        df['datetime'] = pd.to_datetime(df['datetime'])
+        df = df.sort_values('datetime')
+        if len(df) >= 2:
+            prev_close = float(df['close'].iloc[-2])
+            if math.isfinite(prev_close) and prev_close > 0:
+                return prev_close
+        return None
+    except:
+        return None
+
+
 @app.route('/api/kline/data')
 def api_kline_data():
-    """K线图数据API - 天勤TqSdk实时数据"""
+    """K线图数据API
+    - OHLC + volume: 取自TqSdk或akshare
+    - open_interest: 每根K线自己的close_oi（TqSdk）或hold（akshare）
+    - 涨跌（change/change_pct）: 较昨日收盘价
+    - volume_change / open_interest_change: 较前一根K线
+    """
     import re
-    import datetime as dt
-    import math
     
     period = request.args.get('period', '1min')
+    symbol = request.args.get('symbol', 'TA0')
     
-    # TqSdk 周期（秒）
+    # 前端合约名 -> TqSdk合约名映射
+    tqsdk_symbol_map = {
+        'TA0': 'CZCE.TA609',   # PTA主力（当前9月）
+        'TA909': 'CZCE.TA609', # PTA9月
+        'TA609': 'CZCE.TA609', # PTA9月
+        'TA0C': 'CZCE.TA609',  # 认购期权（占位）
+    }
+    tqsdk_symbol = tqsdk_symbol_map.get(symbol, 'CZCE.TA609')
+    # 周期配置
     period_seconds_map = {
         '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '60min': 3600,
         '1day': 86400, '1week': 604800, '1month': 2592000
     }
     
-    # 非标准分钟周期（如120min, 240min）
     m = re.match(r'^(\d+)min$', period)
     if m:
         n = int(m.group(1))
@@ -286,109 +367,87 @@ def api_kline_data():
     else:
         return jsonify({'error': f'unsupported period: {period}', 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0})
     
+    # ==================== TqSdk 分支 ====================
     try:
         api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS))
-        klines = api.get_kline_serial('CZCE.TA605', period_sec, count)
+        klines = api.get_kline_serial(tqsdk_symbol, period_sec, count)
         
-        # 从akshare获取最新持仓数据
-        try:
-            period_code = period.replace('min', 'm') if 'min' in period else period
-            ak_df = ak.futures_zh_minute_sina(symbol='TA0', period=period_code)
-            ak_df.columns = [c.strip() for c in ak_df.columns]
-            ak_df = ak_df.sort_values('datetime')
-            latest_hold = float(ak_df['hold'].iloc[-1]) if len(ak_df) > 0 else 0
-        except:
-            latest_hold = 0
+        # 获取昨日收盘价（用于计算涨跌）
+        yesterday_close = _get_yesterday_close_tqsdk(tqsdk_symbol)
         
         data = []
         for _, row in klines.iterrows():
             close = float(row['close']) if math.isfinite(row['close']) else None
             if close is None or close == 0:
                 continue
-            dt_val = row['datetime']
-            if isinstance(dt_val, (int, float)) and math.isfinite(dt_val) and dt_val > 0:
-                # 直接使用Unix时间戳（秒），LightweightCharts自动处理时区
-                time_ts = int(dt_val / 1e9)
-            else:
-                # Fallback: 解析字符串并转为时间戳
-                dt_obj = dt.datetime.strptime(str(dt_val).replace('T', ' '), '%Y-%m-%d %H:%M:%S')
-                time_ts = int((dt_obj - dt.datetime(1970, 1, 1)).total_seconds())
-            data.append({
-                'time': time_ts,  # Unix时间戳（秒）
-                'open': float(row['open']) if math.isfinite(row['open']) else close,
-                'high': float(row['high']) if math.isfinite(row['high']) else close,
-                'low': float(row['low']) if math.isfinite(row['low']) else close,
-                'close': close,
-                'volume': float(row['volume']) if math.isfinite(row['volume']) else 0,
-                'open_interest': latest_hold
-            })
+            data.append(_build_kline_bar(row, close, use_tqsdk=True))
+        
         api.close()
         data.sort(key=lambda x: x['time'])
         
+        # 计算涨跌（较昨日收盘价）
         last = data[-1] if data else {}
-        first = data[0] if data else {}
-        current_price = last.get('close', 0)
-        first_price = first.get('close', current_price)
-        change = current_price - first_price
-        change_pct = (change / first_price * 100) if first_price else 0
+        current_price = _safe_val(last.get('close', 0), 0)
+        if yesterday_close and yesterday_close > 0:
+            change = round(current_price - yesterday_close, 2)
+            change_pct = round((change / yesterday_close) * 100, 2)
+        else:
+            change, change_pct = 0, 0
         
-        def safe_val(v, default=0):
-            if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
-                return default
-            return v
-        change = round(safe_val(change, 0), 2)
-        change_pct = round(safe_val(change_pct, 0), 2)
-        current_price = round(safe_val(current_price, 0), 2)
+        # 添加增减值（较前一根K线）
+        _add_kline_changes(data)
         
         return jsonify({
             'symbol': 'TA', 'period': period, 'data': data,
-            'current_price': current_price, 'change': change,
-            'change_pct': change_pct, 'source': 'tqsdk'
+            'current_price': round(current_price, 2),
+            'change': change, 'change_pct': change_pct,
+            'yesterday_close': yesterday_close,
+            'source': 'tqsdk'
         })
     except Exception as e:
-        # Fallback to akshare
-        try:
-            period_code = period.replace('min', 'm') if 'min' in period else period
-            df = ak.futures_zh_minute_sina(symbol='TA0', period=period_code)
-            df.columns = [c.strip() for c in df.columns]
-            df['datetime'] = pd.to_datetime(df['datetime'])
-            df = df.sort_values('datetime').tail(500).reset_index(drop=True)
-            
-            data = []
-            for _, row in df.iterrows():
-                close = float(row['close']) if math.isfinite(row['close']) else None
-                if close is None or close == 0:
-                    continue
-                # 解析datetime并转为Unix时间戳
-                dt_str = str(row['datetime'])
-                if 'T' in dt_str:
-                    dt_str = dt_str.replace('T', ' ')
-                dt_obj = dt.datetime.strptime(dt_str, '%Y-%m-%d %H:%M:%S')
-                time_ts = int((dt_obj - dt.datetime(1970, 1, 1)).total_seconds())
-                data.append({
-                    'time': time_ts,  # Unix时间戳（秒）
-                    'open': float(row['open']) if math.isfinite(row['open']) else close,
-                    'high': float(row['high']) if math.isfinite(row['high']) else close,
-                    'low': float(row['low']) if math.isfinite(row['low']) else close,
-                    'close': close,
-                    'volume': float(row['volume']) if math.isfinite(row['volume']) else 0,
-                    'open_interest': float(row.get('hold', 0)) if math.isfinite(row.get('hold', 0)) else 0
-                })
-            
-            last = data[-1] if data else {}
-            first = data[0] if data else {}
-            current_price = last.get('close', 0)
-            first_price = first.get('close', current_price)
-            change = current_price - first_price
-            change_pct = (change / first_price * 100) if first_price else 0
-            
-            return jsonify({
-                'symbol': 'TA', 'period': period, 'data': data,
-                'current_price': round(current_price, 2), 'change': round(change, 2),
-                'change_pct': round(change_pct, 2), 'source': 'akshare'
-            })
-        except Exception as e2:
-            return jsonify({'error': f'TqSdk: {str(e)}, Akshare: {str(e2)}', 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0})
+        pass
+    
+    # ==================== Akshare Fallback 分支 ====================
+    try:
+        period_code = period.replace('min', 'm') if 'min' in period else period
+        df = ak.futures_zh_minute_sina(symbol='TA0', period=period_code)
+        df.columns = [c.strip() for c in df.columns]
+        df['datetime'] = pd.to_datetime(df['datetime'])
+        df = df.sort_values('datetime').tail(500).reset_index(drop=True)
+        
+        # 获取昨日收盘价
+        yesterday_close = _get_yesterday_close_akshare('TA0')
+        
+        data = []
+        for _, row in df.iterrows():
+            close = float(row['close']) if math.isfinite(row['close']) else None
+            if close is None or close == 0:
+                continue
+            data.append(_build_kline_bar(row, close, use_tqsdk=False))
+        
+        data.sort(key=lambda x: x['time'])
+        
+        # 计算涨跌
+        last = data[-1] if data else {}
+        current_price = _safe_val(last.get('close', 0), 0)
+        if yesterday_close and yesterday_close > 0:
+            change = round(current_price - yesterday_close, 2)
+            change_pct = round((change / yesterday_close) * 100, 2)
+        else:
+            change, change_pct = 0, 0
+        
+        # 添加增减值
+        _add_kline_changes(data)
+        
+        return jsonify({
+            'symbol': 'TA', 'period': period, 'data': data,
+            'current_price': round(current_price, 2),
+            'change': change, 'change_pct': change_pct,
+            'yesterday_close': yesterday_close,
+            'source': 'akshare'
+        })
+    except Exception as e2:
+        return jsonify({'error': f'获取失败: {str(e2)}', 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0})
 
 
 
@@ -673,6 +732,75 @@ def api_chan_advanced():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e), 'period': period})
+
+
+@app.route('/api/contracts/list')
+def api_contracts_list():
+    """获取所有可交易期货合约列表（按交易所/品种分组）"""
+    import akshare as ak
+    try:
+        all_contracts = {}
+        
+        # CZCE 郑商所（ PTA、甲醇、短纤等）
+        try:
+            czce_df = ak.futures_contract_info_czce()
+            for _, row in czce_df.iterrows():
+                product = str(row.get('产品名称', '')).strip()
+                code = str(row.get('合约代码', '')).strip()
+                if not code or not product:
+                    continue
+                if product not in all_contracts:
+                    all_contracts[product] = []
+                all_contracts[product].append(code)
+        except Exception as e:
+            print(f"CZCE fetch error: {e}")
+        
+        # DCE 大商所
+        try:
+            dce_df = ak.futures_contract_info_dce()
+            for _, row in dce_df.iterrows():
+                product = str(row.get('产品名称', '')).strip()
+                code = str(row.get('合约代码', '')).strip()
+                if not code or not product:
+                    continue
+                if product not in all_contracts:
+                    all_contracts[product] = []
+                all_contracts[product].append(code)
+        except Exception as e:
+            print(f"DCE fetch error: {e}")
+        
+        # SHFE 上期所
+        try:
+            shfe_df = ak.futures_contract_info_shfe()
+            for _, row in shfe_df.iterrows():
+                product = str(row.get('产品名称', '')).strip()
+                code = str(row.get('合约代码', '')).strip()
+                if not code or not product:
+                    continue
+                if product not in all_contracts:
+                    all_contracts[product] = []
+                all_contracts[product].append(code)
+        except Exception as e:
+            print(f"SHFE fetch error: {e}")
+        
+        # 构建前端需要的扁平列表
+        result = []
+        for product, codes in sorted(all_contracts.items()):
+            # 去重 + 排序（按合约代码数字部分排序）
+            seen = set()
+            unique_codes = []
+            for c in codes:
+                if c not in seen:
+                    seen.add(c)
+                    unique_codes.append(c)
+            unique_codes.sort()
+            for code in unique_codes:
+                result.append({'code': code, 'name': product})
+        
+        return jsonify({'success': True, 'contracts': result})
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e), 'contracts': []})
 
 
 if __name__ == '__main__':

@@ -325,9 +325,7 @@
     <div class="header">
         <div class="title">📈 PTA期货综合分析</div>
         <div class="controls">
-            <select id="symbol">
-                <option value="TA0">PTA主力 (TA0)</option>
-            </select>
+            <button id="symbolBtn" onclick="openSymbolModal()" style="padding:6px 12px;border-radius:4px;border:1px solid #444;background:#2d2d44;color:#fff;cursor:pointer;font-size:13px;min-width:120px;text-align:left;">📋 TA609 ▼</button>
             <select id="period">
                 <option value="1min">1分钟</option>
                 <option value="5min">5分钟</option>
@@ -340,6 +338,18 @@
                 <option value="1month">月线</option>
             </select>
             <button onclick="loadAllData()">🔄 刷新</button>
+        </div>
+    </div>
+
+    <!-- 合约选择弹窗 -->
+    <div id="symbolModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:#1e1e2e;border:1px solid #444;border-radius:10px;padding:20px;width:360px;max-height:500px;overflow-y:auto;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">
+                <span style="font-size:16px;font-weight:bold;">选择合约</span>
+                <button onclick="closeSymbolModal()" style="background:none;border:none;color:#888;font-size:20px;cursor:pointer;">×</button>
+            </div>
+            <input type="text" id="symbolSearch" placeholder="搜索合约代码或名称…" oninput="filterSymbols()" style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #444;background:#2d2d44;color:#fff;font-size:13px;box-sizing:border-box;margin-bottom:10px;">
+            <div id="symbolListContainer" style="max-height:350px;overflow-y:auto;"></div>
         </div>
     </div>
 
@@ -1506,6 +1516,92 @@
             }
         }
 
+        // ==================== 合约选择弹窗 ====================
+
+        let allSymbols = [];  // 动态从API加载
+        let currentSymbol = 'TA609';
+
+        async function loadContractList() {
+            if (allSymbols.length > 0) return;  // 已加载则跳过
+            try {
+                const res = await fetch('/api/contracts/list');
+                const data = await res.json();
+                if (data.success && data.contracts) {
+                    allSymbols = data.contracts.map(c => ({
+                        code: c.code,
+                        name: c.name,
+                        desc: ''
+                    }));
+                }
+            } catch (e) {
+                console.error('Failed to load contract list:', e);
+                // fallback到常用合约
+                allSymbols = [
+                    { code: 'TA609', name: '精对苯二甲酸期货', desc: '' },
+                    { code: 'TA501', name: '精对苯二甲酸期货', desc: '' },
+                    { code: 'MA609', name: '甲醇期货', desc: '' },
+                    { code: 'MA701', name: '甲醇期货', desc: '' },
+                    { code: 'PF609', name: '涤纶短纤期货', desc: '' },
+                ];
+            }
+        }
+
+        function openSymbolModal() {
+            document.getElementById('symbolModal').style.display = 'flex';
+            document.getElementById('symbolSearch').value = '';
+            loadContractList().then(() => renderSymbolList(''));
+            document.getElementById('symbolSearch').focus();
+        }
+
+        function closeSymbolModal() {
+            document.getElementById('symbolModal').style.display = 'none';
+        }
+
+        function filterSymbols() {
+            const kw = document.getElementById('symbolSearch').value.trim().toLowerCase();
+            renderSymbolList(kw);
+        }
+
+        function renderSymbolList(keyword) {
+            const container = document.getElementById('symbolListContainer');
+            const filtered = keyword
+                ? allSymbols.filter(s =>
+                    s.code.toLowerCase().includes(keyword) ||
+                    s.name.toLowerCase().includes(keyword))
+                : allSymbols;
+            if (filtered.length === 0) {
+                container.innerHTML = '<div style="color:#888;text-align:center;padding:20px;">无匹配合约</div>';
+                return;
+            }
+            container.innerHTML = filtered.map(s => `
+                <div onclick="selectSymbol('${s.code}')"
+                     style="padding:8px 12px;cursor:pointer;border-radius:6px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;${s.code === currentSymbol ? 'background:#2d4a6e;' : 'background:#2d2d44;'}"
+                     onmouseover="this.style.background='#3d3d54'" onmouseout="this.style.background='${s.code === currentSymbol ? '#2d4a6e' : '#2d2d44'}'">
+                    <span>
+                        <span style="font-weight:bold;color:#fff;">${s.code}</span>
+                        <span style="color:#aaa;margin-left:8px;">${s.name}</span>
+                        ${s.desc ? `<span style="color:#666;font-size:11px;margin-left:6px;">${s.desc}</span>` : ''}
+                    </span>
+                    ${s.code === currentSymbol ? '<span style="color:#4CAF50;font-size:12px;">✓</span>' : ''}
+                </div>
+            `).join('');
+        }
+
+        function selectSymbol(code) {
+            currentSymbol = code;
+            document.getElementById('symbolBtn').innerHTML = `📋 ${code} ▼`;
+            closeSymbolModal();
+            loadAllData();
+        }
+
+        // 点击弹窗背景关闭
+        document.addEventListener('click', function(e) {
+            const modal = document.getElementById('symbolModal');
+            if (modal && modal.style.display !== 'none' && e.target === modal) {
+                closeSymbolModal();
+            }
+        });
+
         // ==================== 数据加载 ====================
 
         async function loadAllData() {
@@ -1521,7 +1617,7 @@
                 
                 // 并行加载K线数据和缠论数据
                 const [kRes, chanRes] = await Promise.all([
-                    fetch(`/api/kline/data?symbol=TA0&period=${period}`),
+                    fetch(`/api/kline/data?symbol=${currentSymbol}&period=${period}`),
                     fetch(`/api/chan/analysis?period=${period}`)
                 ]);
                 const kData = await kRes.json();
@@ -1575,27 +1671,35 @@
                     .sort((a, b) => a.time - b.time);
                 volumeSeries.setData(volData);
                 
-                // 更新统计
+                // 更新统计（使用API返回的数据）
                 const last = klineData[klineData.length - 1];
-                const first = klineData[0];
-                if (last && first) {
-                    const change = ((last.close - first.close) / first.close * 100).toFixed(2);
-                    const priceChangeFromPrev = (last.close - klineData[klineData.length - 2].close).toFixed(0);
-                    const volumeChangeFromPrev = (last.volume - klineData[klineData.length - 2].volume).toFixed(0);
+                if (last) {
+                    // 使用API返回的涨跌（较昨日收盘价）
+                    const apiChange = kData.change || 0;
+                    const apiChangePct = kData.change_pct || 0;
+                    const apiChangePctStr = (apiChangePct >= 0 ? '+' : '') + apiChangePct.toFixed(2);
+                    
+                    // 较前一根K线的价格变化（前端自己算）
+                    const priceChangeFromPrev = klineData.length >= 2
+                        ? (last.close - klineData[klineData.length - 2].close).toFixed(0)
+                        : 0;
+                    
+                    // 使用API返回的成交量和持仓量增减值
+                    const volumeChangeFromPrev = last.volume_change || 0;
+                    const oiChange = last.open_interest_change || 0;
+                    
                     const totalVolume = klineData.reduce((s, k) => s + parseFloat(k.volume), 0);
                     
                     document.getElementById('lastPrice').textContent = last.close.toFixed(0);
-                    document.getElementById('lastPrice').className = change >= 0 ? 'stat-value up' : 'stat-value down';
+                    document.getElementById('lastPrice').className = apiChange >= 0 ? 'stat-value up' : 'stat-value down';
                     document.getElementById('priceChange').textContent = `(${priceChangeFromPrev >= 0 ? '+' : ''}${priceChangeFromPrev})`;
                     document.getElementById('priceChange').className = priceChangeFromPrev >= 0 ? 'text-success' : 'text-danger';
-                    document.getElementById('change').textContent = `${change >= 0 ? '+' : ''}${change}%`;
-                    document.getElementById('change').className = change >= 0 ? 'stat-value up' : 'stat-value down';
+                    document.getElementById('change').textContent = apiChangePctStr + '%';
+                    document.getElementById('change').className = apiChange >= 0 ? 'stat-value up' : 'stat-value down';
                     document.getElementById('volume').textContent = totalVolume.toFixed(0);
                     document.getElementById('volumeChange').textContent = `(${volumeChangeFromPrev >= 0 ? '+' : ''}${volumeChangeFromPrev})`;
                     document.getElementById('volumeChange').className = volumeChangeFromPrev >= 0 ? 'text-success' : 'text-danger';
                     const oi = last.open_interest || 0;
-                    const oiPrev = klineData.length >= 2 ? (klineData[klineData.length - 2].open_interest || 0) : oi;
-                    const oiChange = oi - oiPrev;
                     const oiEl = document.getElementById('openInterest');
                     if (oiEl) oiEl.textContent = typeof oi === 'number' ? oi.toFixed(0) : '--';
                     const oiChangeEl = document.getElementById('oiChange');
@@ -1933,7 +2037,7 @@
             const price = parseFloat(k.close);
             const vol = parseFloat(k.volume);
             const priceChange = idx > 0 ? (price - klineData[idx-1].close).toFixed(0) : '0';
-            const volChange = idx > 0 ? (vol - klineData[idx-1].volume).toFixed(0) : '0';
+            const volChange = k.volume_change || (idx > 0 ? (vol - klineData[idx-1].volume).toFixed(0) : '0');
             
             // 更新价格和成交量显示
             document.getElementById('lastPrice').textContent = price.toFixed(0);
@@ -2087,10 +2191,10 @@
         }
 
         async function changeMacdPeriod() {
-            const period = document.getElementById('macdPeriod').value;
-            try {
+                const period = document.getElementById('macdPeriod').value;
+                try {
                 // Fetch K-line data for this period
-                const kRes = await fetch(`/api/kline/data?symbol=TA0&period=${period}`);
+                const kRes = await fetch(`/api/kline/data?symbol=${currentSymbol}&period=${period}`);
                 const kData = await kRes.json();
                 
                 if (!kData.data || kData.data.length === 0) {
@@ -2682,7 +2786,7 @@
             if (!mainChart || !candleSeries) return;
             try {
                 const period = document.getElementById('period').value;
-                const res = await fetch('/api/kline/data?symbol=TA0&period=' + period);
+                const res = await fetch(`/api/kline/data?symbol=${currentSymbol}&period=` + period);
                 const data = await res.json();
                 if (data.error || !data.data || data.data.length === 0) return;
                 const newData = data.data;
