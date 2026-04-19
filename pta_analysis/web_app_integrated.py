@@ -734,5 +734,74 @@ def api_chan_advanced():
         return jsonify({'error': str(e), 'period': period})
 
 
+@app.route('/api/contracts/list')
+def api_contracts_list():
+    """获取所有可交易期货合约列表（按交易所/品种分组）"""
+    import akshare as ak
+    try:
+        all_contracts = {}
+        
+        # CZCE 郑商所（ PTA、甲醇、短纤等）
+        try:
+            czce_df = ak.futures_contract_info_czce()
+            for _, row in czce_df.iterrows():
+                product = str(row.get('产品名称', '')).strip()
+                code = str(row.get('合约代码', '')).strip()
+                if not code or not product:
+                    continue
+                if product not in all_contracts:
+                    all_contracts[product] = []
+                all_contracts[product].append(code)
+        except Exception as e:
+            print(f"CZCE fetch error: {e}")
+        
+        # DCE 大商所
+        try:
+            dce_df = ak.futures_contract_info_dce()
+            for _, row in dce_df.iterrows():
+                product = str(row.get('产品名称', '')).strip()
+                code = str(row.get('合约代码', '')).strip()
+                if not code or not product:
+                    continue
+                if product not in all_contracts:
+                    all_contracts[product] = []
+                all_contracts[product].append(code)
+        except Exception as e:
+            print(f"DCE fetch error: {e}")
+        
+        # SHFE 上期所
+        try:
+            shfe_df = ak.futures_contract_info_shfe()
+            for _, row in shfe_df.iterrows():
+                product = str(row.get('产品名称', '')).strip()
+                code = str(row.get('合约代码', '')).strip()
+                if not code or not product:
+                    continue
+                if product not in all_contracts:
+                    all_contracts[product] = []
+                all_contracts[product].append(code)
+        except Exception as e:
+            print(f"SHFE fetch error: {e}")
+        
+        # 构建前端需要的扁平列表
+        result = []
+        for product, codes in sorted(all_contracts.items()):
+            # 去重 + 排序（按合约代码数字部分排序）
+            seen = set()
+            unique_codes = []
+            for c in codes:
+                if c not in seen:
+                    seen.add(c)
+                    unique_codes.append(c)
+            unique_codes.sort()
+            for code in unique_codes:
+                result.append({'code': code, 'name': product})
+        
+        return jsonify({'success': True, 'contracts': result})
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e), 'contracts': []})
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8424, debug=False)

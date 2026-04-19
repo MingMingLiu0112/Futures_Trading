@@ -1518,35 +1518,38 @@
 
         // ==================== 合约选择弹窗 ====================
 
-        const allSymbols = [
-            { code: 'TA609', name: 'PTA9月', desc: '主力合约' },
-            { code: 'TA0',   name: 'PTA主力', desc: '指数连续' },
-            { code: 'TA701', name: 'PTA7月',  desc: '' },
-            { code: 'TA801', name: 'PTA8月',  desc: '' },
-            { code: 'TA901', name: 'PTA9月',  desc: '' },
-            { code: 'TA101', name: 'PTA10月', desc: '' },
-            { code: 'TA011', name: 'PTA1月',  desc: '' },
-            { code: 'TA111', name: 'PTA11月', desc: '' },
-            { code: 'MA0',   name: '甲醇主力', desc: '指数连续' },
-            { code: 'MA609', name: '甲醇6月',  desc: '' },
-            { code: 'MA701', name: '甲醇7月',  desc: '' },
-            { code: 'MA801', name: '甲醇8月',  desc: '' },
-            { code: 'MA901', name: '甲醇9月',  desc: '' },
-            { code: 'MA101', name: '甲醇10月', desc: '' },
-            { code: 'MA011', name: '甲醇1月',  desc: '' },
-            { code: 'MA111', name: '甲醇11月', desc: '' },
-            { code: 'PF0',   name: '短纤主力', desc: '指数连续' },
-            { code: 'PF609', name: '短纤6月',  desc: '' },
-            { code: 'PF701', name: '短纤7月',  desc: '' },
-            { code: 'PF801', name: '短纤8月',  desc: '' },
-            { code: 'PF901', name: '短纤9月',  desc: '' },
-        ];
+        let allSymbols = [];  // 动态从API加载
         let currentSymbol = 'TA609';
+
+        async function loadContractList() {
+            if (allSymbols.length > 0) return;  // 已加载则跳过
+            try {
+                const res = await fetch('/api/contracts/list');
+                const data = await res.json();
+                if (data.success && data.contracts) {
+                    allSymbols = data.contracts.map(c => ({
+                        code: c.code,
+                        name: c.name,
+                        desc: ''
+                    }));
+                }
+            } catch (e) {
+                console.error('Failed to load contract list:', e);
+                // fallback到常用合约
+                allSymbols = [
+                    { code: 'TA609', name: '精对苯二甲酸期货', desc: '' },
+                    { code: 'TA501', name: '精对苯二甲酸期货', desc: '' },
+                    { code: 'MA609', name: '甲醇期货', desc: '' },
+                    { code: 'MA701', name: '甲醇期货', desc: '' },
+                    { code: 'PF609', name: '涤纶短纤期货', desc: '' },
+                ];
+            }
+        }
 
         function openSymbolModal() {
             document.getElementById('symbolModal').style.display = 'flex';
             document.getElementById('symbolSearch').value = '';
-            renderSymbolList('');
+            loadContractList().then(() => renderSymbolList(''));
             document.getElementById('symbolSearch').focus();
         }
 
