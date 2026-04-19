@@ -297,7 +297,7 @@ def _add_kline_changes(data):
             bar['volume_change'] = round(_safe_val(bar['volume'] - prev['volume'], 0), 2)
             bar['open_interest_change'] = round(_safe_val(bar['open_interest'] - prev['open_interest'], 0), 0)
 
-def _get_yesterday_close_tqsdk(symbol='CZCE.TA605'):
+def _get_yesterday_close_tqsdk(symbol='CZCE.TA609'):
     """通过TqSdk获取昨日收盘价（用于计算涨跌）"""
     try:
         api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS))
@@ -340,7 +340,16 @@ def api_kline_data():
     import re
     
     period = request.args.get('period', '1min')
+    symbol = request.args.get('symbol', 'TA0')
     
+    # 前端合约名 -> TqSdk合约名映射
+    tqsdk_symbol_map = {
+        'TA0': 'CZCE.TA609',   # PTA主力（当前9月）
+        'TA909': 'CZCE.TA609', # PTA9月
+        'TA609': 'CZCE.TA609', # PTA9月
+        'TA0C': 'CZCE.TA609',  # 认购期权（占位）
+    }
+    tqsdk_symbol = tqsdk_symbol_map.get(symbol, 'CZCE.TA609')
     # 周期配置
     period_seconds_map = {
         '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '60min': 3600,
@@ -361,10 +370,10 @@ def api_kline_data():
     # ==================== TqSdk 分支 ====================
     try:
         api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS))
-        klines = api.get_kline_serial('CZCE.TA605', period_sec, count)
+        klines = api.get_kline_serial(tqsdk_symbol, period_sec, count)
         
         # 获取昨日收盘价（用于计算涨跌）
-        yesterday_close = _get_yesterday_close_tqsdk('CZCE.TA605')
+        yesterday_close = _get_yesterday_close_tqsdk(tqsdk_symbol)
         
         data = []
         for _, row in klines.iterrows():

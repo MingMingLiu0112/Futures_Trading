@@ -325,9 +325,11 @@
     <div class="header">
         <div class="title">📈 PTA期货综合分析</div>
         <div class="controls">
-            <select id="symbol">
-                <option value="TA0">PTA主力 (TA0)</option>
-            </select>
+            <input list="symbolList" id="symbolInput" placeholder="选择/搜索合约…" value="TA609" style="width:140px;padding:6px 10px;border-radius:4px;border:1px solid #444;background:#2d2d44;color:#fff;font-size:13px;">
+            <datalist id="symbolList">
+                <option value="TA609">PTA9月 (TA609)
+                <option value="TA0">PTA主力 (TA0)
+            </datalist>
             <select id="period">
                 <option value="1min">1分钟</option>
                 <option value="5min">5分钟</option>
@@ -1518,10 +1520,11 @@
                 }
                 
                 const period = document.getElementById('period').value;
+                const symbol = document.getElementById('symbolInput').value || 'TA609';
                 
                 // 并行加载K线数据和缠论数据
                 const [kRes, chanRes] = await Promise.all([
-                    fetch(`/api/kline/data?symbol=TA0&period=${period}`),
+                    fetch(`/api/kline/data?symbol=${symbol}&period=${period}`),
                     fetch(`/api/chan/analysis?period=${period}`)
                 ]);
                 const kData = await kRes.json();
@@ -2095,10 +2098,11 @@
         }
 
         async function changeMacdPeriod() {
-            const period = document.getElementById('macdPeriod').value;
-            try {
+                const period = document.getElementById('macdPeriod').value;
+                const symbol = document.getElementById('symbolInput').value || 'TA609';
+                try {
                 // Fetch K-line data for this period
-                const kRes = await fetch(`/api/kline/data?symbol=TA0&period=${period}`);
+                const kRes = await fetch(`/api/kline/data?symbol=${symbol}&period=${period}`);
                 const kData = await kRes.json();
                 
                 if (!kData.data || kData.data.length === 0) {
@@ -2690,7 +2694,8 @@
             if (!mainChart || !candleSeries) return;
             try {
                 const period = document.getElementById('period').value;
-                const res = await fetch('/api/kline/data?symbol=TA0&period=' + period);
+                const symbol = document.getElementById('symbolInput').value || 'TA609';
+                const res = await fetch(`/api/kline/data?symbol=${symbol}&period=` + period);
                 const data = await res.json();
                 if (data.error || !data.data || data.data.length === 0) return;
                 const newData = data.data;
