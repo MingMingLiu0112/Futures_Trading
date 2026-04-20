@@ -1336,8 +1336,9 @@
                                 }
                             } else if ((savedDrawing.type === 'line' || savedDrawing.type === 'ray') && savedDrawing.points) {
                                 const p1 = savedDrawing.points[0], p2 = savedDrawing.points[1];
-                                if (!p1 || !p2 || !isValidPrice(p1.price) || !isValidPrice(p2.price)) {
-                                    console.warn(`[绘图存储] 恢复 #${savedDrawing.id} 失败: points数据含无效值`);
+                                // 修复：同时检查time和price，防止time为null导致lightweight-charts抛出"Value is null"
+                                if (!p1 || !p2 || !isValidPrice(p1.time) || !isValidPrice(p2.time) || !isValidPrice(p1.price) || !isValidPrice(p2.price)) {
+                                    console.warn(`[绘图存储] 恢复 #${savedDrawing.id} 失败: points数据含无效值 p1=(${p1?.time},${p1?.price}), p2=(${p2?.time},${p2?.price})`);
                                 } else {
                                     ser = mainChart.addLineSeries({
                                         color: savedDrawing.color || '#ff0000',
@@ -1788,8 +1789,15 @@
         function calculateMACD(closes, fast = 12, slow = 26, signal = 9) {
             const ema = (data, period) => {
                 const k = 2 / (period + 1);
-                let emaVal = data[0];
-                return data.map(v => { emaVal = v * k + emaVal * (1 - k); return emaVal; });
+                // 过滤NaN，使用有效数据计算emaVal初值
+                const validData = data.filter(v => isFinite(v));
+                if (validData.length === 0) return data.map(() => NaN);
+                let emaVal = validData[0];
+                return data.map(v => {
+                    if (!isFinite(v)) return NaN;
+                    emaVal = v * k + emaVal * (1 - k);
+                    return emaVal;
+                });
             };
             
             const fastEma = ema(closes, fast);
@@ -1830,26 +1838,30 @@
             const { macdLine, signalLine, histogram } = calculateMACD(closes);
             const times = klineData.map(k => k.time + 8 * 3600);
             
-            // MACD线 - 只设置真实数据（从26开始）
-            const macdData = macdLine.map((v, i) => ({ time: times[i], value: i >= 25 ? v : null }));
-            const signalData = signalLine.map((v, i) => ({ time: times[i], value: i >= 25 ? v : null }));
+            // MACD线 - 只设置真实数据（从26开始），过滤NaN
+            const safeMV = (v) => isFinite(v) ? v : null;
+            const macdData = macdLine.map((v, i) => ({ time: times[i], value: i >= 25 ? safeMV(v) : null }));
+            const signalData = signalLine.map((v, i) => ({ time: times[i], value: i >= 25 ? safeMV(v) : null }));
 
             macdLineSeries.setData(macdData);
             signalLineSeries.setData(signalData);
             
-            // 更新MACD指标数值显示
+            // 更新MACD指标数值显示（过滤NaN）
             const lastIdx = histogram.length - 1;
             if (lastIdx >= 25) {
-                document.getElementById('macdValueDisplay').textContent = 
-                    `DIF: ${macdLine[lastIdx].toFixed(2)} | DEA: ${signalLine[lastIdx].toFixed(2)} | 柱: ${histogram[lastIdx].toFixed(2)}`;
+                const macdVal = isFinite(macdLine[lastIdx]) ? macdLine[lastIdx].toFixed(2) : '--';
+                const signalVal = isFinite(signalLine[lastIdx]) ? signalLine[lastIdx].toFixed(2) : '--';
+                const histVal = isFinite(histogram[lastIdx]) ? histogram[lastIdx].toFixed(2) : '--';
+                document.getElementById('macdValueDisplay').textContent =
+                    `DIF: ${macdVal} | DEA: ${signalVal} | 柱: ${histVal}`;
             }
             
             // MACD柱状图：每根柱正常显示实际值(DIF-DEA)，每波最后一根柱上方标注累计面积
             const n = histogram.length;
             const histData = new Array(n).fill(null).map((_, i) => ({
                 time: times[i],
-                value: i < 25 ? 0 : histogram[i],
-                color: i < 25 ? '#666' : (histogram[i] >= 0 ? '#ef5350' : '#26a69a'),
+                value: i < 25 ? null : (isFinite(histogram[i]) ? histogram[i] : null),
+                color: i < 25 ? '#666' : (isFinite(histogram[i]) && histogram[i] >= 0 ? '#ef5350' : '#26a69a'),
             }));
             
             // 追踪所有波的结束位置和累计值
@@ -1859,6 +1871,8 @@
             
             for (let i = 25; i < n; i++) {
                 const v = histogram[i];
+                // 跳过NaN值，防止NaN穿透导致累计面积计算错误
+                if (!isFinite(v)) continue;
                 const sign = v >= 0 ? 1 : -1;
                 
                 if (waveSign === 0) {
@@ -1869,7 +1883,7 @@
                     waveSum += v;
                     waveEndIdx = i;
                 } else {
-                    // 方向改变，记录前一波的结束位置（sign改变前的最后一柱）
+                    // 方向改变，记录前一波的结束位置（sign改变时的前一柱）
                     waveEndLabels.push({ idx: waveEndIdx, sum: waveSum, sign: waveSign });
                     // 开始新波
                     waveStart = i; waveSign = sign; waveSum = v; waveEndIdx = i;
@@ -1898,26 +1912,21 @@
             const chartWidth = wrapper.clientWidth;
             if (chartWidth <= 0 || chartHeight <= 0) return;
             
-            // 获取MACD图表的可见时间范围
+            // 获取MACD图表的可见时间范围（逻辑范围）
             let visibleRange = null;
             try {
                 visibleRange = macdChart.timeScale().getVisibleLogicalRange();
             } catch(e) {}
-            
+
             // 从histogram数据计算零轴位置（基于实际数据范围）
             // 重新计算histogram获取零轴
             const closes = klineData.map(k => parseFloat(k.close));
             if (closes.length < 26) return;
             const { histogram } = calculateMACD(closes);
-            const visibleHists = [];
-            for (let i = 0; i < histogram.length; i++) {
-                const t = klineData[i].time + 8 * 3600;
-                if (visibleRange && t >= visibleRange.from && t <= visibleRange.to) {
-                    visibleHists.push(histogram[i]);
-                }
-            }
-            const histMax = visibleHists.length > 0 ? Math.max(...visibleHists) : 1;
-            const histMin = visibleHists.length > 0 ? Math.min(...visibleHists) : -1;
+            // 零轴计算：使用全部histogram数据（不受可见范围影响），避免逻辑范围vs时间戳类型错配
+            const allValidHists = histogram.slice(26).filter(v => isFinite(v));
+            const histMax = allValidHists.length > 0 ? Math.max(...allValidHists) : 1;
+            const histMin = allValidHists.length > 0 ? Math.min(...allValidHists) : -1;
             const histRange = histMax - histMin || 1;
             // 零轴Y坐标（0值在图表中的位置）
             const zeroY = chartHeight - ((0 - histMin) / histRange) * chartHeight;
@@ -1934,11 +1943,8 @@
                 const timeKey = times[w.idx];
                 let x;
                 try {
-                    if (visibleRange && timeKey >= visibleRange.from && timeKey <= visibleRange.to) {
-                        x = macdChart.timeScale().timeToCoordinate(timeKey);
-                    } else {
-                        x = null;
-                    }
+                    // 逻辑范围下标与时间戳直接比较是错的（类型不匹配），直接用timeToCoordinate
+                    x = macdChart.timeScale().timeToCoordinate(timeKey);
                 } catch(e) {
                     x = null;
                 }
@@ -1957,7 +1963,7 @@
                 
                 const label = document.createElement('div');
                 label.style.cssText = `position:absolute;left:${x}px;top:${y}px;font-size:9px;font-weight:bold;color:${isRed ? '#ef5350' : '#26a69a'};background:rgba(26,26,46,0.9);padding:2px 4px;border-radius:2px;white-space:nowrap;pointer-events:none;`;
-                label.textContent = `${w.sum >= 0 ? '+' : ''}${w.sum.toFixed(1)}`;
+                label.textContent = `${isFinite(w.sum) ? (w.sum >= 0 ? '+' : '') + w.sum.toFixed(1) : '--'}`;
                 labelsDiv.appendChild(label);
             }
             
@@ -1967,11 +1973,8 @@
                 const timeKey = times[currentWave.idx];
                 let x;
                 try {
-                    if (visibleRange && timeKey >= visibleRange.from && timeKey <= visibleRange.to) {
-                        x = macdChart.timeScale().timeToCoordinate(timeKey);
-                    } else {
-                        x = null;
-                    }
+                    // 同上：移除错误的逻辑范围vs时间戳比较
+                    x = macdChart.timeScale().timeToCoordinate(timeKey);
                 } catch(e) {
                     x = null;
                 }
@@ -1985,7 +1988,7 @@
                     }
                     const label = document.createElement('div');
                     label.style.cssText = `position:absolute;left:${x}px;top:${currentY}px;font-size:8px;color:${isRed ? '#FF8888' : '#88FF88'};background:rgba(26,26,46,0.85);padding:1px 3px;border-radius:2px;white-space:nowrap;pointer-events:none;border:1px dashed ${isRed ? '#FF8888' : '#88FF88'};`;
-                    label.textContent = `${currentWave.sum >= 0 ? '+' : ''}${currentWave.sum.toFixed(1)}`;
+                    label.textContent = `${isFinite(currentWave.sum) ? (currentWave.sum >= 0 ? '+' : '') + currentWave.sum.toFixed(1) : '--'}`;
                     labelsDiv.appendChild(label);
                 }
             }
@@ -1998,17 +2001,21 @@
             const { kLine, dLine, jLine } = calculateKDJ(highs, lows, closes);
             const times = klineData.map(k => k.time + 8 * 3600);
             
-            // 显示最新值
+            // 显示最新值（过滤NaN）
             const n = kLine.length - 1;
-            if (n >= 0) {
-                document.getElementById('kdjValueDisplay').textContent = 
-                    `K: ${kLine[n].toFixed(2)} | D: ${dLine[n].toFixed(2)} | J: ${jLine[n].toFixed(2)}`;
+            if (n >= 8) {
+                const kVal = isFinite(kLine[n]) ? kLine[n].toFixed(2) : '--';
+                const dVal = isFinite(dLine[n]) ? dLine[n].toFixed(2) : '--';
+                const jVal = isFinite(jLine[n]) ? jLine[n].toFixed(2) : '--';
+                document.getElementById('kdjValueDisplay').textContent =
+                    `K: ${kVal} | D: ${dVal} | J: ${jVal}`;
             }
             
-            // KDJ线 - 只设置真实数据（从9开始）
-            const kdjKData = kLine.map((v, i) => ({ time: times[i], value: i >= 8 ? v : 0 }));
-            const kdjDData = dLine.map((v, i) => ({ time: times[i], value: i >= 8 ? v : 0 }));
-            const kdjJData = jLine.map((v, i) => ({ time: times[i], value: i >= 8 ? v : 0 }));
+            // KDJ线 - 只设置真实数据（从9开始），过滤NaN值
+            const safeV = (v) => isFinite(v) ? v : null;
+            const kdjKData = kLine.map((v, i) => ({ time: times[i], value: i >= 8 ? safeV(v) : null }));
+            const kdjDData = dLine.map((v, i) => ({ time: times[i], value: i >= 8 ? safeV(v) : null }));
+            const kdjJData = jLine.map((v, i) => ({ time: times[i], value: i >= 8 ? safeV(v) : null }));
             kdjKSeries.setData(kdjKData);
             kdjDSeries.setData(kdjDData);
             kdjJSeries.setData(kdjJData);
@@ -2814,22 +2821,33 @@
                 const newData = data.data;
                 const lastNew = newData[newData.length - 1];
                 
-                // 获取时间（确保是时间戳秒）
+                // 获取时间（确保是时间戳秒），并严格验证数据有效性
                 const lastTime = lastNew.time + 8 * 3600;
-                
+                const open = parseFloat(lastNew.open);
+                const high = parseFloat(lastNew.high);
+                const low = parseFloat(lastNew.low);
+                const close = parseFloat(lastNew.close);
+                const volume = parseFloat(lastNew.volume);
+                // 严格验证：所有值必须是有限数值
+                if (!isFinite(lastTime) || !isFinite(open) || !isFinite(high) || !isFinite(low) || !isFinite(close)) {
+                    console.warn('[incrementalUpdate] 数据含无效值，跳过更新');
+                    return;
+                }
                 candleSeries.update({
                     time: lastTime,
-                    open: parseFloat(lastNew.open),
-                    high: parseFloat(lastNew.high),
-                    low: parseFloat(lastNew.low),
-                    close: parseFloat(lastNew.close),
-                    color: parseFloat(lastNew.close) >= parseFloat(lastNew.open) ? '#26a69a' : '#ef5350'
+                    open: open,
+                    high: high,
+                    low: low,
+                    close: close,
+                    color: close >= open ? '#26a69a' : '#ef5350'
                 });
-                volumeSeries.update({
-                    time: lastTime,
-                    value: parseFloat(lastNew.volume),
-                    color: parseFloat(lastNew.close) >= parseFloat(lastNew.open) ? '#26a69a80' : '#ef535080'
-                });
+                if (isFinite(volume)) {
+                    volumeSeries.update({
+                        time: lastTime,
+                        value: volume,
+                        color: close >= open ? '#26a69a80' : '#ef535080'
+                    });
+                }
                 
                 // 更新持仓量
                 const oi = lastNew.open_interest || 0;
@@ -2994,14 +3012,20 @@
                                 const bottomVal = Number(saved.bottom);
                                 const tVal = Number(rectTime);
                                 const etVal = Number(rectEndTime);
-                                ser.setData([
-                                    { time: tVal, value: topVal },
-                                    { time: etVal, value: topVal },
-                                    { time: etVal, value: bottomVal },
-                                    { time: tVal, value: bottomVal },
-                                    { time: tVal, value: topVal }
-                                ]);
-                                console.log(`[跨周期] 恢复矩形 #${saved.id}`);
+                                // 二次验证：所有值必须是有限数值（防止Number()产生NaN穿透）
+                                if (!isFinite(topVal) || !isFinite(bottomVal) || !isFinite(tVal) || !isFinite(etVal)) {
+                                    console.warn(`[跨周期] 跳过矩形 #${saved.id}（Number转换后含NaN/Infinity: top=${topVal}, bottom=${bottomVal}, t=${tVal}, et=${etVal}）`);
+                                    if (ser) { try { ser.setData([]); } catch(e){} }
+                                } else {
+                                    ser.setData([
+                                        { time: tVal, value: topVal },
+                                        { time: etVal, value: topVal },
+                                        { time: etVal, value: bottomVal },
+                                        { time: tVal, value: bottomVal },
+                                        { time: tVal, value: topVal }
+                                    ]);
+                                    console.log(`[跨周期] 恢复矩形 #${saved.id}`);
+                                }
                             }
                         }
 
