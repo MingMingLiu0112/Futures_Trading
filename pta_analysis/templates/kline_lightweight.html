@@ -2866,7 +2866,10 @@
         
         // ==================== 初始化 ====================
 
-        document.getElementById('period').addEventListener('change', () => {
+        document.getElementById('period').addEventListener('change', async () => {
+            const newPeriod = document.getElementById('period').value;
+            console.log(`[周期切换] 切换到 ${newPeriod}，清除旧数据并加载新数据...`);
+
             // ========== 保存当前 drawings 到 localStorage ==========
             try {
                 const serializable = drawings.map(d => ({
@@ -2874,7 +2877,7 @@
                     price: d.price, time: d.time, endTime: d.endTime,
                     points: d.points ? [...d.points] : undefined,
                     top: d.top, bottom: d.bottom,
-                    cycles: d.cycles ? [...d.cycles] : [document.getElementById('period').value],
+                    cycles: d.cycles ? [...d.cycles] : [newPeriod],
                     priceMin: d.priceMin, priceMax: d.priceMax
                 }));
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(serializable));
@@ -2883,172 +2886,176 @@
                 console.error('[跨周期] 保存失败:', e);
             }
 
-            // 清空旧绘制
-            drawings.forEach(d => d.series?.setData([]));
-            drawings = [];
-            drawingSeriesMap = {};
-
-            // ========== 加载新周期数据 ==========
-            loadAllData().then(() => {
-                // ========== 跨周期恢复 ==========
-                if (!klineData || klineData.length === 0) {
-                    console.log('[跨周期] klineData为空，跳过恢复');
-                    return;
-                }
-
-                // 从 localStorage 读取完整数据
-                const raw = localStorage.getItem(STORAGE_KEY);
-                if (!raw) return;
-                const savedDrawings = JSON.parse(raw);
-                console.log(`[跨周期] 从localStorage加载 ${savedDrawings.length} 个图形`);
-
-                // 将kline数组转为带time字段的格式
-                const dataArr = klineData.map(k => ({
-                    time: k.time || (typeof k === 'object' && k.time !== undefined ? k.time : k),
-                    ...(typeof k === 'object' ? k : {})
-                })).filter(k => k.time !== undefined);
-
-                savedDrawings.forEach(saved => {
-                    let ser = null;
-                    // 检查price值是否有效（NaN或null会导致Value is null错误）
-                    const isValidPrice = (v) => v !== null && v !== undefined && isFinite(v);
-                    if (saved.type === 'hline' && !isValidPrice(saved.price)) {
-                        console.warn(`[跨周期] 跳过水平线 #${saved.id}（price无效: ${saved.price}）`);
-                        return;
-                    }
-                    if ((saved.type === 'line' || saved.type === 'ray') && saved.points) {
-                        const p1 = saved.points[0], p2 = saved.points[1];
-                        if (!p1 || !p2 || !isValidPrice(p1.price) || !isValidPrice(p2.price)) {
-                            console.warn(`[跨周期] 跳过 #${saved.id}（points数据无效）`);
-                            return;
-                        }
-                    }
-                    if (saved.type === 'rect' && (!isValidPrice(saved.top) || !isValidPrice(saved.bottom))) {
-                        console.warn(`[跨周期] 跳过矩形 #${saved.id}（top/bottom无效）`);
-                        return;
-                    }
-                    try {
-                        if (saved.type === 'hline') {
-                            // 严格检查price不为null/undefined
-                            if (saved.price == null) {
-                                console.warn(`[跨周期] 跳过水平线 #${saved.id}（price为null）`);
-                            } else {
-                                ser = mainChart.addLineSeries({
-                                    color: saved.color || '#ff0000',
-                                    lineWidth: saved.lineWidth || 1,
-                                    lineStyle: LightweightCharts.LineStyle.Dashed,
-                                    lastValueVisible: false,
-                                    priceLineVisible: false
-                                });
-                                const FIXED_TIME_LEFT = 946684800; // 2000-01-01
-                                const FIXED_TIME_RIGHT = 4102444800; // 2100-01-01
-                                ser.setData([
-                                    { time: FIXED_TIME_LEFT, value: Number(saved.price) },
-                                    { time: FIXED_TIME_RIGHT, value: Number(saved.price) }
-                                ]);
-                                console.log(`[跨周期] 恢复水平线 #${saved.id} @ ${saved.price}`);
-                            }
-                        } else if (saved.type === 'vline') {
-                            // vline跨周期恢复：用固定长线段跨越可见价格范围
-                            const targetTime = saved.time;
-                            if (targetTime == null) {
-                                console.warn(`[跨周期] 跳过垂直线 #${saved.id}（time为null）`);
-                            } else {
-                                const closestBar = dataArr.reduce((prev, curr) =>
-                                    Math.abs(curr.time - targetTime) < Math.abs(prev.time - targetTime) ? curr : prev
-                                );
-                                if (closestBar && closestBar.time != null) {
-                                    ser = mainChart.addLineSeries({
-                                        color: saved.color || '#ff0000',
-                                        lineWidth: saved.lineWidth || 1,
-                                        lineStyle: LightweightCharts.LineStyle.Dashed,
-                                        lastValueVisible: false,
-                                        priceLineVisible: false
-                                    });
-                                    // 用固定大价格范围（不依赖visibleRange API）
-                                    const FIXED_PRICE_TOP = 99999;
-                                    const FIXED_PRICE_BOTTOM = 0;
-                                    ser.setData([
-                                        { time: closestBar.time, value: FIXED_PRICE_TOP },
-                                        { time: closestBar.time, value: FIXED_PRICE_BOTTOM }
-                                    ]);
-                                    console.log(`[跨周期] 恢复垂直线 #${saved.id} @ ${closestBar.time}`);
-                                }
-                            }
-                        } else if ((saved.type === 'line' || saved.type === 'ray') && saved.points) {
-                            const p1 = saved.points[0], p2 = saved.points[1];
-                            // 使用isValidPrice严格检查（防止NaN穿透）
-                            if (!p1 || !p2 || !isValidPrice(p1.time) || !isValidPrice(p2.time) || !isValidPrice(p1.price) || !isValidPrice(p2.price)) {
-                                console.warn(`[跨周期] 跳过 #${saved.id}（points含无效值: p1=(${p1?.time},${p1?.price}), p2=(${p2?.time},${p2?.price})）`);
-                            } else {
-                                ser = mainChart.addLineSeries({
-                                    color: saved.color || '#ff0000',
-                                    lineWidth: saved.lineWidth || 1,
-                                    lastValueVisible: false,
-                                    priceLineVisible: false
-                                });
-                                // 直接用原始p1.time/p2.time，不替换为closestBar.time（关键修复）
-                                ser.setData([
-                                    { time: Number(p1.time), value: Number(p1.price) },
-                                    { time: Number(p2.time), value: Number(p2.price) }
-                                ]);
-                                console.log(`[跨周期] 恢复${saved.type} #${saved.id}`);
-                            }
-                        } else if (saved.type === 'rect') {
-                            // 矩形用 top/bottom/time/endTime（不是points）
-                            const rectTime = saved.time;
-                            const rectEndTime = saved.endTime || rectTime;
-                            // 使用isValidPrice严格检查所有值（防止NaN穿透导致Value is null）
-                            if (!isValidPrice(rectTime) || !isValidPrice(rectEndTime) || !isValidPrice(saved.top) || !isValidPrice(saved.bottom)) {
-                                console.warn(`[跨周期] 跳过矩形 #${saved.id}（数据含无效值: time=${rectTime}, endTime=${rectEndTime}, top=${saved.top}, bottom=${saved.bottom}）`);
-                            } else {
-                                const top = saved.top, bottom = saved.bottom;
-                                const t = rectTime, et = rectEndTime;
-                                ser = mainChart.addLineSeries({
-                                    color: saved.color || '#ff0000',
-                                    lineWidth: saved.lineWidth || 1,
-                                    lastValueVisible: false,
-                                    priceLineVisible: false
-                                });
-                                // 强制转为Number，防止字符串时间戳或字符串价格导致lightweight-charts抛出"Value is null"
-                                const topVal = Number(saved.top);
-                                const bottomVal = Number(saved.bottom);
-                                const tVal = Number(rectTime);
-                                const etVal = Number(rectEndTime);
-                                // 二次验证：所有值必须是有限数值（防止Number()产生NaN穿透）
-                                if (!isFinite(topVal) || !isFinite(bottomVal) || !isFinite(tVal) || !isFinite(etVal)) {
-                                    console.warn(`[跨周期] 跳过矩形 #${saved.id}（Number转换后含NaN/Infinity: top=${topVal}, bottom=${bottomVal}, t=${tVal}, et=${etVal}）`);
-                                    if (ser) { try { ser.setData([]); } catch(e){} }
-                                } else {
-                                    ser.setData([
-                                        { time: tVal, value: topVal },
-                                        { time: etVal, value: topVal },
-                                        { time: etVal, value: bottomVal },
-                                        { time: tVal, value: bottomVal },
-                                        { time: tVal, value: topVal }
-                                    ]);
-                                    console.log(`[跨周期] 恢复矩形 #${saved.id}`);
-                                }
-                            }
-                        }
-
-                        if (ser) {
-                            drawings.push({
-                                id: saved.id, type: saved.type, series: ser,
-                                color: saved.color, lineWidth: saved.lineWidth,
-                                price: saved.price, time: saved.time, endTime: saved.endTime,
-                                points: saved.points, top: saved.top, bottom: saved.bottom,
-                                cycles: saved.cycles,
-                                priceMin: saved.priceMin, priceMax: saved.priceMax
-                            });
-                            drawingSeriesMap[saved.id] = ser;
-                        }
-                    } catch(e) {
-                        console.error(`[跨周期] 恢复 #${saved.id} 失败:`, e);
+            // ========== 清除旧绘制图形（释放series资源） ==========
+            try {
+                drawings.forEach(d => {
+                    if (d.series) {
+                        try { d.series.setData([]); } catch(e) {}
                     }
                 });
-                console.log(`[跨周期] 恢复完成，共 ${drawings.length} 个对象`);
+                drawings = [];
+                drawingSeriesMap = {};
+            } catch(e) {
+                console.warn('[周期切换] 清除旧绘制失败:', e);
+            }
+
+            // ========== 清除所有series数据（不销毁图表） ==========
+            try {
+                if (candleSeries) candleSeries.setData([]);
+                if (volumeSeries) volumeSeries.setData([]);
+                if (biSeries) biSeries.setData([]);
+                if (segSeries) segSeries.setData([]);
+                if (zsSeries) zsSeries.setData([]);
+                if (macdLineSeries) macdLineSeries.setData([]);
+                if (signalLineSeries) signalLineSeries.setData([]);
+                if (macdHistSeries) macdHistSeries.setData([]);
+                if (kdjKSeries) kdjKSeries.setData([]);
+                if (kdjDSeries) kdjDSeries.setData([]);
+                if (kdjJSeries) kdjJSeries.setData([]);
+                if (kdjLine20Series) kdjLine20Series.setData([]);
+                if (kdjLine80Series) kdjLine80Series.setData([]);
+            } catch(e) {
+                console.warn('[周期切换] 清除旧数据失败:', e);
+            }
+
+            // 重置指标缓存（防止用旧周期数据）
+            macdDataCache = {};
+            lastMacdWaveData = null;
+
+            // ========== 加载新周期数据 ==========
+            // 注意：loadAllData 只设置新数据，不重建图表
+            await loadAllData();
+
+            // ========== 跨周期恢复绘图（loadAllData 完成后执行） ==========
+            // 图表和数据已就绪，从 localStorage 恢复图形
+            if (!klineData || klineData.length === 0) {
+                console.log('[跨周期] klineData为空，跳过恢复');
+                return;
+            }
+
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (!raw) return;
+
+            let savedDrawings;
+            try {
+                savedDrawings = JSON.parse(raw);
+            } catch(e) {
+                console.error('[跨周期] 解析localStorage失败:', e);
+                return;
+            }
+            console.log(`[跨周期] 从localStorage加载 ${savedDrawings.length} 个图形`);
+
+            // 将kline数组转为带time字段的格式
+            const dataArr = klineData.map(k => ({
+                time: k.time || (typeof k === 'object' && k.time !== undefined ? k.time : k),
+                ...(typeof k === 'object' ? k : {})
+            })).filter(k => k.time !== undefined);
+
+            const isValidPrice = (v) => v !== null && v !== undefined && isFinite(v);
+
+            savedDrawings.forEach(saved => {
+                let ser = null;
+                try {
+                    if (saved.type === 'hline') {
+                        if (!isValidPrice(saved.price)) {
+                            console.warn(`[跨周期] 跳过水平线 #${saved.id}（price无效: ${saved.price}）`);
+                            return;
+                        }
+                        ser = mainChart.addLineSeries({
+                            color: saved.color || '#ff0000',
+                            lineWidth: saved.lineWidth || 1,
+                            lineStyle: LightweightCharts.LineStyle.Dashed,
+                            lastValueVisible: false,
+                            priceLineVisible: false
+                        });
+                        ser.setData([
+                            { time: 946684800, value: Number(saved.price) },
+                            { time: 4102444800, value: Number(saved.price) }
+                        ]);
+                        console.log(`[跨周期] 恢复水平线 #${saved.id} @ ${saved.price}`);
+                    } else if (saved.type === 'vline') {
+                        const targetTime = saved.time;
+                        if (!isValidPrice(targetTime)) {
+                            console.warn(`[跨周期] 跳过垂直线 #${saved.id}（time无效）`);
+                            return;
+                        }
+                        const closestBar = dataArr.reduce((prev, curr) =>
+                            Math.abs(curr.time - targetTime) < Math.abs(prev.time - targetTime) ? curr : prev
+                        , dataArr[0]);
+                        if (!closestBar || !isValidPrice(closestBar.time)) return;
+                        ser = mainChart.addLineSeries({
+                            color: saved.color || '#ff0000',
+                            lineWidth: saved.lineWidth || 1,
+                            lineStyle: LightweightCharts.LineStyle.Dashed,
+                            lastValueVisible: false,
+                            priceLineVisible: false
+                        });
+                        ser.setData([
+                            { time: closestBar.time, value: 99999 },
+                            { time: closestBar.time, value: 0 }
+                        ]);
+                        console.log(`[跨周期] 恢复垂直线 #${saved.id} @ ${closestBar.time}`);
+                    } else if ((saved.type === 'line' || saved.type === 'ray') && saved.points) {
+                        const p1 = saved.points[0], p2 = saved.points[1];
+                        if (!p1 || !p2 || !isValidPrice(p1.time) || !isValidPrice(p2.time) || !isValidPrice(p1.price) || !isValidPrice(p2.price)) {
+                            console.warn(`[跨周期] 跳过 #${saved.id}（points含无效值）`);
+                            return;
+                        }
+                        ser = mainChart.addLineSeries({
+                            color: saved.color || '#ff0000',
+                            lineWidth: saved.lineWidth || 1,
+                            lastValueVisible: false,
+                            priceLineVisible: false
+                        });
+                        ser.setData([
+                            { time: Number(p1.time), value: Number(p1.price) },
+                            { time: Number(p2.time), value: Number(p2.price) }
+                        ]);
+                        console.log(`[跨周期] 恢复${saved.type} #${saved.id}`);
+                    } else if (saved.type === 'rect') {
+                        const rectTime = saved.time, rectEndTime = saved.endTime || rectTime;
+                        if (!isValidPrice(rectTime) || !isValidPrice(rectEndTime) || !isValidPrice(saved.top) || !isValidPrice(saved.bottom)) {
+                            console.warn(`[跨周期] 跳过矩形 #${saved.id}（数据含无效值）`);
+                            return;
+                        }
+                        const topVal = Number(saved.top), bottomVal = Number(saved.bottom);
+                        const tVal = Number(rectTime), etVal = Number(rectEndTime);
+                        if (!isFinite(topVal) || !isFinite(bottomVal) || !isFinite(tVal) || !isFinite(etVal)) {
+                            console.warn(`[跨周期] 跳过矩形 #${saved.id}（Number转换后含NaN）`);
+                            return;
+                        }
+                        ser = mainChart.addLineSeries({
+                            color: saved.color || '#ff0000',
+                            lineWidth: saved.lineWidth || 1,
+                            lastValueVisible: false,
+                            priceLineVisible: false
+                        });
+                        ser.setData([
+                            { time: tVal, value: topVal },
+                            { time: etVal, value: topVal },
+                            { time: etVal, value: bottomVal },
+                            { time: tVal, value: bottomVal },
+                            { time: tVal, value: topVal }
+                        ]);
+                        console.log(`[跨周期] 恢复矩形 #${saved.id}`);
+                    }
+
+                    if (ser) {
+                        drawings.push({
+                            id: saved.id, type: saved.type, series: ser,
+                            color: saved.color, lineWidth: saved.lineWidth,
+                            price: saved.price, time: saved.time, endTime: saved.endTime,
+                            points: saved.points, top: saved.top, bottom: saved.bottom,
+                            cycles: saved.cycles,
+                            priceMin: saved.priceMin, priceMax: saved.priceMax
+                        });
+                        drawingSeriesMap[saved.id] = ser;
+                    }
+                } catch(e) {
+                    console.error(`[跨周期] 恢复 #${saved.id} 失败:`, e);
+                }
             });
+            console.log(`[跨周期] 恢复完成，共 ${drawings.length} 个对象`);
         });
 
         document.addEventListener('DOMContentLoaded', () => {
