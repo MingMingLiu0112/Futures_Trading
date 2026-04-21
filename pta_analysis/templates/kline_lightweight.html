@@ -1843,11 +1843,11 @@
             
             // MACD线 - 只设置真实数据（从26开始），过滤NaN
             const safeMV = (v) => isFinite(v) ? v : null;
-            const macdData = macdLine.map((v, i) => ({ time: times[i], value: i >= 25 ? safeMV(v) : null }));
-            const signalData = signalLine.map((v, i) => ({ time: times[i], value: i >= 25 ? safeMV(v) : null }));
+            const macdData = macdLine.map((v, i) => ({ time: times[i], value: i >= 25 ? safeMV(v) : null })).filter(d => d.value !== null);
+            const signalData = signalLine.map((v, i) => ({ time: times[i], value: i >= 25 ? safeMV(v) : null })).filter(d => d.value !== null);
 
-            macdLineSeries.setData(macdData);
-            signalLineSeries.setData(signalData);
+            if (macdLineSeries) macdLineSeries.setData(macdData);
+            if (signalLineSeries) signalLineSeries.setData(signalData);
             
             // 更新MACD指标数值显示（过滤NaN）
             const lastIdx = histogram.length - 1;
@@ -1895,7 +1895,7 @@
             // 最后一波（可能未完成）
             waveEndLabels.push({ idx: waveEndIdx, sum: waveSum, sign: waveSign });
             
-            macdHistSeries.setData(histData);
+            if (macdHistSeries) macdHistSeries.setData(histData);
             
             // 保存数据并绘制标注
             lastMacdWaveData = { times, waveEndLabels };
@@ -2016,18 +2016,18 @@
             
             // KDJ线 - 只设置真实数据（从9开始），过滤NaN值
             const safeV = (v) => isFinite(v) ? v : null;
-            const kdjKData = kLine.map((v, i) => ({ time: times[i], value: i >= 8 ? safeV(v) : null }));
-            const kdjDData = dLine.map((v, i) => ({ time: times[i], value: i >= 8 ? safeV(v) : null }));
-            const kdjJData = jLine.map((v, i) => ({ time: times[i], value: i >= 8 ? safeV(v) : null }));
-            kdjKSeries.setData(kdjKData);
-            kdjDSeries.setData(kdjDData);
-            kdjJSeries.setData(kdjJData);
+            const kdjKData = kLine.map((v, i) => ({ time: times[i], value: i >= 8 ? safeV(v) : null })).filter(d => d.value !== null);
+            const kdjDData = dLine.map((v, i) => ({ time: times[i], value: i >= 8 ? safeV(v) : null })).filter(d => d.value !== null);
+            const kdjJData = jLine.map((v, i) => ({ time: times[i], value: i >= 8 ? safeV(v) : null })).filter(d => d.value !== null);
+            if (kdjKSeries) kdjKSeries.setData(kdjKData);
+            if (kdjDSeries) kdjDSeries.setData(kdjDData);
+            if (kdjJSeries) kdjJSeries.setData(kdjJData);
             
             // KDJ 20/80 超买超卖线
             const line20Data = times.map(t => ({ time: t, value: 20 }));
             const line80Data = times.map(t => ({ time: t, value: 80 }));
-            kdjLine20Series.setData(line20Data);
-            kdjLine80Series.setData(line80Data);
+            if (kdjLine20Series) kdjLine20Series.setData(line20Data);
+            if (kdjLine80Series) kdjLine80Series.setData(line80Data);
         }
 
         // ==================== 指标数值更新（带节流） ====================
@@ -2107,7 +2107,7 @@
 
         function drawBiLines() {
             if (!showBi || biData.length === 0) {
-                biSeries.setData([]);
+                if (biSeries) biSeries.setData([]);
                 return;
             }
             
@@ -2122,18 +2122,18 @@
                 if (isNaN(t1) || isNaN(t2)) return;
                 
                 const color = bi.dir === 'up' ? C.biUp : C.biDown;
-                biSeries.applyOptions({ color: color });
+                if (biSeries) biSeries.applyOptions({ color: color });
                 
                 lineData.push({ time: t1, value: bi.yAxis });
                 lineData.push({ time: t2, value: bi.yAxis2 });
             });
             
-            biSeries.setData(lineData);
+            if (biSeries) biSeries.setData(lineData);
         }
 
         function drawSegLines() {
             if (!showSeg || segData.length === 0) {
-                segSeries.setData([]);
+                if (segSeries) segSeries.setData([]);
                 return;
             }
             
@@ -2144,18 +2144,18 @@
                 if (!startTime || !endTime) return;
                 
                 const color = seg.dir === 'up' ? C.segUp : C.segDown;
-                segSeries.applyOptions({ color: color });
+                if (segSeries) segSeries.applyOptions({ color: color });
                 
                 lineData.push({ time: new Date(startTime).getTime() / 1000 + 8 * 3600, value: seg.yAxis });
                 lineData.push({ time: new Date(endTime).getTime() / 1000 + 8 * 3600, value: seg.yAxis2 });
             });
             
-            segSeries.setData(lineData);
+            if (segSeries) segSeries.setData(lineData);
         }
 
         function drawZsAreas() {
             if (!showZs || zsData.length === 0) {
-                zsSeries.setData([]);
+                if (zsSeries) zsSeries.setData([]);
                 return;
             }
             
@@ -2182,7 +2182,7 @@
 
         function drawBsMarkers() {
             if (!showBs || bsData.length === 0) {
-                candleSeries.setMarkers([]);
+                if (candleSeries) candleSeries.setMarkers([]);
                 return;
             }
             
@@ -2249,8 +2249,8 @@
                         `DIF: ${macdLine[n].toFixed(3)} | DEA: ${signalLine[n].toFixed(3)} | 柱: ${histogram[n].toFixed(3)}`;
                 }
                 
-                macdLineSeries.setData(macdLine.map((v, i) => ({ time: times[i], value: v })));
-                signalLineSeries.setData(signalLine.map((v, i) => ({ time: times[i], value: v })));
+                if (macdLineSeries) macdLineSeries.setData(macdLine.map((v, i) => ({ time: times[i], value: v })));
+                if (signalLineSeries) signalLineSeries.setData(signalLine.map((v, i) => ({ time: times[i], value: v })));
                 
                 // MACD柱状图：累积面积，零轴以上红色，以下绿色
                 let cumulative = 0;
@@ -2262,7 +2262,7 @@
                         color: cumulative >= 0 ? '#ef5350' : '#26a69a',
                     };
                 });
-                macdHistSeries.setData(histData);
+                if (macdHistSeries) macdHistSeries.setData(histData);
                 
                 
             } catch (e) {
