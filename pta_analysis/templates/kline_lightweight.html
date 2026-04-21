@@ -1639,7 +1639,10 @@
                 if (!kData || !kData.data || !Array.isArray(kData.data) || kData.data.length === 0) {
                     document.getElementById('lastPrice').textContent = '--';
                     document.getElementById('volume').textContent = '无数据';
-                    if (mainChart) { candleSeries.setData([]); volumeSeries.setData([]); }
+                    if (mainChart && candleSeries && volumeSeries) { 
+                        candleSeries.setData([]); 
+                        volumeSeries.setData([]); 
+                    }
                     return;
                 }
                 klineData = kData.data;
@@ -1669,13 +1672,13 @@
                     .sort((a, b) => a.time - b.time);
                 
                 // 清除旧数据
-                candleSeries.setData([]);
-                volumeSeries.setData([]);
+                if (candleSeries) candleSeries.setData([]);
+                if (volumeSeries) volumeSeries.setData([]);
                 if (biSeries) biSeries.setData([]);
                 if (segSeries) segSeries.setData([]);
                 if (zsSeries) zsSeries.setData([]);
                 
-                candleSeries.setData(chartData);
+                if (candleSeries) candleSeries.setData(chartData);
                 // 成交量
                 const volData = klineData
                     .filter(k => k.volume)
@@ -1685,7 +1688,7 @@
                         color: parseFloat(k.close) >= parseFloat(k.open) ? C.up + '60' : C.down + '60',
                     }))
                     .sort((a, b) => a.time - b.time);
-                volumeSeries.setData(volData);
+                if (volumeSeries) volumeSeries.setData(volData);
                 
                 // 更新统计（使用API返回的数据）
                 const last = klineData[klineData.length - 1];
