@@ -794,20 +794,26 @@ class OptionChainAPI:
             near_expiry_code = temp_expiry_list[0]['expiry'] if temp_expiry_list else None
             
             # 第二步：获取真实PTA期货标的价格
-            # 注意：akshare的futures_zh_minute_sina只支持TA0（主力合约），不支持单个TA合约
-            # 因此先尝试获取特定合约，如果失败则回退到TA0（主力合约价格）
+            # 优先使用TqSdk获取特定合约（TA606/TA607等）的实时价格
+            # 回退到akshare的TA0（主力合约）
             S = None
+            tqsdk_sym = f'CZCE.{near_expiry_code}' if near_expiry_code else 'CZCE.TA606'
+            
             try:
-                futures_sym = get_futures_symbol(near_expiry_code) if near_expiry_code else 'TA606'
-                # 先尝试获取特定合约的价格
-                ta_df = ak.futures_zh_minute_sina(symbol=futures_sym, period='1m')
-                if ta_df is not None and len(ta_df) > 0:
-                    ta_df.columns = [c.strip() for c in ta_df.columns]
-                    S = float(ta_df['close'].iloc[-1])
+                # 使用TqSdk获取特定合约的实时价格
+                api_tq = TqApi(auth=TqAuth(TQS_USER, TQS_PASS))
+                quote = api_tq.get_quote(tqsdk_sym)
+                # 等待数据更新
+                for _ in range(30):
+                    if quote.last_price and quote.last_price > 0:
+                        break
+                    api_tq._wait()
+                S = float(quote.last_price) if quote.last_price else None
+                api_tq.close()
             except:
                 pass
             
-            # 如果特定合约获取失败，回退到TA0（主力合约，近月期货）
+            # 如果TqSdk失败，回退到akshare的TA0（主力合约）
             if S is None or S <= 0:
                 try:
                     ta_df = ak.futures_zh_minute_sina(symbol='TA0', period='1m')
