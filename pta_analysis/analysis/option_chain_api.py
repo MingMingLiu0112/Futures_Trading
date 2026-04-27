@@ -780,30 +780,57 @@ class OptionChainAPI:
             # 保存今日数据
             self.store.save_option_data(df, trade_date)
             
-            # 构建T型报价（使用昨日数据计算IV变化）
-            expiry_list, strike_rows = self.analyzer.build_t_type_quote(df, prev_df)
+            # 第一步：先确定近月合约（不计算Greeks，只需要解析数据）
+            # 按到期日分组获取expiry列表
+            expiry_groups = df.groupby('expiry')
+            temp_expiry_list = []
+            for expiry, group in expiry_groups:
+                temp_expiry_list.append({
+                    'expiry': expiry,
+                    'actual_expiry_date': get_expiry_date(expiry)
+                })
+            # 按实际到期日排序
+            temp_expiry_list.sort(key=lambda x: x['actual_expiry_date'])
+            near_expiry_code = temp_expiry_list[0]['expiry'] if temp_expiry_list else None
             
-            if len(strike_rows) == 0:
-                return {'success': False, 'error': '解析期权数据失败'}
-            
-            # 确定近月合约
-            near_expiry_code = expiry_list[0].expiry if expiry_list else None
-            
-            # 获取真实PTA期货标的价格（使用近月期权对应的期货品种）
+            # 第二步：获取真实PTA期货标的价格
+            # 注意：akshare的futures_zh_minute_sina只支持TA0（主力合约），不支持单个TA合约
+            # 因此先尝试获取特定合约，如果失败则回退到TA0（主力合约价格）
+            S = None
             try:
                 futures_sym = get_futures_symbol(near_expiry_code) if near_expiry_code else 'TA606'
+                # 先尝试获取特定合约的价格
                 ta_df = ak.futures_zh_minute_sina(symbol=futures_sym, period='1m')
-                ta_df.columns = [c.strip() for c in ta_df.columns]
-                S = float(ta_df['close'].iloc[-1])
+                if ta_df is not None and len(ta_df) > 0:
+                    ta_df.columns = [c.strip() for c in ta_df.columns]
+                    S = float(ta_df['close'].iloc[-1])
             except:
-                # fallback: 取成交量最大期权的行权价（深度实值附近）
+                pass
+            
+            # 如果特定合约获取失败，回退到TA0（主力合约，近月期货）
+            if S is None or S <= 0:
+                try:
+                    ta_df = ak.futures_zh_minute_sina(symbol='TA0', period='1m')
+                    ta_df.columns = [c.strip() for c in ta_df.columns]
+                    S = float(ta_df['close'].iloc[-1])
+                except:
+                    pass
+            
+            # 如果仍然失败，最后回退到成交量最大期权的行权价
+            if S is None or S <= 0:
                 try:
                     S = float(df.loc[df['成交量(手)'].idxmax(), 'strike'])
                 except:
                     S = 6300  # 默认值
             
-            # 设置analyzer的标的价格
+            # 第三步：设置analyzer的标的价格（在调用build_t_type_quote之前！）
             self.analyzer.underlying_price = S
+            
+            # 第四步：构建T型报价（此时underlying_price已正确设置）
+            expiry_list, strike_rows = self.analyzer.build_t_type_quote(df, prev_df)
+            
+            if len(strike_rows) == 0:
+                return {'success': False, 'error': '解析期权数据失败'}
             
             # 计算ATM行权价
             atm_strike = round(S / 50) * 50  # PTA最小跳动50
