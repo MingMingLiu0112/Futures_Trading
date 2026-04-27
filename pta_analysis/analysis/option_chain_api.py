@@ -218,6 +218,27 @@ def calculate_iv(option_price: float, S: float, K: float, T: float, r: float, op
     # 二分法查找IV
     sigma_low = 0.001
     sigma_high = 5.0  # 500%的波动率上限
+    
+    price_low = bs_price(S, K, T, r, sigma_low, option_type)
+    price_high = bs_price(S, K, T, r, sigma_high, option_type)
+    
+    # 如果价格不在合理范围内，返回0
+    if option_price < price_low or option_price > price_high:
+        return 0.0
+    
+    for _ in range(max_iter):
+        sigma_mid = (sigma_low + sigma_high) / 2
+        price_mid = bs_price(S, K, T, r, sigma_mid, option_type)
+        
+        if abs(price_mid - option_price) < tol:
+            break
+        
+        if price_mid < option_price:
+            sigma_low = sigma_mid
+        else:
+            sigma_high = sigma_mid
+    
+    return sigma_mid
 
 def estimate_underlying_from_options(df: pd.DataFrame, expiry: str, r: float = 0.03) -> float:
     """用Put-Call Parity从期权数据估算标的期货价格
@@ -283,27 +304,6 @@ def estimate_underlying_from_options(df: pd.DataFrame, expiry: str, r: float = 0
         return S
     except:
         return 0.0
-    
-    price_low = bs_price(S, K, T, r, sigma_low, option_type)
-    price_high = bs_price(S, K, T, r, sigma_high, option_type)
-    
-    # 如果价格不在合理范围内，返回0
-    if option_price < price_low or option_price > price_high:
-        return 0.0
-    
-    for _ in range(max_iter):
-        sigma_mid = (sigma_low + sigma_high) / 2
-        price_mid = bs_price(S, K, T, r, sigma_mid, option_type)
-        
-        if abs(price_mid - option_price) < tol:
-            break
-        
-        if price_mid < option_price:
-            sigma_low = sigma_mid
-        else:
-            sigma_high = sigma_mid
-    
-    return sigma_mid
 
 def get_tq_option_prices(symbols: List[str]) -> Dict[str, Dict]:
     """从TqSdk获取期权实时价格（暂时禁用，因TqSdk连接阻塞）
