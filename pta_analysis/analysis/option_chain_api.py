@@ -157,11 +157,15 @@ def calculate_days_to_expiry(expiry: str, trade_date: str = None) -> float:
     """计算剩余到期时间(年)
     
     Args:
-        expiry: 到期日 YYYYMMDD
+        expiry: 到期日 YYYYMMDD 或期权代码如 'TA606'
         trade_date: 交易日期 YYYYMMDD，默认今日
     """
     if trade_date is None:
         trade_date = datetime.now().strftime('%Y%m%d')
+    
+    # 如果expiry是期权代码格式（如TA606），转换为实际日期
+    if expiry and len(expiry) == 5 and expiry[:2].isalpha():
+        expiry = get_expiry_date(expiry)
     
     try:
         expiry_dt = datetime.strptime(expiry, '%Y%m%d')
@@ -185,6 +189,133 @@ def bs_price(S: float, K: float, T: float, r: float, sigma: float, option_type: 
         price = K * math.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
     
     return price
+
+def calculate_iv(option_price: float, S: float, K: float, T: float, r: float, option_type: str, 
+                  tol: float = 1e-6, max_iter: int = 100) -> float:
+    """从期权价格反算隐含波动率 (二分法)
+    
+    Args:
+        option_price: 期权市场价格
+        S: 标的价格
+        K: 行权价
+        T: 到期时间(年)
+        r: 无风险利率
+        option_type: 'C' 或 'P'
+        tol: 收敛容差
+        max_iter: 最大迭代次数
+        
+    Returns:
+        float: 隐含波动率 (如计算失败返回0)
+    """
+    if T <= 0 or option_price <= 0:
+        return 0.0
+    
+    # 检查边界条件
+    intrinsic = max(S - K, 0) if option_type == 'C' else max(K - S, 0)
+    if option_price < intrinsic:
+        return 0.0  # 价格低于内在价值，无效
+    
+    # 二分法查找IV
+    sigma_low = 0.001
+    sigma_high = 5.0  # 500%的波动率上限
+
+def estimate_underlying_from_options(df: pd.DataFrame, expiry: str, r: float = 0.03) -> float:
+    """用Put-Call Parity从期权数据估算标的期货价格
+    
+    Args:
+        df: 期权数据DataFrame
+        expiry: 到期月份代码，如 'TA606'
+        r: 无风险利率
+        
+    Returns:
+        float: 估算的标的期货价格（如估算失败返回0）
+    """
+    try:
+        # 筛选指定月份的期权
+        expiry_df = df[df['合约代码'].str.startswith(expiry)]
+        if len(expiry_df) == 0:
+            return 0.0
+        
+        # 计算每个行权价的成交量
+        expiry_df = expiry_df.copy()
+        expiry_df['strike'] = expiry_df['合约代码'].apply(lambda x: int(x[-4:]) if x[-4:].isdigit() else 0)
+        expiry_df['volume'] = expiry_df.get('成交量(手)', 0).fillna(0)
+        
+        # 找成交量最大的行权价（作为ATM参考）
+        if len(expiry_df) == 0:
+            return 0.0
+        
+        max_vol_strike = expiry_df.loc[expiry_df['volume'].idxmax(), 'strike']
+        
+        # 找ATM附近的call和put
+        atm_calls = expiry_df[(expiry_df['合约代码'].str.contains('C')) & 
+                              (abs(expiry_df['strike'] - max_vol_strike) <= 100)]
+        atm_puts = expiry_df[(expiry_df['合约代码'].str.contains('P')) & 
+                             (abs(expiry_df['strike'] - max_vol_strike) <= 100)]
+        
+        if len(atm_calls) == 0 or len(atm_puts) == 0:
+            return 0.0
+        
+        # 取ATM call和put（用成交量加权）
+        call = atm_calls.loc[atm_calls['成交量(手)'].idxmax()]
+        put = atm_puts.loc[atm_puts['成交量(手)'].idxmax()]
+        
+        K = float(call['strike'])
+        C = float(call.get('今结算', 0) or call.get('今收盘', 0))
+        P = float(put.get('今结算', 0) or put.get('今收盘', 0))
+        
+        if C <= 0 or P <= 0:
+            return 0.0
+        
+        # 计算到期时间
+        T = calculate_days_to_expiry(expiry) / 365.0
+        if T <= 0:
+            T = 0.1  # 默认10天
+        
+        # Put-Call Parity: C - P = S - K*exp(-rT)
+        # => S = C - P + K*exp(-rT)
+        S = C - P + K * math.exp(-r * T)
+        
+        # 合理性检查：S应该在[K-20%, K+20%]范围内
+        if S < K * 0.8 or S > K * 1.2:
+            return 0.0
+        
+        return S
+    except:
+        return 0.0
+    
+    price_low = bs_price(S, K, T, r, sigma_low, option_type)
+    price_high = bs_price(S, K, T, r, sigma_high, option_type)
+    
+    # 如果价格不在合理范围内，返回0
+    if option_price < price_low or option_price > price_high:
+        return 0.0
+    
+    for _ in range(max_iter):
+        sigma_mid = (sigma_low + sigma_high) / 2
+        price_mid = bs_price(S, K, T, r, sigma_mid, option_type)
+        
+        if abs(price_mid - option_price) < tol:
+            break
+        
+        if price_mid < option_price:
+            sigma_low = sigma_mid
+        else:
+            sigma_high = sigma_mid
+    
+    return sigma_mid
+
+def get_tq_option_prices(symbols: List[str]) -> Dict[str, Dict]:
+    """从TqSdk获取期权实时价格（暂时禁用，因TqSdk连接阻塞）
+    
+    Args:
+        symbols: 期权合约代码列表，如 ['CZCE.TA606C6800', 'CZCE.TA606P6800']
+        
+    Returns:
+        dict: {symbol: {last_price, volume, open_interest, bid_price, ask_price, ...}}
+    """
+    # TqSdk暂时禁用，因连接会阻塞
+    return {}
 
 def calculate_greeks(S: float, K: float, T: float, r: float, sigma: float, option_type: str) -> Dict[str, float]:
     """计算希腊字母
@@ -351,6 +482,26 @@ class OptionChainAnalyzer:
         expiry_list = []
         all_strike_rows = []
         
+        # 获取天勤实时期权价格并计算IV
+        tq_prices = {}
+        try:
+            # 构建天勤合约代码列表
+            tq_symbols = []
+            for _, row in df.iterrows():
+                code = row['合约代码']
+                expiry = row.get('expiry', '')
+                option_type = row.get('option_type', '')
+                if expiry and option_type:
+                    tq_sym = f'CZCE.{expiry}{option_type.upper()}{int(row.get("strike", 0))}'
+                    tq_symbols.append(tq_sym)
+            
+            # 批量获取天勤实时价格
+            if tq_symbols:
+                tq_prices = get_tq_option_prices(tq_symbols)
+                print(f"TqSdk获取了 {len(tq_prices)} 个期权实时价格")
+        except Exception as e:
+            print(f"天勤数据获取失败: {e}")
+        
         # 获取昨日数据用于计算变化
         prev_dict = {}
         if prev_df is not None and len(prev_df) > 0:
@@ -362,16 +513,18 @@ class OptionChainAnalyzer:
                     close = row.get('今结算', 0) or row.get('今收盘', 0)
                     iv = get_iv_from_data(row)
                     oi = row.get('持仓量', 0)
+                    volume = row.get('成交量(手)', 0)
                 else:
                     # session_db格式
                     close = row.get('last_price', 0)
                     iv = row.get('iv', 0) or 0
                     oi = row.get('oi', 0) or 0
+                    volume = row.get('volume', 0)
                 prev_dict[code] = {
                     'close': close,
                     'iv': float(iv) if iv else 0.0,
                     'oi': int(oi) if oi else 0,
-                    'volume': int(row.get('成交量(手)', 0)) if '成交量(手)' in row.index else 0
+                    'volume': int(volume) if volume else 0
                 }
         
         for expiry, group in expiry_groups:
@@ -419,6 +572,20 @@ class OptionChainAnalyzer:
                     call_oi = int(cr.get('持仓量', 0) or 0)
                     call_exercise = int(cr.get('行权量', 0) or 0)
                     
+                    # 尝试用天勤实时价格计算IV
+                    tq_sym = f'CZCE.{expiry}C{int(strike)}'
+                    tq_data = tq_prices.get(tq_sym, {})
+                    tq_price = tq_data.get('last_price')
+                    
+                    if tq_price and self.underlying_price > 0:
+                        # 用天勤价格反算IV
+                        T = calculate_days_to_expiry(expiry, self.trade_date)
+                        tq_iv = calculate_iv(tq_price, self.underlying_price, strike, T, self.risk_free_rate, 'C')
+                        print(f"DEBUG: tq_price={tq_price}, tq_iv={tq_iv}, call_iv set to {tq_iv * 100}")
+                        if tq_iv > 0:
+                            call_iv = tq_iv * 100  # 转换为百分比（0.33 -> 33%）
+                            call_close = tq_price  # 用天勤实时价格替换
+                    
                     # 计算希腊字母（如果数据没有）
                     if call_delta == 0 and call_iv > 0:
                         T = calculate_days_to_expiry(expiry, self.trade_date)
@@ -460,6 +627,19 @@ class OptionChainAnalyzer:
                     put_volume = int(pr.get('成交量(手)', 0) or 0)
                     put_oi = int(pr.get('持仓量', 0) or 0)
                     put_exercise = int(pr.get('行权量', 0) or 0)
+                    
+                    # 尝试用天勤实时价格计算IV
+                    tq_sym = f'CZCE.{expiry}P{int(strike)}'
+                    tq_data = tq_prices.get(tq_sym, {})
+                    tq_price = tq_data.get('last_price')
+                    
+                    if tq_price and self.underlying_price > 0:
+                        # 用天勤价格反算IV
+                        T = calculate_days_to_expiry(expiry, self.trade_date)
+                        tq_iv = calculate_iv(tq_price, self.underlying_price, strike, T, self.risk_free_rate, 'P')
+                        if tq_iv > 0:
+                            put_iv = tq_iv * 100  # 转换为百分比
+                            put_close = tq_price  # 用天勤实时价格替换
                     
                     # 计算希腊字母
                     if put_delta == 0 and put_iv > 0:
@@ -674,17 +854,27 @@ class OptionDataStore:
         return session_type, df
     
     def get_prev_day_data(self, trade_date: str = None) -> pd.DataFrame:
-        """获取昨日数据"""
+        """获取昨日数据（自动跳过非交易日）"""
         if trade_date is None:
             trade_date = datetime.now().strftime('%Y%m%d')
         
-        # 计算昨天
-        dt = datetime.strptime(trade_date, '%Y%m%d')
-        dt -= timedelta(days=1)
-        prev_date = dt.strftime('%Y%m%d')
-        
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
+        
+        # 检查数据库中有哪些交易日
+        c.execute('SELECT DISTINCT trade_date FROM option_daily ORDER BY trade_date DESC')
+        available_dates = [row[0] for row in c.fetchall()]
+        
+        # 找出比当前交易日早的最新交易日
+        prev_date = None
+        for d in available_dates:
+            if d < trade_date:
+                prev_date = d
+                break
+        
+        if prev_date is None:
+            conn.close()
+            return pd.DataFrame()
         
         # 表结构: symbol, trade_date, last_price, iv, delta, gamma, theta, vega, volume, oi
         c.execute('''SELECT symbol, last_price, iv, volume, oi 
@@ -794,26 +984,17 @@ class OptionChainAPI:
             near_expiry_code = temp_expiry_list[0]['expiry'] if temp_expiry_list else None
             
             # 第二步：获取真实PTA期货标的价格
-            # 优先使用TqSdk获取特定合约（TA606/TA607等）的实时价格
-            # 回退到akshare的TA0（主力合约）
+            # 方法1：优先使用Put-Call Parity从期权数据估算（适用于近月合约）
+            # 方法2：回退到akshare的TA0（主力合约）
+            # 方法3：回退到成交量最大期权的行权价
+            
             S = None
-            tqsdk_sym = f'CZCE.{near_expiry_code}' if near_expiry_code else 'CZCE.TA606'
             
-            try:
-                # 使用TqSdk获取特定合约的实时价格
-                api_tq = TqApi(auth=TqAuth(TQS_USER, TQS_PASS))
-                quote = api_tq.get_quote(tqsdk_sym)
-                # 等待数据更新
-                for _ in range(30):
-                    if quote.last_price and quote.last_price > 0:
-                        break
-                    api_tq._wait()
-                S = float(quote.last_price) if quote.last_price else None
-                api_tq.close()
-            except:
-                pass
+            # 方法1：用Put-Call Parity从期权数据估算
+            if near_expiry_code:
+                S = estimate_underlying_from_options(df, near_expiry_code)
             
-            # 如果TqSdk失败，回退到akshare的TA0（主力合约）
+            # 方法2：回退到akshare的TA0（主力合约）
             if S is None or S <= 0:
                 try:
                     ta_df = ak.futures_zh_minute_sina(symbol='TA0', period='1m')
@@ -822,7 +1003,7 @@ class OptionChainAPI:
                 except:
                     pass
             
-            # 如果仍然失败，最后回退到成交量最大期权的行权价
+            # 方法3：回退到成交量最大期权的行权价
             if S is None or S <= 0:
                 try:
                     S = float(df.loc[df['成交量(手)'].idxmax(), 'strike'])
@@ -930,40 +1111,87 @@ class OptionChainAPI:
             c.execute("SELECT tenor, hv, hv_min, hv_25pct, hv_median, hv_75pct, hv_max FROM vol_cone WHERE trade_date = ?", (today,))
             rows = c.fetchall()
             if rows and len(rows) >= 5:
-                tenors = [r[0] for r in rows]
-                conn.close()
+                # 解析tenors为数字用于排序
+                tenors_raw = [r[0] for r in rows]
+                tenors_numeric = []
+                for t in tenors_raw:
+                    # 解析 "10日" -> 10
+                    try:
+                        tenors_numeric.append(int(t.replace('日', '')))
+                    except:
+                        tenors_numeric.append(0)
+                
+                # 按数字排序
+                sorted_indices = sorted(range(len(tenors_numeric)), key=lambda i: tenors_numeric[i])
+                tenors = [str(tenors_numeric[i]) + '日' for i in sorted_indices]
+                
+                # 按排序后的顺序重排数据
+                hv_current = rows[sorted_indices[-1]][1] if sorted_indices else 20.0
+                hv_min = [rows[i][2] for i in sorted_indices]
+                hv_25pct = [rows[i][3] for i in sorted_indices]
+                hv_median = [rows[i][4] for i in sorted_indices]
+                hv_75pct = [rows[i][5] for i in sorted_indices]
+                hv_max = [rows[i][6] for i in sorted_indices]
+                
+                # 计算HV百分位
+                current_60_idx = tenors.index('60日') if '60日' in tenors else -1
+                if current_60_idx >= 0 and hv_median[current_60_idx] > 0:
+                    hv_25 = hv_25pct[current_60_idx]
+                    hv_75 = hv_75pct[current_60_idx]
+                    range_75 = hv_75 - hv_25
+                    if range_75 > 0:
+                        dist_from_25 = hv_current - hv_25
+                        hv_percentile = 25 + (dist_from_25 / range_75) * 50
+                        hv_percentile = max(0, min(100, hv_percentile))
+                    else:
+                        hv_percentile = 50.0
+                else:
+                    hv_percentile = 50.0
                 
                 # 从self获取ATM IV和到期天数
                 try:
                     chain = self.get_full_chain()
                     atm_strike = chain.get('atm_strike', 0)
                     strike_rows = chain.get('strike_rows', [])
-                    atm_row = next((r for r in strike_rows if r.strike == atm_strike), None)
-                    atm_call_iv = atm_row.call_iv if atm_row else 0
-                    atm_put_iv = atm_row.put_iv if atm_row else 0
+                    atm_row = next((r for r in strike_rows if r.get('strike') == atm_strike), None)
+                    atm_call_iv = atm_row.get('call_iv', 0) if atm_row else 0
+                    atm_put_iv = atm_row.get('put_iv', 0) if atm_row else 0
                     atm_iv = (atm_call_iv + atm_put_iv) / 2 if atm_call_iv or atm_put_iv else 0
                     near_expiry = chain.get('near_expiry', '')
                     if near_expiry:
-                        days_to_exp = calculate_days_to_expiry(near_expiry, today)
+                        days_to_exp = int(calculate_days_to_expiry(near_expiry, today) * 365)
                     else:
                         days_to_exp = 24
                 except:
                     atm_iv = 0
                     days_to_exp = 24
                 
+                # 计算IV百分位（ATM IV在HV分布中的位置）
+                iv_percentile = 50.0
+                if atm_iv > 0 and current_60_idx >= 0:
+                    hv_25 = hv_25pct[current_60_idx]
+                    hv_75 = hv_75pct[current_60_idx]
+                    range_75 = hv_75 - hv_25
+                    if range_75 > 0:
+                        dist_from_med = atm_iv - hv_median[current_60_idx]
+                        dist_from_25 = atm_iv - hv_25
+                        iv_percentile = 25 + (dist_from_25 / range_75) * 50
+                        iv_percentile = max(0, min(100, iv_percentile))
+                
                 return {
                     'success': True,
                     'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    'hv_current': rows[-1][1] if rows[-1][1] else 20.0,
-                    'hv_percentile': 50.0,
+                    'hv_current': hv_current,
+                    'hv_percentile': round(hv_percentile, 1),
                     'atm_iv': atm_iv,
+                    'iv_percentile': round(iv_percentile, 1),
                     'days_to_expiry': days_to_exp,
                     'tenors': tenors,
-                    'hv_min': [r[2] for r in rows],
-                    'hv_25pct': [r[3] for r in rows],
-                    'hv_median': [r[4] for r in rows],
-                    'hv_75pct': [r[5] for r in rows],
-                    'hv_max': [r[6] for r in rows]
+                    'hv_min': hv_min,
+                    'hv_25pct': hv_25pct,
+                    'hv_median': hv_median,
+                    'hv_75pct': hv_75pct,
+                    'hv_max': hv_max
                 }
             conn.close()
             

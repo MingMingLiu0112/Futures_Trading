@@ -2670,14 +2670,9 @@
         
         async function loadOptionChain() {
             try {
-                const [optRes, klineRes, volRes] = await Promise.all([
-                    fetch('/api/options/chain'),
-                    fetch('/api/kline/data?symbol=TA0&period=1min'),
-                    fetch('/api/options/vol_cone')
-                ]);
+                // 先加载期权链数据（核心数据）
+                const optRes = await fetch('/api/options/chain');
                 const data = await optRes.json();
-                const klineData = await klineRes.json();
-                const volData = await volRes.json();
                 
                 if (!data.success) {
                     document.getElementById('optionTableBody').innerHTML = 
@@ -2685,11 +2680,21 @@
                     return;
                 }
                 
+                // 同时加载K线数据（非阻塞）
+                fetch('/api/kline/data?symbol=TA0&period=1min')
+                    .then(r => r.json())
+                    .then(klineData => {
+                        if (data.underlying_price <= 0 && klineData.data?.length > 0) {
+                            data.underlying_price = klineData.data.slice(-1)[0].close;
+                        }
+                    })
+                    .catch(() => {});
+                
                 // 保存数据供图表使用
                 optionChainData = data;
                 
                 // 获取实时标的价格
-                const realtimePrice = klineData.data?.slice(-1)[0]?.close || data.underlying_price;
+                const realtimePrice = data.underlying_price || 6500;
                 const atmStrike = Math.round(realtimePrice / 50) * 50;
                 
                 // 更新标题栏信息
@@ -2802,7 +2807,18 @@
                 
                 // 更新图表（只显示ATM虚值±10档）
                 updateIvSmileChart(data, atmStrike);
-                updateVolConeChart(data);
+                
+                // 非阻塞加载波动锥数据（10秒超时）
+                setTimeout(() => {
+                    fetch('/api/options/vol_cone', { signal: AbortSignal.timeout(10000) })
+                        .then(r => r.json())
+                        .then(volData => {
+                            updateVolConeChart(volData);
+                        })
+                        .catch(() => {
+                            console.log('Vol cone data load timeout or error');
+                        });
+                }, 100);
                 
             } catch (e) {
                 console.error('Option error:', e);
