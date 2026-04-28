@@ -305,6 +305,49 @@ def estimate_underlying_from_options(df: pd.DataFrame, expiry: str, r: float = 0
     except:
         return 0.0
 
+def get_tq_futures_price(symbol: str = 'KQ.m@CZCE.TA', timeout: float = 5.0) -> float:
+    """从TqSdk获取期货实时价格
+    
+    Args:
+        symbol: 期货合约代码，默认 'KQ.m@CZCE.TA' 主力合约
+        timeout: 超时秒数
+        
+    Returns:
+        float: 最新价，失败返回0
+    """
+    try:
+        import threading
+        result = {'price': 0, 'done': False}
+        
+        def fetch():
+            try:
+                api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS), debug=False)
+                quote = api.get_quote(symbol)
+                start = time.time()
+                while time.time() - start < timeout and not result['done']:
+                    try:
+                        api.wait_update(deadline=min(time.time() + 1.0, start + timeout))
+                        if quote.last_price and quote.last_price > 0:
+                            result['price'] = float(quote.last_price)
+                            break
+                    except Exception:
+                        break
+                try:
+                    api.close()
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            finally:
+                result['done'] = True
+        
+        t = threading.Thread(target=fetch, daemon=True)
+        t.start()
+        t.join(timeout=timeout + 2)
+        return result['price']
+    except Exception:
+        return 0
+
 def get_tq_option_prices(symbols: List[str]) -> Dict[str, Dict]:
     """从TqSdk获取期权实时价格（暂时禁用，因TqSdk连接阻塞）
     
@@ -984,18 +1027,24 @@ class OptionChainAPI:
             near_expiry_code = temp_expiry_list[0]['expiry'] if temp_expiry_list else None
             
             # 第二步：获取真实PTA期货标的价格
-            # 方法1：优先使用Put-Call Parity从期权数据估算（适用于近月合约）
-            # 方法2：回退到akshare的TA0（主力合约）
-            # 方法3：回退到成交量最大期权的行权价
+            # 方法1：优先使用TqSdk获取特定合约（CZCE.TA606等）的实时价格
+            # 方法2：用Put-Call Parity从期权数据估算
+            # 方法3：回退到akshare的TA0（主力合约）
+            # 方法4：回退到成交量最大期权的行权价
             
             S = None
             
-            # 方法1：用Put-Call Parity从期权数据估算
-            if near_expiry_code:
-                S = estimate_underlying_from_options(df, near_expiry_code)
+            # 方法1：用TqSdk获取主力合约实时价格
+            # 注意：TqSdk只支持主力合约(KQ.m@CZCE.TA)
+            S = get_tq_futures_price(timeout=5.0)
             
-            # 方法2：回退到akshare的TA0（主力合约）
-            if S is None or S <= 0:
+            # 方法2：用Put-Call Parity从期权数据估算
+            if not S or S <= 0:
+                if near_expiry_code:
+                    S = estimate_underlying_from_options(df, near_expiry_code)
+            
+            # 方法3：回退到akshare的TA0（主力合约）
+            if not S or S <= 0:
                 try:
                     ta_df = ak.futures_zh_minute_sina(symbol='TA0', period='1m')
                     ta_df.columns = [c.strip() for c in ta_df.columns]
