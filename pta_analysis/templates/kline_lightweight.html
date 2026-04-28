@@ -2744,13 +2744,23 @@
                     <div class="option-stat"><div class="option-stat-label">Put IV均值</div><div class="option-stat-value" id="stat-put-iv">${stats.avg_put_iv?.toFixed(1) || '--'}%</div></div>
                 `;
                 
-                // 表格 - 显示全部行
-                let html = '';
-                sortedRows.forEach(r => {
+                // ========== 以ATM为中心，向两端展开渲染 ==========
+                // 方案：按行权价降序排列所有strike（Call在左，ATM在中间），同一strike的Call/Put在同一行
+                const atmIdx = sortedRows.findIndex(r => Math.abs(r.strike - atmStrike) < 25);
+                const atmRowData = atmIdx >= 0 ? sortedRows[atmIdx] : null;
+                
+                // 构建完整strike列表（降序：高价call在上，低价put在下），ATM在中间
+                const strikesAbove = sortedRows.filter(r => r.strike >= atmStrike)
+                                               .sort((a, b) => b.strike - a.strike);  // ATM以上的strike降序
+                const strikesBelow = sortedRows.filter(r => r.strike < atmStrike)
+                                               .sort((a, b) => b.strike - a.strike);  // ATM以下的strike降序（绝对值大的在上）
+                
+                // 行渲染函数（需要访问atmStrike/atmIv等闭包变量）
+                function buildRowHtml(r) {
+                    if (!r) return '';
                     const isATM = Math.abs(r.strike - atmStrike) < 25;
                     const rowClass = isATM ? 'atm-row' : (r.strike < atmStrike ? 'put-deep' : 'call-deep');
                     
-                    // IV变颜色：高亮显著变化(蓝色)和重大变化(黄色)
                     const absCallIvChg = Math.abs(r.call_iv_change || 0);
                     const absPutIvChg = Math.abs(r.put_iv_change || 0);
                     const callIvChgColor = absCallIvChg >= ivMajorThresh ? 'color:#000;background:rgba(255,235,59,0.75);font-weight:bold;padding:1px 3px;border-radius:3px;' : 
@@ -2760,17 +2770,11 @@
                                           absPutIvChg >= ivSigThresh ? 'color:#fff;background:rgba(33,150,243,0.75);font-weight:bold;padding:1px 3px;border-radius:3px;' : 
                                           (r.put_iv_change > 0 ? '#26a69a' : r.put_iv_change < 0 ? '#ef5350' : '');
                     
-                    // ========== 问题4: 仓变%按单个合约持仓量级分档 ==========
-                    // 持仓<3000手: sig=10% major=25%; 持仓3000-10000手: sig=7% major=15%; 持仓>10000手: sig=5% major=10%
                     function getOiThresh(oi) {
                         if (!oi || oi < 3000) return { sig: 10, major: 25 };
                         if (oi <= 10000) return { sig: 7, major: 15 };
                         return { sig: 5, major: 10 };
                     }
-                    const callOiThresh = getOiThresh(r.call_oi);
-                    const putOiThresh = getOiThresh(r.put_oi);
-                    
-                    // 仓变%颜色：方向色 + 量级高亮叠加
                     function oiChgStyle(change, thresh) {
                         if (!change) return '';
                         const abs = Math.abs(change);
@@ -2778,17 +2782,17 @@
                         const textColor = abs >= thresh.major ? '#000' : (abs >= thresh.sig ? '#fff' : (change > 0 ? '#26a69a' : '#ef5350'));
                         return bg ? `color:${textColor};background:${bg};font-weight:bold;padding:1px 3px;border-radius:3px;` : `color:${textColor}`;
                     }
+                    const callOiThresh = getOiThresh(r.call_oi);
+                    const putOiThresh = getOiThresh(r.put_oi);
                     const callOiChgColor = oiChgStyle(r.call_oi_change, callOiThresh);
                     const putOiChgColor = oiChgStyle(r.put_oi_change, putOiThresh);
                     
                     const callVolChgVal = r.call_volume_change > 0 ? '+' + r.call_volume_change?.toFixed(1) + '%' : (r.call_volume_change < 0 ? r.call_volume_change?.toFixed(1) + '%' : '0%');
                     const putVolChgVal = r.put_volume_change > 0 ? '+' + r.put_volume_change?.toFixed(1) + '%' : (r.put_volume_change < 0 ? r.put_volume_change?.toFixed(1) + '%' : '0%');
+                    const clickAttrC = `style="cursor:pointer;" onclick="showOptionDetail(${JSON.stringify(r).replace(/"/g, '&quot;')}, 'C')"`;
+                    const clickAttrP = `style="cursor:pointer;" onclick="showOptionDetail(${JSON.stringify(r).replace(/"/g, '&quot;')}, 'P')"`;
                     
-                    // 点击弹窗
-                    const clickAttrC = `style="cursor:pointer;" onclick="showOptionDetail(${JSON.stringify(r).replace(/\"/g, '&quot;')}, 'C')"`;
-                    const clickAttrP = `style="cursor:pointer;" onclick="showOptionDetail(${JSON.stringify(r).replace(/\"/g, '&quot;')}, 'P')"`;
-                    
-                    html += `<tr class="${rowClass}">
+                    return `<tr class="${rowClass}">
                         <td class="call-side" ${clickAttrC}>${r.call_close?.toFixed(2) || '--'}</td>
                         <td class="call-side">${r.call_iv?.toFixed(1) || '--'}%</td>
                         <td class="call-side" style="${callIvChgColor}">${r.call_iv_change > 0 ? '+' : ''}${r.call_iv_change?.toFixed(2) || '0'}%</td>
@@ -2813,7 +2817,15 @@
                         <td class="put-side">${r.put_vega?.toFixed(2) || '--'}</td>
                         <td class="put-side">${r.put_theta?.toFixed(2) || '--'}</td>
                     </tr>`;
-                });
+                }
+                
+                // 渲染：从ATM向两端交替展开（Call在上半部分行，Put在下半部分行，同strike的C/P在同一行）
+                let html = '';
+                const maxLen = Math.max(strikesAbove.length, strikesBelow.length);
+                for (let i = 0; i < maxLen; i++) {
+                    if (i < strikesAbove.length) html += buildRowHtml(strikesAbove[i]);
+                    if (i < strikesBelow.length) html += buildRowHtml(strikesBelow[i]);
+                }
                 
                 document.getElementById('optionTableBody').innerHTML = html || '<tr><td colspan="23" class="error">暂无数据</td></tr>';
                 document.getElementById('optionTimestamp').textContent = `数据时间: ${data.timestamp || '--'} | 近月: ${data.near_expiry} | 全市场PCR: 成交${fmPcr.volume_pcr?.toFixed(2)} / 持仓${fmPcr.position_pcr?.toFixed(2)}`;
