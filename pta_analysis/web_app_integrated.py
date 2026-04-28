@@ -116,6 +116,28 @@ def api_option_chain():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+@app.route('/api/pta/ta606_price')
+def api_ta606_price():
+    """TA606实时价格 - 轻量接口，每分钟轮询更新标的价格"""
+    try:
+        price = oca.get_tq_ta606_price(timeout=5.0)
+        if price <= 0:
+            # 回退到akshare主力合约
+            try:
+                df = ak.futures_zh_realtime(symbol="TA")
+                if df is not None and not df.empty:
+                    price = float(df.iloc[-1].get('trade', 0))
+            except:
+                pass
+        return jsonify({
+            'success': True,
+            'underlying_price': price,
+            'symbol': 'TA606',
+            'timestamp': dt_datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 @app.route('/api/options/refresh', methods=['POST'])
 def api_option_refresh():
     """刷新期权数据"""

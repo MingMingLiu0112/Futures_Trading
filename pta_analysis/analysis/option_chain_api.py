@@ -306,7 +306,7 @@ def estimate_underlying_from_options(df: pd.DataFrame, expiry: str, r: float = 0
         return 0.0
 
 def get_tq_futures_price(symbol: str = 'KQ.m@CZCE.TA', timeout: float = 5.0) -> float:
-    """从TqSdk获取期货实时价格
+    """从TqSdk获取期货实时价格（主力合约）
     
     Args:
         symbol: 期货合约代码，默认 'KQ.m@CZCE.TA' 主力合约
@@ -323,6 +323,50 @@ def get_tq_futures_price(symbol: str = 'KQ.m@CZCE.TA', timeout: float = 5.0) -> 
             try:
                 api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS), debug=False)
                 quote = api.get_quote(symbol)
+                start = time.time()
+                while time.time() - start < timeout and not result['done']:
+                    try:
+                        api.wait_update(deadline=min(time.time() + 1.0, start + timeout))
+                        if quote.last_price and quote.last_price > 0:
+                            result['price'] = float(quote.last_price)
+                            break
+                    except Exception:
+                        break
+                try:
+                    api.close()
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            finally:
+                result['done'] = True
+        
+        t = threading.Thread(target=fetch, daemon=True)
+        t.start()
+        t.join(timeout=timeout + 2)
+        return result['price']
+    except Exception:
+        return 0
+
+
+def get_tq_ta606_price(timeout: float = 5.0) -> float:
+    """从TqSdk获取TA606（PTA 6月期货）实时价格
+    
+    Args:
+        timeout: 超时秒数
+        
+    Returns:
+        float: TA606最新价，失败返回0
+    """
+    try:
+        import threading
+        result = {'price': 0, 'done': False}
+        
+        def fetch():
+            try:
+                api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS), debug=False)
+                # TA606合约代码: CZCE.TA606
+                quote = api.get_quote('CZCE.TA606')
                 start = time.time()
                 while time.time() - start < timeout and not result['done']:
                     try:
@@ -1026,17 +1070,16 @@ class OptionChainAPI:
             temp_expiry_list.sort(key=lambda x: x['actual_expiry_date'])
             near_expiry_code = temp_expiry_list[0]['expiry'] if temp_expiry_list else None
             
-            # 第二步：获取真实PTA期货标的价格
-            # 方法1：优先使用TqSdk获取特定合约（CZCE.TA606等）的实时价格
+            # 第二步：获取真实TA606期货标的价格
+            # 方法1：优先使用TqSdk获取CZCE.TA606的实时价格
             # 方法2：用Put-Call Parity从期权数据估算
             # 方法3：回退到akshare的TA0（主力合约）
             # 方法4：回退到成交量最大期权的行权价
             
             S = None
             
-            # 方法1：用TqSdk获取主力合约实时价格
-            # 注意：TqSdk只支持主力合约(KQ.m@CZCE.TA)
-            S = get_tq_futures_price(timeout=5.0)
+            # 方法1：用TqSdk获取TA606实时价格
+            S = get_tq_ta606_price(timeout=5.0)
             
             # 方法2：用Put-Call Parity从期权数据估算
             if not S or S <= 0:
