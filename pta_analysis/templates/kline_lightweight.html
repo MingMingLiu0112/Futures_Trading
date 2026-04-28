@@ -2751,9 +2751,9 @@
                 
                 // 构建完整strike列表（降序：高价call在上，低价put在下），ATM在中间
                 const strikesAbove = sortedRows.filter(r => r.strike >= atmStrike)
-                                               .sort((a, b) => b.strike - a.strike);  // ATM以上的strike降序
+                                               .sort((a, b) => a.strike - b.strike);   // ATM及以上，升序：ATM最近
                 const strikesBelow = sortedRows.filter(r => r.strike < atmStrike)
-                                               .sort((a, b) => b.strike - a.strike);  // ATM以下的strike降序（绝对值大的在上）
+                                               .sort((a, b) => b.strike - a.strike);   // ATM以下，降序：ATM最近
                 
                 // 行渲染函数（需要访问atmStrike/atmIv等闭包变量）
                 function buildRowHtml(r) {
