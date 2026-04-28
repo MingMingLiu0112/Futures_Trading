@@ -6,6 +6,7 @@
 
 
 
+
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -2673,14 +2674,9 @@
         
         async function loadOptionChain() {
             try {
-                const [optRes, klineRes, volRes] = await Promise.all([
-                    fetch('/api/options/chain'),
-                    fetch('/api/kline/data?symbol=TA0&period=1min'),
-                    fetch('/api/options/vol_cone')
-                ]);
+                // 先加载期权链数据（核心数据）
+                const optRes = await fetch('/api/options/chain');
                 const data = await optRes.json();
-                const klineData = await klineRes.json();
-                const volData = await volRes.json();
                 
                 if (!data.success) {
                     document.getElementById('optionTableBody').innerHTML = 
@@ -2688,11 +2684,21 @@
                     return;
                 }
                 
+                // 同时加载K线数据（非阻塞）
+                fetch('/api/kline/data?symbol=TA0&period=1min')
+                    .then(r => r.json())
+                    .then(klineData => {
+                        if (data.underlying_price <= 0 && klineData.data?.length > 0) {
+                            data.underlying_price = klineData.data.slice(-1)[0].close;
+                        }
+                    })
+                    .catch(() => {});
+                
                 // 保存数据供图表使用
                 optionChainData = data;
                 
                 // 获取实时标的价格
-                const realtimePrice = klineData.data?.slice(-1)[0]?.close || data.underlying_price;
+                const realtimePrice = data.underlying_price || 6500;
                 const atmStrike = Math.round(realtimePrice / 50) * 50;
                 
                 // 更新标题栏信息
@@ -2705,24 +2711,21 @@
                 const totalOiChg = sortedRows.reduce((sum, r) => sum + (r.call_oi_change || 0) + (r.put_oi_change || 0), 0);
                 const oiChgThresh = totalOiChg > 5000 ? '大加仓' : (totalOiChg > 0 ? '小幅加仓' : (totalOiChg < -5000 ? '大减仓' : (totalOiChg < 0 ? '小幅减仓' : '中性')));
                 
-                // 计算IV环境：优先使用ATM(平值)行权价的IV
+                // ========== 问题1: ATM隐波 = ATM行权价的Call/Put IV均值 ==========
                 const atmRow = sortedRows.find(r => Math.abs(r.strike - atmStrike) < 25);
                 const atmCallIv = atmRow?.call_iv || 0;
                 const atmPutIv = atmRow?.put_iv || 0;
-                const atmIv = (atmCallIv + atmPutIv) / 2;
-                const avgIv = atmIv > 0 ? atmIv : ((data.stats?.avg_call_iv + data.stats?.avg_put_iv) / 2 || 20);
-                // IV环境判断：高波≥25，中波≥15，低波<15
-                const ivEnv = avgIv >= 25 ? 'high' : (avgIv >= 15 ? 'mid' : 'low');
-                const ivEnvLabel = avgIv >= 25 ? '高' : (avgIv >= 15 ? '中' : '低');
-                document.getElementById('ivThresholdBadge').textContent = `IV:${avgIv.toFixed(1)}%(${ivEnvLabel})`;
+                const atmIv = (atmCallIv + atmPutIv) / 2;  // ATM行权价上的Call/Put IV均值
                 
-                // 根据IV环境确定显著/重大变化阈值
-                // IV变阈值: 高波噪音<±3%显著3-6%重大>6%，中波噪音<±2%显著2-3%重大>3%，低波噪音<±1.5%显著1.5-2%重大>2%
-                // OI变阈值: 高波显著>5%重大>10%，中波显著>3.5%重大>7%，低波显著>2.5%重大>5%
+                // ========== 问题2: IV环境阈值 高≥30% 中≥20% 低<20% ==========
+                // IV环境判断：取ATM行权价IV均值
+                const ivEnv = atmIv >= 30 ? 'high' : (atmIv >= 20 ? 'mid' : 'low');
+                const ivEnvLabel = atmIv >= 30 ? '高' : (atmIv >= 20 ? '中' : '低');
+                document.getElementById('ivThresholdBadge').textContent = `IV:${atmIv.toFixed(1)}%(${ivEnvLabel})`;
+                
+                // ========== 问题3: IV变化阈值 高±3%/±6% 中±2%/±4% 低±1.5%/±3% ==========
                 const ivSigThresh = ivEnv === 'high' ? 3 : (ivEnv === 'mid' ? 2 : 1.5);
-                const ivMajorThresh = ivEnv === 'high' ? 6 : (ivEnv === 'mid' ? 3 : 2);
-                const oiSigThresh = ivEnv === 'high' ? 5 : (ivEnv === 'mid' ? 3.5 : 2.5);
-                const oiMajorThresh = ivEnv === 'high' ? 10 : (ivEnv === 'mid' ? 7 : 5);
+                const ivMajorThresh = ivEnv === 'high' ? 6 : (ivEnv === 'mid' ? 4 : 3);
                 
                 // PCR显示 - 移到标题栏
                 const fmPcr = data.stats?.full_market_pcr || {};
@@ -2735,10 +2738,10 @@
                 // 更新统计（只显示标的价格、ATM、希腊字母均值）
                 const stats = data.stats || {};
                 document.getElementById('optionStats').innerHTML = `
-                    <div class="option-stat"><div class="option-stat-label">标的价格</div><div class="option-stat-value text-primary fw-bold">${realtimePrice?.toFixed(0) || '--'}</div></div>
-                    <div class="option-stat"><div class="option-stat-label">ATM行权价</div><div class="option-stat-value text-warning fw-bold">${atmStrike || '--'}</div></div>
-                    <div class="option-stat"><div class="option-stat-label">Call IV均值</div><div class="option-stat-value">${stats.avg_call_iv?.toFixed(1) || '--'}%</div></div>
-                    <div class="option-stat"><div class="option-stat-label">Put IV均值</div><div class="option-stat-value">${stats.avg_put_iv?.toFixed(1) || '--'}%</div></div>
+                    <div class="option-stat"><div class="option-stat-label">标的价格</div><div class="option-stat-value text-primary fw-bold" id="stat-symbol-price">${realtimePrice?.toFixed(0) || '--'}</div></div>
+                    <div class="option-stat"><div class="option-stat-label">ATM行权价</div><div class="option-stat-value text-warning fw-bold" id="stat-atm-strike">${atmStrike || '--'}</div></div>
+                    <div class="option-stat"><div class="option-stat-label">Call IV均值</div><div class="option-stat-value" id="stat-call-iv">${stats.avg_call_iv?.toFixed(1) || '--'}%</div></div>
+                    <div class="option-stat"><div class="option-stat-label">Put IV均值</div><div class="option-stat-value" id="stat-put-iv">${stats.avg_put_iv?.toFixed(1) || '--'}%</div></div>
                 `;
                 
                 // 表格 - 显示全部行
@@ -2757,36 +2760,36 @@
                                           absPutIvChg >= ivSigThresh ? 'color:#fff;background:rgba(33,150,243,0.75);font-weight:bold;padding:1px 3px;border-radius:3px;' : 
                                           (r.put_iv_change > 0 ? '#26a69a' : r.put_iv_change < 0 ? '#ef5350' : '');
                     
-                    // 仓变%颜色：同样用显著/重大阈值
-                    const absCallOiChg = Math.abs(r.call_oi_change || 0);
-                    const absPutOiChg = Math.abs(r.put_oi_change || 0);
-                    const callOiChgColor = absCallOiChg >= oiMajorThresh ? 'color:#000;background:rgba(255,235,59,0.75);font-weight:bold;padding:1px 3px;border-radius:3px;' : 
-                                           absCallOiChg >= oiSigThresh ? 'color:#fff;background:rgba(33,150,243,0.75);font-weight:bold;padding:1px 3px;border-radius:3px;' : 
-                                           (r.call_oi_change > 0 ? '#26a69a' : r.call_oi_change < 0 ? '#ef5350' : '');
-                    const putOiChgColor = absPutOiChg >= oiMajorThresh ? 'color:#000;background:rgba(255,235,59,0.75);font-weight:bold;padding:1px 3px;border-radius:3px;' : 
-                                          absPutOiChg >= oiSigThresh ? 'color:#fff;background:rgba(33,150,243,0.75);font-weight:bold;padding:1px 3px;border-radius:3px;' : 
-                                          (r.put_oi_change > 0 ? '#26a69a' : r.put_oi_change < 0 ? '#ef5350' : '');
+                    // ========== 问题4: 仓变%按单个合约持仓量级分档 ==========
+                    // 持仓<3000手: sig=10% major=25%; 持仓3000-10000手: sig=7% major=15%; 持仓>10000手: sig=5% major=10%
+                    function getOiThresh(oi) {
+                        if (!oi || oi < 3000) return { sig: 10, major: 25 };
+                        if (oi <= 10000) return { sig: 7, major: 15 };
+                        return { sig: 5, major: 10 };
+                    }
+                    const callOiThresh = getOiThresh(r.call_oi);
+                    const putOiThresh = getOiThresh(r.put_oi);
+                    
+                    // 仓变%颜色：方向色 + 量级高亮叠加
+                    function oiChgStyle(change, thresh) {
+                        if (!change) return '';
+                        const abs = Math.abs(change);
+                        const bg = abs >= thresh.major ? 'rgba(255,235,59,0.75)' : (abs >= thresh.sig ? 'rgba(33,150,243,0.75)' : '');
+                        const textColor = abs >= thresh.major ? '#000' : (abs >= thresh.sig ? '#fff' : (change > 0 ? '#26a69a' : '#ef5350'));
+                        return bg ? `color:${textColor};background:${bg};font-weight:bold;padding:1px 3px;border-radius:3px;` : `color:${textColor}`;
+                    }
+                    const callOiChgColor = oiChgStyle(r.call_oi_change, callOiThresh);
+                    const putOiChgColor = oiChgStyle(r.put_oi_change, putOiThresh);
                     
                     const callVolChgVal = r.call_volume_change > 0 ? '+' + r.call_volume_change?.toFixed(1) + '%' : (r.call_volume_change < 0 ? r.call_volume_change?.toFixed(1) + '%' : '0%');
                     const putVolChgVal = r.put_volume_change > 0 ? '+' + r.put_volume_change?.toFixed(1) + '%' : (r.put_volume_change < 0 ? r.put_volume_change?.toFixed(1) + '%' : '0%');
                     
                     // 点击弹窗
-                    const clickAttr = `style="cursor:pointer;" onclick="showOptionDetail(${JSON.stringify(r).replace(/"/g, '&quot;')}, 'C')"`;
+                    const clickAttrC = `style="cursor:pointer;" onclick="showOptionDetail(${JSON.stringify(r).replace(/\"/g, '&quot;')}, 'C')"`;
+                    const clickAttrP = `style="cursor:pointer;" onclick="showOptionDetail(${JSON.stringify(r).replace(/\"/g, '&quot;')}, 'P')"`;
                     
                     html += `<tr class="${rowClass}">
-                        <td class="put-side">${r.put_theta?.toFixed(2) || '--'}</td>
-                        <td class="put-side">${r.put_vega?.toFixed(2) || '--'}</td>
-                        <td class="put-side">${r.put_gamma?.toFixed(4) || '--'}</td>
-                        <td class="put-side">${r.put_delta?.toFixed(3) || '--'}</td>
-                        <td class="put-side" style="${r.put_volume_change > 0 ? 'color:#26a69a' : (r.put_volume_change < 0 ? 'color:#ef5350' : '')}">${putVolChgVal}</td>
-                        <td class="put-side">${r.put_volume?.toLocaleString() || '--'}</td>
-                        <td class="put-side" style="${putOiChgColor}">${r.put_oi_change > 0 ? '+' : ''}${r.put_oi_change?.toFixed(1) || '0'}%</td>
-                        <td class="put-side">${r.put_oi?.toLocaleString() || '--'}</td>
-                        <td class="put-side" style="${putIvChgColor}">${r.put_iv_change > 0 ? '+' : ''}${r.put_iv_change?.toFixed(2) || '0'}%</td>
-                        <td class="put-side">${r.put_iv?.toFixed(1) || '--'}%</td>
-                        <td class="put-side" ${clickAttr}>${r.put_close?.toFixed(2) || '--'}</td>
-                        <td class="Strike-col" ${clickAttr}>${r.strike?.toFixed(0) || '--'}</td>
-                        <td class="call-side" ${clickAttr}>${r.call_close?.toFixed(2) || '--'}</td>
+                        <td class="call-side" ${clickAttrC}>${r.call_close?.toFixed(2) || '--'}</td>
                         <td class="call-side">${r.call_iv?.toFixed(1) || '--'}%</td>
                         <td class="call-side" style="${callIvChgColor}">${r.call_iv_change > 0 ? '+' : ''}${r.call_iv_change?.toFixed(2) || '0'}%</td>
                         <td class="call-side">${r.call_oi?.toLocaleString() || '--'}</td>
@@ -2797,6 +2800,18 @@
                         <td class="call-side">${r.call_gamma?.toFixed(4) || '--'}</td>
                         <td class="call-side">${r.call_vega?.toFixed(2) || '--'}</td>
                         <td class="call-side">${r.call_theta?.toFixed(2) || '--'}</td>
+                        <td class="Strike-col" ${clickAttrC}>${r.strike?.toFixed(0) || '--'}</td>
+                        <td class="put-side" ${clickAttrP}>${r.put_close?.toFixed(2) || '--'}</td>
+                        <td class="put-side">${r.put_iv?.toFixed(1) || '--'}%</td>
+                        <td class="put-side" style="${putIvChgColor}">${r.put_iv_change > 0 ? '+' : ''}${r.put_iv_change?.toFixed(2) || '0'}%</td>
+                        <td class="put-side">${r.put_oi?.toLocaleString() || '--'}</td>
+                        <td class="put-side" style="${putOiChgColor}">${r.put_oi_change > 0 ? '+' : ''}${r.put_oi_change?.toFixed(1) || '0'}%</td>
+                        <td class="put-side">${r.put_volume?.toLocaleString() || '--'}</td>
+                        <td class="put-side" style="${r.put_volume_change > 0 ? 'color:#26a69a' : (r.put_volume_change < 0 ? 'color:#ef5350' : '')}">${putVolChgVal}</td>
+                        <td class="put-side">${r.put_delta?.toFixed(3) || '--'}</td>
+                        <td class="put-side">${r.put_gamma?.toFixed(4) || '--'}</td>
+                        <td class="put-side">${r.put_vega?.toFixed(2) || '--'}</td>
+                        <td class="put-side">${r.put_theta?.toFixed(2) || '--'}</td>
                     </tr>`;
                 });
                 
@@ -2805,12 +2820,74 @@
                 
                 // 更新图表（只显示ATM虚值±10档）
                 updateIvSmileChart(data, atmStrike);
-                updateVolConeChart(data);
+                
+                // 非阻塞加载波动锥数据（10秒超时）
+                setTimeout(() => {
+                    fetch('/api/options/vol_cone', { signal: AbortSignal.timeout(10000) })
+                        .then(r => r.json())
+                        .then(volData => {
+                            updateVolConeChart(volData);
+                        })
+                        .catch(() => {
+                            console.log('Vol cone data load timeout or error');
+                        });
+                }, 100);
                 
             } catch (e) {
                 console.error('Option error:', e);
                 document.getElementById('optionTableBody').innerHTML = `<tr><td colspan="23" class="error">加载失败</td></tr>`;
             }
+        }
+
+        // ==================== TA606实时价格轮询（每分钟） ====================
+        let lastTa606Price = null;
+        async function pollTa606Price() {
+            try {
+                const res = await fetch('/api/pta/ta606_price');
+                const data = await res.json();
+                if (!data.success || !data.underlying_price) return;
+                
+                const newPrice = data.underlying_price;
+                if (lastTa606Price !== null && newPrice !== lastTa606Price) {
+                    // 价格变化时更新显示（不重建表格）
+                    const newAtmStrike = Math.round(newPrice / 50) * 50;
+                    
+                    // 直接更新对应id的元素内容
+                    const priceEl = document.getElementById('stat-symbol-price');
+                    const atmEl = document.getElementById('stat-atm-strike');
+                    if (priceEl) priceEl.textContent = newPrice.toFixed(0);
+                    if (atmEl) atmEl.textContent = newAtmStrike;
+                    
+                    // 同时更新表格中ATM行的高亮
+                    highlightAtmRows(newAtmStrike);
+                    
+                    // 更新ATM高亮行
+                    if (optionChainData) {
+                        optionChainData.underlying_price = newPrice;
+                        optionChainData.atm_strike = newAtmStrike;
+                    }
+                }
+                lastTa606Price = newPrice;
+            } catch (e) {
+                // 静默失败，不影响其他功能
+            }
+        }
+        
+        // 高亮ATM行（价格变化时调用）
+        function highlightAtmRows(atmStrike) {
+            document.querySelectorAll('.option-table tbody tr').forEach(row => {
+                const strikeCell = row.querySelector('.Strike-col');
+                if (!strikeCell) return;
+                const strike = parseFloat(strikeCell.textContent);
+                row.classList.remove('atm-row', 'put-deep', 'call-deep');
+                if (Math.abs(strike - atmStrike) < 25) {
+                    row.classList.add('atm-row');
+                } else if (strike < atmStrike) {
+                    row.classList.add('put-deep');
+                } else {
+                    row.classList.add('call-deep');
+                }
+            });
         }
 
         // ==================== 增量更新（不闪屏） ====================
@@ -3094,7 +3171,9 @@
             });
             loadOptionChain();
             loadFundamental();
-            // 每秒增量刷新最后一根K线
+            // TA606价格每分钟轮询
+            setInterval(pollTa606Price, 60000);
+            // 每10秒增量刷新K线
             setInterval(incrementalUpdate, 10000);
         });
     </script>
