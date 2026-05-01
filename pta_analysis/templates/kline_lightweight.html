@@ -8,6 +8,12 @@
 
 
 
+
+
+
+
+
+
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -2436,11 +2442,15 @@
                         const hvPercentile = volData.hv_percentile || 50;
                         const atmIv = volData.atm_iv || 0;
                         const daysToExpiry = volData.days_to_expiry || 24;
-                        
                         // 按期限数值升序排列（避免字符串排序导致10日在5日前）
                         const tenorIndices = volData.tenors.map((t, i) => ({ tenor: parseInt(t), idx: i }));
                         tenorIndices.sort((a, b) => a.tenor - b.tenor);
                         const sortedTenors = tenorIndices.map(ti => volData.tenors[ti.idx]);
+
+                        // ATM-IV散点落在最近的actual tenor上，避免类别轴miss
+                        const nearestTenorLabel = sortedTenors.reduce((prev, curr) =>
+                            Math.abs(parseInt(curr) - daysToExpiry) < Math.abs(parseInt(prev) - daysToExpiry) ? curr : prev
+                        );
                         const sortedHvMax = tenorIndices.map(ti => volData.hv_max[ti.idx]);
                         const sortedHv75 = tenorIndices.map(ti => volData.hv_75pct[ti.idx]);
                         const sortedHvMed = tenorIndices.map(ti => volData.hv_median[ti.idx]);
@@ -2479,9 +2489,9 @@
                         }
                         
                         volConeChart.setOption({
-                            tooltip: { 
+                            tooltip: {
                                 trigger: 'axis',
-                                axisPointer: { 
+                                axisPointer: {
                                     type: 'cross',
                                     crossStyle: { color: '#888', width: 1 },
                                     label: { show: true, color: '#aaa', fontSize: 11,
@@ -2489,7 +2499,7 @@
                                             if (params.axisDim === 'x') {
                                                 return params.value + '日';
                                             } else {
-                                                return params.value.toFixed(1) + '%';
+                                                return typeof params.value === 'number' ? params.value.toFixed(1) + '%' : params.value;
                                             }
                                         }
                                     }
@@ -2499,7 +2509,8 @@
                                     params.forEach(p => {
                                         if (p.seriesName === '当前HV') return;
                                         if (p.value !== null && p.value !== '' && p.value !== undefined && p.value !== '-' && p.value !== 'null') {
-                                            res += '<span style="color:' + p.color + ';">■</span> ' + p.seriesName + ': ' + (typeof p.value === 'number' ? p.value.toFixed(1) : p.value) + '%<br/>';
+                                            let val = typeof p.value === 'number' ? p.value.toFixed(1) : (Array.isArray(p.value) ? p.value[1].toFixed(1) : p.value);
+                                            res += '<span style="color:' + p.color + ';">■</span> ' + p.seriesName + ': ' + val + '%<br/>';
                                         }
                                     });
                                     return res;
@@ -2510,11 +2521,13 @@
                                 snap: false,
                                 crossStyle: { color: '#888', width: 1 }
                             },
-                            legend: { 
-                                data: ['最大值', '75%', '中位数', '25%', '最小值', '当前HV', 'ATM-IV'], 
-                                textStyle: { color: '#aaa' }, 
+                            legend: {
+                                type: 'scroll',
+                                data: ['最大值', '75%', '中位数', '25%', '最小值', '当前HV', 'ATM-IV'],
+                                textStyle: { color: '#aaa' },
                                 top: 5,
-                                selected: {'当前HV': false, 'ATM-IV': true}
+                                selectedMode: 'multiple',
+                                selected: {'最大值': true, '75%': true, '中位数': true, '25%': true, '最小值': true, '当前HV': false, 'ATM-IV': true}
                             },
                             grid: { left: '8%', right: '8%', bottom: '15%', top: '20%' },
                             xAxis: { 
@@ -2526,10 +2539,12 @@
                                 nameLocation: 'middle',
                                 nameGap: 25
                             },
-                            yAxis: { 
-                                type: 'value', 
+                            yAxis: {
+                                type: 'value',
                                 axisLabel: { color: '#aaa', fontSize: 11, formatter: '{value}%' },
-                                splitLine: { lineStyle: { color: '#333' } }
+                                splitLine: { lineStyle: { color: '#333' } },
+                                min: function(value) { return Math.floor(value.min * 0.3 / 5) * 5; },
+                                max: function(value) { return Math.ceil(value.max * 1.3 / 5) * 5; }
                             },
                             series: [
                                 { name: '最大值', type: 'line', data: sortedHvMax, 
@@ -2549,15 +2564,15 @@
                                   itemStyle: { color: '#96ceb4' }, lineStyle: { width: 1.5, type: 'dashed' },
                                   symbol: 'none', smooth: true },
                                 { name: 'ATM-IV', type: 'scatter',
-                                  data: atmIv > 0 ? [[daysToExpiry, atmIv]] : [],
-                                  itemStyle: { color: '#ffd700', borderColor: '#fff', borderWidth: 2 },
-                                  symbolSize: 18, z: 20,
-                                  label: { show: true, formatter: '{c[1]}%', position: 'top',
-                                           color: '#ffd700', fontSize: 11, fontWeight: 'bold' }
+                                  data: atmIv > 0 ? [[nearestTenorLabel, atmIv]] : [],
+                                  itemStyle: { color: '#ffd700', borderColor: '#000', borderWidth: 1.5 },
+                                  symbolSize: 22, z: 30
                                 },
-                                { name: '当前HV', type: 'line', data: sortedTenors.map((t, i) => t === sortedTenors[sortedTenors.length-1] ? hvCurrent : null), 
-                                  itemStyle: { color: '#ffd700', opacity: 0.6 }, lineStyle: { width: 2, type: 'dashed' },
-                                  symbol: 'none' }
+                                { name: '当前HV', type: 'scatter',
+                                  data: sortedTenors.map((t, i) => t === sortedTenors[sortedTenors.length-1] ? [t, hvCurrent] : null),
+                                  itemStyle: { color: '#ff6b6b', borderColor: '#fff', borderWidth: 1.5 },
+                                  symbolSize: 20, z: 30
+                                }
                             ]
                         });
                     } else {
