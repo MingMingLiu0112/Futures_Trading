@@ -1,367 +1,250 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-PTA Analysis - FastAPI 主服务
-==============================
-提供 REST API:
-  - GET /health              健康检查
-  - GET /api/pta/quote       PTA期货实时行情
-  - GET /api/pta/option      PTA期权链数据
-  - GET /api/pta/iv          IV曲面与PCR
-  - GET /api/pta/cost        PTA成本计算
-  - GET /api/pta/signal      综合信号
-  - GET /api/pta/history     历史K线
-  - GET /api/brent           布伦特原油
-  - GET /api/macro/news      宏观新闻摘要
-  - WS  /ws/quote            实时行情WebSocket
+期货交易辅助系统主入口
+整合所有模块，提供统一的交易分析框架
 """
 
-import sys, os
-sys.path.insert(0, '/app')
+import argparse
+import sys
+import os
 
-import asyncio
-import json
-from datetime import datetime
-from contextlib import asynccontextmanager
-from typing import Optional
+# 添加当前目录到路径
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-import pandas as pd
+from risk_control import PositionManager, MoneyManager
+from backtest import BacktestEngine
+from strategies import MACDStrategy, MovingAverageStrategy, KDJStrategy, BreakoutStrategy
+from data import DataCollector, DataProcessor, DataStore
+from data.data_collector import SimulatedDataSource
+from execution import OrderManager, TradeExecutor, PositionTracker
+from execution.trade_executor import MockBroker
+from execution.position_tracker import PositionDirection
+from analysis import TechnicalIndicators, PatternRecognition, ChanAnalysis
 
-# 数据库连接
-from sqlalchemy import create_engine, text
-import redis
 
-# 全局连接
-engine = None
-redis_client = None
-
-# ==================== 启动/关闭 ====================
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global engine, redis_client
-
-    # MySQL
-    try:
-        engine = create_engine(
-            "mysql+pymysql://pta:pta_pass_2025@localhost:3306/pta_analysis?charset=utf8mb4",
-            pool_size=5, pool_recycle=3600
+class TradingSystem:
+    """交易系统主类"""
+    
+    def __init__(self):
+        # 初始化各个模块
+        self.data_collector = DataCollector()
+        self.data_processor = DataProcessor()
+        self.data_store = DataStore()
+        self.money_manager = MoneyManager(initial_balance=1000000.0, max_drawdown=0.1)
+        self.position_manager = PositionManager(account_balance=1000000.0)
+        self.order_manager = OrderManager()
+        self.position_tracker = PositionTracker()
+        self.backtest_engine = BacktestEngine(
+            initial_balance=1000000.0,
+            risk_per_trade=0.01,
+            commission_rate=0.0001
         )
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        print("[DB] MySQL 连接成功")
-    except Exception as e:
-        print(f"[DB] MySQL 连接失败: {e}")
-        engine = None
-
-    # Redis
-    try:
-        redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
-        redis_client.ping()
-        print("[Redis] 连接成功")
-    except Exception as e:
-        print(f"[Redis] 连接失败: {e}")
-        redis_client = None
-
-    yield
-
-    if engine:
-        engine.dispose()
-    if redis_client:
-        redis_client.close()
-    print("[Server] 关闭")
-
-# ==================== FastAPI App ====================
-app = FastAPI(
-    title="PTA Analysis API",
-    description="PTA期货期权分析系统",
-    version="1.0.0",
-    lifespan=lifespan
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# ==================== 辅助函数 ====================
-def get_redis(key: str) -> Optional[str]:
-    if redis_client:
-        try:
-            return redis_client.get(key)
-        except:
-            pass
-    return None
-
-def set_redis(key: str, value: str, expire: int = 300):
-    if redis_client:
-        try:
-            redis_client.setex(key, expire, value)
-        except:
-            pass
-
-# ==================== 路由 ====================
-@app.get("/health")
-async def health():
-    """健康检查"""
-    mysql_ok = False
-    redis_ok = False
-
-    if engine:
-        try:
-            with engine.connect() as conn:
-                conn.execute(text("SELECT 1"))
-            mysql_ok = True
-        except:
-            pass
-
-    if redis_client:
-        try:
-            redis_client.ping()
-            redis_ok = True
-        except:
-            pass
-
-    return {
-        "status": "ok",
-        "timestamp": datetime.now().isoformat(),
-        "services": {
-            "mysql": "up" if mysql_ok else "down",
-            "redis": "up" if redis_ok else "down",
-            "python": "up"
+        
+        # 连接模拟交易接口
+        self.trade_executor = TradeExecutor(self.order_manager)
+        self.mock_broker = MockBroker()
+        self.trade_executor.connect_broker(self.mock_broker)
+        
+        # 添加模拟数据源
+        self.data_collector.add_source(SimulatedDataSource())
+    
+    def collect_data(self, symbol: str, start_time=None, end_time=None, frequency='1min'):
+        """采集数据"""
+        print(f"正在采集 {symbol} 的数据...")
+        data = self.data_collector.collect(symbol, start_time, end_time, frequency)
+        print(f"采集到 {len(data)} 条数据")
+        return data
+    
+    def process_data(self, data):
+        """处理数据"""
+        print("正在处理数据...")
+        # 清洗数据
+        cleaned = self.data_processor.clean_data(data)
+        # 计算指标
+        processed = self.data_processor.calculate_indicators(cleaned, ['ma', 'macd', 'kdj'])
+        return processed
+    
+    def store_data(self, data):
+        """存储数据"""
+        print("正在存储数据...")
+        self.data_store.save_klines(data)
+        print(f"已存储 {len(data)} 条数据")
+    
+    def load_data(self, symbol, frequency='1min'):
+        """加载数据"""
+        print(f"正在加载 {symbol} 的数据...")
+        data = self.data_store.get_klines(symbol, frequency=frequency)
+        print(f"加载到 {len(data)} 条数据")
+        return data
+    
+    def run_backtest(self, strategy_name, data):
+        """运行回测"""
+        print(f"正在运行 {strategy_name} 回测...")
+        
+        # 创建策略
+        strategies = {
+            'macd': MACDStrategy(),
+            'ma': MovingAverageStrategy(),
+            'kdj': KDJStrategy(),
+            'breakout': BreakoutStrategy()
         }
-    }
-
-@app.get("/api/pta/quote")
-async def pta_quote():
-    """PTA期货实时行情"""
-    cached = get_redis("pta:quote")
-    if cached:
-        return json.loads(cached)
-
-    try:
-        import akshare as ak
-        df = ak.futures_zh_realtime(symbol="TA")
-        if df is not None and not df.empty:
-            row = df.iloc[-1].to_dict()
-            result = {
-                "symbol": "TA",
-                "last_price": float(row.get("最新价", 0)),
-                "bid": float(row.get("买一价", 0)),
-                "ask": float(row.get("卖一价", 0)),
-                "volume": int(row.get("成交量", 0)),
-                "open_interest": int(row.get("持仓量", 0)),
-                "timestamp": datetime.now().isoformat()
-            }
-            set_redis("pta:quote", json.dumps(result, ensure_ascii=False), 30)
-            return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取行情失败: {str(e)}")
-
-    raise HTTPException(status_code=404, detail="无法获取PTA行情数据")
-
-@app.get("/api/pta/option")
-async def pta_option(expiry: str = Query(None, description="到期日，如 2025-04-08")):
-    """PTA期权链数据"""
-    cache_key = f"pta:option:{expiry or 'all'}"
-    cached = get_redis(cache_key)
-    if cached:
-        return json.loads(cached)
-
-    try:
-        from vnpy.ctp import CtpGateway
-        from vnpy.trader.constant import Exchange
-
-        gateway = CtpGateway(gateway_name="PTAOption")
-        result = {"contracts": [], "timestamp": datetime.now().isoformat()}
-        set_redis(cache_key, json.dumps(result, ensure_ascii=False), 60)
+        
+        strategy = strategies.get(strategy_name.lower())
+        if not strategy:
+            print(f"未知策略: {strategy_name}")
+            return None
+        
+        # 运行回测
+        result = self.backtest_engine.run(strategy, data)
+        
+        # 打印统计结果
+        print("\n回测结果:")
+        print(f"总交易次数: {result.get('total_trades', 0)}")
+        print(f"胜率: {result.get('win_rate', 0):.2%}")
+        print(f"总盈亏: {result.get('total_pnl', 0):.2f}")
+        print(f"最大回撤: {result.get('max_drawdown', 0):.2%}")
+        print(f"夏普比率: {result.get('sharpe_ratio', 0):.2f}")
+        print(f"盈利因子: {result.get('profit_factor', 0):.2f}")
+        
         return result
-    except Exception as e:
-        pass
-
-    # Fallback: 返回CTP期权信息
-    try:
-        contracts = ak.option_contract_info_ctp(exchange="CZCE", contract="TA")
-        if contracts is not None:
-            result = {
-                "contracts": contracts.to_dict("records")[:20],
-                "count": len(contracts),
-                "timestamp": datetime.now().isoformat()
-            }
-            set_redis(cache_key, json.dumps(result, ensure_ascii=False), 60)
-            return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取期权链失败: {str(e)}")
-
-    raise HTTPException(status_code=404, detail="无法获取PTA期权链数据")
-
-@app.get("/api/pta/iv")
-async def pta_iv():
-    """IV曲面与PCR"""
-    cached = get_redis("pta:iv")
-    if cached:
-        return json.loads(cached)
-
-    try:
-        # 获取PTA期权日线数据(IV/Pcr/OI)
-        df = ak.option_hist_czce(symbol="TA", end_date=datetime.now().strftime("%Y%m%d"))
-        if df is not None and not df.empty:
-            latest = df.iloc[-1]
-            result = {
-                "iv": float(latest.get("隐含波动率", 0)) if "隐含波动率" in latest else None,
-                "pcr": float(latest.get("成交量PCR", 0)) if "成交量PCR" in latest else None,
-                "oi_pcr": float(latest.get("持仓量PCR", 0)) if "持仓量PCR" in latest else None,
-                "timestamp": datetime.now().isoformat()
-            }
-            set_redis("pta:iv", json.dumps(result, ensure_ascii=False), 60)
-            return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取IV失败: {str(e)}")
-
-    raise HTTPException(status_code=404, detail="无法获取IV数据")
-
-@app.get("/api/pta/cost")
-async def pta_cost():
-    """PTA成本计算"""
-    cached = get_redis("pta:cost")
-    if cached:
-        return json.loads(cached)
-
-    try:
-        # 布伦特原油
-        brent_df = ak.futures_global_spot_em(symbol="布伦特原油")
-        brent_price = brent_df.iloc[0]["价格"] if brent_df is not None else None
-
-        # PX现货
-        px_df = ak.futures_spot_price(exchange="CZCE", symbol="PX")
-        px_price = px_df.iloc[0]["价格"] if px_df is not None and not px_df.empty else None
-
-        # PTA现货
-        ta_df = ak.futures_spot_price(exchange="CZCE", symbol="TA")
-        ta_price = ta_df.iloc[0]["价格"] if ta_df is not None and not ta_df.empty else None
-
-        # 计算成本
-        FX = 7.25
-        brent_cny = brent_price * FX if brent_price else None
-        # PTA成本 ≈ PX * 0.655 + 800
-        cost_low = px_price * 0.655 + 600 if px_price else None
-        cost_high = px_price * 0.655 + 1000 if px_price else None
-
-        result = {
-            "brent_usd": brent_price,
-            "brent_cny": brent_cny,
-            "px_cny": px_price,
-            "pta_spot": ta_price,
-            "pta_cost_low": cost_low,
-            "pta_cost_high": cost_high,
-            "margin": (ta_price - (cost_low + cost_high) / 2) if ta_price and cost_low else None,
-            "timestamp": datetime.now().isoformat()
+    
+    def analyze_patterns(self, data):
+        """分析模式"""
+        print("正在分析K线模式...")
+        result = PatternRecognition.recognize_patterns(data)
+        
+        # 统计模式
+        pattern_count = {}
+        for bar in result:
+            if 'patterns' in bar and bar['patterns']:
+                for pattern in bar['patterns']:
+                    pattern_count[pattern] = pattern_count.get(pattern, 0) + 1
+        
+        print("\n模式统计:")
+        for pattern, count in pattern_count.items():
+            print(f"  {pattern}: {count}次")
+        
+        return result
+    
+    def analyze_chan(self, data):
+        """缠论分析"""
+        print("正在进行缠论分析...")
+        result = ChanAnalysis.analyze(data)
+        
+        # 统计分型和笔
+        fractal_count = {'top': 0, 'bottom': 0}
+        bi_count = {'up': 0, 'down': 0}
+        
+        for bar in result:
+            if 'fractal' in bar and bar['fractal']:
+                if bar['fractal'] in fractal_count:
+                    fractal_count[bar['fractal']] += 1
+            if 'bi' in bar and bar['bi']:
+                if bar['bi'] in bi_count:
+                    bi_count[bar['bi']] += 1
+        
+        print("\n缠论分析结果:")
+        print(f"顶分型: {fractal_count['top']}个")
+        print(f"底分型: {fractal_count['bottom']}个")
+        print(f"向上笔: {bi_count['up']}个")
+        print(f"向下笔: {bi_count['down']}个")
+        
+        return result
+    
+    def execute_signal(self, signal):
+        """执行交易信号"""
+        print(f"执行交易信号: {signal}")
+        order = self.trade_executor.execute_signal(signal)
+        
+        if order:
+            print(f"订单已创建: {order.order_id}, 状态: {order.status.value}")
+            # 更新仓位追踪
+            direction = PositionDirection.LONG if signal.get('signal_type') == 'buy' else PositionDirection.SHORT
+            self.position_tracker.update_position(
+                symbol=signal['symbol'],
+                direction=direction,
+                quantity=1,
+                price=signal.get('price', 0)
+            )
+        
+        return order
+    
+    def get_account_status(self):
+        """获取账户状态"""
+        status = {
+            'balance': self.money_manager.current_balance,
+            'max_drawdown': self.money_manager.max_drawdown,
+            'current_drawdown': self.money_manager.current_drawdown,
+            'trades': self.money_manager.get_trade_statistics(),
+            'positions': self.position_tracker.get_position_summary()
         }
-        set_redis("pta:cost", json.dumps(result, ensure_ascii=False), 300)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"成本计算失败: {str(e)}")
+        
+        return status
+    
+    def print_account_status(self):
+        """打印账户状态"""
+        status = self.get_account_status()
+        
+        print("\n账户状态:")
+        print(f"账户余额: {status['balance']:.2f}")
+        print(f"最大回撤: {status['max_drawdown']:.2%}")
+        print(f"当前回撤: {status['current_drawdown']:.2%}")
+        print("\n交易统计:")
+        trades = status['trades']
+        print(f"  总交易: {trades.get('total_trades', 0)}")
+        print(f"  盈利交易: {trades.get('winning_trades', 0)}")
+        print(f"  亏损交易: {trades.get('losing_trades', 0)}")
+        print("\n持仓汇总:")
+        positions = status['positions']
+        print(f"  持仓数量: {positions.get('total_positions', 0)}")
+        print(f"  多头数量: {positions.get('long_count', 0)}")
+        print(f"  空头数量: {positions.get('short_count', 0)}")
+        print(f"  未实现盈亏: {positions.get('total_unrealized_pnl', 0):.2f}")
 
-@app.get("/api/pta/signal")
-async def pta_signal():
-    """综合信号 (三维共振)"""
-    cached = get_redis("pta:signal")
-    if cached:
-        return json.loads(cached)
 
-    try:
-        # 运行分析器
-        sys.path.insert(0, "/app")
-        import pta_analyzer as analyzer
+def main():
+    """主函数"""
+    parser = argparse.ArgumentParser(description='期货交易辅助系统')
+    parser.add_argument('--collect', action='store_true', help='采集数据')
+    parser.add_argument('--backtest', type=str, help='运行回测策略 (macd/ma/kdj/breakout)')
+    parser.add_argument('--analyze', action='store_true', help='分析数据')
+    parser.add_argument('--status', action='store_true', help='查看账户状态')
+    parser.add_argument('--symbol', type=str, default='TEST', help='合约代码')
+    
+    args = parser.parse_args()
+    
+    # 创建交易系统
+    system = TradingSystem()
+    
+    if args.collect:
+        # 采集、处理、存储数据
+        data = system.collect_data(args.symbol)
+        if data:
+            processed = system.process_data(data)
+            system.store_data(processed)
+    
+    if args.backtest:
+        # 加载数据并运行回测
+        data = system.load_data(args.symbol)
+        if data:
+            system.run_backtest(args.backtest, data)
+    
+    if args.analyze:
+        # 加载数据并分析
+        data = system.load_data(args.symbol)
+        if data:
+            system.analyze_patterns(data)
+            system.analyze_chan(data)
+    
+    if args.status:
+        # 查看账户状态
+        system.print_account_status()
+    
+    # 如果没有指定参数，显示帮助
+    if not any([args.collect, args.backtest, args.analyze, args.status]):
+        parser.print_help()
 
-        # 获取关键数据
-        quote_data = await pta_quote()
-        cost_data = await pta_cost()
-        iv_data = await pta_iv()
 
-        # 保存到DB
-        if engine:
-            try:
-                with engine.connect() as conn:
-                    conn.execute(text("""
-                        INSERT INTO signal_log (created_at, symbol, last_price, pcr, iv, cost_low, cost_high)
-                        VALUES (NOW(), 'TA', :price, :pcr, :iv, :cost_low, :cost_high)
-                    """), {
-                        "price": quote_data.get("last_price"),
-                        "pcr": iv_data.get("pcr"),
-                        "iv": iv_data.get("iv"),
-                        "cost_low": cost_data.get("pta_cost_low"),
-                        "cost_high": cost_data.get("pta_cost_high")
-                    })
-                    conn.commit()
-            except Exception as db_err:
-                print(f"[DB] 保存信号失败: {db_err}")
-
-        result = {
-            "quote": quote_data,
-            "cost": cost_data,
-            "iv": iv_data,
-            "timestamp": datetime.now().isoformat()
-        }
-        set_redis("pta:signal", json.dumps(result, ensure_ascii=False), 60)
-        return result
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"信号生成失败: {str(e)}")
-
-@app.get("/api/brent")
-async def brent_price():
-    """布伦特原油价格"""
-    cached = get_redis("brent:price")
-    if cached:
-        return json.loads(cached)
-
-    try:
-        df = ak.futures_global_spot_em(symbol="布伦特原油")
-        if df is not None and not df.empty:
-            latest = df.iloc[0]
-            result = {
-                "name": "布伦特原油",
-                "price": float(latest.get("价格", 0)),
-                "change_pct": float(latest.get("涨跌幅", 0)) if "涨跌幅" in latest else None,
-                "source": latest.get("数据源", "em") if "数据源" in latest else None,
-                "timestamp": datetime.now().isoformat()
-            }
-            set_redis("brent:price", json.dumps(result, ensure_ascii=False), 300)
-            return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取布伦特价格失败: {str(e)}")
-
-    raise HTTPException(status_code=404, detail="无法获取布伦特原油数据")
-
-@app.get("/api/macro/news")
-async def macro_news():
-    """宏观新闻摘要"""
-    cached = get_redis("macro:news")
-    if cached:
-        return json.loads(cached)
-
-    try:
-        sys.path.insert(0, "/app")
-        import macro_news
-
-        news = macro_news.get_important_news()
-        result = {
-            "news": news[:10],
-            "count": len(news),
-            "timestamp": datetime.now().isoformat()
-        }
-        set_redis("macro:news", json.dumps(result, ensure_ascii=False), 600)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取新闻失败: {str(e)}")
-
-# ==================== 主入口 ====================
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+if __name__ == '__main__':
+    main()
