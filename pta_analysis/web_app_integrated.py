@@ -30,6 +30,9 @@ from indicators import macd_multiperiod as mmacd
 # PTA产业基本面分析模块
 from analysis import industry_analysis as pta_industry
 
+# 风险控制模块
+from risk_control import register_risk_routes
+
 # TqSdk 认证配置
 TQS_USER = os.environ.get('TQS_AUTH_USER', 'mingmingliu')
 TQS_PASS = os.environ.get('TQS_AUTH_PASS', 'Liuzhaoning2025')
@@ -40,6 +43,9 @@ DB_PATH = os.path.join(WORKSPACE, "data", "pta_signals.db")
 app = Flask(__name__, static_folder=None)
 app.config["DATABASE"] = DB_PATH
 app.config["WORKSPACE"] = WORKSPACE
+
+# 注册风险控制路由
+register_risk_routes(app)
 
 @app.route('/static/<path:filename>')
 def serve_static(filename):
@@ -95,14 +101,15 @@ def api_status():
     """平台状态API"""
     return jsonify({
         'status': 'running',
-        'version': '1.0.0',
+        'version': '2.0.0',
         'modules': {
             'option_chain': {'status': 'completed', 'version': '1.0'},
             'iv_curve': {'status': 'completed', 'version': '1.0'},
             'volatility_cone': {'status': 'completed', 'version': '1.0'},
             'multi_variety': {'status': 'completed', 'version': '1.0'},
             'excel_export': {'status': 'completed', 'version': '1.0'},
-            'kline_chart': {'status': 'developing', 'version': '0.5'}
+            'kline_chart': {'status': 'completed', 'version': '1.0'},
+            'risk_control': {'status': 'completed', 'version': '1.0'}
         },
         'timestamp': dt_datetime.now().isoformat()
     })
