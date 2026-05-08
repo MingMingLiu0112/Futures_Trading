@@ -27,6 +27,13 @@ logging.getLogger("tqsdk.ta").setLevel(logging.WARNING)
 # MACD多周期计算模块
 from indicators import macd_multiperiod as mmacd
 
+# 波动率锥模块
+from indicators.volatility_cone import (
+    load_pta_data, load_iv_data, calculate_all_hv_windows,
+    generate_volatility_cone_data, calculate_iv_percentile,
+    generate_trading_signals
+)
+
 # PTA产业基本面分析模块
 from analysis import industry_analysis as pta_industry
 
@@ -44,8 +51,51 @@ app = Flask(__name__, static_folder=None)
 app.config["DATABASE"] = DB_PATH
 app.config["WORKSPACE"] = WORKSPACE
 
+# ==================== 波动率API缓存 ====================
+_volatility_cache = {}
+_volatility_cache_time = {}
+
+def _get_vol_cache(key, ttl_minutes=5):
+    if key in _volatility_cache:
+        if key in _volatility_cache_time:
+            elapsed = (dt_datetime.now() - _volatility_cache_time[key]).total_seconds()
+            if elapsed < ttl_minutes * 60:
+                return _volatility_cache[key]
+    return None
+
+def _set_vol_cache(key, data):
+    _volatility_cache[key] = data
+    _volatility_cache_time[key] = dt_datetime.now()
+
+def _iv_interpretation(p):
+    if p <= 20:   return {'level': '极低', 'color': 'success', 'description': '隐含波动率处于历史极低水平', 'recommendation': '适合买入期权（做多波动率）', 'confidence': '高'}
+    elif p <= 40: return {'level': '偏低', 'color': 'info',    'description': '隐含波动率处于历史较低水平', 'recommendation': '考虑买入期权或做多波动率', 'confidence': '中'}
+    elif p <= 60: return {'level': '正常', 'color': 'warning',  'description': '隐含波动率处于历史正常范围', 'recommendation': '中性策略或方向性交易', 'confidence': '低'}
+    elif p <= 80: return {'level': '偏高', 'color': 'warning',  'description': '隐含波动率处于历史较高水平', 'recommendation': '考虑卖出期权或做空波动率', 'confidence': '中'}
+    else:         return {'level': '极高', 'color': 'danger',    'description': '隐含波动率处于历史极高水平', 'recommendation': '适合卖出期权（做空波动率）', 'confidence': '高'}
+
 # 注册风险控制路由
 register_risk_routes(app)
+
+
+@app.route('/api/status')
+def api_status():
+    """平台状态API"""
+    return jsonify({
+        'status': 'running',
+        'version': '2.0.0',
+        'modules': {
+            'option_chain': {'status': 'completed', 'version': '1.0'},
+            'iv_curve': {'status': 'completed', 'version': '1.0'},
+            'volatility_cone': {'status': 'completed', 'version': '1.0'},
+            'multi_variety': {'status': 'completed', 'version': '1.0'},
+            'excel_export': {'status': 'completed', 'version': '1.0'},
+            'kline_chart': {'status': 'completed', 'version': '1.0'},
+            'risk_control': {'status': 'completed', 'version': '1.0'}
+        },
+        'timestamp': dt_datetime.now().isoformat()
+    })
+
 
 @app.route('/static/<path:filename>')
 def serve_static(filename):
@@ -95,24 +145,6 @@ def drawing_test():
     return redirect('/kline')
 
 # ==================== API接口 ====================
-
-@app.route('/api/status')
-def api_status():
-    """平台状态API"""
-    return jsonify({
-        'status': 'running',
-        'version': '2.0.0',
-        'modules': {
-            'option_chain': {'status': 'completed', 'version': '1.0'},
-            'iv_curve': {'status': 'completed', 'version': '1.0'},
-            'volatility_cone': {'status': 'completed', 'version': '1.0'},
-            'multi_variety': {'status': 'completed', 'version': '1.0'},
-            'excel_export': {'status': 'completed', 'version': '1.0'},
-            'kline_chart': {'status': 'completed', 'version': '1.0'},
-            'risk_control': {'status': 'completed', 'version': '1.0'}
-        },
-        'timestamp': dt_datetime.now().isoformat()
-    })
 
 @app.route('/api/options/chain')
 def api_option_chain():
@@ -925,6 +957,134 @@ def api_contracts_list():
     except Exception as e:
         import traceback; traceback.print_exc()
         return jsonify({'success': False, 'error': str(e), 'contracts': []})
+
+
+# ==================== 波动率锥 API（集成自 indicators/volatility_api.py） ====================
+
+@app.route('/api/volatility/cone', methods=['GET'])
+def api_volatility_cone():
+    """获取波动锥数据"""
+    cached = _get_vol_cache('volatility_cone')
+    if cached:
+        return jsonify(cached)
+    try:
+        pta_data = load_pta_data()
+        if pta_data is None:
+            return jsonify({'success': False, 'error': '无法加载PTA数据'}), 500
+        df_hv = calculate_all_hv_windows(pta_data)
+        cone_data = generate_volatility_cone_data(df_hv)
+        if cone_data is None:
+            return jsonify({'success': False, 'error': '无法生成波动锥数据'}), 500
+        windows, stats_data = [], []
+        for window, stats in cone_data.items():
+            windows.append(window)
+            stats_data.append({
+                'window': window, 'current': stats['current'], 'mean': stats['mean'],
+                'median': stats['median'], 'min': stats['min'], 'max': stats['max'],
+                'q1': stats['q1'], 'q3': stats['q3'], 'std': stats['std']
+            })
+        short = cone_data.get(20, {}).get('current')
+        long  = cone_data.get(120, {}).get('current')
+        ratio = round(short / long, 2) if short and long else None
+        response = {
+            'success': True,
+            'timestamp': dt_datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'windows': windows, 'data': stats_data,
+            'summary': {'short_term': short, 'long_term': long, 'volatility_ratio': ratio}
+        }
+        _set_vol_cache('volatility_cone', response)
+        return jsonify(response)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/volatility/iv-percentile', methods=['GET'])
+def api_iv_percentile():
+    """获取IV百分位数据"""
+    cached = _get_vol_cache('iv_percentile')
+    if cached:
+        return jsonify(cached)
+    try:
+        iv_data_dict = load_iv_data()
+        iv_data = iv_data_dict.get('1min')
+        if iv_data is None or len(iv_data) == 0:
+            return jsonify({'success': False, 'error': '无法加载IV数据'}), 500
+        latest_iv = iv_data[(iv_data['strike'] >= 6900) & (iv_data['strike'] <= 7100) & (iv_data['iv_pct'].notna())]
+        if len(latest_iv) == 0:
+            return jsonify({'success': False, 'error': '无法获取当前IV值'}), 500
+        current_iv = latest_iv['iv_pct'].iloc[-1]
+        percentile, stats = calculate_iv_percentile(iv_data, current_iv)
+        if percentile is None:
+            return jsonify({'success': False, 'error': '无法计算IV百分位'}), 500
+        response = {
+            'success': True,
+            'timestamp': dt_datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'current_iv': current_iv, 'percentile': percentile, 'stats': stats,
+            'interpretation': _iv_interpretation(percentile)
+        }
+        _set_vol_cache('iv_percentile', response)
+        return jsonify(response)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/volatility/signals', methods=['GET'])
+def api_volatility_signals():
+    """获取波动率交易信号"""
+    cached = _get_vol_cache('trading_signals')
+    if cached:
+        return jsonify(cached)
+    try:
+        cone_resp = api_volatility_cone().get_json()
+        cone_data = None
+        if cone_resp.get('success'):
+            cone_data = {item['window']: {'current': item['current'], 'mean': item['mean'],
+                                          'min': item['min'], 'max': item['max']}
+                         for item in cone_resp['data']}
+        iv_resp = api_iv_percentile().get_json()
+        iv_pct  = iv_resp.get('percentile') if iv_resp.get('success') else None
+        iv_stats = iv_resp.get('stats')     if iv_resp.get('success') else None
+        signals  = generate_trading_signals(cone_data, iv_pct, iv_stats)
+        response = {
+            'success': True,
+            'timestamp': dt_datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'signals': signals, 'count': len(signals)
+        }
+        _set_vol_cache('trading_signals', response)
+        return jsonify(response)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/volatility/summary', methods=['GET'])
+def api_volatility_summary():
+    """获取波动率综合分析摘要"""
+    results, errors = {}, []
+    for key, fn in [('cone', api_volatility_cone), ('iv', api_iv_percentile), ('signals', api_volatility_signals)]:
+        try:
+            r = fn().get_json()
+            results[key] = r if r.get('success') else None
+            if not r.get('success'):
+                errors.append(f"{key}: {r.get('error')}")
+        except Exception as e:
+            errors.append(f"{key}: {str(e)}")
+    return jsonify({
+        'success': len(errors) < 3,
+        'timestamp': dt_datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        'data': results, 'errors': errors if errors else None
+    })
+
+
+@app.route('/api/volatility/refresh', methods=['POST'])
+def api_volatility_refresh():
+    """刷新波动率缓存"""
+    try:
+        _volatility_cache.clear()
+        _volatility_cache_time.clear()
+        return jsonify({'success': True, 'message': '缓存已刷新',
+                        'timestamp': dt_datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 if __name__ == '__main__':

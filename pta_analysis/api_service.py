@@ -56,6 +56,11 @@ class TradingSystem:
             'stop_loss_pct': 0.02,
             'take_profit_pct': 0.04
         }
+    
+    def load_data(self, symbol, frequency='1min'):
+        """加载数据"""
+        data = self.data_store.get_klines(symbol, frequency=frequency)
+        return data
 
 trading_system = TradingSystem()
 
@@ -68,7 +73,8 @@ def get_klines():
     frequency = request.args.get('frequency', '1min')
     
     try:
-        data = trading_system.load_data(symbol, frequency)
+        # 使用数据收集器获取数据
+        data = trading_system.data_collector.collect(symbol, frequency)
         if not data:
             # 生成模拟数据
             data = generate_mock_klines(100)
@@ -82,10 +88,10 @@ def collect_data():
     symbol = request.json.get('symbol', 'TEST')
     
     try:
-        data = trading_system.collect_data(symbol)
+        data = trading_system.data_collector.collect(symbol)
         if data:
-            processed = trading_system.process_data(data)
-            trading_system.store_data(processed)
+            processed = trading_system.data_processor.process(data)
+            trading_system.data_store.store(processed)
             return jsonify({'status': 'success', 'count': len(data)})
         return jsonify({'status': 'success', 'count': 0})
     except Exception as e:
@@ -100,7 +106,7 @@ def get_signals():
     
     try:
         # 获取最新数据
-        data = trading_system.load_data(symbol)
+        data = trading_system.data_collector.collect(symbol)
         if not data:
             data = generate_mock_klines(50)
         
@@ -174,7 +180,7 @@ def run_backtest():
     
     try:
         # 获取数据
-        data = trading_system.load_data(symbol)
+        data = trading_system.data_collector.collect(symbol)
         if not data:
             data = generate_mock_klines(200)
         
@@ -399,5 +405,42 @@ def generate_mock_klines(count: int) -> list:
     
     return data
 
+@app.route('/')
+def index():
+    """返回前端主页面"""
+    frontend_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'frontend')
+    index_path = os.path.join(frontend_path, 'index.html')
+    
+    if os.path.exists(index_path):
+        with open(index_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    else:
+        return "<h1>Futures Trading System</h1><p>Frontend not found</p>", 500
+
+@app.route('/<path:path>')
+def static_files(path):
+    """提供前端静态文件"""
+    frontend_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'frontend')
+    file_path = os.path.join(frontend_path, path)
+    
+    if os.path.exists(file_path) and os.path.isfile(file_path):
+        # 根据文件扩展名设置正确的Content-Type
+        if path.endswith('.js'):
+            return open(file_path, 'r', encoding='utf-8').read(), 200, {'Content-Type': 'application/javascript'}
+        elif path.endswith('.css'):
+            return open(file_path, 'r', encoding='utf-8').read(), 200, {'Content-Type': 'text/css'}
+        elif path.endswith('.svg'):
+            return open(file_path, 'rb').read(), 200, {'Content-Type': 'image/svg+xml'}
+        elif path.endswith('.ico'):
+            return open(file_path, 'rb').read(), 200, {'Content-Type': 'image/x-icon'}
+        else:
+            return open(file_path, 'rb').read(), 200
+    else:
+        return "File not found", 404
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--port', type=int, default=5001, help='Port to run the server on')
+    args = parser.parse_args()
+    app.run(host='0.0.0.0', port=args.port, debug=True)

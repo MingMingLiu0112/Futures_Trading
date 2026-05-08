@@ -13,7 +13,7 @@ from flask import Flask, jsonify, request, render_template, send_file
 from flask_cors import CORS
 
 # 添加当前目录到路径
-WORKSPACE = "/home/admin/.openclaw/workspace/codeman/pta_analysis"
+WORKSPACE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, WORKSPACE)
 
 from volatility_cone import (

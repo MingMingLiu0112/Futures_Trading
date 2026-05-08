@@ -22,7 +22,7 @@ import os
 warnings.filterwarnings('ignore')
 
 # 配置
-WORKSPACE = "/home/admin/.openclaw/workspace/codeman/pta_analysis"
+WORKSPACE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = f"{WORKSPACE}/data"
 OUTPUT_DIR = f"{WORKSPACE}/static"
 
