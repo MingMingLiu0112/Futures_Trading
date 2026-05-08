@@ -11,6 +11,7 @@ from .kdj_strategy import KDJStrategy
 from .breakout_strategy import BreakoutStrategy
 from .rsi_strategy import RSIStrategy
 from .bollinger_strategy import BollingerStrategy
+from .atr_strategy import ATRStrategy
 
 __all__ = [
     'MACDStrategy',
@@ -18,5 +19,6 @@ __all__ = [
     'KDJStrategy',
     'BreakoutStrategy',
     'RSIStrategy',
-    'BollingerStrategy'
+    'BollingerStrategy',
+    'ATRStrategy'
 ]

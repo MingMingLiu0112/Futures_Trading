@@ -16,6 +16,7 @@ from strategies.kdj_strategy import KDJStrategy
 from strategies.breakout_strategy import BreakoutStrategy
 from strategies.rsi_strategy import RSIStrategy
 from strategies.bollinger_strategy import BollingerStrategy
+from strategies.atr_strategy import ATRStrategy
 
 
 class TestMACDStrategy:
@@ -409,6 +410,121 @@ class TestBollingerStrategy:
         assert len(strategy.middle_band_history) == 0
         assert len(strategy.upper_band_history) == 0
         assert len(strategy.lower_band_history) == 0
+        assert len(strategy.signals) == 0
+
+
+class TestATRStrategy:
+    """ATR策略测试"""
+    
+    def test_atr_strategy_init(self):
+        """测试ATR策略初始化"""
+        strategy = ATRStrategy(
+            atr_period=14,
+            breakout_factor=1.5,
+            stop_loss_multiplier=1.0,
+            take_profit_multiplier=2.0
+        )
+        assert strategy.atr_period == 14
+        assert strategy.breakout_factor == 1.5
+        assert strategy.stop_loss_multiplier == 1.0
+        assert strategy.take_profit_multiplier == 2.0
+    
+    def test_atr_strategy_no_signal_short_data(self):
+        """测试数据不足时无信号"""
+        strategy = ATRStrategy()
+        data = [{'close': 5000, 'high': 5010, 'low': 4990}]
+        signal = strategy.on_bar(data[0])
+        assert signal is None
+    
+    def test_atr_strategy_upward_breakout(self):
+        """测试向上突破信号"""
+        # 使用较低的突破系数使信号更容易触发
+        strategy = ATRStrategy(breakout_factor=0.1)
+        
+        # 创建固定波动范围的数据，然后大幅跳空突破
+        data = []
+        # 先创建一些固定波动数据建立ATR
+        for i in range(20):
+            data.append({
+                'close': 5000,
+                'high': 5010,
+                'low': 4990,
+                'timestamp': f'2024-01-01 09:{i:02d}'
+            })
+        
+        # 然后价格大幅跳空上涨突破
+        data.append({
+            'close': 5050,
+            'high': 5055,
+            'low': 5045,
+            'timestamp': '2024-01-01 09:20'
+        })
+        
+        signals = []
+        for bar in data:
+            signal = strategy.on_bar(bar)
+            if signal:
+                signals.append(signal)
+        
+        # 应该产生买入信号
+        buy_signals = [s for s in signals if s.signal_type == 'buy']
+        assert len(buy_signals) >= 1
+    
+    def test_atr_strategy_downward_breakout(self):
+        """测试向下突破信号"""
+        # 使用较低的突破系数使信号更容易触发
+        strategy = ATRStrategy(breakout_factor=0.1)
+        
+        # 创建固定波动范围的数据，然后大幅跳空下跌突破
+        data = []
+        # 先创建一些固定波动数据建立ATR
+        for i in range(20):
+            data.append({
+                'close': 5000,
+                'high': 5010,
+                'low': 4990,
+                'timestamp': f'2024-01-01 09:{i:02d}'
+            })
+        
+        # 然后价格大幅跳空下跌突破
+        data.append({
+            'close': 4950,
+            'high': 4955,
+            'low': 4945,
+            'timestamp': '2024-01-01 09:20'
+        })
+        
+        signals = []
+        for bar in data:
+            signal = strategy.on_bar(bar)
+            if signal:
+                signals.append(signal)
+        
+        # 应该产生卖出信号
+        sell_signals = [s for s in signals if s.signal_type == 'sell']
+        assert len(sell_signals) >= 1
+    
+    def test_atr_strategy_reset(self):
+        """测试策略重置"""
+        strategy = ATRStrategy()
+        
+        # 添加一些数据
+        for i in range(30):
+            strategy.on_bar({
+                'close': 5000 + i * 10,
+                'high': 5005 + i * 10,
+                'low': 4995 + i * 10,
+                'timestamp': f'2024-01-01 09:{i:02d}'
+            })
+        
+        # 重置
+        strategy.reset()
+        
+        # 检查状态是否已重置
+        assert len(strategy.high_history) == 0
+        assert len(strategy.low_history) == 0
+        assert len(strategy.close_history) == 0
+        assert len(strategy.atr_history) == 0
         assert len(strategy.signals) == 0
 
 
