@@ -26,6 +26,10 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <style>
         * { box-sizing: border-box; }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
         body { 
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             margin: 0;
@@ -370,6 +374,7 @@
         <div class="stat-item"><span class="stat-label">线段:</span><span class="stat-value" id="segCount">--</span></div>
         <div class="stat-item"><span class="stat-label">中枢:</span><span class="stat-value" id="zsCount">--</span></div>
         <div class="stat-item"><span class="stat-label">买卖点:</span><span class="stat-value" id="bsCount">--</span></div>
+        <div class="stat-item" id="dataSourceBadge" style="display:none;"><span class="stat-label">数据源:</span><span class="stat-value" id="dataSourceValue">--</span></div>
     </div>
 
     <!-- 指标切换 -->
@@ -1665,7 +1670,26 @@
                     return;
                 }
                 klineData = kData.data;
-                
+
+                // ========== 数据源状态告警 ==========
+                const badge = document.getElementById('dataSourceBadge');
+                const badgeVal = document.getElementById('dataSourceValue');
+                if (kData.source === 'tqsdk') {
+                    badge.style.display = 'flex';
+                    badge.style.color = '#4caf50';
+                    badgeVal.textContent = 'TqSdk实时';
+                } else {
+                    badge.style.display = 'flex';
+                    badge.style.color = '#f44336';
+                    badgeVal.textContent = 'akshare延迟 ⚠️';
+                    // 红色闪烁提示
+                    badgeVal.style.animation = 'none';
+                    setTimeout(() => badgeVal.style.animation = 'blink 1s infinite', 10);
+                }
+                if (kData.fallback_warning) {
+                    console.warn(kData.fallback_warning);
+                }
+
                 // 转换时间格式
                 const chartData = klineData
                     .filter(k => k.open && k.high && k.low && k.close && k.time)
@@ -2729,16 +2753,27 @@
 
         // ==================== 市场日报及策略建议 ====================
         async function loadDailyReport() {
+            const container = document.getElementById('dailyReportContent');
+            container.innerHTML = '<div style="color:#888;text-align:center;padding:20px;">正在生成最新日报，请稍候...</div>';
             try {
-                const res = await fetch('/api/daily_report');
+                // 强制刷新，获取最新数据
+                const res = await fetch('/api/daily_report?refresh=1');
                 const result = await res.json();
                 if (!result.success) {
-                    document.getElementById('dailyReportContent').innerHTML =
-                        '<div style="color:#888;text-align:center;padding:20px;">日报暂不可用: ' + (result.error || '') + '</div>';
+                    container.innerHTML =
+                        '<div style="color:#f44336;text-align:center;padding:20px;">日报生成失败: ' + (result.error || '') + '</div>';
                     return;
                 }
                 const d = result.data || {};
                 document.getElementById('reportTime').textContent = result.data.timestamp ? '  ' + result.data.timestamp : '';
+
+                // 过期缓存告警
+                if (result.stale) {
+                    const staleBanner = document.createElement('div');
+                    staleBanner.style.cssText = 'background:#b71c1c;color:#fff;padding:6px 12px;font-size:11px;margin-bottom:8px;border-radius:4px;';
+                    staleBanner.textContent = '⚠️ 实时数据获取失败，显示的是过期缓存（' + (result.data.timestamp || '未知时间') + '），请稍后刷新重试';
+                    container.insertBefore(staleBanner, container.firstChild);
+                }
 
                 let html = '';
 

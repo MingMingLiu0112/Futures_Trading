@@ -270,23 +270,51 @@ def api_fundamental_analysis():
 
 @app.route('/api/daily_report')
 def api_daily_report():
-    """PTA市场日报（新版综合分析）"""
+    """PTA市场日报（新版综合分析）
+    - 无参数：当日交易时段（9:00-17:00）自动刷新，节假日/收盘后读缓存
+    - ?refresh=1：强制重新生成
+    """
     try:
+        force_refresh = request.args.get('refresh', '0') == '1'
         json_path = os.path.join(WORKSPACE, 'data', 'fundamental', 'daily_report.json')
-        if os.path.exists(json_path):
+
+        # 检查缓存是否需要刷新
+        needs_refresh = force_refresh
+        if not needs_refresh and os.path.exists(json_path):
+            try:
+                file_mtime = datetime.fromtimestamp(os.path.getmtime(json_path))
+                today = datetime.now()
+                # 文件不是今天生成的，且当前是交易时段（9~17点），需要刷新
+                if file_mtime.date() < today.date() and 9 <= today.hour < 17:
+                    needs_refresh = True
+            except Exception:
+                pass
+
+        if not force_refresh and os.path.exists(json_path) and not needs_refresh:
             # 读取已有的日报数据
             with open(json_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            return jsonify({'success': True, 'data': data})
-        else:
-            # 如果没有日报数据，尝试生成
-            from scripts.generate_daily_report import generate_report, save_report
-            report = generate_report()
-            save_report(report)
-            return jsonify({'success': True, 'data': report})
+            return jsonify({'success': True, 'data': data, 'cached': True})
+
+        # 生成新日报
+        from scripts.generate_daily_report import generate_report, save_report
+        app.logger.info('[日报API] 开始生成新日报（force=%s）', force_refresh)
+        report = generate_report()
+        save_report(report)
+        app.logger.info('[日报API] 日报生成完成 timestamp=%s', report.get('timestamp'))
+        return jsonify({'success': True, 'data': report, 'cached': False})
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        app.logger.error('[日报API] 生成失败: %s', e)
+        # 生成失败时尝试返回缓存（即使过期），避免页面完全无数据
+        json_path = os.path.join(WORKSPACE, 'data', 'fundamental', 'daily_report.json')
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                app.logger.warning('[日报API] 使用过期缓存')
+                return jsonify({'success': True, 'data': data, 'cached': True, 'stale': True, 'error': str(e)})
+            except Exception:
+                pass
         return jsonify({'success': False, 'error': str(e)})
 
 # 注册期权链页面路由
@@ -393,8 +421,7 @@ def _add_kline_changes(data):
 def _get_yesterday_close_tqsdk(symbol='CZCE.TA609'):
     """通过TqSdk获取昨日收盘价（用于计算涨跌）"""
     try:
-        # 加10秒超时避免卡死
-        api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS), timeout=10)
+        api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS))
         # 获取2根日K线，取倒数第2根的收盘价作为昨日收盘价
         daily_klines = api.get_kline_serial(symbol, 86400, data_length=10)
         api.close()
@@ -464,8 +491,8 @@ def api_kline_data():
     # ==================== TqSdk 分支 ====================
     try:
         # 给 TqSdk 加10秒超时，避免网络问题时卡死
-        api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS), timeout=10)
-        klines = api.get_kline_serial(tqsdk_symbol, period_sec, count)
+        api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS))
+        klines = api.get_kline_serial(tqsdk_symbol, period_sec, data_length=count)
         
         # 获取昨日收盘价（用于计算涨跌）
         yesterday_close = _get_yesterday_close_tqsdk(tqsdk_symbol)
@@ -500,8 +527,8 @@ def api_kline_data():
             'source': 'tqsdk'
         })
     except Exception as e:
-        pass
-    
+        app.logger.error(f'[K线API] TqSdk获取失败，降级到akshare symbol={symbol} period={period} error={type(e).__name__}:{e}')
+
     # ==================== Akshare Fallback 分支 ====================
     try:
         period_code = period.replace('min', 'm') if 'min' in period else period
@@ -533,16 +560,18 @@ def api_kline_data():
         
         # 添加增减值
         _add_kline_changes(data)
-        
+
         return jsonify({
             'symbol': 'TA', 'period': period, 'data': data,
             'current_price': round(current_price, 2),
             'change': change, 'change_pct': change_pct,
             'yesterday_close': yesterday_close,
-            'source': 'akshare'
+            'source': 'akshare',
+            'fallback_warning': '⚠️ TqSdk实时数据获取失败，当前为akshare延迟数据（通常晚15-30分钟），请检查网络或TqSdk认证'
         })
     except Exception as e2:
-        return jsonify({'error': f'获取失败: {str(e2)}', 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0})
+        app.logger.error(f'[K线API] TqSdk和akshare均失败 symbol={symbol} period={period} error={e2}')
+        return jsonify({'error': f'获取失败: {str(e2)}', 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0, 'fallback_warning': '❌ K线数据获取完全失败，实时和延迟数据源均不可用'})
 
 
 
