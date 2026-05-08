@@ -5,185 +5,1420 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PTA期货分析平台</title>
     <style>
+        :root {
+            --bg-primary: #0f1629;
+            --bg-card: #1a2238;
+            --bg-card-hover: #1f2a45;
+            --border: #2a3654;
+            --text-primary: #e8edf5;
+            --text-secondary: #8899bb;
+            --accent-blue: #4d9fff;
+            --accent-purple: #8b6cf7;
+            --accent-green: #34d399;
+            --accent-red: #f87171;
+            --accent-yellow: #fbbf24;
+            --accent-orange: #fb923c;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
             min-height: 100vh;
-            color: white;
+            padding: 20px;
         }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 40px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-        }
-        h1 {
+        .container { max-width: 1400px; margin: 0 auto; }
+
+        /* Header */
+        .header {
             text-align: center;
-            margin-bottom: 40px;
-            font-size: 2.5em;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+            padding: 30px 0 20px;
         }
-        .services {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 30px;
-            margin-top: 40px;
-        }
-        .service-card {
-            background: rgba(255, 255, 255, 0.15);
-            border-radius: 15px;
-            padding: 30px;
-            transition: transform 0.3s, background 0.3s;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-        .service-card:hover {
-            transform: translateY(-5px);
-            background: rgba(255, 255, 255, 0.25);
-        }
-        .service-card h2 {
-            margin-top: 0;
-            color: #fff;
-            font-size: 1.8em;
-            margin-bottom: 15px;
-        }
-        .service-card p {
-            color: rgba(255, 255, 255, 0.9);
-            line-height: 1.6;
-            margin-bottom: 20px;
-        }
-        .btn {
-            display: inline-block;
-            padding: 12px 30px;
-            background: linear-gradient(45deg, #667eea, #764ba2);
-            color: white;
-            text-decoration: none;
-            border-radius: 50px;
-            font-weight: bold;
-            transition: all 0.3s;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-        }
-        .btn:hover {
-            background: linear-gradient(45deg, #764ba2, #667eea);
-            transform: scale(1.05);
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
-        }
-        .status {
-            background: rgba(76, 175, 80, 0.2);
-            padding: 15px;
-            border-radius: 10px;
-            margin: 20px 0;
-            text-align: center;
-            border: 1px solid rgba(76, 175, 80, 0.5);
-        }
-        .links {
-            margin-top: 30px;
-            text-align: center;
-        }
-        .link-item {
-            display: inline-block;
-            margin: 0 10px;
-            padding: 10px 20px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            color: white;
-            text-decoration: none;
-            transition: background 0.3s;
-        }
-        .link-item:hover {
-            background: rgba(255, 255, 255, 0.2);
-        }
-        .icon {
+        .header h1 {
             font-size: 2em;
-            margin-bottom: 15px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #4d9fff, #8b6cf7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
+        }
+        .header .subtitle {
+            color: var(--text-secondary);
+            font-size: 0.9em;
+        }
+
+        /* Status bar */
+        .status-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px 20px;
+            margin-bottom: 20px;
+            font-size: 0.85em;
+        }
+        .status-left { display: flex; align-items: center; gap: 8px; }
+        .status-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: #34d399;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        .status-right { color: var(--text-secondary); }
+
+        /* Section titles */
+        .section-title {
+            font-size: 1.1em;
+            font-weight: 600;
+            color: var(--accent-blue);
+            margin-bottom: 12px;
+            padding-left: 12px;
+            border-left: 3px solid var(--accent-blue);
+        }
+        .section-title.green { color: var(--accent-green); border-color: var(--accent-green); }
+        .section-title.yellow { color: var(--accent-yellow); border-color: var(--accent-yellow); }
+        .section-title.orange { color: var(--accent-orange); border-color: var(--accent-orange); }
+        .section-title.red { color: var(--accent-red); border-color: var(--accent-red); }
+
+        /* Grid layouts */
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+        .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 16px; }
+
+        /* Cards */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            transition: border-color 0.2s;
+        }
+        .card:hover { border-color: var(--accent-blue); }
+        .card-title {
+            font-size: 0.78em;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 10px;
+        }
+
+        /* Metric display */
+        .metric-main {
+            font-size: 1.8em;
+            font-weight: 700;
+            color: var(--text-primary);
+            line-height: 1.1;
+        }
+        .metric-main small {
+            font-size: 0.5em;
+            font-weight: 400;
+            color: var(--text-secondary);
+        }
+        .metric-sub {
+            font-size: 0.82em;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+        .metric-change {
+            display: inline-block;
+            font-size: 0.78em;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 4px;
+            margin-top: 6px;
+        }
+        .up { color: var(--accent-red); background: rgba(248,113,113,0.1); }
+        .down { color: var(--accent-green); background: rgba(52,211,153,0.1); }
+        .flat { color: var(--text-secondary); background: rgba(136,153,187,0.1); }
+
+        /* Loading state */
+        .loading { color: var(--text-secondary); font-size: 0.85em; text-align: center; padding: 20px; }
+        .loading::after {
+            content: '';
+            display: inline-block;
+            width: 12px; height: 12px;
+            border: 2px solid var(--accent-blue);
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Error state */
+        .error-msg { color: var(--accent-red); font-size: 0.85em; }
+
+        /* External data section */
+        .external-note {
+            background: rgba(251,191,36,0.08);
+            border: 1px solid rgba(251,191,36,0.2);
+            border-radius: 10px;
+            padding: 16px;
+            font-size: 0.82em;
+            color: var(--accent-yellow);
+            line-height: 1.7;
+        }
+        .external-note strong { color: var(--accent-orange); }
+        .external-note a { color: var(--accent-blue); text-decoration: none; }
+        .external-note a:hover { text-decoration: underline; }
+
+        /* AI Commentary */
+        .commentary-box {
+            background: linear-gradient(135deg, rgba(75,125,255,0.08), rgba(139,108,247,0.08));
+            border: 1px solid rgba(75,125,255,0.2);
+            border-radius: 12px;
+            padding: 20px;
+            font-size: 0.88em;
+            line-height: 1.8;
+            white-space: pre-wrap;
+        }
+        .commentary-box .rating {
+            display: inline-block;
+            font-size: 1.2em;
+            font-weight: 700;
+            padding: 2px 12px;
+            border-radius: 6px;
+        }
+        .rating-bull { background: rgba(52,211,153,0.15); color: var(--accent-green); }
+        .rating-bear { background: rgba(248,113,113,0.15); color: var(--accent-red); }
+        .rating-mixed { background: rgba(136,153,187,0.15); color: var(--text-secondary); }
+
+        /* Data table */
+        .data-table { width: 100%; border-collapse: collapse; font-size: 0.83em; }
+        .data-table th {
+            text-align: left;
+            color: var(--text-secondary);
+            font-weight: 500;
+            padding: 6px 8px;
+            border-bottom: 1px solid var(--border);
+        }
+        .data-table td {
+            padding: 6px 8px;
+            border-bottom: 1px solid rgba(42,54,84,0.5);
+        }
+        .data-table tr:last-child td { border-bottom: none; }
+        .data-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+        .data-table .up { color: var(--accent-red); }
+        .data-table .down { color: var(--accent-green); }
+
+        /* Action cards */
+        .action-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 14px;
+            margin-top: 24px;
+        }
+        .action-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 18px 20px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            text-decoration: none;
+            color: var(--text-primary);
+            transition: all 0.2s;
+        }
+        .action-card:hover {
+            border-color: var(--accent-blue);
+            background: var(--bg-card-hover);
+            transform: translateY(-2px);
+        }
+        .action-icon { font-size: 1.6em; flex-shrink: 0; }
+        .action-info h3 { font-size: 0.95em; font-weight: 600; margin-bottom: 3px; }
+        .action-info p { font-size: 0.78em; color: var(--text-secondary); }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 30px 0 10px;
+            color: var(--text-secondary);
+            font-size: 0.78em;
+        }
+        .footer a { color: var(--accent-blue); text-decoration: none; }
+        .footer a:hover { text-decoration: underline; }
+
+        /* Responsive */
+        @media (max-width: 900px) {
+            .grid-4 { grid-template-columns: 1fr 1fr; }
+            .grid-3 { grid-template-columns: 1fr 1fr; }
+            .grid-2 { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 600px) {
+            .grid-4, .grid-3 { grid-template-columns: 1fr; }
+        }
+
+        /* Refresh button */
+        .refresh-btn {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            border-radius: 6px;
+            padding: 6px 14px;
+            font-size: 0.8em;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .refresh-btn:hover { border-color: var(--accent-blue); color: var(--accent-blue); }
+
+        /* ===== 基本面分析三栏模块 ===== */
+        .fa3-container {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+        }
+        .fa3-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            transition: border-color 0.25s;
+        }
+        .fa3-card:hover { border-color: var(--accent-blue); }
+        .fa3-card.s1 { border-top: 3px solid #4d9fff; }
+        .fa3-card.s2 { border-top: 3px solid #34d399; }
+        .fa3-card.s3 { border-top: 3px solid #fbbf24; }
+        .fa3-header {
+            padding: 14px 16px 10px;
+            border-bottom: 1px solid var(--border);
+        }
+        .fa3-section-num {
+            font-size: 0.7em;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 3px;
+        }
+        .s1 .fa3-section-num { color: #4d9fff; }
+        .s2 .fa3-section-num { color: #34d399; }
+        .s3 .fa3-section-num { color: #fbbf24; }
+        .fa3-title {
+            font-size: 0.95em;
+            font-weight: 700;
+            color: var(--text-primary);
+            line-height: 1.3;
+        }
+        .fa3-subtitle {
+            font-size: 0.78em;
+            color: var(--text-secondary);
+            margin-top: 3px;
+            font-style: italic;
+        }
+        .fa3-body { padding: 12px 16px; flex: 1; }
+
+        /* 期权表格 */
+        .fa3-table { width: 100%; border-collapse: collapse; font-size: 0.78em; }
+        .fa3-table th {
+            text-align: left;
+            color: var(--text-secondary);
+            font-weight: 500;
+            padding: 4px 6px;
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+        .fa3-table td { padding: 5px 6px; border-bottom: 1px solid rgba(42,54,84,0.4); vertical-align: middle; }
+        .fa3-table tr:last-child td { border-bottom: none; }
+        .fa3-table .strike { font-weight: 700; color: var(--accent-yellow); }
+        .fa3-table .up { color: var(--accent-red); }
+        .fa3-table .down { color: var(--accent-green); }
+        .fa3-table .signal { color: var(--text-primary); font-size: 0.85em; line-height: 1.3; }
+
+        /* 结论列表 */
+        .fa3-conclusions { list-style: none; padding: 0; margin: 0; }
+        .fa3-conclusions li {
+            font-size: 0.8em;
+            color: var(--text-secondary);
+            padding: 4px 0 4px 16px;
+            position: relative;
+            line-height: 1.5;
+        }
+        .fa3-conclusions li::before {
+            content: '▸';
+            position: absolute;
+            left: 0;
+            color: var(--accent-blue);
+        }
+
+        /* PCR指标 */
+        .fa3-pcr-row {
+            display: flex;
+            gap: 10px;
+            margin-top: 8px;
+        }
+        .fa3-pcr-box {
+            flex: 1;
+            background: rgba(77,159,255,0.08);
+            border: 1px solid rgba(77,159,255,0.15);
+            border-radius: 8px;
+            padding: 6px 10px;
+            text-align: center;
+        }
+        .fa3-pcr-box .val {
+            font-size: 1.1em;
+            font-weight: 700;
+            color: var(--accent-blue);
+        }
+        .fa3-pcr-box .label {
+            font-size: 0.7em;
+            color: var(--text-secondary);
+        }
+
+        /* 宏观数据 */
+        .fa3-metric-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        .fa3-metric-box {
+            background: rgba(52,211,153,0.07);
+            border: 1px solid rgba(52,211,153,0.15);
+            border-radius: 8px;
+            padding: 8px 10px;
+        }
+        .fa3-metric-box .label { font-size: 0.7em; color: var(--text-secondary); margin-bottom: 3px; }
+        .fa3-metric-box .val { font-size: 1.05em; font-weight: 700; color: var(--accent-green); }
+        .fa3-metric-box .unit { font-size: 0.7em; color: var(--text-secondary); font-weight: 400; }
+        .fa3-metric-box.full { grid-column: 1 / -1; }
+        .fa3-status-tag {
+            display: inline-block;
+            font-size: 0.72em;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 4px;
+            background: rgba(52,211,153,0.15);
+            color: var(--accent-green);
+        }
+
+        /* 策略卡片 */
+        .fa3-strategy-card {
+            background: rgba(251,191,36,0.06);
+            border: 1px solid rgba(251,191,36,0.15);
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+        }
+        .fa3-strategy-card:last-child { margin-bottom: 0; }
+        .fa3-strategy-action {
+            font-size: 0.82em;
+            font-weight: 700;
+            color: var(--accent-yellow);
+            margin-bottom: 3px;
+        }
+        .fa3-strategy-detail {
+            font-size: 0.75em;
+            color: var(--text-secondary);
+            line-height: 1.4;
+            margin-bottom: 3px;
+        }
+        .fa3-strategy-suggest {
+            font-size: 0.75em;
+            color: var(--text-primary);
+            line-height: 1.4;
+        }
+        .fa3-core-idea {
+            margin-top: 10px;
+            padding: 10px 12px;
+            background: linear-gradient(135deg, rgba(251,191,36,0.08), rgba(248,113,113,0.05));
+            border: 1px solid rgba(251,191,36,0.2);
+            border-radius: 8px;
+            font-size: 0.78em;
+            color: var(--accent-yellow);
+            line-height: 1.6;
+            font-weight: 600;
+        }
+
+        @media (max-width: 1100px) {
+            .fa3-container { grid-template-columns: 1fr; }
         }
     </style>
 </head>
 <body>
-    <div class="container">
+<div class="container">
+
+    <!-- Header -->
+    <div class="header">
         <h1>🚀 PTA期货分析平台</h1>
-        
-        <div class="status">
-            ✅ 所有服务运行正常 | 服务器: 47.100.97.88 | 更新时间: 2026-04-07 23:15
+        <div class="subtitle">PTA产业链基本面 · 缠论技术分析 · 期权数据面三维共振</div>
+    </div>
+
+    <!-- Status Bar -->
+    <div class="status-bar">
+        <div class="status-left">
+            <div class="status-dot"></div>
+            <span id="status-text">数据加载中...</span>
         </div>
-        
-        <div class="services">
-            <div class="service-card">
-                <div class="icon">📈</div>
-                <h2>缠论线段分析</h2>
-                <p>基于CZSC算法的PTA期货缠论线段检测，已实现完整的笔段识别和线段破坏规则，输出结果与用户确认完全一致。</p>
-                <a href="/chan/chan_analysis.html" class="btn">进入缠论分析</a>
-            </div>
-            
-            <div class="service-card">
-                <div class="icon">🔍</div>
-                <h2>三维度分析报告</h2>
-                <p>宏观基本面 + 技术面(缠论) + 期权数据面三维共振分析，提供可操作的交易建议。</p>
-                <a href="/chan/" class="btn">查看分析报告</a>
-            </div>
-            
-            <div class="service-card">
-                <div class="icon">📊</div>
-                <h2>可视化图表</h2>
-                <p>缠论笔段可视化图表、K线图、期权IV曲面等丰富的可视化分析工具。</p>
-                <a href="/chan/pta_analysis/czsc_chart.html" class="btn">查看图表</a>
-            </div>
-            
-            <div class="service-card">
-                <div class="icon">⚙️</div>
-                <h2>VeighNa量化平台</h2>
-                <p>专业的量化交易框架，支持策略回测、实盘交易、RPC服务等完整功能。</p>
-                <a href="/" class="btn">进入VeighNa</a>
-            </div>
-        </div>
-        
-        <div class="links">
-            <h3>快速链接</h3>
-            <a href="/chan/chan_analysis.html" class="link-item">缠论分析主页</a>
-            <a href="/chan/pta_analysis/czsc_chart.html" class="link-item">缠论可视化</a>
-            <a href="/chan/pta_analysis/charts/" class="link-item">图表库</a>
-            <a href="/" class="link-item">VeighNa主页</a>
-        </div>
-        
-        <div style="margin-top: 40px; text-align: center; color: rgba(255, 255, 255, 0.7);">
-            <p>📞 技术支持: 飞书群 | 📧 反馈: 飞书消息</p>
-            <p>© 2026 PTA期货分析平台 - 基于OpenClaw + VeighNa构建</p>
+        <div style="display:flex;gap:10px;align-items:center;">
+            <button class="refresh-btn" onclick="fetchData()">🔄 刷新数据</button>
+            <span class="status-right" id="update-time"></span>
         </div>
     </div>
-    
-    <script>
-        // 自动更新状态时间
-        function updateTime() {
-            const now = new Date();
-            const statusEl = document.querySelector('.status');
-            if (statusEl) {
-                statusEl.innerHTML = 
-                    `✅ 所有服务运行正常 | 服务器: 47.100.97.88 | 更新时间: ${now.toLocaleString('zh-CN')}`;
+
+    <!-- ===================== 产业基本面面板 ===================== -->
+    <div style="margin-bottom: 24px;">
+
+        <!-- 原油 -->
+        <div style="margin-bottom: 16px;">
+            <div class="section-title">🛢️ 原油（成本端）</div>
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-title">布伦特原油主力（新浪财经）</div>
+                    <div id="brent-price" class="metric-main">— <small>USD/桶</small></div>
+                    <div id="brent-change" class="metric-sub"></div>
+                </div>
+                <div class="card">
+                    <div class="card-title">NYMEX WTI 原油（新浪财经）⚠️</div>
+                    <div id="wti-price" class="metric-main">— <small>USD/桶</small></div>
+                    <div class="metric-sub" style="color: var(--accent-orange); font-size:0.75em;" id="wti-note">价格单位待核实，可能为CNY/桶</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PX + 石脑油 -->
+        <div style="margin-bottom: 16px;">
+            <div class="section-title green">🧪 PX原料</div>
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-title">PX现货参考价（郑商所每日现货表）</div>
+                    <div id="px-price" class="metric-main">— <small>CNY/吨</small></div>
+                    <div id="px-detail" class="metric-sub"></div>
+                    <div id="px-basis" class="metric-sub"></div>
+                </div>
+                <div class="card">
+                    <div class="card-title">石脑油 CFR 亚洲（估算）</div>
+                    <div id="naphtha-price" class="metric-main">— <small>USD/吨</small></div>
+                    <div id="pxn-spread" class="metric-main" style="font-size:1.3em;margin-top:8px;">
+                        PXN <span id="pxn-val">—</span>
+                    </div>
+                    <div class="metric-sub">⚠️ 石脑油为估算值，PXN仅供参考</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PTA + 成本利润 -->
+        <div style="margin-bottom: 16px;">
+            <div class="section-title">📦 PTA + 成本利润</div>
+            <div class="grid-3">
+                <div class="card">
+                    <div class="card-title">PTA现货参考价（郑商所）</div>
+                    <div id="pta-spot" class="metric-main">— <small>CNY/吨</small></div>
+                    <div id="pta-spot-detail" class="metric-sub"></div>
+                </div>
+                <div class="card">
+                    <div class="card-title">PTA主力期货（郑商所日行情）</div>
+                    <div id="pta-fut" class="metric-main">—</div>
+                    <div id="pta-fut-detail" class="metric-sub"></div>
+                    <div id="pta-basis" class="metric-sub"></div>
+                </div>
+                <div class="card">
+                    <div class="card-title">PTA成本 & 利润</div>
+                    <div id="pta-cost" class="metric-main" style="font-size:1.4em;">—</div>
+                    <div class="metric-sub" id="pta-cost-formula" style="font-size:0.75em;"></div>
+                    <div id="pta-profit" class="metric-main" style="font-size:1.3em;margin-top:6px;"></div>
+                    <div id="pta-profit-level" class="metric-sub"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 库存 -->
+        <div style="margin-bottom: 16px;">
+            <div class="section-title yellow">📊 库存（隆众资讯）</div>
+            <div class="grid-3">
+                <div class="card">
+                    <div class="card-title">PTA 社会库存</div>
+                    <div id="pta-inv" class="metric-main">— <small>吨</small></div>
+                    <div id="pta-inv-detail" class="metric-sub"></div>
+                </div>
+                <div class="card">
+                    <div class="card-title">MEG 乙二醇库存</div>
+                    <div id="meg-inv" class="metric-main">— <small>吨</small></div>
+                    <div id="meg-inv-detail" class="metric-sub"></div>
+                </div>
+                <div class="card">
+                    <div class="card-title">SM 苯乙烯库存</div>
+                    <div id="sm-inv" class="metric-main">— <small>吨</small></div>
+                    <div id="sm-inv-detail" class="metric-sub"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 下游现货 -->
+        <div style="margin-bottom: 16px;">
+            <div class="section-title orange">🏭 下游现货（郑商所每日现货表）</div>
+            <div class="grid-4">
+                <div class="card">
+                    <div class="card-title">涤纶短纤 CY</div>
+                    <div id="cy-price" class="metric-main" style="font-size:1.3em;">—</div>
+                    <div class="metric-sub" id="cy-basis"></div>
+                </div>
+                <div class="card">
+                    <div class="card-title">乙二醇 EG</div>
+                    <div id="eg-price" class="metric-main" style="font-size:1.3em;">—</div>
+                    <div class="metric-sub" id="eg-basis"></div>
+                </div>
+                <div class="card">
+                    <div class="card-title">苯乙烯 EB</div>
+                    <div id="eb-price" class="metric-main" style="font-size:1.3em;">—</div>
+                    <div class="metric-sub" id="eb-basis"></div>
+                </div>
+                <div class="card">
+                    <div class="card-title">甲醇 MA</div>
+                    <div id="ma-price" class="metric-main" style="font-size:1.3em;">—</div>
+                    <div class="metric-sub" id="ma-basis"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 产业链开工率与库存 -->
+        <div style="margin-bottom: 16px;">
+            <div class="section-title red">🏭 产业链开工率与库存</div>
+            <div id="industry-rates-section" class="loading">正在加载产业链数据...</div>
+        </div>
+
+        <!-- 宏观及产业快讯 -->
+        <div style="margin-bottom: 16px;">
+            <div class="section-title yellow">📰 宏观及产业快讯</div>
+            <div id="macro-news-section" class="loading">正在加载快讯...</div>
+        </div>
+
+        <!-- 市场日报及策略建议 -->
+        <div style="margin-bottom: 16px;">
+            <div class="section-title purple">📊 市场日报及策略建议</div>
+            <div id="daily-report-section" class="loading">正在加载市场日报...</div>
+        </div>
+
+        <!-- ===================== 基本面分析（三大模块）===================== -->
+        <div style="margin-bottom: 16px;">
+            <div class="section-title" style="color: var(--accent-purple); border-color: var(--accent-purple);">📊 基本面分析</div>
+            <div id="fundamental-analysis" class="loading">正在加载基本面分析...</div>
+        </div>
+
+    </div>
+
+    <!-- ===================== 快速入口 ===================== -->
+    <div class="action-grid">
+        <a href="/chan/chan_analysis.html" class="action-card">
+            <div class="action-icon">📈</div>
+            <div class="action-info">
+                <h3>缠论线段分析</h3>
+                <p>基于CZSC算法的PTA期货缠论线段检测</p>
+            </div>
+        </a>
+        <a href="/chan/" class="action-card">
+            <div class="action-icon">🔍</div>
+            <div class="action-info">
+                <h3>三维度分析报告</h3>
+                <p>宏观 + 技术(缠论) + 期权三维共振</p>
+            </div>
+        </a>
+        <a href="/chan/pta_analysis/czsc_chart.html" class="action-card">
+            <div class="action-icon">📊</div>
+            <div class="action-info">
+                <h3>可视化图表</h3>
+                <p>缠论笔段、K线图、期权IV曲面</p>
+            </div>
+        </a>
+        <a href="/option_chain" class="action-card">
+            <div class="action-icon">⛓️</div>
+            <div class="action-info">
+                <h3>期权链分析</h3>
+                <p>PTA期权链、隐含波动率、希腊字母</p>
+            </div>
+        </a>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+        <p>数据来源：郑商所每日现货表 · 隆众资讯 · 新浪财经 | 技术支持：飞书群</p>
+        <p>© 2026 PTA期货分析平台 · 基于 OpenClaw + VeighNa 构建</p>
+    </div>
+
+</div>
+
+<script>
+let updateTimer = null;
+
+function fmt(v, decimals=2, suffix='') {
+    if (v === null || v === undefined || v === '') return '—';
+    return (typeof v === 'number' ? v.toFixed(decimals) : v) + suffix;
+}
+
+function fmtInt(v) {
+    if (v === null || v === undefined) return '—';
+    return Number(v).toLocaleString('zh-CN');
+}
+
+function chgClass(v) {
+    if (v > 0) return 'up';
+    if (v < 0) return 'down';
+    return 'flat';
+}
+
+function chgArrow(v) {
+    if (v > 0) return '▲';
+    if (v < 0) return '▼';
+    return '─';
+}
+
+function renderData(d) {
+    const up = d.upstream || {};
+    const pta = d.pta || {};
+    const cost = d.cost || {};
+    const ds = d.downstream || {};
+
+    // Status
+    document.getElementById('status-text').textContent =
+        '✅ 产业数据已更新 · ' + (d.timestamp || '');
+
+    // ===== 原油 =====
+    if (up.brent) {
+        const b = up.brent;
+        document.getElementById('brent-price').innerHTML =
+            fmt(b.price, 2) + ' <small>USD/桶</small>';
+        const cc = chgClass(b.change_pct);
+        document.getElementById('brent-change').innerHTML =
+            `<span class="metric-change ${cc}">${chgArrow(b.change_pct)} ${fmt(b.change_pct, 2)}%</span> ` +
+            `<span style="color:var(--text-secondary);font-size:0.78em;">${b.contract || ''}</span>`;
+    }
+    if (up.wti) {
+        const w = up.wti;
+        document.getElementById('wti-price').innerHTML =
+            fmt(w.price, 2) + ' <small>USD/桶</small>';
+        document.getElementById('wti-note').textContent = w.note || '';
+    }
+
+    // ===== PX =====
+    // 优先使用郑商所数据(px)，备用东方财富数据(px_em)
+    const pxSrc = (up.px && up.px.spot_price) ? up.px : (up.px_em && up.px_em.spot_price) ? up.px_em : null;
+    if (pxSrc) {
+        document.getElementById('px-price').innerHTML =
+            fmt(pxSrc.spot_price, 0) + ' <small>CNY/吨</small>';
+        if (up.px && up.px.near_contract) {
+            document.getElementById('px-detail').textContent =
+                `近月 ${up.px.near_contract || ''} ¥${fmt(up.px.near_price, 0)} · 主力 ${up.px.dominant_contract || ''} ¥${fmt(up.px.dominant_price, 0)}`;
+            document.getElementById('px-basis').innerHTML =
+                `<span class="${chgClass(up.px.dom_basis)}">主力基差 ${fmt(up.px.dom_basis, 0)}</span>`;
+        } else {
+            // 东方财富数据没有详细字段
+            document.getElementById('px-detail').textContent = pxSrc.source || '';
+            document.getElementById('px-basis').textContent = '';
+        }
+    }
+    if (up.naphtha) {
+        document.getElementById('naphtha-price').innerHTML =
+            fmt(up.naphtha.naphtha_cfr_estimate, 0) + ' <small>USD/吨 CFR亚洲</small>';
+    }
+    if (up.pxn) {
+        const pxn = up.pxn;
+        document.getElementById('pxn-val').innerHTML =
+            fmt(pxn.spread_usd, 0) + ' <small>USD/吨</small>';
+        document.getElementById('pxn-val').style.color =
+            pxn.level === '高' ? 'var(--accent-green)' : pxn.level === '低' ? 'var(--accent-red)' : 'var(--text-secondary)';
+    }
+
+    // ===== PTA =====
+    if (pta.spot) {
+        const s = pta.spot;
+        document.getElementById('pta-spot').innerHTML =
+            fmt(s.price, 2) + ' <small>CNY/吨</small>';
+        document.getElementById('pta-spot-detail').textContent =
+            `近月 ${s.near_contract || ''} ¥${fmt(s.near_price, 0)} · 主力 ${s.dominant_contract || ''} ¥${fmt(s.dominant_price, 0)}`;
+    }
+    if (pta.future) {
+        const f = pta.future;
+        const cc = chgClass(f.change_pct);
+        document.getElementById('pta-fut').innerHTML =
+            `${f.symbol || ''} <span class="metric-change ${cc}">${chgArrow(f.change_pct)} ${fmt(f.change_pct, 2)}%</span>`;
+        document.getElementById('pta-fut-detail').innerHTML =
+            `结算 ¥${fmt(f.settle, 0)} · 持仓 ${fmtInt(f.open_interest)}`;
+    }
+    if (pta.basis) {
+        const b = pta.basis;
+        const cc = chgClass(b.value);
+        document.getElementById('pta-basis').innerHTML =
+            `<span class="${cc}">基差 ${b.premium || ''} ${fmt(b.value, 1)}（${b.level || ''}）</span>`;
+    }
+
+    // ===== 成本利润 =====
+    if (cost.pta_cost) {
+        document.getElementById('pta-cost').innerHTML =
+            '¥' + fmt(cost.pta_cost.pta_cost, 0);
+        document.getElementById('pta-cost-formula').textContent =
+            `= PX(${fmt(cost.pta_cost.px_price, 0)}) × 0.655`;
+    }
+    if (cost.profit) {
+        const p = cost.profit;
+        const cc = chgClass(p.profit);
+        document.getElementById('pta-profit').innerHTML =
+            `<span class="${cc}">${p.profit >= 0 ? '盈利' : '亏损'} ¥${fmt(Math.abs(p.profit), 0)}</span>`;
+        document.getElementById('pta-profit-level').innerHTML =
+            `${fmt(p.profit_pct, 1)}% → ${p.level || ''}`;
+    }
+
+    // ===== 库存 =====
+    function renderInv(id, inv, unit='吨') {
+        if (!inv) return;
+        document.getElementById(id).innerHTML =
+            fmtInt(inv.stock) + ' <small>' + unit + '</small>';
+        const cc = chgClass(inv.change);
+        document.getElementById(id + '-detail').innerHTML =
+            `<span class="${cc}">${chgArrow(inv.change)} ${inv.change > 0 ? '+' : ''}${inv.change}（${inv.date || ''}）</span>`;
+    }
+    renderInv('pta-inv', pta.social_inventory);
+    renderInv('meg-inv', pta.meg_inventory);
+    renderInv('sm-inv', pta.sm_inventory);
+
+    // ===== 下游现货 =====
+    function renderDs(id, item) {
+        if (!item) return;
+        document.getElementById(id + '-price').textContent =
+            '¥' + fmt(item.price, 0);
+        const cc = chgClass(item.near_basis);
+        document.getElementById(id + '-basis').innerHTML =
+            `<span class="${cc}">近月基差 ${fmt(item.near_basis, 0)}</span>`;
+    }
+    renderDs('cy', ds['涤纶短纤']);
+    renderDs('eg', ds['乙二醇']);
+    renderDs('eb', ds['苯乙烯']);
+    renderDs('ma', ds['甲醇MA']);
+
+    // ===== AI点评 =====
+    const aiEl = document.getElementById('ai-commentary');
+    const commentary = d.ai_commentary || '';
+    if (commentary) {
+        // 高亮评级行
+        const lines = commentary.split('\n');
+        const html = lines.map(line => {
+            if (line.includes('【评级】')) {
+                const ratingMatch = line.match(/整体：\*\*(\S+)\*\*/);
+                const rating = ratingMatch ? ratingMatch[1] : '';
+                let cls = 'rating-mixed';
+                if (rating.includes('多')) cls = 'rating-bull';
+                else if (rating.includes('空')) cls = 'rating-bear';
+                return `<div class="rating ${cls}">${rating}</div> ${line}`;
+            }
+            return line;
+        }).join('\n');
+        aiEl.innerHTML = `<div class="commentary-box">${html}</div>`;
+    } else {
+        aiEl.innerHTML = '<div class="error-msg">暂无AI点评数据</div>';
+    }
+
+    // Update time
+    document.getElementById('update-time').textContent =
+        '更新：' + (d.timestamp || new Date().toLocaleString('zh-CN'));
+}
+
+async function fetchData() {
+    const aiEl = document.getElementById('ai-commentary');
+    aiEl.innerHTML = '<div class="loading">正在加载产业数据...</div>';
+
+    try {
+        const resp = await fetch('/api/fundamental?_=' + Date.now(), {
+            cache: 'no-cache',
+            headers: { 'Cache-Control': 'no-cache' }
+        });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const d = await resp.json();
+        if (d.status === 'success') {
+            renderData(d.data);
+        } else {
+            throw new Error(d.error || '未知错误');
+        }
+    } catch (e) {
+        aiEl.innerHTML = `<div class="error-msg">❌ 数据加载失败：${e.message}<br><br>可能是数据源暂时不可用，请稍后刷新。</div>`;
+        document.getElementById('status-text').textContent = '❌ 数据加载失败: ' + e.message;
+    }
+}
+
+// ===== 基本面分析渲染 =====
+async function fetchFundamentalAnalysis() {
+    const el = document.getElementById('fundamental-analysis');
+    el.innerHTML = '<div class="loading">正在加载基本面分析...</div>';
+    try {
+        const resp = await fetch('/api/fundamental_analysis?_=' + Date.now(), { cache: 'no-cache' });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const result = await resp.json();
+        if (result.success) {
+            renderFundamentalAnalysis(el, result.data);
+        } else {
+            throw new Error(result.error || '未知错误');
+        }
+    } catch (e) {
+        el.innerHTML = `<div class="error-msg">❌ 基本面分析加载失败：${e.message}</div>`;
+    }
+}
+
+function renderFundamentalAnalysis(el, d) {
+    const html = `
+    <div class="fa3-container">
+        ${renderSection1(d.section1)}
+        ${renderSection2(d.section2)}
+        ${renderSection3(d.section3)}
+    </div>`;
+    el.innerHTML = html;
+}
+
+function renderSection1(s) {
+    const highlights = s.highlights || [];
+    const conclusions = s.conclusions || [];
+    const kl = s.key_levels || {};
+    function fmtChange(h) {
+        const c = h.change;
+        if (c === null || c === undefined) return '—';
+        if (typeof c === 'string') return c;
+        return (c > 0 ? '+' : '') + String(c);
+    }
+    function fmtIV(h) {
+        const v = h.iv;
+        if (v === null || v === undefined) return '—';
+        if (typeof v === 'number') return v.toFixed(4);
+        return String(v);
+    }
+    let rows = highlights.map(h => `
+    <tr>
+        <td class="strike">${h.strike}</td>
+        <td class="up">${fmtChange(h)}</td>
+        <td>${fmtIV(h)}</td>
+        <td class="signal">${h.signal || '—'}</td>
+    </tr>`).join('');
+
+    let concLi = conclusions.map(c => `<li>${c}</li>`).join('');
+
+    return `
+    <div class="fa3-card s1">
+        <div class="fa3-header">
+            <div class="fa3-section-num">PART 01</div>
+            <div class="fa3-title">${s.title}</div>
+            <div class="fa3-subtitle">${s.subtitle}</div>
+        </div>
+        <div class="fa3-body">
+            <p style="font-size:0.78em;color:var(--text-secondary);margin-bottom:10px;line-height:1.5;">${s.summary || ''}</p>
+            <table class="fa3-table">
+                <thead>
+                    <tr><th>行权价</th><th>持仓变化</th><th>隐波</th><th>信号</th></tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+            <ul class="fa3-conclusions" style="margin-top:10px;">${concLi}</ul>
+            <div class="fa3-pcr-row">
+                <div class="fa3-pcr-box">
+                    <div class="val">${kl.pcr_spot || '—'}</div>
+                    <div class="label">成交PCR</div>
+                </div>
+                <div class="fa3-pcr-box">
+                    <div class="val">${kl.pcr_hold || '—'}</div>
+                    <div class="label">持仓PCR</div>
+                </div>
+            </div>
+            <div style="margin-top:8px;text-align:center;font-size:0.78em;color:var(--text-secondary);">
+                核心区间 <span style="color:var(--accent-yellow);font-weight:700;">【${kl.bottom || '—'}，${kl.top || '—'}】</span>
+            </div>
+        </div>
+    </div>`;
+}
+
+function renderSection2(s) {
+    const geo = s.geo || {};
+    const oil = s.oil || {};
+    const pta = s.pta || {};
+    const inv = s.inventory || {};
+    const costRange = s.cost_range || {};
+    const macroItems = (s.macro?.items || []).slice(0, 3);
+    const indItems = (s.industry?.items || []).slice(0, 4);
+    const invNote = s.inventory_note || '';
+    const ratesNote = s.rates_note || '';
+
+    return `
+    <div class="fa3-card s2">
+        <div class="fa3-header">
+            <div class="fa3-section-num">PART 02</div>
+            <div class="fa3-title">${s.title}</div>
+            <div class="fa3-subtitle">${s.subtitle}</div>
+        </div>
+        <div class="fa3-body">
+            ${oil.signal ? `<div style="font-size:0.8em;color:var(--accent-yellow);margin-bottom:8px;font-weight:600;">${oil.signal}</div>` : ''}
+            <div class="fa3-metric-grid">
+                <div class="fa3-metric-box">
+                    <div class="label">🛢️ WTI原油</div>
+                    <div class="val">${oil.wti ? oil.wti.price : '—'}<span class="unit"> ${oil.wti ? oil.wti.unit : ''}</span></div>
+                    ${oil.wti ? `<div style="font-size:0.72em;color:var(--accent-red);">▲ ${oil.wti.change}%</div>` : ''}
+                </div>
+                <div class="fa3-metric-box">
+                    <div class="label">🛢️ 布伦特</div>
+                    <div class="val">${oil.brent ? oil.brent.price : '—'}<span class="unit"> ${oil.brent ? oil.brent.unit : ''}</span></div>
+                    ${oil.brent ? `<div style="font-size:0.72em;color:var(--accent-red);">▲ ${oil.brent.change}%</div>` : ''}
+                </div>
+                <div class="fa3-metric-box full">
+                    <div class="label">${geo.title || '🌍 地缘政治'}</div>
+                    <div style="font-size:0.82em;color:var(--text-primary);margin:3px 0;">${geo.content || ''}</div>
+                    <div style="font-size:0.72em;color:var(--text-secondary);line-height:1.4;">${geo.detail || ''}</div>
+                </div>
+            </div>
+
+            ${macroItems.length > 0 ? `
+            <div style="margin-top:8px;">
+                <div style="font-size:0.75em;color:var(--accent-blue);font-weight:600;margin-bottom:4px;">📊 宏观/美联储</div>
+                ${macroItems.map(n => `<div style="font-size:0.75em;color:var(--text-secondary);margin:2px 0 2px 8px;padding-left:6px;border-left:2px solid var(--accent-blue);line-height:1.3;">${n}</div>`).join('')}
+            </div>` : ''}
+
+            ${indItems.length > 0 ? `
+            <div style="margin-top:8px;">
+                <div style="font-size:0.75em;color:var(--accent-orange);font-weight:600;margin-bottom:4px;">🏭 产业快讯</div>
+                ${indItems.map(n => `<div style="font-size:0.75em;color:var(--text-secondary);margin:2px 0 2px 8px;padding-left:6px;border-left:2px solid var(--accent-orange);line-height:1.3;">${n}</div>`).join('')}
+            </div>` : ''}
+
+            <div class="fa3-metric-grid" style="margin-top:8px;">
+                <div class="fa3-metric-box">
+                    <div class="label">🏭 PTA开工率</div>
+                    <div class="val">${pta.supply_rate || '—'}<span class="unit">${pta.supply_rate ? '%' : ''}</span></div>
+                </div>
+                <div class="fa3-metric-box">
+                    <div class="label">🧪 PX价格</div>
+                    <div class="val">${pta.px_price || '—'}<span class="unit"> ${pta.px_unit || ''}</span></div>
+                </div>
+                <div class="fa3-metric-box">
+                    <div class="label">🏭 聚酯开工率</div>
+                    <div class="val">${pta.polyester_rate || '—'}<span class="unit">${pta.polyester_rate ? '%' : ''}</span></div>
+                </div>
+                <div class="fa3-metric-box">
+                    <div class="label">🧵 织造开工率</div>
+                    <div class="val">${pta.weaving_rate || '—'}<span class="unit">${pta.weaving_rate ? '%' : ''}</span></div>
+                </div>
+                ${costRange.low && costRange.high ? `
+                <div class="fa3-metric-box full">
+                    <div class="label">💰 成本区间估算</div>
+                    <div class="val" style="color:var(--accent-yellow);">¥${costRange.low} ~ ¥${costRange.high}<span class="unit"> /吨</span></div>
+                </div>` : ''}
+            </div>
+
+            ${inv.summary ? `<div style="margin-top:6px;font-size:0.75em;color:var(--text-secondary);">📊 库存动态：${inv.summary}</div>` : ''}
+            ${oil.outlook ? `<div style="margin-top:8px;font-size:0.73em;color:var(--accent-yellow);line-height:1.4;">📢 ${oil.outlook}</div>` : ''}
+            ${invNote ? `<div style="margin-top:6px;font-size:0.72em;color:var(--accent-orange);">${invNote}</div>` : ''}
+            ${ratesNote ? `<div style="margin-top:4px;font-size:0.72em;color:var(--accent-orange);">${ratesNote}</div>` : ''}
+        </div>
+    </div>`;
+}
+
+function renderSection3(s) {
+    const strategies = s.strategies || [];
+    let cards = strategies.map(sg => `
+    <div class="fa3-strategy-card">
+        <div class="fa3-strategy-action">⚡ ${sg.action}</div>
+        <div class="fa3-strategy-detail">${sg.detail}</div>
+        <div class="fa3-strategy-suggest">→ ${sg.suggestion}</div>
+    </div>`).join('');
+
+    return `
+    <div class="fa3-card s3">
+        <div class="fa3-header">
+            <div class="fa3-section-num">PART 03</div>
+            <div class="fa3-title">${s.title}</div>
+            <div class="fa3-subtitle">${s.subtitle}</div>
+        </div>
+        <div class="fa3-body">
+            ${cards}
+            ${s.core_idea ? `<div class="fa3-core-idea">💡 ${s.core_idea}</div>` : ''}
+        </div>
+    </div>`;
+}
+
+// ===== 市场日报及策略建议渲染 =====
+async function fetchDailyReport() {
+    const el = document.getElementById('daily-report-section');
+    const ratesEl = document.getElementById('industry-rates-section');
+    const newsEl = document.getElementById('macro-news-section');
+
+    try {
+        // 同时获取日报数据和基本面数据
+        const [reportResp, fundResp] = await Promise.all([
+            fetch('/api/daily_report?_=' + Date.now(), { cache: 'no-cache' }),
+            fetch('/api/fundamental_analysis?_=' + Date.now(), { cache: 'no-cache' })
+        ]);
+
+        if (reportResp.ok) {
+            const report = await reportResp.json();
+            if (report.success) {
+                renderIndustryRates(ratesEl, report.data);
+                renderMacroNews(newsEl, report.data);
+                renderDailyReport(el, report.data);
+                return;
             }
         }
-        
-        // 每30秒更新一次时间
-        updateTime();
-        setInterval(updateTime, 30000);
-        
-        // 添加页面加载动画
-        document.addEventListener('DOMContentLoaded', function() {
-            const cards = document.querySelectorAll('.service-card');
-            cards.forEach((card, index) => {
-                card.style.opacity = '0';
-                card.style.transform = 'translateY(20px)';
-                
-                setTimeout(() => {
-                    card.style.transition = 'opacity 0.5s, transform 0.5s';
-                    card.style.opacity = '1';
-                    card.style.transform = 'translateY(0)';
-                }, index * 100);
-            });
-        });
-    </script>
+
+        // 如果日报接口失败，尝试基本面分析接口
+        if (fundResp.ok) {
+            const fund = await fundResp.json();
+            if (fund.success) {
+                renderFundamentalAnalysis(el, fund.data);
+                ratesEl.innerHTML = '<div class="external-note"><strong>⚠️</strong> 开工率数据需专业订阅（隆众资讯/卓创资讯/CCF）<br>可手动录入或订阅专业数据源获取</div>';
+                newsEl.innerHTML = '<div class="error-msg">暂无快讯数据</div>';
+                return;
+            }
+        }
+
+        throw new Error('数据获取失败');
+    } catch (e) {
+        el.innerHTML = `<div class="error-msg">❌ 日报加载失败：${e.message}<br><small>请稍后刷新页面</small></div>`;
+        ratesEl.innerHTML = '<div class="error-msg">产业链数据加载失败</div>';
+        newsEl.innerHTML = '<div class="error-msg">快讯加载失败</div>';
+    }
+}
+
+function renderIndustryRates(el, data) {
+    const rates = data?.industry_rates || {};
+    const inv = data?.inventory || {};
+
+    let html = '<div class="grid-4" style="gap:12px;">';
+
+    // PX开工率
+    const pxRate = rates?.data?.px;
+    html += `
+    <div class="card" style="padding:14px;">
+        <div class="card-title">PX 装置开工率</div>
+        <div class="metric-main" style="font-size:1.3em;">${pxRate?.value || '—'}<small>${pxRate?.value ? '%' : ''}</small></div>
+        <div class="metric-sub" style="font-size:0.75em;">${pxRate?.source || '需订阅'}</div>
+    </div>`;
+
+    // PTA开工率
+    const ptaRate = rates?.data?.pta;
+    html += `
+    <div class="card" style="padding:14px;">
+        <div class="card-title">PTA 装置开工率</div>
+        <div class="metric-main" style="font-size:1.3em;">${ptaRate?.value || '—'}<small>${ptaRate?.value ? '%' : ''}</small></div>
+        <div class="metric-sub" style="font-size:0.75em;">${ptaRate?.source || '需订阅'}</div>
+    </div>`;
+
+    // 聚酯开工率
+    const polyRate = rates?.data?.polyester;
+    html += `
+    <div class="card" style="padding:14px;">
+        <div class="card-title">聚酯 开工率</div>
+        <div class="metric-main" style="font-size:1.3em;">${polyRate?.value || '—'}<small>${polyRate?.value ? '%' : ''}</small></div>
+        <div class="metric-sub" style="font-size:0.75em;">${polyRate?.source || '需订阅'}</div>
+    </div>`;
+
+    // 织造开工率
+    const weaveRate = rates?.data?.weaving;
+    html += `
+    <div class="card" style="padding:14px;">
+        <div class="card-title">织造 开工率</div>
+        <div class="metric-main" style="font-size:1.3em;">${weaveRate?.value || '—'}<small>${weaveRate?.value ? '%' : ''}</small></div>
+        <div class="metric-sub" style="font-size:0.75em;">${weaveRate?.source || '需订阅'}</div>
+    </div>`;
+
+    // MEG开工率
+    const megRate = rates?.data?.meg;
+    html += `
+    <div class="card" style="padding:14px;">
+        <div class="card-title">MEG 开工率</div>
+        <div class="metric-main" style="font-size:1.3em;">${megRate?.value || '—'}<small>${megRate?.value ? '%' : ''}</small></div>
+        <div class="metric-sub" style="font-size:0.75em;">${megRate?.source || '需订阅'}</div>
+    </div>`;
+
+    html += '</div>';
+
+    // 库存数据
+    html += '<div class="grid-3" style="gap:12px;margin-top:12px;">';
+
+    if (inv?.pta) {
+        const ptaInv = inv.pta;
+        html += `
+        <div class="card" style="padding:14px;">
+            <div class="card-title">📦 PTA 社会库存</div>
+            <div class="metric-main" style="font-size:1.2em;">${Number(ptaInv.stock||0).toLocaleString()}</div>
+            <div class="metric-sub"><span class="${chgClass(ptaInv.change)}">${chgArrow(ptaInv.change)} ${ptaInv.change > 0 ? '+' : ''}${ptaInv.change}</span> ${ptaInv.date || ''}</div>
+        </div>`;
+    }
+
+    if (inv?.meg) {
+        const megInv = inv.meg;
+        html += `
+        <div class="card" style="padding:14px;">
+            <div class="card-title">🧪 MEG 乙二醇库存</div>
+            <div class="metric-main" style="font-size:1.2em;">${Number(megInv.stock||0).toLocaleString()}</div>
+            <div class="metric-sub"><span class="${chgClass(megInv.change)}">${chgArrow(megInv.change)} ${megInv.change > 0 ? '+' : ''}${megInv.change}</span> ${megInv.date || ''}</div>
+        </div>`;
+    }
+
+    if (inv?.sm) {
+        const smInv = inv.sm;
+        html += `
+        <div class="card" style="padding:14px;">
+            <div class="card-title">💧 SM 苯乙烯库存</div>
+            <div class="metric-main" style="font-size:1.2em;">${Number(smInv.stock||0).toLocaleString()}</div>
+            <div class="metric-sub"><span class="${chgClass(smInv.change)}">${chgArrow(smInv.change)} ${smInv.change > 0 ? '+' : ''}${smInv.change}</span> ${smInv.date || ''}</div>
+        </div>`;
+    }
+
+    html += '</div>';
+
+    // 订阅提示
+    if (!rates?.data?.pta?.value) {
+        html += `
+        <div class="external-note" style="margin-top:12px;">
+            <strong>⚠️</strong> 开工率为自动获取，数据来源受限。如需完整数据请订阅：
+            <a href="#" onclick="return false;">隆众资讯</a> /
+            <a href="#" onclick="return false;">卓创资讯</a> /
+            <a href="#" onclick="return false;">CCF中国化纤信息网</a>
+        </div>`;
+    }
+
+    el.innerHTML = html;
+}
+
+function renderMacroNews(el, data) {
+    const news = data?.macro_news || {};
+    const geoItems = news?.geo || [];
+    const industryItems = news?.industry || [];
+    const macroItems = news?.macro || [];
+    const fedItems = (news?.fed || []).slice(0, 2);
+
+    let html = '';
+
+    // 地缘政治快讯
+    if (geoItems.length > 0) {
+        html += '<div style="margin-bottom:12px;"><strong style="color:var(--accent-red);font-size:0.85em;">🌍 地缘政治：</strong>';
+        html += geoItems.map(n => `<div style="font-size:0.8em;color:var(--text-secondary);margin:4px 0 4px 8px;padding-left:8px;border-left:2px solid var(--accent-red);">${n}</div>`).join('');
+        html += '</div>';
+    }
+
+    // 宏观/美联储快讯
+    const allMacro = [...macroItems, ...fedItems];
+    if (allMacro.length > 0) {
+        html += '<div style="margin-bottom:12px;"><strong style="color:var(--accent-blue);font-size:0.85em;">📊 宏观经济/美联储：</strong>';
+        html += allMacro.slice(0, 4).map(n => `<div style="font-size:0.8em;color:var(--text-secondary);margin:4px 0 4px 8px;padding-left:8px;border-left:2px solid var(--accent-blue);">${n}</div>`).join('');
+        html += '</div>';
+    }
+
+    // 产业快讯
+    if (industryItems.length > 0) {
+        html += '<div><strong style="color:var(--accent-orange);font-size:0.85em;">🏭 产业快讯：</strong>';
+        html += industryItems.map(n => `<div style="font-size:0.8em;color:var(--text-secondary);margin:4px 0 4px 8px;padding-left:8px;border-left:2px solid var(--accent-orange);">${n}</div>`).join('');
+        html += '</div>';
+    }
+
+    if (!html) {
+        html = '<div class="external-note"><strong>⚠️</strong> 快讯数据获取受限，请关注专业资讯平台获取实时产业新闻。数据来源：SHMET金属网/凤凰财经/百度财经</div>';
+    }
+
+    el.innerHTML = html;
+}
+
+function renderDailyReport(el, data) {
+    const s1 = data?.section1;
+    const s2 = data?.section2;
+    const s3 = data?.section3;
+
+    let html = '<div class="fa3-container">';
+
+    // Section 1: 期权数据
+    if (s1) {
+        html += renderDailySection1(s1);
+    }
+
+    // Section 2: 宏观与基本面
+    if (s2) {
+        html += renderDailySection2(s2);
+    }
+
+    // Section 3: 策略建议
+    if (s3) {
+        html += renderDailySection3(s3);
+    }
+
+    html += '</div>';
+
+    el.innerHTML = html;
+}
+
+function renderDailySection1(s) {
+    const highlights = s.highlights || [];
+    const conclusions = s.conclusions || [];
+    const kl = s.key_levels || {};
+
+    // h.change: 可能是 '+1,300' 或 1300，h.signal 是信号含义
+    function fmtChange(h) {
+        const c = h.change;
+        if (c === null || c === undefined) return '—';
+        if (typeof c === 'string') return c;
+        return (c > 0 ? '+' : '') + String(c);
+    }
+    function fmtIV(h) {
+        const v = h.iv;
+        if (v === null || v === undefined) return '—';
+        if (typeof v === 'number') return v.toFixed(4);
+        return String(v);
+    }
+
+    let rows = highlights.slice(0, 8).map(h => `
+    <tr>
+        <td class="strike">${h.type === 'P' ? 'P' : 'C'}${h.strike}</td>
+        <td class="up">${fmtChange(h)}</td>
+        <td>${fmtIV(h)}</td>
+        <td class="signal">${h.signal || h.action || h.main_action || '—'}</td>
+    </tr>`).join('');
+
+    let concLi = conclusions.map(c => `<li>${c}</li>`).join('');
+
+    return `
+    <div class="fa3-card s1">
+        <div class="fa3-header">
+            <div class="fa3-section-num">PART 01</div>
+            <div class="fa3-title">${s.title}</div>
+            <div class="fa3-subtitle">${s.subtitle}</div>
+        </div>
+        <div class="fa3-body">
+            <p style="font-size:0.78em;color:var(--text-secondary);margin-bottom:10px;line-height:1.5;">${s.summary || ''}</p>
+            <table class="fa3-table">
+                <thead>
+                    <tr><th>行权价</th><th>持仓变化</th><th>隐波</th><th>信号</th></tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+            <ul class="fa3-conclusions" style="margin-top:10px;">${concLi}</ul>
+            <div class="fa3-pcr-row">
+                <div class="fa3-pcr-box">
+                    <div class="val">${kl.pcr_spot || '—'}</div>
+                    <div class="label">成交PCR</div>
+                </div>
+                <div class="fa3-pcr-box">
+                    <div class="val">${kl.pcr_hold || '—'}</div>
+                    <div class="label">持仓PCR</div>
+                </div>
+            </div>
+            <div style="margin-top:8px;text-align:center;font-size:0.78em;color:var(--text-secondary);">
+                核心区间 <span style="color:var(--accent-yellow);font-weight:700;">【${kl.bottom || '—'}，${kl.top || '—'}】</span>
+            </div>
+        </div>
+    </div>`;
+}
+
+function renderDailySection2(s) {
+    const geo = s.geo || {};
+    const oil = s.oil || {};
+    const pta = s.pta || {};
+    const inv = s.inventory || {};
+    const costRange = s.cost_range || {};
+    const macroItems = (s.macro?.items || []).slice(0, 3);
+    const indItems = (s.industry?.items || []).slice(0, 4);
+    const invNote = s.inventory_note || '';
+    const ratesNote = s.rates_note || '';
+
+    return `
+    <div class="fa3-card s2">
+        <div class="fa3-header">
+            <div class="fa3-section-num">PART 02</div>
+            <div class="fa3-title">${s.title}</div>
+            <div class="fa3-subtitle">${s.subtitle}</div>
+        </div>
+        <div class="fa3-body">
+            ${oil.signal ? `<div style="font-size:0.8em;color:var(--accent-yellow);margin-bottom:8px;font-weight:600;">${oil.signal}</div>` : ''}
+            <div class="fa3-metric-grid">
+                <div class="fa3-metric-box">
+                    <div class="label">🛢️ WTI原油</div>
+                    <div class="val">${oil.wti?.price || '—'}<span class="unit"> ${oil.wti?.unit || ''}</span></div>
+                    ${oil.wti?.change ? `<div style="font-size:0.72em;color:var(--accent-red);">▲ ${oil.wti.change}%</div>` : ''}
+                </div>
+                <div class="fa3-metric-box">
+                    <div class="label">🛢️ 布伦特</div>
+                    <div class="val">${oil.brent?.price || '—'}<span class="unit"> ${oil.brent?.unit || ''}</span></div>
+                    ${oil.brent?.change ? `<div style="font-size:0.72em;color:var(--accent-red);">▲ ${oil.brent.change}%</div>` : ''}
+                </div>
+                <div class="fa3-metric-box full">
+                    <div class="label">${geo.title || '🌍 地缘政治'}</div>
+                    <div style="font-size:0.82em;color:var(--text-primary);margin:3px 0;">${geo.content || ''}</div>
+                    <div style="font-size:0.72em;color:var(--text-secondary);line-height:1.4;">${geo.detail || ''}</div>
+                </div>
+            </div>
+
+            ${macroItems.length > 0 ? `
+            <div style="margin-top:8px;">
+                <div style="font-size:0.75em;color:var(--accent-blue);font-weight:600;margin-bottom:4px;">📊 宏观/美联储</div>
+                ${macroItems.map(n => `<div style="font-size:0.75em;color:var(--text-secondary);margin:2px 0 2px 8px;padding-left:6px;border-left:2px solid var(--accent-blue);line-height:1.3;">${n}</div>`).join('')}
+            </div>` : ''}
+
+            ${indItems.length > 0 ? `
+            <div style="margin-top:8px;">
+                <div style="font-size:0.75em;color:var(--accent-orange);font-weight:600;margin-bottom:4px;">🏭 产业快讯</div>
+                ${indItems.map(n => `<div style="font-size:0.75em;color:var(--text-secondary);margin:2px 0 2px 8px;padding-left:6px;border-left:2px solid var(--accent-orange);line-height:1.3;">${n}</div>`).join('')}
+            </div>` : ''}
+
+            <div class="fa3-metric-grid" style="margin-top:8px;">
+                <div class="fa3-metric-box">
+                    <div class="label">🏭 PTA开工率</div>
+                    <div class="val">${pta.supply_rate || '—'}<span class="unit">${pta.supply_rate ? '%' : ''}</span></div>
+                </div>
+                <div class="fa3-metric-box">
+                    <div class="label">🧪 PX价格</div>
+                    <div class="val">${pta.px_price || '—'}<span class="unit"> ${pta.px_unit || ''}</span></div>
+                </div>
+                <div class="fa3-metric-box">
+                    <div class="label">🏭 聚酯开工率</div>
+                    <div class="val">${pta.polyester_rate || '—'}<span class="unit">${pta.polyester_rate ? '%' : ''}</span></div>
+                </div>
+                <div class="fa3-metric-box">
+                    <div class="label">🧵 织造开工率</div>
+                    <div class="val">${pta.weaving_rate || '—'}<span class="unit">${pta.weaving_rate ? '%' : ''}</span></div>
+                </div>
+                ${costRange.low && costRange.high ? `
+                <div class="fa3-metric-box full">
+                    <div class="label">💰 成本区间估算</div>
+                    <div class="val" style="color:var(--accent-yellow);">¥${costRange.low} ~ ¥${costRange.high}<span class="unit"> /吨</span></div>
+                </div>` : ''}
+            </div>
+
+            ${inv.summary ? `<div style="margin-top:6px;font-size:0.75em;color:var(--text-secondary);">📊 库存动态：${inv.summary}</div>` : ''}
+
+            ${oil.outlook ? `<div style="margin-top:8px;font-size:0.73em;color:var(--accent-yellow);line-height:1.4;">📢 ${oil.outlook}</div>` : ''}
+
+            ${invNote ? `<div style="margin-top:6px;font-size:0.72em;color:var(--accent-orange);">${invNote}</div>` : ''}
+            ${ratesNote ? `<div style="margin-top:4px;font-size:0.72em;color:var(--accent-orange);">${ratesNote}</div>` : ''}
+        </div>
+    </div>`;
+}
+
+function renderDailySection3(s) {
+    const strategies = s.strategies || [];
+    let cards = strategies.slice(0, 4).map(sg => `
+    <div class="fa3-strategy-card">
+        <div class="fa3-strategy-action">⚡ ${sg.action}</div>
+        <div class="fa3-strategy-detail">${sg.detail}</div>
+        <div class="fa3-strategy-suggest">→ ${sg.suggestion}</div>
+    </div>`).join('');
+
+    return `
+    <div class="fa3-card s3">
+        <div class="fa3-header">
+            <div class="fa3-section-num">PART 03</div>
+            <div class="fa3-title">${s.title}</div>
+            <div class="fa3-subtitle">${s.subtitle}</div>
+        </div>
+        <div class="fa3-body">
+            ${cards}
+            ${s.core_idea ? `<div class="fa3-core-idea">💡 ${s.core_idea}</div>` : ''}
+        </div>
+    </div>`;
+}
+
+// Init
+fetchData();
+fetchFundamentalAnalysis();
+fetchDailyReport();
+// Auto-refresh every 5 minutes
+setInterval(fetchData, 5 * 60 * 1000);
+setInterval(fetchFundamentalAnalysis, 5 * 60 * 1000);
+setInterval(fetchDailyReport, 5 * 60 * 1000);
+</script>
 </body>
 </html>

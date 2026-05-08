@@ -1,0 +1,39 @@
+{
+  "timestamp": "2026-05-02 10:18:28",
+  "status": "success",
+  "data": {
+    "brent": {
+      "price": 80.11,
+      "change_pct": 0.15,
+      "change": 0.12
+    },
+    "px": {
+      "price": 9900.0,
+      "near_contract": "PX605",
+      "near_contract_price": 9904.0,
+      "date": "20260430"
+    },
+    "pta_spot": {
+      "price": 6867.86,
+      "date": "20260430"
+    },
+    "naphtha": {
+      "price": 104.12,
+      "formula": "布伦特×1.05+20"
+    },
+    "pta_cost": {
+      "px_price": 9900.0,
+      "cost_low": 6984.0,
+      "cost_high": 7384.0,
+      "cost_mid": 7184.0,
+      "profit": -317.0,
+      "profit_pct": -4.4
+    },
+    "pxn": {
+      "value": 9795.88,
+      "level": "高"
+    }
+  },
+  "ai_commentary": "【成本端】原油平稳($80.11)，PX(偏高$9900)，PTA(亏损¥-317)。\n【供需】工厂亏损严重，存在减产预期。\n【短期展望】消息面平静，无明显驱动，整体评级：**震荡**。",
+  "ai_rating": "震荡"
+}

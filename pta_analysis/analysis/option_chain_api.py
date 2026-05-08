@@ -1,5 +1,9 @@
 
 
+
+
+
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -48,9 +52,25 @@ PTA_EXPIRY_MAP = {
     'TA701': '20270113',  # 2027年1月13日到期
 }
 
+# 期权合约到标的期货的映射（akshare的symbol命名）
+# TA606期权 -> TA606期货, TA609期权 -> TA609期货
+OPTION_TO_FUTURES_SYMBOL = {
+    'TA606': 'TA606',
+    'TA607': 'TA607',
+    'TA608': 'TA608',
+    'TA609': 'TA609',
+    'TA610': 'TA610',
+    'TA611': 'TA611',
+    'TA701': 'TA701',
+}
+
 def get_expiry_date(expiry_code: str) -> str:
     """获取合约的实际到期日"""
     return PTA_EXPIRY_MAP.get(expiry_code, '20260615')  # 默认6月
+
+def get_futures_symbol(expiry_code: str) -> str:
+    """获取期权合约对应的标的期货akshare symbol"""
+    return OPTION_TO_FUTURES_SYMBOL.get(expiry_code, 'TA606')
 
 def sort_expiry_list(expiry_list: List) -> List:
     """按实际到期日排序（最近优先）"""
@@ -141,11 +161,15 @@ def calculate_days_to_expiry(expiry: str, trade_date: str = None) -> float:
     """计算剩余到期时间(年)
     
     Args:
-        expiry: 到期日 YYYYMMDD
+        expiry: 到期日 YYYYMMDD 或期权代码如 'TA606'
         trade_date: 交易日期 YYYYMMDD，默认今日
     """
     if trade_date is None:
         trade_date = datetime.now().strftime('%Y%m%d')
+    
+    # 如果expiry是期权代码格式（如TA606），转换为实际日期
+    if expiry and len(expiry) == 5 and expiry[:2].isalpha():
+        expiry = get_expiry_date(expiry)
     
     try:
         expiry_dt = datetime.strptime(expiry, '%Y%m%d')
@@ -169,6 +193,220 @@ def bs_price(S: float, K: float, T: float, r: float, sigma: float, option_type: 
         price = K * math.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
     
     return price
+
+def calculate_iv(option_price: float, S: float, K: float, T: float, r: float, option_type: str, 
+                  tol: float = 1e-6, max_iter: int = 100) -> float:
+    """从期权价格反算隐含波动率 (二分法)
+    
+    Args:
+        option_price: 期权市场价格
+        S: 标的价格
+        K: 行权价
+        T: 到期时间(年)
+        r: 无风险利率
+        option_type: 'C' 或 'P'
+        tol: 收敛容差
+        max_iter: 最大迭代次数
+        
+    Returns:
+        float: 隐含波动率 (如计算失败返回0)
+    """
+    if T <= 0 or option_price <= 0:
+        return 0.0
+    
+    # 检查边界条件
+    intrinsic = max(S - K, 0) if option_type == 'C' else max(K - S, 0)
+    if option_price < intrinsic:
+        return 0.0  # 价格低于内在价值，无效
+    
+    # 二分法查找IV
+    sigma_low = 0.001
+    sigma_high = 5.0  # 500%的波动率上限
+    
+    price_low = bs_price(S, K, T, r, sigma_low, option_type)
+    price_high = bs_price(S, K, T, r, sigma_high, option_type)
+    
+    # 如果价格不在合理范围内，返回0
+    if option_price < price_low or option_price > price_high:
+        return 0.0
+    
+    for _ in range(max_iter):
+        sigma_mid = (sigma_low + sigma_high) / 2
+        price_mid = bs_price(S, K, T, r, sigma_mid, option_type)
+        
+        if abs(price_mid - option_price) < tol:
+            break
+        
+        if price_mid < option_price:
+            sigma_low = sigma_mid
+        else:
+            sigma_high = sigma_mid
+    
+    return sigma_mid
+
+def estimate_underlying_from_options(df: pd.DataFrame, expiry: str, r: float = 0.03) -> float:
+    """用Put-Call Parity从期权数据估算标的期货价格
+    
+    Args:
+        df: 期权数据DataFrame
+        expiry: 到期月份代码，如 'TA606'
+        r: 无风险利率
+        
+    Returns:
+        float: 估算的标的期货价格（如估算失败返回0）
+    """
+    try:
+        # 筛选指定月份的期权
+        expiry_df = df[df['合约代码'].str.startswith(expiry)]
+        if len(expiry_df) == 0:
+            return 0.0
+        
+        # 计算每个行权价的成交量
+        expiry_df = expiry_df.copy()
+        expiry_df['strike'] = expiry_df['合约代码'].apply(lambda x: int(x[-4:]) if x[-4:].isdigit() else 0)
+        expiry_df['volume'] = expiry_df.get('成交量(手)', 0).fillna(0)
+        
+        # 找成交量最大的行权价（作为ATM参考）
+        if len(expiry_df) == 0:
+            return 0.0
+        
+        max_vol_strike = expiry_df.loc[expiry_df['volume'].idxmax(), 'strike']
+        
+        # 找ATM附近的call和put
+        atm_calls = expiry_df[(expiry_df['合约代码'].str.contains('C')) & 
+                              (abs(expiry_df['strike'] - max_vol_strike) <= 100)]
+        atm_puts = expiry_df[(expiry_df['合约代码'].str.contains('P')) & 
+                             (abs(expiry_df['strike'] - max_vol_strike) <= 100)]
+        
+        if len(atm_calls) == 0 or len(atm_puts) == 0:
+            return 0.0
+        
+        # 取ATM call和put（用成交量加权）
+        call = atm_calls.loc[atm_calls['成交量(手)'].idxmax()]
+        put = atm_puts.loc[atm_puts['成交量(手)'].idxmax()]
+        
+        K = float(call['strike'])
+        C = float(call.get('今结算', 0) or call.get('今收盘', 0))
+        P = float(put.get('今结算', 0) or put.get('今收盘', 0))
+        
+        if C <= 0 or P <= 0:
+            return 0.0
+        
+        # 计算到期时间
+        T = calculate_days_to_expiry(expiry) / 365.0
+        if T <= 0:
+            T = 0.1  # 默认10天
+        
+        # Put-Call Parity: C - P = S - K*exp(-rT)
+        # => S = C - P + K*exp(-rT)
+        S = C - P + K * math.exp(-r * T)
+        
+        # 合理性检查：S应该在[K-20%, K+20%]范围内
+        if S < K * 0.8 or S > K * 1.2:
+            return 0.0
+        
+        return S
+    except:
+        return 0.0
+
+def get_tq_futures_price(symbol: str = 'KQ.m@CZCE.TA', timeout: float = 5.0) -> float:
+    """从TqSdk获取期货实时价格（主力合约）
+    
+    Args:
+        symbol: 期货合约代码，默认 'KQ.m@CZCE.TA' 主力合约
+        timeout: 超时秒数
+        
+    Returns:
+        float: 最新价，失败返回0
+    """
+    try:
+        import threading
+        result = {'price': 0, 'done': False}
+        
+        def fetch():
+            try:
+                api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS), debug=False)
+                quote = api.get_quote(symbol)
+                start = time.time()
+                while time.time() - start < timeout and not result['done']:
+                    try:
+                        api.wait_update(deadline=min(time.time() + 1.0, start + timeout))
+                        if quote.last_price and quote.last_price > 0:
+                            result['price'] = float(quote.last_price)
+                            break
+                    except Exception:
+                        break
+                try:
+                    api.close()
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            finally:
+                result['done'] = True
+        
+        t = threading.Thread(target=fetch, daemon=True)
+        t.start()
+        t.join(timeout=timeout + 2)
+        return result['price']
+    except Exception:
+        return 0
+
+
+def get_tq_ta606_price(timeout: float = 5.0) -> float:
+    """从TqSdk获取TA606（PTA 6月期货）实时价格
+    
+    Args:
+        timeout: 超时秒数
+        
+    Returns:
+        float: TA606最新价，失败返回0
+    """
+    try:
+        import threading
+        result = {'price': 0, 'done': False}
+        
+        def fetch():
+            try:
+                api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS), debug=False)
+                # TA606合约代码: CZCE.TA606
+                quote = api.get_quote('CZCE.TA606')
+                start = time.time()
+                while time.time() - start < timeout and not result['done']:
+                    try:
+                        api.wait_update(deadline=min(time.time() + 1.0, start + timeout))
+                        if quote.last_price and quote.last_price > 0:
+                            result['price'] = float(quote.last_price)
+                            break
+                    except Exception:
+                        break
+                try:
+                    api.close()
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            finally:
+                result['done'] = True
+        
+        t = threading.Thread(target=fetch, daemon=True)
+        t.start()
+        t.join(timeout=timeout + 2)
+        return result['price']
+    except Exception:
+        return 0
+
+def get_tq_option_prices(symbols: List[str]) -> Dict[str, Dict]:
+    """从TqSdk获取期权实时价格（暂时禁用，因TqSdk连接阻塞）
+    
+    Args:
+        symbols: 期权合约代码列表，如 ['CZCE.TA606C6800', 'CZCE.TA606P6800']
+        
+    Returns:
+        dict: {symbol: {last_price, volume, open_interest, bid_price, ask_price, ...}}
+    """
+    # TqSdk暂时禁用，因连接会阻塞
+    return {}
 
 def calculate_greeks(S: float, K: float, T: float, r: float, sigma: float, option_type: str) -> Dict[str, float]:
     """计算希腊字母
@@ -335,6 +573,26 @@ class OptionChainAnalyzer:
         expiry_list = []
         all_strike_rows = []
         
+        # 获取天勤实时期权价格并计算IV
+        tq_prices = {}
+        try:
+            # 构建天勤合约代码列表
+            tq_symbols = []
+            for _, row in df.iterrows():
+                code = row['合约代码']
+                expiry = row.get('expiry', '')
+                option_type = row.get('option_type', '')
+                if expiry and option_type:
+                    tq_sym = f'CZCE.{expiry}{option_type.upper()}{int(row.get("strike", 0))}'
+                    tq_symbols.append(tq_sym)
+            
+            # 批量获取天勤实时价格
+            if tq_symbols:
+                tq_prices = get_tq_option_prices(tq_symbols)
+                print(f"TqSdk获取了 {len(tq_prices)} 个期权实时价格")
+        except Exception as e:
+            print(f"天勤数据获取失败: {e}")
+        
         # 获取昨日数据用于计算变化
         prev_dict = {}
         if prev_df is not None and len(prev_df) > 0:
@@ -346,16 +604,18 @@ class OptionChainAnalyzer:
                     close = row.get('今结算', 0) or row.get('今收盘', 0)
                     iv = get_iv_from_data(row)
                     oi = row.get('持仓量', 0)
+                    volume = row.get('成交量(手)', 0)
                 else:
                     # session_db格式
                     close = row.get('last_price', 0)
                     iv = row.get('iv', 0) or 0
                     oi = row.get('oi', 0) or 0
+                    volume = row.get('volume', 0)
                 prev_dict[code] = {
                     'close': close,
                     'iv': float(iv) if iv else 0.0,
                     'oi': int(oi) if oi else 0,
-                    'volume': int(row.get('成交量(手)', 0)) if '成交量(手)' in row.index else 0
+                    'volume': int(volume) if volume else 0
                 }
         
         for expiry, group in expiry_groups:
@@ -403,6 +663,20 @@ class OptionChainAnalyzer:
                     call_oi = int(cr.get('持仓量', 0) or 0)
                     call_exercise = int(cr.get('行权量', 0) or 0)
                     
+                    # 尝试用天勤实时价格计算IV
+                    tq_sym = f'CZCE.{expiry}C{int(strike)}'
+                    tq_data = tq_prices.get(tq_sym, {})
+                    tq_price = tq_data.get('last_price')
+                    
+                    if tq_price and self.underlying_price > 0:
+                        # 用天勤价格反算IV
+                        T = calculate_days_to_expiry(expiry, self.trade_date)
+                        tq_iv = calculate_iv(tq_price, self.underlying_price, strike, T, self.risk_free_rate, 'C')
+                        print(f"DEBUG: tq_price={tq_price}, tq_iv={tq_iv}, call_iv set to {tq_iv * 100}")
+                        if tq_iv > 0:
+                            call_iv = tq_iv * 100  # 转换为百分比（0.33 -> 33%）
+                            call_close = tq_price  # 用天勤实时价格替换
+                    
                     # 计算希腊字母（如果数据没有）
                     if call_delta == 0 and call_iv > 0:
                         T = calculate_days_to_expiry(expiry, self.trade_date)
@@ -444,6 +718,19 @@ class OptionChainAnalyzer:
                     put_volume = int(pr.get('成交量(手)', 0) or 0)
                     put_oi = int(pr.get('持仓量', 0) or 0)
                     put_exercise = int(pr.get('行权量', 0) or 0)
+                    
+                    # 尝试用天勤实时价格计算IV
+                    tq_sym = f'CZCE.{expiry}P{int(strike)}'
+                    tq_data = tq_prices.get(tq_sym, {})
+                    tq_price = tq_data.get('last_price')
+                    
+                    if tq_price and self.underlying_price > 0:
+                        # 用天勤价格反算IV
+                        T = calculate_days_to_expiry(expiry, self.trade_date)
+                        tq_iv = calculate_iv(tq_price, self.underlying_price, strike, T, self.risk_free_rate, 'P')
+                        if tq_iv > 0:
+                            put_iv = tq_iv * 100  # 转换为百分比
+                            put_close = tq_price  # 用天勤实时价格替换
                     
                     # 计算希腊字母
                     if put_delta == 0 and put_iv > 0:
@@ -658,17 +945,27 @@ class OptionDataStore:
         return session_type, df
     
     def get_prev_day_data(self, trade_date: str = None) -> pd.DataFrame:
-        """获取昨日数据"""
+        """获取昨日数据（自动跳过非交易日）"""
         if trade_date is None:
             trade_date = datetime.now().strftime('%Y%m%d')
         
-        # 计算昨天
-        dt = datetime.strptime(trade_date, '%Y%m%d')
-        dt -= timedelta(days=1)
-        prev_date = dt.strftime('%Y%m%d')
-        
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
+        
+        # 检查数据库中有哪些交易日
+        c.execute('SELECT DISTINCT trade_date FROM option_daily ORDER BY trade_date DESC')
+        available_dates = [row[0] for row in c.fetchall()]
+        
+        # 找出比当前交易日早的最新交易日
+        prev_date = None
+        for d in available_dates:
+            if d < trade_date:
+                prev_date = d
+                break
+        
+        if prev_date is None:
+            conn.close()
+            return pd.DataFrame()
         
         # 表结构: symbol, trade_date, last_price, iv, delta, gamma, theta, vega, volume, oi
         c.execute('''SELECT symbol, last_price, iv, volume, oi 
@@ -753,27 +1050,10 @@ class OptionChainAPI:
             
             self.trade_date = trade_date
             
-            # 获取真实PTA期货标的价格
-            try:
-                ta_df = ak.futures_zh_minute_sina(symbol='TA0', period='1m')
-                ta_df.columns = [c.strip() for c in ta_df.columns]
-                S = float(ta_df['close'].iloc[-1])
-            except:
-                # fallback: 取成交量最大期权的行权价（深度实值附近）
-                try:
-                    df_temp = AkshareOptionData.get_option_data(trade_date)
-                    S = float(df_temp.loc[df_temp['成交量(手)'].idxmax(), 'strike'])
-                except:
-                    S = 6300  # 默认值
-            
-            # 设置analyzer的标的价格
-            self.analyzer.underlying_price = S
-            
-            # 获取当前数据
+            # 获取当前期权数据（用于确定近月合约）
             df = AkshareOptionData.get_option_data(self.trade_date)
-            
             if df is None or len(df) == 0:
-                    return {'success': False, 'error': '获取期权数据失败'}
+                return {'success': False, 'error': '获取期权数据失败'}
             
             # 获取昨日数据用于IV日间对比
             prev_df = self.store.get_prev_day_data(self.trade_date)
@@ -781,7 +1061,55 @@ class OptionChainAPI:
             # 保存今日数据
             self.store.save_option_data(df, trade_date)
             
-            # 构建T型报价（使用昨日数据计算IV变化）
+            # 第一步：先确定近月合约（不计算Greeks，只需要解析数据）
+            # 按到期日分组获取expiry列表
+            expiry_groups = df.groupby('expiry')
+            temp_expiry_list = []
+            for expiry, group in expiry_groups:
+                temp_expiry_list.append({
+                    'expiry': expiry,
+                    'actual_expiry_date': get_expiry_date(expiry)
+                })
+            # 按实际到期日排序
+            temp_expiry_list.sort(key=lambda x: x['actual_expiry_date'])
+            near_expiry_code = temp_expiry_list[0]['expiry'] if temp_expiry_list else None
+            
+            # 第二步：获取真实TA606期货标的价格
+            # 方法1：优先使用TqSdk获取CZCE.TA606的实时价格
+            # 方法2：用Put-Call Parity从期权数据估算
+            # 方法3：回退到akshare的TA0（主力合约）
+            # 方法4：回退到成交量最大期权的行权价
+            
+            S = None
+            
+            # 方法1：用TqSdk获取TA606实时价格
+            S = get_tq_ta606_price(timeout=5.0)
+            
+            # 方法2：用Put-Call Parity从期权数据估算
+            if not S or S <= 0:
+                if near_expiry_code:
+                    S = estimate_underlying_from_options(df, near_expiry_code)
+            
+            # 方法3：回退到akshare的TA0（主力合约）
+            if not S or S <= 0:
+                try:
+                    ta_df = ak.futures_zh_minute_sina(symbol='TA0', period='1m')
+                    ta_df.columns = [c.strip() for c in ta_df.columns]
+                    S = float(ta_df['close'].iloc[-1])
+                except:
+                    pass
+            
+            # 方法3：回退到成交量最大期权的行权价
+            if S is None or S <= 0:
+                try:
+                    S = float(df.loc[df['成交量(手)'].idxmax(), 'strike'])
+                except:
+                    S = 6300  # 默认值
+            
+            # 第三步：设置analyzer的标的价格（在调用build_t_type_quote之前！）
+            self.analyzer.underlying_price = S
+            
+            # 第四步：构建T型报价（此时underlying_price已正确设置）
             expiry_list, strike_rows = self.analyzer.build_t_type_quote(df, prev_df)
             
             if len(strike_rows) == 0:
@@ -795,7 +1123,6 @@ class OptionChainAPI:
             
             # 构建返回
             # 只返回最近月合约数据
-            near_expiry_code = expiry_list[0].expiry if expiry_list else None
             near_strike_rows = [r for r in strike_rows if r.expiry == near_expiry_code]
             near_stats = self._calculate_stats([expiry_list[0]], near_strike_rows) if expiry_list else {}
             near_stats['full_market_pcr'] = self._calculate_full_market_pcr(expiry_list)
@@ -804,10 +1131,10 @@ class OptionChainAPI:
                 'success': True,
                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 'trade_date': self.trade_date,
-                'underlying': 'CZCE.TA',
+                'underlying': near_expiry_code if near_expiry_code else 'CZCE.TA',  # 近月合约代码
                 'underlying_price': S,
                 'atm_strike': atm_strike,
-                'near_expiry': near_expiry_code,  # 合约代码 TA605
+                'near_expiry': near_expiry_code,  # 合约代码 TA606
                 'near_expiry_date': expiry_list[0].actual_expiry_date if expiry_list else None,  # 实际到期日 20260513
                 'near_expiry_display': f"{near_expiry_code}（到期日：{expiry_list[0].actual_expiry_date[:4]}/{expiry_list[0].actual_expiry_date[4:6]}/{expiry_list[0].actual_expiry_date[6:8]}）" if expiry_list else None,
                 'expiry_list': [asdict(e) for e in expiry_list],  # 全部到期日列表
@@ -880,40 +1207,87 @@ class OptionChainAPI:
             c.execute("SELECT tenor, hv, hv_min, hv_25pct, hv_median, hv_75pct, hv_max FROM vol_cone WHERE trade_date = ?", (today,))
             rows = c.fetchall()
             if rows and len(rows) >= 5:
-                tenors = [r[0] for r in rows]
-                conn.close()
+                # 解析tenors为数字用于排序
+                tenors_raw = [r[0] for r in rows]
+                tenors_numeric = []
+                for t in tenors_raw:
+                    # 解析 "10日" -> 10
+                    try:
+                        tenors_numeric.append(int(t.replace('日', '')))
+                    except:
+                        tenors_numeric.append(0)
+                
+                # 按数字排序
+                sorted_indices = sorted(range(len(tenors_numeric)), key=lambda i: tenors_numeric[i])
+                tenors = [str(tenors_numeric[i]) + '日' for i in sorted_indices]
+                
+                # 按排序后的顺序重排数据
+                hv_current = rows[sorted_indices[-1]][1] if sorted_indices else 20.0
+                hv_min = [rows[i][2] for i in sorted_indices]
+                hv_25pct = [rows[i][3] for i in sorted_indices]
+                hv_median = [rows[i][4] for i in sorted_indices]
+                hv_75pct = [rows[i][5] for i in sorted_indices]
+                hv_max = [rows[i][6] for i in sorted_indices]
+                
+                # 计算HV百分位
+                current_60_idx = tenors.index('60日') if '60日' in tenors else -1
+                if current_60_idx >= 0 and hv_median[current_60_idx] > 0:
+                    hv_25 = hv_25pct[current_60_idx]
+                    hv_75 = hv_75pct[current_60_idx]
+                    range_75 = hv_75 - hv_25
+                    if range_75 > 0:
+                        dist_from_25 = hv_current - hv_25
+                        hv_percentile = 25 + (dist_from_25 / range_75) * 50
+                        hv_percentile = max(0, min(100, hv_percentile))
+                    else:
+                        hv_percentile = 50.0
+                else:
+                    hv_percentile = 50.0
                 
                 # 从self获取ATM IV和到期天数
                 try:
                     chain = self.get_full_chain()
                     atm_strike = chain.get('atm_strike', 0)
                     strike_rows = chain.get('strike_rows', [])
-                    atm_row = next((r for r in strike_rows if r.strike == atm_strike), None)
-                    atm_call_iv = atm_row.call_iv if atm_row else 0
-                    atm_put_iv = atm_row.put_iv if atm_row else 0
+                    atm_row = next((r for r in strike_rows if r.get('strike') == atm_strike), None)
+                    atm_call_iv = atm_row.get('call_iv', 0) if atm_row else 0
+                    atm_put_iv = atm_row.get('put_iv', 0) if atm_row else 0
                     atm_iv = (atm_call_iv + atm_put_iv) / 2 if atm_call_iv or atm_put_iv else 0
                     near_expiry = chain.get('near_expiry', '')
                     if near_expiry:
-                        days_to_exp = calculate_days_to_expiry(near_expiry, today)
+                        days_to_exp = int(calculate_days_to_expiry(near_expiry, today) * 365)
                     else:
                         days_to_exp = 24
                 except:
                     atm_iv = 0
                     days_to_exp = 24
                 
+                # 计算IV百分位（ATM IV在HV分布中的位置）
+                iv_percentile = 50.0
+                if atm_iv > 0 and current_60_idx >= 0:
+                    hv_25 = hv_25pct[current_60_idx]
+                    hv_75 = hv_75pct[current_60_idx]
+                    range_75 = hv_75 - hv_25
+                    if range_75 > 0:
+                        dist_from_med = atm_iv - hv_median[current_60_idx]
+                        dist_from_25 = atm_iv - hv_25
+                        iv_percentile = 25 + (dist_from_25 / range_75) * 50
+                        iv_percentile = max(0, min(100, iv_percentile))
+                
                 return {
                     'success': True,
                     'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    'hv_current': rows[-1][1] if rows[-1][1] else 20.0,
-                    'hv_percentile': 50.0,
+                    'hv_current': hv_current,
+                    'hv_percentile': round(hv_percentile, 1),
                     'atm_iv': atm_iv,
+                    'iv_percentile': round(iv_percentile, 1),
                     'days_to_expiry': days_to_exp,
                     'tenors': tenors,
-                    'hv_min': [r[2] for r in rows],
-                    'hv_25pct': [r[3] for r in rows],
-                    'hv_median': [r[4] for r in rows],
-                    'hv_75pct': [r[5] for r in rows],
-                    'hv_max': [r[6] for r in rows]
+                    'hv_min': hv_min,
+                    'hv_25pct': hv_25pct,
+                    'hv_median': hv_median,
+                    'hv_75pct': hv_75pct,
+                    'hv_max': hv_max
                 }
             conn.close()
             
@@ -1133,3 +1507,282 @@ if __name__ == '__main__':
         print(f"  IV Diff: {stats.get('iv_diff')}%")
     else:
         print(f"Error: {result.get('error')}")
+# ==================== Excel 导出 ====================
+
+def export_atm_option_excel(output_dir: str = None, trade_date: str = None) -> dict:
+    """导出平值期权上下十档的隐波、成交、持仓数据到 Excel
+    
+    Args:
+        output_dir: 输出目录，默认 ~/.hermes/option_exports/
+        trade_date: 交易日期，默认当天
+        
+    Returns:
+        {'success': True, 'filepath': '...'}
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import (Font, PatternFill, Alignment, Border, Side,
+                                  GradientFill)
+    from openpyxl.utils import get_column_letter
+    
+    if output_dir is None:
+        output_dir = os.path.expanduser("~/.hermes/option_exports")
+    os.makedirs(output_dir, exist_ok=True)
+    
+    if trade_date is None:
+        trade_date = datetime.now().strftime("%Y%m%d")
+    
+    # 获取数据
+    api = get_option_api()
+    result = api.get_full_chain()
+    if not result.get('success'):
+        return {'success': False, 'error': result.get('error', '获取数据失败')}
+    
+    # 计算 ATM 行权价
+    underlying_price = result.get('underlying_price', 0)
+    atm_strike = round(underlying_price / 50) * 50
+    strike_rows = result.get('strike_rows', [])
+    
+    # ATM 上下各10档，镜像对称排列：ATM居中，高行权价在上，低行权价在下
+    all_strikes = sorted(set(r['strike'] for r in strike_rows))  # 低→高
+    atm_idx = None
+    for i, s in enumerate(all_strikes):
+        if abs(s - atm_strike) < 25:
+            atm_idx = i
+            break
+
+    if atm_idx is None:
+        return {'success': False, 'error': f'未找到 ATM 行权价 {atm_strike}'}
+
+    start_idx = max(0, atm_idx - 10)
+    end_idx = min(len(all_strikes), atm_idx + 11)
+    selected_strikes = all_strikes[start_idx:end_idx]  # ATM在中间，高→低（因为逆序取片段）
+    selected_strikes = list(reversed(selected_strikes))  # 翻转：让ATM在第11行，高Strike在上
+    
+    # 建立 strike -> row 映射
+    row_map = {r['strike']: r for r in strike_rows}
+    
+    # 近月信息
+    near_expiry = result.get('near_expiry', '')
+    near_expiry_display = result.get('near_expiry_display', near_expiry)
+    # sheet名不允许 / : * ? [ ] ，替换掉
+    sheet_name = re.sub(r'[/:\\*?\[\]]', '-', near_expiry_display)
+    # ---- 构建工作簿 ----
+    wb = Workbook()
+
+    # === 样式定义 ===
+    hdr_font = Font(name='微软雅黑', bold=True, color='FFFFFF', size=11)
+    hdr_fill = PatternFill("solid", fgColor="2F5496")
+    sub_fill = PatternFill("solid", fgColor="D6E4F0")
+    alt_fill = PatternFill("solid", fgColor="EBF3FB")
+    atm_fill = PatternFill("solid", fgColor="FFF2CC")
+    atm_hdr_fill = PatternFill("solid", fgColor="FFD966")
+
+    center = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    right = Alignment(horizontal='right', vertical='center')
+    left = Alignment(horizontal='left', vertical='center')
+
+    thin = Side(style='thin', color='BFBFBF')
+    medium = Side(style='medium', color='4472C4')
+    thin_border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    medium_border = Border(left=medium, right=medium, top=medium, bottom=medium)
+
+    # 涨跌颜色
+    up_font = Font(name='微软雅黑', color='C00000', size=10)
+    dn_font = Font(name='微软雅黑', color='008000', size=10)
+    neu_font = Font(name='微软雅黑', color='000000', size=10)
+    bold_font = Font(name='微软雅黑', bold=True, size=10)
+    norm_font = Font(name='微软雅黑', size=10)
+
+    def chg_font(val):
+        if val is None: return neu_font
+        return up_font if val > 0 else dn_font if val < 0 else neu_font
+
+    def chg_sign(val):
+        if val is None: return '0.0%'
+        sign = '+' if val > 0 else ''
+        return f'{sign}{val:.1f}%'
+
+    def fill_font_and_align(ws, row, col, value, font, align=None):
+        cell = ws.cell(row=row, column=col, value=value)
+        cell.font = font
+        cell.alignment = align or center
+        cell.border = thin_border
+        return cell
+
+    # === Sheet: 认购+认沽合并 ===
+    ws = wb.active
+    ws.title = sheet_name
+
+    # 主标题
+    ws.merge_cells(f'A1:M1')
+    title_cell = ws['A1']
+    title_cell.value = f'PTA期权链 (ATM±10档)  {near_expiry_display}  {trade_date}'
+    title_cell.font = Font(name='微软雅黑', bold=True, size=13, color='FFFFFF')
+    title_cell.fill = PatternFill("solid", fgColor="1F4E79")
+    title_cell.alignment = center
+    ws.row_dimensions[1].height = 28
+
+    # 副标题
+    ws.merge_cells(f'A2:M2')
+    sub = ws['A2']
+    sub.value = f'标的: PTA  当前价: {underlying_price:.0f}  ATM行权价: {atm_strike:.0f}'
+    sub.font = Font(name='微软雅黑', size=10, color='595959', italic=True)
+    sub.fill = PatternFill("solid", fgColor="D9E1F2")
+    sub.alignment = center
+    ws.row_dimensions[2].height = 18
+
+    # 列标题：镜像对称排列（从行权价向两侧展开，越近越靠内）
+    # Call区（左侧6列）：持仓变化 | 持仓量 | 成交量变化 | 成交量 | IV变化 | IV
+    # Put区（右侧6列）：IV | IV变化 | 成交量 | 成交量变化 | 持仓量 | 持仓变化
+    col_headers = [
+        'Call持仓变化', 'Call持仓量', 'Call成交量变化', 'Call成交量', 'Call-IV变化(%)', 'Call-IV(%)',
+        '行权价',
+        'Put-IV(%)', 'Put-IV变化(%)', 'Put成交量', 'Put成交量变化', 'Put持仓量', 'Put持仓变化'
+    ]
+
+    # Call区 header（绿色）
+    hdr_call_fill = PatternFill("solid", fgColor="375623")
+    for ci, h in enumerate(col_headers[:6], 1):
+        c = ws.cell(row=3, column=ci, value=h)
+        c.font = hdr_font
+        c.fill = hdr_call_fill
+        c.alignment = center
+        c.border = thin_border
+
+    # 行权价列（ATM高亮）
+    c_strike = ws.cell(row=3, column=7, value='行权价')
+    c_strike.font = Font(name='微软雅黑', bold=True, color='FFFFFF', size=11)
+    c_strike.fill = PatternFill("solid", fgColor="2F5496")
+    c_strike.alignment = center
+    c_strike.border = thin_border
+
+    # Put区 header（蓝色）
+    hdr_put_fill = PatternFill("solid", fgColor="1F3864")
+    for ci, h in enumerate(col_headers[7:], 8):
+        c = ws.cell(row=3, column=ci, value=h)
+        c.font = hdr_font
+        c.fill = hdr_put_fill
+        c.alignment = center
+        c.border = thin_border
+
+    ws.row_dimensions[3].height = 22
+
+    norm_font = Font(name='微软雅黑', size=10)
+    bold_font = Font(name='微软雅黑', bold=True, size=10)
+    call_fill_even = PatternFill("solid", fgColor="E2EFDA")
+    call_fill_odd = PatternFill("solid", fgColor="EBF3E8")
+    put_fill_even = PatternFill("solid", fgColor="D6E4F0")
+    put_fill_odd = PatternFill("solid", fgColor="EBF3FB")
+    atm_fill = PatternFill("solid", fgColor="FFF2CC")
+    atm_strike_fill = PatternFill("solid", fgColor="FFD966")
+    white_fill = PatternFill("solid", fgColor="FFFFFF")
+
+    up_font = Font(name='微软雅黑', color='C00000', size=10)
+    dn_font = Font(name='微软雅黑', color='008000', size=10)
+    neu_font = Font(name='微软雅黑', color='000000', size=10)
+
+    def chg_color(val):
+        if val is None: return neu_font
+        return up_font if val > 0 else dn_font if val < 0 else neu_font
+
+    for ri, strike in enumerate(selected_strikes):
+        r = row_map.get(strike)
+        if not r:
+            continue
+        excel_row = ri + 4
+        is_atm = abs(strike - atm_strike) < 25
+        bg_c = atm_fill if is_atm else (call_fill_even if ri % 2 == 0 else call_fill_odd)
+        bg_p = atm_fill if is_atm else (put_fill_even if ri % 2 == 0 else put_fill_odd)
+        bg_s = atm_strike_fill if is_atm else PatternFill("solid", fgColor="D9E1F2")
+
+        # Call 6列（从外向内：持仓变化→持仓量→成交量变化→成交量→IV变化→IV）
+        call_vals = [
+            r.get('call_oi_change'),
+            r.get('call_oi'),
+            r.get('call_volume_change'),
+            r.get('call_volume'),
+            r.get('call_iv_change'),
+            r.get('call_iv'),
+        ]
+        # Put 6列（从左向右：IV→IV变化→成交量→成交量变化→持仓量→持仓变化）
+        put_vals = [
+            r.get('put_iv'),
+            r.get('put_iv_change'),
+            r.get('put_volume'),
+            r.get('put_volume_change'),
+            r.get('put_oi'),
+            r.get('put_oi_change'),
+        ]
+
+        # Call 6列
+        for ci, val in enumerate(call_vals, 1):
+            cell = ws.cell(row=excel_row, column=ci, value=val)
+            cell.fill = bg_c
+            cell.alignment = center
+            cell.border = thin_border
+            # ci=1持仓变化/ci=3成交量变化/ci=5IV变化 用颜色
+            if ci in (1, 3, 5):
+                cell.font = chg_color(val)
+                if val is not None:
+                    cell.number_format = '+0.0%;-0.0%'
+            elif ci in (2, 4):
+                cell.font = norm_font
+                if val is not None:
+                    cell.number_format = '#,##0'
+            elif ci == 6:
+                cell.font = norm_font
+                if val is not None:
+                    cell.number_format = '0.0'
+
+        # 行权价
+        cell_s = ws.cell(row=excel_row, column=7, value=strike)
+        cell_s.fill = bg_s
+        cell_s.alignment = center
+        cell_s.border = thin_border
+        cell_s.font = bold_font
+
+        # Put 6列
+        for ci, val in enumerate(put_vals, 8):
+            cell = ws.cell(row=excel_row, column=ci, value=val)
+            cell.fill = bg_p
+            cell.alignment = center
+            cell.border = thin_border
+            # Put: ci=8IV/ci=9IV变化/ci=10成交量/ci=11成交量变化/ci=12持仓量/ci=13持仓变化
+            if ci == 8:
+                cell.font = norm_font
+                if val is not None:
+                    cell.number_format = '0.0'
+            elif ci == 9:
+                cell.font = chg_color(val)
+                if val is not None:
+                    cell.number_format = '+0.0%;-0.0%'
+            elif ci == 10:
+                cell.font = norm_font
+                if val is not None:
+                    cell.number_format = '#,##0'
+            elif ci == 11:
+                cell.font = chg_color(val)
+                if val is not None:
+                    cell.number_format = '+0.0%;-0.0%'
+            elif ci == 12:
+                cell.font = norm_font
+                if val is not None:
+                    cell.number_format = '#,##0'
+            elif ci == 13:
+                cell.font = chg_color(val)
+                if val is not None:
+                    cell.number_format = '+0.0%;-0.0%'
+
+        ws.row_dimensions[excel_row].height = 18
+
+    col_widths = [14, 12, 14, 12, 14, 12, 12, 12, 14, 12, 14, 12, 14]
+    for ci, w in enumerate(col_widths, 1):
+        ws.column_dimensions[get_column_letter(ci)].width = w
+
+    ws.freeze_panes = 'A4'
+
+    filename = f'PTA_option_chain_{near_expiry}_{trade_date}.xlsx'
+    filepath = os.path.join(output_dir, filename)
+    wb.save(filepath)
+    
+    return {'success': True, 'filepath': filepath, 'filename': filename}

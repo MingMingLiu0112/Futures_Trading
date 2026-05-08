@@ -1,12 +1,17 @@
 #!/bin/bash
 # PTA分析平台启动脚本
 
-WORKSPACE="/home/admin/.openclaw/workspace/codeman/pta_analysis"
+WORKSPACE="/home/admin/.openclaw/workspace/Futures_Trading/pta_analysis"
 cd "$WORKSPACE"
 
 echo "========================================="
 echo "PTA期货分析平台启动"
 echo "========================================="
+
+# 先杀掉所有旧进程，避免残留卡死
+echo "清理旧进程..."
+pkill -f "web_app_integrated.py" 2>/dev/null
+sleep 2
 
 # 检查Python环境
 if ! command -v python3 &> /dev/null; then
@@ -31,9 +36,9 @@ else
     echo "警告: 未找到缠论图表"
 fi
 
-# 检查端口占用
-PORT=8421
-if netstat -tln | grep ":$PORT " > /dev/null; then
+# 检查端口占用（实际使用8424）
+PORT=8424
+if netstat -tln 2>/dev/null | grep ":$PORT " > /dev/null; then
     echo "端口 $PORT 已被占用，尝试停止现有进程..."
     PID=$(lsof -ti:$PORT)
     if [ ! -z "$PID" ]; then
@@ -44,9 +49,9 @@ fi
 
 # 启动应用
 echo "启动PTA分析平台..."
-echo "访问地址: http://$(hostname -I | awk '{print $1}'):$PORT"
+echo "访问地址: http://127.0.0.1:$PORT"
 echo "          http://47.100.97.88:$PORT"
 echo ""
 echo "按 Ctrl+C 停止服务"
 
-python3 web_app.py
+python3 web_app_integrated.py
