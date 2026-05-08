@@ -9,10 +9,12 @@ from .macd_strategy import MACDStrategy
 from .moving_average_strategy import MovingAverageStrategy
 from .kdj_strategy import KDJStrategy
 from .breakout_strategy import BreakoutStrategy
+from .rsi_strategy import RSIStrategy
 
 __all__ = [
     'MACDStrategy',
     'MovingAverageStrategy',
     'KDJStrategy',
-    'BreakoutStrategy'
+    'BreakoutStrategy',
+    'RSIStrategy'
 ]

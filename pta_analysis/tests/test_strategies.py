@@ -14,6 +14,7 @@ from strategies.macd_strategy import MACDStrategy
 from strategies.moving_average_strategy import MovingAverageStrategy
 from strategies.kdj_strategy import KDJStrategy
 from strategies.breakout_strategy import BreakoutStrategy
+from strategies.rsi_strategy import RSIStrategy
 
 
 class TestMACDStrategy:
@@ -216,6 +217,104 @@ class TestBreakoutStrategy:
         # 应该产生卖出信号
         sell_signals = [s for s in signals if s.signal_type == 'sell']
         assert len(sell_signals) >= 1
+
+
+class TestRSIStrategy:
+    """RSI策略测试"""
+    
+    def test_rsi_strategy_init(self):
+        """测试RSI策略初始化"""
+        strategy = RSIStrategy(
+            rsi_period=14,
+            oversold_threshold=30.0,
+            overbought_threshold=70.0,
+            stop_loss_pct=0.02,
+            take_profit_pct=0.04
+        )
+        assert strategy.rsi_period == 14
+        assert strategy.oversold_threshold == 30.0
+        assert strategy.overbought_threshold == 70.0
+        assert strategy.stop_loss_pct == 0.02
+        assert strategy.take_profit_pct == 0.04
+    
+    def test_rsi_strategy_no_signal_short_data(self):
+        """测试数据不足时无信号"""
+        strategy = RSIStrategy()
+        data = [{'close': 5000}]
+        signal = strategy.on_bar(data[0])
+        assert signal is None
+    
+    def test_rsi_strategy_oversold_buy(self):
+        """测试超卖买入信号"""
+        strategy = RSIStrategy()
+        
+        # 创建大幅下跌数据，使RSI进入超卖区域
+        data = []
+        # 初始价格
+        price = 5000
+        for i in range(15):
+            # 快速下跌
+            price = price - 50
+            data.append({'close': price, 'timestamp': f'2024-01-01 09:{i:02d}'})
+        
+        # 然后快速反弹
+        for i in range(5):
+            price = price + 30
+            data.append({'close': price, 'timestamp': f'2024-01-01 09:{15+i:02d}'})
+        
+        signals = []
+        for bar in data:
+            signal = strategy.on_bar(bar)
+            if signal:
+                signals.append(signal)
+        
+        # 应该产生买入信号
+        buy_signals = [s for s in signals if s.signal_type == 'buy']
+        assert len(buy_signals) >= 1
+    
+    def test_rsi_strategy_overbought_sell(self):
+        """测试超买卖出信号"""
+        strategy = RSIStrategy()
+        
+        # 创建大幅上涨数据，使RSI进入超买区域
+        data = []
+        # 初始价格
+        price = 5000
+        for i in range(15):
+            # 快速上涨
+            price = price + 50
+            data.append({'close': price, 'timestamp': f'2024-01-01 09:{i:02d}'})
+        
+        # 然后快速回落
+        for i in range(5):
+            price = price - 30
+            data.append({'close': price, 'timestamp': f'2024-01-01 09:{15+i:02d}'})
+        
+        signals = []
+        for bar in data:
+            signal = strategy.on_bar(bar)
+            if signal:
+                signals.append(signal)
+        
+        # 应该产生卖出信号
+        sell_signals = [s for s in signals if s.signal_type == 'sell']
+        assert len(sell_signals) >= 1
+    
+    def test_rsi_strategy_reset(self):
+        """测试策略重置"""
+        strategy = RSIStrategy()
+        
+        # 添加一些数据
+        for i in range(20):
+            strategy.on_bar({'close': 5000 + i * 10, 'timestamp': f'2024-01-01 09:{i:02d}'})
+        
+        # 重置
+        strategy.reset()
+        
+        # 检查状态是否已重置
+        assert len(strategy.price_history) == 0
+        assert len(strategy.rsi_history) == 0
+        assert len(strategy.signals) == 0
 
 
 if __name__ == '__main__':
