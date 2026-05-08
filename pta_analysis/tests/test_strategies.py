@@ -15,6 +15,7 @@ from strategies.moving_average_strategy import MovingAverageStrategy
 from strategies.kdj_strategy import KDJStrategy
 from strategies.breakout_strategy import BreakoutStrategy
 from strategies.rsi_strategy import RSIStrategy
+from strategies.bollinger_strategy import BollingerStrategy
 
 
 class TestMACDStrategy:
@@ -314,6 +315,100 @@ class TestRSIStrategy:
         # 检查状态是否已重置
         assert len(strategy.price_history) == 0
         assert len(strategy.rsi_history) == 0
+        assert len(strategy.signals) == 0
+
+
+class TestBollingerStrategy:
+    """布林带策略测试"""
+    
+    def test_bollinger_strategy_init(self):
+        """测试布林带策略初始化"""
+        strategy = BollingerStrategy(
+            period=20,
+            std_dev=2.0,
+            stop_loss_pct=0.02,
+            take_profit_pct=0.04
+        )
+        assert strategy.period == 20
+        assert strategy.std_dev == 2.0
+        assert strategy.stop_loss_pct == 0.02
+        assert strategy.take_profit_pct == 0.04
+    
+    def test_bollinger_strategy_no_signal_short_data(self):
+        """测试数据不足时无信号"""
+        strategy = BollingerStrategy()
+        data = [{'close': 5000}]
+        signal = strategy.on_bar(data[0])
+        assert signal is None
+    
+    def test_bollinger_strategy_lower_band_buy(self):
+        """测试跌破下轨买入信号"""
+        strategy = BollingerStrategy()
+        
+        # 创建波动数据，然后价格快速下跌跌破下轨
+        data = []
+        # 先创建一些波动数据建立布林带
+        base_price = 5000
+        for i in range(20):
+            data.append({'close': base_price + (i % 5 - 2) * 20, 'timestamp': f'2024-01-01 09:{i:02d}'})
+        
+        # 然后价格快速下跌跌破下轨
+        for i in range(5):
+            base_price = base_price - 80
+            data.append({'close': base_price, 'timestamp': f'2024-01-01 09:{20+i:02d}'})
+        
+        signals = []
+        for bar in data:
+            signal = strategy.on_bar(bar)
+            if signal:
+                signals.append(signal)
+        
+        # 应该产生买入信号
+        buy_signals = [s for s in signals if s.signal_type == 'buy']
+        assert len(buy_signals) >= 1
+    
+    def test_bollinger_strategy_upper_band_sell(self):
+        """测试突破上轨卖出信号"""
+        strategy = BollingerStrategy()
+        
+        # 创建波动数据，然后价格快速上涨突破上轨
+        data = []
+        # 先创建一些波动数据建立布林带
+        base_price = 5000
+        for i in range(20):
+            data.append({'close': base_price + (i % 5 - 2) * 20, 'timestamp': f'2024-01-01 09:{i:02d}'})
+        
+        # 然后价格快速上涨突破上轨
+        for i in range(5):
+            base_price = base_price + 80
+            data.append({'close': base_price, 'timestamp': f'2024-01-01 09:{20+i:02d}'})
+        
+        signals = []
+        for bar in data:
+            signal = strategy.on_bar(bar)
+            if signal:
+                signals.append(signal)
+        
+        # 应该产生卖出信号
+        sell_signals = [s for s in signals if s.signal_type == 'sell']
+        assert len(sell_signals) >= 1
+    
+    def test_bollinger_strategy_reset(self):
+        """测试策略重置"""
+        strategy = BollingerStrategy()
+        
+        # 添加一些数据
+        for i in range(30):
+            strategy.on_bar({'close': 5000 + i * 10, 'timestamp': f'2024-01-01 09:{i:02d}'})
+        
+        # 重置
+        strategy.reset()
+        
+        # 检查状态是否已重置
+        assert len(strategy.price_history) == 0
+        assert len(strategy.middle_band_history) == 0
+        assert len(strategy.upper_band_history) == 0
+        assert len(strategy.lower_band_history) == 0
         assert len(strategy.signals) == 0
 
 

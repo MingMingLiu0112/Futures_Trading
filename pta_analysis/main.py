@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from risk_control import PositionManager, MoneyManager
 from backtest import BacktestEngine
-from strategies import MACDStrategy, MovingAverageStrategy, KDJStrategy, BreakoutStrategy
+from strategies import MACDStrategy, MovingAverageStrategy, KDJStrategy, BreakoutStrategy, RSIStrategy, BollingerStrategy
 from data import DataCollector, DataProcessor, DataStore
 from data.data_collector import SimulatedDataSource
 from execution import OrderManager, TradeExecutor, PositionTracker
@@ -87,7 +87,9 @@ class TradingSystem:
             'macd': MACDStrategy(),
             'ma': MovingAverageStrategy(),
             'kdj': KDJStrategy(),
-            'breakout': BreakoutStrategy()
+            'breakout': BreakoutStrategy(),
+            'rsi': RSIStrategy(),
+            'bollinger': BollingerStrategy()
         }
         
         strategy = strategies.get(strategy_name.lower())

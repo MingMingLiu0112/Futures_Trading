@@ -10,11 +10,13 @@ from .moving_average_strategy import MovingAverageStrategy
 from .kdj_strategy import KDJStrategy
 from .breakout_strategy import BreakoutStrategy
 from .rsi_strategy import RSIStrategy
+from .bollinger_strategy import BollingerStrategy
 
 __all__ = [
     'MACDStrategy',
     'MovingAverageStrategy',
     'KDJStrategy',
     'BreakoutStrategy',
-    'RSIStrategy'
+    'RSIStrategy',
+    'BollingerStrategy'
 ]
