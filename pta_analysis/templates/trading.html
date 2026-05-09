@@ -1,0 +1,1731 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PTA交易系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        body { background: #0f172a; color: #e2e8f0; font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+        .card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; }
+        .btn { padding: 6px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; transition: all 0.2s; }
+        .btn-primary { background: #3b82f6; color: white; }
+        .btn-primary:hover { background: #2563eb; }
+        .btn-success { background: #22c55e; color: white; }
+        .btn-danger { background: #ef4444; color: white; }
+        .btn-warning { background: #f59e0b; color: white; }
+        .btn-outline { background: transparent; border: 1px solid #475569; color: #94a3b8; }
+        .btn-outline:hover { border-color: #3b82f6; color: #3b82f6; }
+        .stat-card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 12px 16px; text-align: center; }
+        .stat-label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+        .stat-value { font-size: 22px; font-weight: 700; margin-top: 4px; }
+        .positive { color: #22c55e; }
+        .negative { color: #ef4444; }
+        .neutral { color: #94a3b8; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { text-align: left; padding: 8px 12px; color: #64748b; font-weight: 500; border-bottom: 1px solid #334155; font-size: 11px; text-transform: uppercase; }
+        td { padding: 10px 12px; border-bottom: 1px solid #1e293b; }
+        tr:hover td { background: #1e293b; }
+        .tab { padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; color: #64748b; transition: all 0.2s; }
+        .tab.active { background: #334155; color: #e2e8f0; }
+        .tab:hover:not(.active) { color: #94a3b8; }
+        select, input { background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #e2e8f0; padding: 6px 12px; font-size: 13px; outline: none; }
+        select:focus, input:focus { border-color: #3b82f6; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+        .badge-green { background: #14532d; color: #86efac; }
+        .badge-red { background: #7f1d1d; color: #fca5a5; }
+        .badge-yellow { background: #713f12; color: #fcd34d; }
+        .nav-link { padding: 8px 16px; border-radius: 6px; color: #94a3b8; font-size: 13px; transition: all 0.2s; }
+        .nav-link:hover, .nav-link.active { background: #1e293b; color: #3b82f6; }
+        #equityChart { width: 100%; height: 220px; }
+        #tradeChart { width: 100%; height: 300px; }
+        .loading { display: inline-block; width: 14px; height: 14px; border: 2px solid #3b82f6; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+<div class="max-w-7xl mx-auto p-4">
+
+    <!-- 顶部导航 -->
+    <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2">
+            <span class="text-lg font-bold text-blue-400">📊 PTA交易系统</span>
+            <span class="text-xs text-gray-500">v2.0</span>
+        </div>
+        <div class="flex gap-2">
+            <a href="/" class="nav-link">K线图</a>
+            <a href="/options/chain" class="nav-link">期权链</a>
+            <span class="nav-link active">交易系统</span>
+        </div>
+    </div>
+
+    <!-- 账户概览 -->
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4" id="accountStats">
+        <div class="stat-card">
+            <div class="stat-label">账户权益</div>
+            <div class="stat-value" id="statBalance">--</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">总交易次数</div>
+            <div class="stat-value neutral" id="statTrades">--</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">胜率</div>
+            <div class="stat-value" id="statWinRate">--</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">最大回撤</div>
+            <div class="stat-value negative" id="statDrawdown">--</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">夏普比率</div>
+            <div class="stat-value" id="statSharpe">--</div>
+        </div>
+    </div>
+
+    <!-- Tab 切换 -->
+    <div class="flex gap-2 mb-4 border-b border-slate-700 pb-2">
+        <div class="tab active" data-tab="backtest">回测</div>
+        <div class="tab" data-tab="optimize">参数优化</div>
+        <div class="tab" data-tab="compare">策略对比</div>
+        <div class="tab" data-tab="signals">实盘信号</div>
+        <div class="tab" data-tab="orders">订单管理</div>
+        <div class="tab" data-tab="risk">风控面板</div>
+    </div>
+
+    <!-- ==================== 回测 Tab ==================== -->
+    <div id="tab-backtest" class="tab-content">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+            <!-- 策略参数 -->
+            <div class="card p-4">
+                <h3 class="text-sm font-semibold text-slate-300 mb-3">策略参数</h3>
+                <div class="space-y-3">
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">品种</label>
+                        <select id="btSymbol" class="w-full">
+                            <option value="TA609">TA609 (PTA主力)</option>
+                            <option value="TA0">TA0 (PTA当月)</option>
+                            <option value="TA607">TA607</option>
+                            <option value="TA610">TA610</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">策略</label>
+                        <select id="btStrategy" class="w-full">
+                            <option value="macd">MACD 策略</option>
+                            <option value="ma">均线策略</option>
+                            <option value="kdj">KDJ 策略</option>
+                            <option value="rsi">RSI 策略</option>
+                            <option value="bollinger">布林带策略</option>
+                            <option value="atr">ATR 策略</option>
+                            <option value="breakout">突破策略</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">K线周期</label>
+                        <select id="btPeriod" class="w-full">
+                            <option value="1min">1分钟</option>
+                            <option value="5min" selected>5分钟</option>
+                            <option value="15min">15分钟</option>
+                            <option value="30min">30分钟</option>
+                            <option value="60min">1小时</option>
+                        </select>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="text-xs text-slate-400 block mb-1">起始日期</label>
+                            <input type="date" id="btStartDate" class="w-full text-xs" placeholder="不填则不限">
+                        </div>
+                        <div>
+                            <label class="text-xs text-slate-400 block mb-1">结束日期</label>
+                            <input type="date" id="btEndDate" class="w-full text-xs" placeholder="不填则不限">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">K线数量</label>
+                        <input type="number" id="btCount" value="500" min="100" max="2000" class="w-full">
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">数据源</label>
+                        <select id="btSource" class="w-full">
+                            <option value="auto">自动（优先TqSdk）</option>
+                            <option value="tqsdk">TqSdk (实时/历史)</option>
+                            <option value="akshare">Akshare (免费数据)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">风险敞口 (%)</label>
+                        <input type="number" id="btRisk" value="1" min="0.1" max="10" step="0.1" class="w-full">
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">止盈 (%)</label>
+                        <input type="number" id="btTp" value="2" min="0.1" max="20" step="0.1" class="w-full">
+                    </div>
+                    <button class="btn btn-primary w-full mt-2" id="btnRunBacktest">
+                        ▶ 运行回测
+                    </button>
+                    <button class="btn btn-outline w-full mt-2" onclick="openStrategyImport()">
+                        📤 导入自定义策略
+                    </button>
+                </div>
+            </div>
+
+            <!-- 回测结果 -->
+            <div class="lg:col-span-2">
+                <div class="card p-4">
+                    <h3 class="text-sm font-semibold text-slate-300 mb-3">回测结果</h3>
+                    <div id="btResults" class="text-slate-400 text-sm">
+                        点击「运行回测」开始分析...
+                    </div>
+                </div>
+                <!-- 权益曲线 -->
+                <div class="card p-4 mt-3">
+                    <h3 class="text-sm font-semibold text-slate-300 mb-3">权益曲线</h3>
+                    <div id="equityChart"></div>
+                </div>
+                <!-- 信号图表 -->
+                <div class="card p-4 mt-3" id="signalChartCard" style="display:none;">
+                    <h3 class="text-sm font-semibold text-slate-300 mb-3">信号图表 <span class="text-xs text-slate-500">(K线 + 买卖点标注)</span></h3>
+                    <div id="signalChart" style="width:100%;height:320px;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 交易列表 -->
+        <div class="card p-4">
+            <h3 class="text-sm font-semibold text-slate-300 mb-3">交易明细</h3>
+            <div class="overflow-x-auto">
+                <table id="btTradesTable">
+                    <thead>
+                        <tr>
+                            <th>方向</th><th>入场时间</th><th>入场价格</th><th>出场时间</th><th>出场价格</th><th>数量</th><th>盈亏</th><th>盈亏%</th>
+                        </tr>
+                    </thead>
+                    <tbody id="btTradesBody">
+                        <tr><td colspan="8" class="text-center text-slate-500 py-4">暂无交易记录</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== 参数优化 Tab ==================== -->
+    <div id="tab-optimize" class="tab-content hidden">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+            <!-- 优化参数设置 -->
+            <div class="card p-4">
+                <h3 class="text-sm font-semibold text-slate-300 mb-3">参数优化设置</h3>
+                <div class="space-y-3">
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">品种</label>
+                        <select id="optSymbol" class="w-full">
+                            <option value="TA609">TA609 (PTA主力)</option>
+                            <option value="TA0">TA0 (PTA当月)</option>
+                            <option value="TA607">TA607</option>
+                            <option value="TA610">TA610</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">策略</label>
+                        <select id="optStrategy" class="w-full">
+                            <option value="macd">MACD 策略</option>
+                            <option value="ma">均线策略</option>
+                            <option value="kdj">KDJ 策略</option>
+                            <option value="rsi">RSI 策略</option>
+                            <option value="bollinger">布林带策略</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">K线周期</label>
+                        <select id="optPeriod" class="w-full">
+                            <option value="5min" selected>5分钟</option>
+                            <option value="15min">15分钟</option>
+                            <option value="30min">30分钟</option>
+                            <option value="60min">1小时</option>
+                        </select>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="text-xs text-slate-400 block mb-1">起始日期</label>
+                            <input type="date" id="optStartDate" class="w-full text-xs">
+                        </div>
+                        <div>
+                            <label class="text-xs text-slate-400 block mb-1">结束日期</label>
+                            <input type="date" id="optEndDate" class="w-full text-xs">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">K线数量</label>
+                        <input type="number" id="optCount" value="500" min="200" max="2000" class="w-full">
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">数据源</label>
+                        <select id="optSource" class="w-full">
+                            <option value="auto">自动（优先TqSdk）</option>
+                            <option value="tqsdk">TqSdk</option>
+                            <option value="akshare">Akshare</option>
+                        </select>
+                    </div>
+                    <div class="border-t border-slate-700 pt-3">
+                        <label class="text-xs text-slate-400 block mb-2">参数网格定义 (JSON)</label>
+                        <textarea id="optParamGrid" rows="6" class="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs font-mono" placeholder='{"fast_period": [12, 26], "slow_period": [9, 12]}'>{"fast_period": [12, 26], "signal_period": [9]}</textarea>
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">优化目标</label>
+                        <select id="optObjective" class="w-full">
+                            <option value="total_return">总收益率</option>
+                            <option value="sharpe_ratio">夏普比率</option>
+                            <option value="profit_factor">盈亏比</option>
+                            <option value="max_drawdown">最小回撤</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">优化模式</label>
+                        <select id="optMode" class="w-full">
+                            <option value="max">最大化</option>
+                            <option value="min">最小化</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-primary w-full mt-2" id="btnRunOptimize">
+                        🔍 开始参数优化
+                    </button>
+                </div>
+            </div>
+
+            <!-- 优化结果 -->
+            <div class="lg:col-span-2">
+                <div class="card p-4">
+                    <h3 class="text-sm font-semibold text-slate-300 mb-3">优化结果</h3>
+                    <div id="optResults" class="text-slate-400 text-sm">
+                        设置参数后点击「开始参数优化」...
+                    </div>
+                </div>
+                <!-- 最佳参数 -->
+                <div class="card p-4 mt-3">
+                    <h3 class="text-sm font-semibold text-slate-300 mb-3">Top 5 参数组合</h3>
+                    <div id="optTopParams" class="text-sm"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== 策略对比 Tab ==================== -->
+    <div id="tab-compare" class="tab-content hidden">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+            <!-- 对比设置 -->
+            <div class="card p-4">
+                <h3 class="text-sm font-semibold text-slate-300 mb-3">策略对比设置</h3>
+                <div class="space-y-3">
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">品种</label>
+                        <select id="cmpSymbol" class="w-full">
+                            <option value="TA609">TA609 (PTA主力)</option>
+                            <option value="TA0">TA0 (PTA当月)</option>
+                            <option value="TA607">TA607</option>
+                            <option value="TA610">TA610</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">K线周期</label>
+                        <select id="cmpPeriod" class="w-full">
+                            <option value="5min" selected>5分钟</option>
+                            <option value="15min">15分钟</option>
+                            <option value="30min">30分钟</option>
+                            <option value="60min">1小时</option>
+                        </select>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="text-xs text-slate-400 block mb-1">起始日期</label>
+                            <input type="date" id="cmpStartDate" class="w-full text-xs">
+                        </div>
+                        <div>
+                            <label class="text-xs text-slate-400 block mb-1">结束日期</label>
+                            <input type="date" id="cmpEndDate" class="w-full text-xs">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">K线数量</label>
+                        <input type="number" id="cmpCount" value="500" min="200" max="2000" class="w-full">
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">数据源</label>
+                        <select id="cmpSource" class="w-full">
+                            <option value="auto">自动（优先TqSdk）</option>
+                            <option value="tqsdk">TqSdk</option>
+                            <option value="akshare">Akshare</option>
+                        </select>
+                    </div>
+                    <div class="border-t border-slate-700 pt-3">
+                        <label class="text-xs text-slate-400 block mb-2">选择策略 (至少2个)</label>
+                        <div class="space-y-1 text-xs">
+                            <label class="flex items-center gap-2"><input type="checkbox" class="cmp-strategy" value="macd" checked> MACD</label>
+                            <label class="flex items-center gap-2"><input type="checkbox" class="cmp-strategy" value="ma" checked> 均线</label>
+                            <label class="flex items-center gap-2"><input type="checkbox" class="cmp-strategy" value="kdj"> KDJ</label>
+                            <label class="flex items-center gap-2"><input type="checkbox" class="cmp-strategy" value="rsi"> RSI</label>
+                            <label class="flex items-center gap-2"><input type="checkbox" class="cmp-strategy" value="bollinger"> 布林带</label>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary w-full mt-2" id="btnRunCompare">
+                        📊 运行策略对比
+                    </button>
+                    <button class="btn btn-outline w-full mt-2" id="btnExportReport">
+                        📥 导出报告
+                    </button>
+                </div>
+            </div>
+
+            <!-- 对比结果 -->
+            <div class="lg:col-span-2">
+                <div class="card p-4">
+                    <h3 class="text-sm font-semibold text-slate-300 mb-3">对比结果</h3>
+                    <div id="cmpResults" class="text-slate-400 text-sm">
+                        选择策略后点击「运行策略对比」...
+                    </div>
+                </div>
+                <!-- 对比表格 -->
+                <div class="card p-4 mt-3">
+                    <h3 class="text-sm font-semibold text-slate-300 mb-3">指标对比表</h3>
+                    <div id="cmpTable" class="overflow-x-auto"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== 实盘信号 Tab ==================== -->
+    <div id="tab-signals" class="tab-content hidden">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <!-- 当前持仓 -->
+            <div class="card p-4">
+                <h3 class="text-sm font-semibold text-slate-300 mb-3">当前持仓</h3>
+                <div id="positionsPanel" class="text-slate-400 text-sm">加载中...</div>
+            </div>
+            <!-- 账户状态 -->
+            <div class="card p-4">
+                <h3 class="text-sm font-semibold text-slate-300 mb-3">账户状态</h3>
+                <div id="accountPanel" class="text-slate-400 text-sm">加载中...</div>
+            </div>
+        </div>
+        <!-- 实时K线 + 信号 -->
+        <div class="card p-4 mt-4">
+            <h3 class="text-sm font-semibold text-slate-300 mb-3">实时行情 &amp; 信号</h3>
+            <div class="flex gap-4 mb-3">
+                <select id="sigSymbol" class="w-32">
+                    <option value="TA609">TA609</option>
+                    <option value="TA607">TA607</option>
+                    <option value="TA610">TA610</option>
+                </select>
+                <select id="sigPeriod" class="w-28">
+                    <option value="1min">1分钟</option>
+                    <option value="5min" selected>5分钟</option>
+                    <option value="15min">15分钟</option>
+                    <option value="60min">1小时</option>
+                </select>
+                <select id="sigStrategy" class="w-36">
+                    <option value="macd">MACD</option>
+                    <option value="ma">均线</option>
+                    <option value="kdj">KDJ</option>
+                    <option value="rsi">RSI</option>
+                    <option value="bollinger">布林带</option>
+                </select>
+                <button class="btn btn-primary" id="btnCalcSignal">计算信号</button>
+            </div>
+            <div id="signalResult" class="text-sm text-slate-400">选择参数后点击「计算信号」...</div>
+        </div>
+    </div>
+
+    <!-- ==================== 订单管理 Tab ==================== -->
+    <div id="tab-orders" class="tab-content hidden">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+            <!-- 下单面板 -->
+            <div class="card p-4">
+                <h3 class="text-sm font-semibold text-slate-300 mb-3">下单</h3>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">合约</label>
+                        <select id="orderSymbol" class="w-full">
+                            <option value="TA609">TA609</option>
+                            <option value="TA607">TA607</option>
+                            <option value="TA610">TA610</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">方向</label>
+                        <select id="orderSide" class="w-full">
+                            <option value="buy">买入（做多）</option>
+                            <option value="sell">卖出（做空）</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">数量（手）</label>
+                        <input type="number" id="orderQty" value="1" min="1" max="100" class="w-full">
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">订单类型</label>
+                        <select id="orderType" class="w-full">
+                            <option value="market">市价单</option>
+                            <option value="limit">限价单</option>
+                            <option value="stop">止损单</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">价格（限价单用）</label>
+                        <input type="number" id="orderPrice" placeholder="市价单不填" class="w-full">
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">止损价</label>
+                        <input type="number" id="orderStop" placeholder="可选" class="w-full">
+                    </div>
+                </div>
+                <div class="flex gap-2 mt-3">
+                    <button class="btn btn-success flex-1" id="btnSubmitOrder">提交订单</button>
+                    <button class="btn btn-danger flex-1" id="btnClosePosition">平仓</button>
+                </div>
+            </div>
+
+            <!-- 活跃订单 -->
+            <div class="card p-4">
+                <h3 class="text-sm font-semibold text-slate-300 mb-3">活跃订单</h3>
+                <div id="activeOrdersPanel" class="text-slate-400 text-sm">加载中...</div>
+            </div>
+        </div>
+        <!-- 历史订单 -->
+        <div class="card p-4">
+            <h3 class="text-sm font-semibold text-slate-300 mb-3">历史订单</h3>
+            <div class="overflow-x-auto">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>订单ID</th><th>时间</th><th>合约</th><th>方向</th><th>类型</th><th>数量</th><th>价格</th><th>状态</th><th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ordersHistoryBody">
+                        <tr><td colspan="9" class="text-center text-slate-500 py-4">暂无历史订单</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== 风控面板 Tab ==================== -->
+    <div id="tab-risk" class="tab-content hidden">
+        <!-- 核心指标 -->
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+            <div class="stat-card">
+                <div class="stat-label">当前权益</div>
+                <div class="stat-value text-sm" id="riskBalance">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">初始资金</div>
+                <div class="stat-value text-sm neutral" id="riskInitial">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">风险度</div>
+                <div class="stat-value text-sm" id="riskDegree">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">持仓市值</div>
+                <div class="stat-value text-sm" id="riskPosValue">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">最大回撤</div>
+                <div class="stat-value text-sm negative" id="riskMaxDd">--</div>
+            </div>
+        </div>
+
+        <!-- 每日统计 + 告警 + 持仓 -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+            <!-- 每日统计 -->
+            <div class="card p-4">
+                <h3 class="text-sm font-semibold text-slate-300 mb-3">📅 今日统计</h3>
+                <div class="space-y-3">
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-slate-400">今日盈亏</span>
+                        <span class="text-sm font-bold" id="riskTodayPnl">--</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-slate-400">交易次数</span>
+                        <span class="text-sm font-bold" id="riskTodayTrades">--</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-slate-400">盈利次数</span>
+                        <span class="text-sm font-bold text-green-400" id="riskTodayWins">--</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-slate-400">亏损次数</span>
+                        <span class="text-sm font-bold text-red-400" id="riskTodayLosses">--</span>
+                    </div>
+                    <div class="border-t border-slate-700 pt-2 mt-2">
+                        <div class="flex justify-between items-center">
+                            <span class="text-sm text-slate-400">夏普比率</span>
+                            <span class="text-sm font-bold" id="riskSharpe">--</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 风险告警 -->
+            <div class="card p-4">
+                <h3 class="text-sm font-semibold text-slate-300 mb-3">🚨 风险告警</h3>
+                <div id="riskAlerts" class="space-y-2 text-sm max-h-48 overflow-y-auto">
+                    <div class="text-slate-500">暂无告警记录</div>
+                </div>
+            </div>
+
+            <!-- 当前持仓 -->
+            <div class="card p-4">
+                <h3 class="text-sm font-semibold text-slate-300 mb-3">💼 当前持仓</h3>
+                <div id="riskPositions" class="space-y-2 text-sm max-h-48 overflow-y-auto">
+                    <div class="text-slate-500">暂无持仓</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 风控规则配置 -->
+        <div class="card p-4">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-semibold text-slate-300">⚙️ 风控规则配置</h3>
+                <button class="btn btn-outline text-xs" id="btnSaveRiskRules">保存规则</button>
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <div class="p-3 bg-slate-800 rounded-lg">
+                    <div class="text-xs text-slate-400 mb-1">最大回撤限制</div>
+                    <div class="flex items-center gap-1">
+                        <input type="number" id="riskMaxDdInput" value="10" class="w-16 bg-slate-700 border-0 text-center text-sm" step="0.5"> %
+                    </div>
+                    <div class="text-xs text-slate-500 mt-1">超限禁止开仓</div>
+                </div>
+                <div class="p-3 bg-slate-800 rounded-lg">
+                    <div class="text-xs text-slate-400 mb-1">每日最大亏损</div>
+                    <div class="flex items-center gap-1">
+                        <input type="number" id="riskMaxLossInput" value="3" class="w-16 bg-slate-700 border-0 text-center text-sm" step="0.1"> %
+                    </div>
+                    <div class="text-xs text-slate-500 mt-1">超限触发告警</div>
+                </div>
+                <div class="p-3 bg-slate-800 rounded-lg">
+                    <div class="text-xs text-slate-400 mb-1">每日最大交易</div>
+                    <div class="flex items-center gap-1">
+                        <input type="number" id="riskMaxTradesInput" value="10" class="w-16 bg-slate-700 border-0 text-center text-sm">
+                    </div>
+                    <div class="text-xs text-slate-500 mt-1">防止过度交易</div>
+                </div>
+                <div class="p-3 bg-slate-800 rounded-lg">
+                    <div class="text-xs text-slate-400 mb-1">最大持仓市值</div>
+                    <div class="flex items-center gap-1">
+                        <input type="number" id="riskMaxPosValueInput" value="30" class="w-16 bg-slate-700 border-0 text-center text-sm"> %
+                    </div>
+                    <div class="text-xs text-slate-500 mt-1">占账户比例</div>
+                </div>
+                <div class="p-3 bg-slate-800 rounded-lg">
+                    <div class="text-xs text-slate-400 mb-1">单合约最大手数</div>
+                    <div class="flex items-center gap-1">
+                        <input type="number" id="riskMaxHandsInput" value="5" class="w-16 bg-slate-700 border-0 text-center text-sm"> 手
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+// ========== 全局状态 ==========
+let equityChart = null;
+let lastEquityData = [];
+let allStrategies = [];  // 策略列表（内置+用户）
+
+// ========== Tab 切换 ==========
+document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+        const target = document.getElementById('tab-' + tab.dataset.tab);
+        if (target) target.classList.remove('hidden');
+        // 风控Tab切换时刷新
+        if (tab.dataset.tab === 'risk') loadRiskPanel();
+        // 切换回测Tab时重绘ECharts图表（容器从hidden恢复）
+        if (tab.dataset.tab === 'backtest') {
+            setTimeout(() => { if (equityChart) equityChart.resize(); }, 50);
+        }
+    });
+});
+
+// ========== API 工具 ==========
+async function api(url, opts = {}) {
+    try {
+        const r = await fetch(url, opts);
+        const d = await r.json();
+        return d;
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+}
+
+// ========== 加载账户数据 ==========
+async function loadAccount() {
+    const d = await api('/api/trading/account');
+    if (!d.success) return;
+    const a = d;
+    document.getElementById('statBalance').textContent = a.balance?.toLocaleString() ?? '--';
+    document.getElementById('statBalance').className = 'stat-value ' + (a.balance >= a.highest_balance ? 'positive' : 'negative');
+    document.getElementById('statTrades').textContent = a.total_trades ?? '--';
+    document.getElementById('statWinRate').textContent = (a.win_rate ?? '--') + '%';
+    document.getElementById('statDrawdown').textContent = ((a.current_drawdown ?? 0) * 100).toFixed(2) + '%';
+    document.getElementById('statSharpe').textContent = (a.sharpe_ratio ?? '--');
+}
+
+// ========== 加载风控面板 ==========
+async function loadRiskPanel() {
+    // 加载风控状态
+    const d = await api('/api/risk/account/status');
+    if (!d.success) return;
+
+    // 权益
+    const bal = d.balance ?? 0;
+    const init = 1_000_000;
+    document.getElementById('riskBalance').textContent = bal >= 0 ? bal.toLocaleString() : '--';
+    document.getElementById('riskInitial').textContent = init.toLocaleString();
+
+    // 风险度
+    const rd = (d.risk_degree ?? 0) * 100;
+    const rdEl = document.getElementById('riskDegree');
+    rdEl.textContent = rd.toFixed(1) + '%';
+    rdEl.className = 'stat-value text-sm ' + (rd > 80 ? 'negative' : rd > 50 ? 'neutral' : 'positive');
+
+    // 持仓市值
+    document.getElementById('riskPosValue').textContent = (d.total_position_value ?? 0).toLocaleString();
+
+    // 最大回撤
+    const dd = (d.max_drawdown ?? 0) * 100;
+    document.getElementById('riskMaxDd').textContent = dd.toFixed(2) + '%';
+
+    // 今日统计
+    const today = d.today ?? {};
+    const tp = today.pnl ?? 0;
+    const tpEl = document.getElementById('riskTodayPnl');
+    tpEl.textContent = (tp >= 0 ? '+' : '') + tp.toLocaleString();
+    tpEl.className = 'text-sm font-bold ' + (tp >= 0 ? 'text-green-400' : 'text-red-400');
+    document.getElementById('riskTodayTrades').textContent = today.trades ?? 0;
+    document.getElementById('riskTodayWins').textContent = today.wins ?? 0;
+    document.getElementById('riskTodayLosses').textContent = today.losses ?? 0;
+
+    // 夏普比率
+    const sh = d.trade_statistics?.sharpe_ratio ?? 0;
+    document.getElementById('riskSharpe').textContent = sh.toFixed(2);
+
+    // 告警
+    const alertsEl = document.getElementById('riskAlerts');
+    const alerts = d.alerts ?? [];
+    if (alerts.length === 0) {
+        alertsEl.innerHTML = '<div class="text-slate-500">暂无告警记录 ✓</div>';
+    } else {
+        alertsEl.innerHTML = alerts.map(a => {
+            const cls = a.level === 'danger' ? 'text-red-400 bg-red-900/20 border border-red-800' : 'text-yellow-400 bg-yellow-900/20 border border-yellow-800';
+            return `<div class="p-2 rounded text-xs ${cls}">${a.msg}</div>`;
+        }).join('');
+    }
+
+    // 持仓
+    const posEl = document.getElementById('riskPositions');
+    const positions = d.positions ?? [];
+    if (positions.length === 0) {
+        posEl.innerHTML = '<div class="text-slate-500">暂无持仓 ✓</div>';
+    } else {
+        posEl.innerHTML = positions.map(p => {
+            const pnl = p.pnl ?? 0;
+            const dir = p.direction === 'long' ? '多' : '空';
+            const dirColor = p.direction === 'long' ? 'text-green-400' : 'text-red-400';
+            const pnlColor = pnl >= 0 ? 'text-green-400' : 'text-red-400';
+            return `<div class="flex justify-between items-center p-2 bg-slate-800 rounded">
+                <span><span class="${dirColor}">${dir}</span> ${p.symbol}</div>
+                <span class="${pnlColor}">${pnl >= 0 ? '+' : ''}${pnl.toFixed(0)}</span>
+            </div>`;
+        }).join('');
+    }
+
+    // 规则配置（从独立接口加载并回填）
+    loadRiskRules();
+}
+
+// ========== 加载风控规则（回填配置表单） ==========
+async function loadRiskRules() {
+    const d = await api('/api/risk/rules');
+    if (!d.success) return;
+    const rules = d.rules ?? {};
+    document.getElementById('riskMaxDdInput').value = (rules.max_drawdown ?? 0.10) * 100;
+    document.getElementById('riskMaxLossInput').value = (rules.max_daily_loss ?? 0.03) * 100;
+    document.getElementById('riskMaxTradesInput').value = rules.max_daily_trades ?? 10;
+    document.getElementById('riskMaxPosValueInput').value = (rules.max_position_value ?? 0.3) * 100;
+    document.getElementById('riskMaxHandsInput').value = rules.max_position_hands ?? 5;
+}
+
+// ========== 保存风控规则 ==========
+document.getElementById('btnSaveRiskRules')?.addEventListener('click', async () => {
+    const rules = {
+        max_drawdown: parseFloat(document.getElementById('riskMaxDdInput').value) / 100,
+        max_daily_loss: parseFloat(document.getElementById('riskMaxLossInput').value) / 100,
+        max_daily_trades: parseInt(document.getElementById('riskMaxTradesInput').value),
+        max_position_value: parseFloat(document.getElementById('riskMaxPosValueInput').value) / 100,
+        max_position_hands: parseInt(document.getElementById('riskMaxHandsInput').value)
+    };
+    const btn = document.getElementById('btnSaveRiskRules');
+    btn.disabled = true;
+    btn.textContent = '保存中...';
+    const d = await api('/api/risk/rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(rules)
+    });
+    btn.disabled = false;
+    btn.textContent = '保存规则';
+    alert(d.success ? '风控规则已保存' : '保存失败: ' + (d.error || JSON.stringify(d)));
+    if (d.success) loadRiskPanel();
+});
+
+// ========== 加载持仓 ==========
+async function loadPositions() {
+    const d = await api('/api/trading/positions');
+    const panel = document.getElementById('positionsPanel');
+    if (!d.success || !d.positions || d.positions.length === 0) {
+        panel.innerHTML = '<div class="text-slate-500 text-sm">暂无持仓</div>';
+        return;
+    }
+    let html = '<table class="w-full text-sm"><thead><tr class="text-xs text-slate-400"><th>合约</th><th>方向</th><th>数量</th><th>盈亏</th><th>操作</th></tr></thead><tbody>';
+    d.positions.forEach(p => {
+        const pnl = p.pnl ?? 0;
+        html += `<tr class="border-t border-slate-700">
+            <td class="py-2">${p.symbol}</td>
+            <td class="${p.direction === 'long' ? 'text-green-400' : 'text-red-400'}">${p.direction === 'long' ? '多' : '空'}</td>
+            <td>${p.quantity}</td>
+            <td class="${pnl >= 0 ? 'text-green-400' : 'text-red-400'}">${pnl.toFixed(2)}</td>
+            <td><button class="btn btn-danger text-xs" onclick="closePos('${p.symbol}')">平仓</button></td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    panel.innerHTML = html;
+}
+
+// ========== 加载订单 ==========
+async function loadOrders() {
+    const d = await api('/api/trading/orders');
+    if (!d.success) return;
+
+    const activePanel = document.getElementById('activeOrdersPanel');
+    if (!d.active || d.active.length === 0) {
+        activePanel.innerHTML = '<div class="text-slate-500 text-sm">暂无活跃订单</div>';
+    } else {
+        let html = '<table class="w-full text-sm"><thead><tr class="text-xs text-slate-400"><th>ID</th><th>合约</th><th>方向</th><th>类型</th><th>数量</th><th>状态</th><th>操作</th></tr></thead><tbody>';
+        d.active.forEach(o => {
+            html += `<tr class="border-t border-slate-700">
+                <td class="py-2 text-xs">${o.order_id?.slice(0,8) ?? '--'}</td>
+                <td>${o.symbol}</td>
+                <td class="${o.side === 'BUY' ? 'text-green-400' : 'text-red-400'}">${o.side === 'BUY' ? '买入' : '卖出'}</td>
+                <td>${o.order_type}</td>
+                <td>${o.quantity}</td>
+                <td><span class="badge badge-yellow">${o.status}</span></td>
+                <td><button class="btn btn-danger text-xs" onclick="cancelOrder('${o.order_id}')">撤销</button></td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        activePanel.innerHTML = html;
+    }
+
+    const histBody = document.getElementById('ordersHistoryBody');
+    if (!d.history || d.history.length === 0) {
+        histBody.innerHTML = '<tr><td colspan="9" class="text-center text-slate-500 py-4">暂无历史订单</td></tr>';
+    } else {
+        let html = '';
+        d.history.slice(-20).reverse().forEach(o => {
+            const side = o.side === 'BUY' ? '买入' : '卖出';
+            const sideColor = o.side === 'BUY' ? 'text-green-400' : 'text-red-400';
+            const statusMap = { FILLED: 'badge-green', CANCELLED: 'badge-red', PENDING: 'badge-yellow' };
+            html += `<tr class="border-t border-slate-700">
+                <td class="py-2 text-xs">${o.order_id?.slice(0,8) ?? '--'}</td>
+                <td>${o.created_at ?? '--'}</td>
+                <td>${o.symbol}</td>
+                <td class="${sideColor}">${side}</td>
+                <td>${o.order_type}</td>
+                <td>${o.quantity}</td>
+                <td>${o.price ?? '--'}</td>
+                <td><span class="badge ${statusMap[o.status] ?? 'badge-yellow'}">${o.status}</span></td>
+                <td>--</td>
+            </tr>`;
+        });
+        histBody.innerHTML = html;
+    }
+}
+
+// ========== 加载策略列表（动态） ==========
+async function loadStrategyList() {
+    const d = await api('/api/strategy/list');
+    if (!d.success) return;
+    allStrategies = d.strategies ?? [];
+    renderStrategyDropdown();
+}
+
+// ========== 渲染策略下拉 ==========
+function renderStrategyDropdown() {
+    const sel = document.getElementById('btStrategy');
+    if (!sel) return;
+    const currentVal = sel.value;
+    sel.innerHTML = allStrategies.map(s =>
+        `<option value="${s.id}">${s.name} ${s.type === 'user' ? '[自定义]' : ''}</option>`
+    ).join('');
+    if (currentVal && allStrategies.find(s => s.id === currentVal)) {
+        sel.value = currentVal;
+    }
+}
+
+// ========== 打开策略导入弹窗 ==========
+function openStrategyImport() {
+    document.getElementById('importModal').classList.remove('hidden');
+}
+
+function closeStrategyImport() {
+    document.getElementById('importModal').classList.add('hidden');
+}
+
+// 导入Tab切换
+document.querySelectorAll('.import-tab').forEach(t => {
+    t.addEventListener('click', () => {
+        document.querySelectorAll('.import-tab').forEach(x => x.classList.remove('active'));
+        t.classList.add('active');
+        document.getElementById('importFilePanel').classList.toggle('hidden', t.dataset.tab !== 'file');
+        document.getElementById('importCodePanel').classList.toggle('hidden', t.dataset.tab !== 'code');
+    });
+});
+
+// 导入策略（文件）
+document.getElementById('btnImportFile')?.addEventListener('click', async () => {
+    const fileInput = document.getElementById('importFileInput');
+    const nameInput = document.getElementById('importNameInput');
+    const symbolInput = document.getElementById('importSymbolInput');
+    const periodInput = document.getElementById('importPeriodInput');
+    const descInput = document.getElementById('importDescInput');
+
+    if (!fileInput.files[0]) { alert('请选择策略文件'); return; }
+    if (!nameInput.value.trim()) { alert('请输入策略名称'); return; }
+
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    formData.append('name', nameInput.value.trim());
+    formData.append('symbol', symbolInput.value.trim() || 'PTA');
+    formData.append('period', periodInput.value.trim() || '5min');
+    formData.append('desc', descInput.value.trim());
+
+    const btn = document.getElementById('btnImportFile');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="loading"></span> 导入中...';
+
+    try {
+        const r = await fetch('/api/strategy/import/file', { method: 'POST', body: formData });
+        const d = await r.json();
+        if (d.success) {
+            alert(`策略 ${d.message}`);
+            closeStrategyImport();
+            await loadStrategyList();
+        } else {
+            alert('导入失败: ' + (d.error || JSON.stringify(d)));
+        }
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '确认导入';
+    }
+});
+
+// 导入策略（代码）
+document.getElementById('btnImportCode')?.addEventListener('click', async () => {
+    const codeInput = document.getElementById('importCodeInput');
+    const nameInput = document.getElementById('importCodeNameInput');
+    const symbolInput = document.getElementById('importCodeSymbolInput');
+    const periodInput = document.getElementById('importCodePeriodInput');
+    const descInput = document.getElementById('importCodeDescInput');
+
+    if (!codeInput.value.trim()) { alert('请输入策略代码'); return; }
+    if (!nameInput.value.trim()) { alert('请输入策略名称'); return; }
+
+    const btn = document.getElementById('btnImportCode');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="loading"></span> 导入中...';
+
+    try {
+        const d = await api('/api/strategy/import/code', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                code: codeInput.value.trim(),
+                name: nameInput.value.trim(),
+                symbol: symbolInput.value.trim() || 'PTA',
+                period: periodInput.value.trim() || '5min',
+                desc: descInput.value.trim()
+            })
+        });
+        if (d.success) {
+            alert(`策略 ${d.message}`);
+            closeStrategyImport();
+            codeInput.value = '';
+            await loadStrategyList();
+        } else {
+            alert('导入失败: ' + (d.error || JSON.stringify(d)));
+        }
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '确认导入';
+    }
+});
+
+// ========== 运行回测 ==========
+document.getElementById('btnRunBacktest').addEventListener('click', async () => {
+    const btn = document.getElementById('btnRunBacktest');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="loading"></span> 回测中...';
+
+    const symbol = document.getElementById('btSymbol').value;
+    const strategy = document.getElementById('btStrategy').value;
+    const period = document.getElementById('btPeriod').value;
+    const count = parseInt(document.getElementById('btCount').value);
+    const startDate = document.getElementById('btStartDate').value || null;
+    const endDate = document.getElementById('btEndDate').value || null;
+    const source = document.getElementById('btSource').value;
+
+    try {
+        const r = await api('/api/trading/backtest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                symbol,
+                strategy,
+                period,
+                count,
+                start_date: startDate,
+                end_date: endDate,
+                source,
+                params: {
+                    risk_pct: parseFloat(document.getElementById('btRisk').value) / 100,
+                    take_profit_pct: parseFloat(document.getElementById('btTp').value) / 100
+                }
+            })
+        });
+
+        if (!r.success) {
+            document.getElementById('btResults').innerHTML = `<span class="text-red-400">回测失败: ${r.error}</span>`;
+            return;
+        }
+
+        // 显示数据范围提示
+        const dataInfo = startDate || endDate
+            ? ` | 数据范围: ${startDate || '开始'} ~ ${endDate || '至今'} | 数量: ${r.data_count}`
+            : ` | 数量: ${r.data_count}`;
+
+        const res = r.result;
+        const stats = res.statistics;
+        const ret = stats.total_return ?? 0;
+        const color = ret >= 0 ? 'text-green-400' : 'text-red-400';
+        document.getElementById('btResults').innerHTML = `
+            <div class="grid grid-cols-3 md:grid-cols-6 gap-3 mb-4">
+                <div class="text-center"><div class="text-xs text-slate-400">总收益率</div><div class="text-lg font-bold ${color}">${ret.toFixed(2)}%</div></div>
+                <div class="text-center"><div class="text-xs text-slate-400">交易次数</div><div class="text-lg font-bold">${stats.total_trades}</div></div>
+                <div class="text-center"><div class="text-xs text-slate-400">胜率</div><div class="text-lg font-bold">${stats.win_rate ?? 0}%</div></div>
+                <div class="text-center"><div class="text-xs text-slate-400">盈亏比</div><div class="text-lg font-bold">${stats.profit_factor ?? 0}</div></div>
+                <div class="text-center"><div class="text-xs text-slate-400">最大回撤</div><div class="text-lg font-bold text-red-400">${stats.max_drawdown ?? 0}%</div></div>
+                <div class="text-center"><div class="text-xs text-slate-400">夏普比率</div><div class="text-lg font-bold">${stats.sharpe_ratio ?? 0}</div></div>
+            </div>
+            <div class="text-xs text-slate-400">初始资金: ${res.initial_balance?.toLocaleString()} | 最终权益: ${res.final_balance?.toLocaleString()} | 总盈亏: ${stats.total_pnl?.toLocaleString()} ${dataInfo}
+        `;
+
+        // 保存K线数据供图表使用（避免重复拉取）
+        let lastKlineData = null;
+        if (res.equity_curve && res.equity_curve.length > 0) {
+            lastEquityData = res.equity_curve;
+            drawEquityChart(res.equity_curve);
+        }
+
+        // 绘制信号图表（K线+买卖点）—— 不重复拉数据，直接用已有信息
+        if (res.trade_entries && res.trade_entries.length > 0) {
+            // 获取K线数据用于画K线图（同一批数据，不要重复拉）
+            if (!lastKlineData) {
+                const kData = await api(`/api/kline/data?symbol=${symbol}&period=${period}&count=${count}`);
+                lastKlineData = kData.data || [];
+            }
+            if (lastKlineData.length > 0) {
+                drawSignalChart(lastKlineData, res.trade_entries);
+            }
+        } else {
+            // 无交易则隐藏图表
+            const card = document.getElementById('signalChartCard');
+            if (card) card.style.display = 'none';
+        }
+
+        const tbody = document.getElementById('btTradesBody');
+        if (res.trades && res.trades.length > 0) {
+            let html = '';
+            res.trades.slice(-30).reverse().forEach(t => {
+                const pnlColor = t.pnl >= 0 ? 'text-green-400' : 'text-red-400';
+                const dirColor = t.direction === 'long' ? 'text-green-400' : 'text-red-400';
+                html += `<tr class="border-t border-slate-700">
+                    <td class="${dirColor}">${t.direction === 'long' ? '多' : '空'}</td>
+                    <td>${t.entry_time ?? '--'}</td>
+                    <td>${t.entry_price}</td>
+                    <td>${t.exit_time ?? '--'}</td>
+                    <td>${t.exit_price ?? '--'}</td>
+                    <td>${t.quantity}</td>
+                    <td class="${pnlColor}">${t.pnl?.toFixed(2) ?? '--'}</td>
+                    <td class="${pnlColor}">${t.pnl_pct?.toFixed(2) ?? '--'}%</td>
+                </tr>`;
+            });
+            tbody.innerHTML = html;
+        } else {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-slate-500 py-4">无交易记录</td></tr>';
+        }
+
+    } catch(e) {
+        document.getElementById('btResults').innerHTML = `<span class="text-red-400">错误: ${e.message}</span>`;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '▶ 运行回测';
+    }
+});
+
+// ========== 参数优化 ==========
+document.getElementById('btnRunOptimize')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btnRunOptimize');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="loading"></span> 优化中...';
+
+    const strategy = document.getElementById('optStrategy').value;
+    const period = document.getElementById('optPeriod').value;
+    const count = parseInt(document.getElementById('optCount').value);
+    const objective = document.getElementById('optObjective').value;
+    const mode = document.getElementById('optMode').value;
+    const symbol = document.getElementById('optSymbol').value;
+    const startDate = document.getElementById('optStartDate').value || null;
+    const endDate = document.getElementById('optEndDate').value || null;
+    const source = document.getElementById('optSource').value;
+
+    let paramGrid;
+    try {
+        paramGrid = JSON.parse(document.getElementById('optParamGrid').value);
+    } catch(e) {
+        document.getElementById('optResults').innerHTML = '<span class="text-red-400">参数网格JSON格式错误</span>';
+        btn.disabled = false;
+        btn.innerHTML = '🔍 开始参数优化';
+        return;
+    }
+
+    try {
+        const r = await api('/api/trading/optimize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                strategy,
+                symbol,
+                period,
+                count,
+                start_date: startDate,
+                end_date: endDate,
+                source,
+                param_grid: paramGrid,
+                objective,
+                mode,
+                top_n: 5
+            })
+        });
+
+        if (!r.success) {
+            document.getElementById('optResults').innerHTML = `<span class="text-red-400">优化失败: ${r.error}</span>`;
+            return;
+        }
+
+        const result = r.result;
+        const stats = result.best_statistics || {};
+
+        document.getElementById('optResults').innerHTML = `
+            <div class="grid grid-cols-4 md:grid-cols-6 gap-3 mb-4">
+                <div class="text-center"><div class="text-xs text-slate-400">最佳收益率</div><div class="text-lg font-bold ${stats.total_return >= 0 ? 'text-green-400' : 'text-red-400'}">${(stats.total_return || 0).toFixed(2)}%</div></div>
+                <div class="text-center"><div class="text-xs text-slate-400">夏普比率</div><div class="text-lg font-bold">${(stats.sharpe_ratio || 0).toFixed(3)}</div></div>
+                <div class="text-center"><div class="text-xs text-slate-400">盈亏比</div><div class="text-lg font-bold">${(stats.profit_factor || 0).toFixed(2)}</div></div>
+                <div class="text-center"><div class="text-xs text-slate-400">胜率</div><div class="text-lg font-bold">${(stats.win_rate || 0).toFixed(1)}%</div></div>
+                <div class="text-center"><div class="text-xs text-slate-400">最大回撤</div><div class="text-lg font-bold text-red-400">${(stats.max_drawdown || 0).toFixed(2)}</div></div>
+                <div class="text-center"><div class="text-xs text-slate-400">交易次数</div><div class="text-lg font-bold">${stats.total_trades || 0}</div></div>
+            </div>
+            <div class="text-xs text-slate-400">共测试 ${r.total_combinations} 种参数组合，Top参数: ${JSON.stringify(result.best_params)}</div>
+        `;
+
+        // 显示Top5参数
+        if (result.top_params && result.top_params.length > 0) {
+            let topHtml = '<table class="w-full text-xs"><thead><tr class="text-slate-400 border-b border-slate-700"><th class="py-1">排名</th><th>参数</th><th>收益率</th><th>夏普</th><th>盈亏比</th><th>回撤</th></tr></thead><tbody>';
+            result.top_params.forEach((params, i) => {
+                const obj = result.results ? result.results[i] : {};
+                const st = obj.statistics || {};
+                topHtml += `<tr class="border-t border-slate-700">
+                    <td class="py-1">#${i+1}</td>
+                    <td class="font-mono">${JSON.stringify(params)}</td>
+                    <td class="${st.total_return >= 0 ? 'text-green-400' : 'text-red-400'}">${(st.total_return || 0).toFixed(2)}%</td>
+                    <td>${(st.sharpe_ratio || 0).toFixed(3)}</td>
+                    <td>${(st.profit_factor || 0).toFixed(2)}</td>
+                    <td class="text-red-400">${(st.max_drawdown || 0).toFixed(2)}</td>
+                </tr>`;
+            });
+            topHtml += '</tbody></table>';
+            document.getElementById('optTopParams').innerHTML = topHtml;
+        }
+
+    } catch(e) {
+        document.getElementById('optResults').innerHTML = `<span class="text-red-400">错误: ${e.message}</span>`;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '🔍 开始参数优化';
+    }
+});
+
+// ========== 策略对比 ==========
+let lastCompareResult = null;
+
+document.getElementById('btnRunCompare')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btnRunCompare');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="loading"></span> 对比中...';
+
+    const period = document.getElementById('cmpPeriod').value;
+    const count = parseInt(document.getElementById('cmpCount').value);
+    const symbol = document.getElementById('cmpSymbol').value;
+    const startDate = document.getElementById('cmpStartDate').value || null;
+    const endDate = document.getElementById('cmpEndDate').value || null;
+    const source = document.getElementById('cmpSource').value;
+
+    // 获取选中的策略
+    const selectedStrategies = Array.from(document.querySelectorAll('.cmp-strategy:checked')).map(cb => cb.value);
+    if (selectedStrategies.length < 2) {
+        document.getElementById('cmpResults').innerHTML = '<span class="text-red-400">请至少选择2个策略</span>';
+        btn.disabled = false;
+        btn.innerHTML = '📊 运行策略对比';
+        return;
+    }
+
+    try {
+        const r = await api('/api/trading/compare', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                strategies: selectedStrategies,
+                symbol,
+                period,
+                count,
+                start_date: startDate,
+                end_date: endDate,
+                source
+            })
+        });
+
+        if (!r.success) {
+            document.getElementById('cmpResults').innerHTML = `<span class="text-red-400">对比失败: ${r.error}</span>`;
+            return;
+        }
+
+        lastCompareResult = r.result; // 保存结果用于导出
+        const comp = r.result.comparison || [];
+
+        // 显示概览
+        document.getElementById('cmpResults').innerHTML = `
+            <div class="text-sm">
+                <span class="text-slate-400">最佳收益率:</span>
+                <span class="text-green-400 font-bold">${r.result.best_by_return || 'N/A'}</span>
+                &nbsp;|&nbsp;
+                <span class="text-slate-400">最佳夏普:</span>
+                <span class="text-blue-400 font-bold">${r.result.best_by_sharpe || 'N/A'}</span>
+                &nbsp;|&nbsp;
+                <span class="text-slate-400">最小回撤:</span>
+                <span class="text-yellow-400 font-bold">${r.result.best_by_drawdown || 'N/A'}</span>
+            </div>
+        `;
+
+        // 生成对比表格
+        if (comp.length > 0) {
+            let tableHtml = '<table class="w-full text-xs"><thead><tr class="text-slate-400 border-b border-slate-700">';
+            tableHtml += '<th class="py-2 text-left">策略</th>';
+            tableHtml += '<th class="py-2 text-right">收益率</th>';
+            tableHtml += '<th class="py-2 text-right">夏普</th>';
+            tableHtml += '<th class="py-2 text-right">盈亏比</th>';
+            tableHtml += '<th class="py-2 text-right">胜率</th>';
+            tableHtml += '<th class="py-2 text-right">最大回撤</th>';
+            tableHtml += '<th class="py-2 text-right">索提诺</th>';
+            tableHtml += '<th class="py-2 text-right">卡尔玛</th>';
+            tableHtml += '<th class="py-2 text-right">交易次数</th>';
+            tableHtml += '</tr></thead><tbody>';
+
+            comp.forEach(row => {
+                const isBestReturn = row.strategy === r.result.best_by_return;
+                tableHtml += `<tr class="border-t border-slate-700 ${isBestReturn ? 'bg-slate-800' : ''}">
+                    <td class="py-1 font-bold">${row.strategy}</td>
+                    <td class="py-1 text-right ${row.total_return >= 0 ? 'text-green-400' : 'text-red-400'}">${row.total_return.toFixed(2)}%</td>
+                    <td class="py-1 text-right">${row.sharpe_ratio.toFixed(3)}</td>
+                    <td class="py-1 text-right">${row.profit_factor.toFixed(2)}</td>
+                    <td class="py-1 text-right">${row.win_rate.toFixed(1)}%</td>
+                    <td class="py-1 text-right text-red-400">${row.max_drawdown.toFixed(2)}</td>
+                    <td class="py-1 text-right">${row.sortino_ratio.toFixed(3)}</td>
+                    <td class="py-1 text-right">${row.calmar_ratio.toFixed(2)}</td>
+                    <td class="py-1 text-right">${row.total_trades}</td>
+                </tr>`;
+            });
+            tableHtml += '</tbody></table>';
+            document.getElementById('cmpTable').innerHTML = tableHtml;
+        }
+
+    } catch(e) {
+        document.getElementById('cmpResults').innerHTML = `<span class="text-red-400">错误: ${e.message}</span>`;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '📊 运行策略对比';
+    }
+});
+
+// ========== 导出报告 ==========
+document.getElementById('btnExportReport')?.addEventListener('click', async () => {
+    if (!lastCompareResult) {
+        alert('请先运行策略对比');
+        return;
+    }
+
+    const btn = document.getElementById('btnExportReport');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="loading"></span> 导出中...';
+
+    try {
+        // 构造一个用于导出的结果数据结构
+        const exportData = {
+            strategy_name: 'Multi-Strategy Comparison',
+            initial_balance: 100000,
+            final_balance: 100000,
+            statistics: {},
+            trades: [],
+            equity_curve: [],
+            comparison: lastCompareResult.comparison
+        };
+
+        const r = await api('/api/trading/export', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                format: 'excel',
+                result_data: exportData
+            })
+        });
+
+        if (r.success && r.data) {
+            // 下载文件
+            const link = document.createElement('a');
+            link.href = 'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,' + r.data;
+            link.download = r.filename || 'backtest_report.xlsx';
+            link.click();
+        } else {
+            alert('导出失败: ' + (r.error || '未知错误'));
+        }
+    } catch(e) {
+        alert('导出错误: ' + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '📥 导出报告';
+    }
+});
+
+// ========== 绘制权益曲线 ==========
+function drawEquityChart(equityData) {
+    const chartDom = document.getElementById('equityChart');
+    if (!chartDom) return;
+    if (!equityChart) equityChart = echarts.init(chartDom);
+
+    // 时间戳转可读日期（Unix秒）
+    function fmtTime(t) {
+        if (!t) return '';
+        const d = new Date(Number(t) * 1000);
+        return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    }
+
+    const times = equityData.map(d => fmtTime(d.time));
+    const balances = equityData.map(d => d.balance || 0);
+
+    // 检查是否几乎平坦（变化幅度小）
+    const minB = Math.min(...balances), maxB = Math.max(...balances);
+    const spread = maxB - minB;
+    const yMin = minB - spread * 0.1 - 10;
+    const yMax = maxB + spread * 0.1 + 10;
+
+    equityChart.setOption({
+        backgroundColor: 'transparent',
+        tooltip: {
+            trigger: 'axis',
+            formatter: function(params) {
+                const p = params[0];
+                const d = new Date(Number(p.name) * 1000);
+                return `${d.toLocaleString('zh-CN')}<br/><b>${p.value.toLocaleString()}</b>`;
+            }
+        },
+        grid: { top: 10, right: 10, bottom: 25, left: 60 },
+        xAxis: { type: 'category', data: times, axisLine: { lineStyle: { color: '#334155' } },
+                 axisLabel: { color: '#64748b', fontSize: 10, rotate: 45 }, splitLine: { show: false } },
+        yAxis: { type: 'value', min: yMin, max: yMax,
+                 axisLine: { lineStyle: { color: '#334155' } },
+                 axisLabel: { color: '#64748b', fontSize: 10, formatter: v => v.toLocaleString() },
+                 splitLine: { lineStyle: { color: '#1e293b' } } },
+        series: [{
+            type: 'line', data: balances, smooth: true, symbol: 'none',
+            lineStyle: { color: '#3b82f6', width: 2 },
+            areaStyle: {
+                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                    { offset: 0, color: 'rgba(59,130,246,0.3)' },
+                    { offset: 1, color: 'rgba(59,130,246,0)' }
+                ])
+            }
+        }]
+    });
+}
+
+// ========== 绘制信号图表（K线+买卖点标注）==========
+function drawSignalChart(klineData, tradeEntries) {
+    const chartDom = document.getElementById('signalChart');
+    const card = document.getElementById('signalChartCard');
+    if (!chartDom || !klineData || klineData.length === 0) {
+        if (card) card.style.display = 'none';
+        return;
+    }
+    if (card) card.style.display = 'block';
+
+    // 懒初始化
+    if (!window.signalChartInstance) {
+        window.signalChartInstance = echarts.init(chartDom);
+    }
+
+    // 建立 bar_index -> timestamp 的映射（用于scatter用时间戳定位）
+    const barIndexToTime = {};
+    klineData.forEach((bar, i) => {
+        barIndexToTime[i] = Number(bar.time) * 1000; // 转毫秒
+    });
+
+    // K线数据：[timestamp, open, close, low, high] — ECharts时间轴自动识别第一项
+    const ohlc = klineData.map((d, i) => [barIndexToTime[i], d.open, d.close, d.low, d.high]);
+
+    // 提取买卖点，用时间戳定位
+    const buyEntries = tradeEntries.filter(e => e.type === 'entry' && e.direction === 'long');
+    const sellEntries = tradeEntries.filter(e => e.type === 'entry' && e.direction === 'short');
+    const longExits = tradeEntries.filter(e => e.type === 'exit' && e.direction === 'long');
+    const shortExits = tradeEntries.filter(e => e.type === 'exit' && e.direction === 'short');
+
+    const buyMarks = buyEntries.map(e => ({
+        coord: [barIndexToTime[e.bar_index] || 0, e.price],
+        value: '多入场',
+        pnl: e.pnl
+    }));
+    const sellMarks = sellEntries.map(e => ({
+        coord: [barIndexToTime[e.bar_index] || 0, e.price],
+        value: '空入场',
+        pnl: e.pnl
+    }));
+    const longExitMarks = longExits.map(e => ({
+        coord: [barIndexToTime[e.bar_index] || 0, e.price],
+        value: '平多',
+        exitReason: e.exit_reason
+    }));
+    const shortExitMarks = shortExits.map(e => ({
+        coord: [barIndexToTime[e.bar_index] || 0, e.price],
+        value: '平空',
+        exitReason: e.exit_reason
+    }));
+
+    const option = {
+        backgroundColor: 'transparent',
+        tooltip: {
+            trigger: 'axis',
+            axisPointer: { type: 'cross' },
+            formatter: function(params) {
+                const candi = params.find(p => p.seriesType === 'candlestick');
+                if (!candi) return '';
+                // ECharts时间轴返回的时间格式
+                const ts = candi.data[0];
+                const d = new Date(ts);
+                const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+                const [o, c, l, h] = candi.data;
+                const color = c >= o ? '#22c55e' : '#ef4444';
+                let tip = `<b>${dateStr}</b><br/>`;
+                tip += `开: ${o} &nbsp; 高: ${h}<br/>`;
+                tip += `收: <span style="color:${color}">${c}</span> &nbsp; 低: ${l}<br/>`;
+                params.forEach(p => {
+                    if (p.marker && p.data.value) {
+                        tip += `<br/>${p.marker} <b>${p.data.value}</b>`;
+                        if (p.data.exitReason) tip += ` (${p.data.exitReason})`;
+                        if (p.data.pnl !== undefined) {
+                            const pn = p.data.pnl;
+                            tip += ` <span style="color:${pn>=0?'#22c55e':'#ef4444'}">${pn>=0?'+':''}${typeof pn === 'number' ? pn.toFixed(2) : pn}</span>`;
+                        }
+                    }
+                });
+                return tip;
+            }
+        },
+        grid: { top: 10, right: 10, bottom: 30, left: 60 },
+        xAxis: {
+            type: 'time',  // 时间轴 — ECharts自动处理夜盘断档
+            axisLine: { lineStyle: { color: '#334155' } },
+            axisLabel: { color: '#64748b', fontSize: 10, formatter: '{MM}/{dd} {HH}:{mm}' },
+            splitLine: { show: false }
+        },
+        yAxis: {
+            type: 'value', scale: true,
+            axisLine: { lineStyle: { color: '#334155' } },
+            axisLabel: { color: '#64748b', fontSize: 10 },
+            splitLine: { lineStyle: { color: '#1e293b' } }
+        },
+        dataZoom: [
+            { type: 'inside', xAxisIndex: 0, start: 70, end: 100 },
+            { type: 'slider', xAxisIndex: 0, start: 70, end: 100, height: 20, bottom: 35 }
+        ],
+        series: [
+            {
+                type: 'candlestick', name: 'K线',
+                data: ohlc,
+                itemStyle: {
+                    color: '#22c55e', color0: '#ef4444',
+                    borderColor: '#22c55e', borderColor0: '#ef4444'
+                }
+            },
+            {
+                type: 'scatter', name: '多入场',
+                symbol: 'triangle', symbolSize: 10,
+                data: buyMarks,
+                itemStyle: { color: '#22c55e', borderColor: '#fff', borderWidth: 1 },
+                label: { show: true, position: 'bottom', formatter: '{b}', color: '#22c55e', fontSize: 10 }
+            },
+            {
+                type: 'scatter', name: '空入场',
+                symbol: 'triangle', symbolSize: 10, symbolRotate: 180,
+                data: sellMarks,
+                itemStyle: { color: '#ef4444', borderColor: '#fff', borderWidth: 1 },
+                label: { show: true, position: 'top', formatter: '{b}', color: '#ef4444', fontSize: 10 }
+            },
+            {
+                type: 'scatter', name: '平多',
+                symbol: 'circle', symbolSize: 8,
+                data: longExitMarks,
+                itemStyle: { color: '#86efac', borderColor: '#fff', borderWidth: 1 },
+                label: { show: true, position: 'bottom', formatter: '{b}', color: '#86efac', fontSize: 9 }
+            },
+            {
+                type: 'scatter', name: '平空',
+                symbol: 'circle', symbolSize: 8,
+                data: shortExitMarks,
+                itemStyle: { color: '#fca5a5', borderColor: '#fff', borderWidth: 1 },
+                label: { show: true, position: 'top', formatter: '{b}', color: '#fca5a5', fontSize: 9 }
+            }
+        ]
+    };
+
+    window.signalChartInstance.setOption(option, true);
+}
+
+// ========== 计算实盘信号 ==========
+document.getElementById('btnCalcSignal')?.addEventListener('click', async () => {
+    const panel = document.getElementById('signalResult');
+    panel.innerHTML = '<span class="loading"></span> 计算中...';
+    const symbol = document.getElementById('sigSymbol').value;
+    const period = document.getElementById('sigPeriod').value;
+
+    const d = await api(`/api/kline/data?symbol=${symbol}&period=${period}&count=100`);
+    if (!d.data || d.data.length < 50) {
+        panel.innerHTML = '<span class="text-red-400">数据不足</span>';
+        return;
+    }
+
+    const closes = d.data.map(b => b.close);
+    const ema12 = calcEMA(closes, 12);
+    const ema26 = calcEMA(closes, 26);
+    const dif = ema12 - ema26;
+    const dea = calcEMA([dif], 9);
+    const macd = 2 * (dif - dea);
+    const signal = dif > dea ? '多头' : '空头';
+    const lastPrice = closes[closes.length - 1];
+    const signalColor = signal === '多头' ? 'text-green-400' : 'text-red-400';
+
+    panel.innerHTML = `
+        <div class="flex gap-6">
+            <div><span class="text-xs text-slate-400">信号</span><div class="text-xl font-bold ${signalColor}">${signal}</div></div>
+            <div><span class="text-xs text-slate-400">最新价</span><div class="text-xl font-bold">${lastPrice}</div></div>
+            <div><span class="text-xs text-slate-400">DIF</span><div class="text-sm ${dif > 0 ? 'text-green-400' : 'text-red-400'}">${dif.toFixed(2)}</div></div>
+            <div><span class="text-xs text-slate-400">DEA</span><div class="text-sm">${dea.toFixed(2)}</div></div>
+            <div><span class="text-xs text-slate-400">MACD</span><div class="text-sm ${macd > 0 ? 'text-green-400' : 'text-red-400'}">${macd.toFixed(2)}</div></div>
+        </div>
+    `;
+});
+
+function calcEMA(data, period) {
+    const alpha = 2 / (period + 1);
+    let ema = data.slice(0, period).reduce((a, b) => a + b, 0) / period;
+    const result = data.slice(0, period).concat([ema]);
+    for (let i = period; i < data.length; i++) {
+        ema = alpha * data[i] + (1 - alpha) * ema;
+        result.push(ema);
+    }
+    return ema;
+}
+
+// ========== 提交订单 ==========
+document.getElementById('btnSubmitOrder')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btnSubmitOrder');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="loading"></span>';
+    const r = await api('/api/trading/order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            symbol: document.getElementById('orderSymbol').value,
+            side: document.getElementById('orderSide').value,
+            quantity: parseInt(document.getElementById('orderQty').value),
+            order_type: document.getElementById('orderType').value,
+            price: parseFloat(document.getElementById('orderPrice').value) || null,
+            stop_price: parseFloat(document.getElementById('orderStop').value) || null
+        })
+    });
+    btn.disabled = false;
+    btn.innerHTML = '提交订单';
+    alert(r.success ? '订单提交成功' : '失败: ' + (r.error || JSON.stringify(r)));
+    if (r.success) { loadOrders(); loadPositions(); }
+});
+
+// ========== 平仓 / 撤销 ==========
+async function closePos(symbol) {
+    if (!confirm(`确认平掉 ${symbol} 全部持仓？`)) return;
+    await api('/api/trading/order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol, side: 'close', quantity: 0, order_type: 'market' })
+    });
+    loadPositions();
+    loadOrders();
+}
+
+async function cancelOrder(orderId) {
+    if (!confirm('确认撤销该订单？')) return;
+    await api(`/api/trading/order/${orderId}`, { method: 'DELETE' });
+    loadOrders();
+}
+
+// ========== 示例数据（演示用） ==========
+function loadDemoData() {
+    document.getElementById('statBalance').textContent = '1,234,567.89';
+    document.getElementById('statBalance').className = 'stat-value positive';
+    document.getElementById('statTrades').textContent = '47';
+    document.getElementById('statWinRate').textContent = '63.8%';
+    document.getElementById('statDrawdown').textContent = '-5.23%';
+    document.getElementById('statSharpe').textContent = '1.87';
+
+    const demoEquity = Array.from({length: 30}, (_, i) => ({
+        time: `05-${String(i+1).padStart(2,'0')}`,
+        balance: 1000000 + Math.sin(i/5)*20000 + i*800 + Math.random()*5000
+    }));
+    lastEquityData = demoEquity;
+    drawEquityChart(demoEquity);
+    document.getElementById('btResults').innerHTML = '<div class="text-slate-400 text-sm">点击「运行回测」开始分析，或使用下方示例数据预览界面...</div>';
+    document.getElementById('signalResult').innerHTML = '<div class="flex gap-6"><div><span class="text-xs text-slate-400">信号</span><div class="text-xl font-bold text-green-400">多头</div></div><div><span class="text-xs text-slate-400">最新价</span><div class="text-xl font-bold">5,842.0</div></div><div><span class="text-xs text-slate-400">DIF</span><div class="text-sm text-green-400">+28.5</div></div><div><span class="text-xs text-slate-400">DEA</span><div class="text-sm">+15.2</div></div><div><span class="text-xs text-slate-400">MACD</span><div class="text-sm text-green-400">+26.6</div></div></div>';
+}
+
+// ========== 初始化 ==========
+loadAccount();
+loadPositions();
+loadOrders();
+loadStrategyList();
+
+// 检测是否为空（从未有过交易），自动加载示例数据
+setTimeout(() => {
+    const bal = document.getElementById('statBalance').textContent;
+    if (bal === '--' || bal === '1,000,000.0' || bal === '1000000.0') {
+        loadDemoData();
+    }
+}, 500);
+
+setInterval(() => { loadAccount(); loadPositions(); loadOrders(); }, 15000);
+
+window.addEventListener('resize', () => { if (equityChart) equityChart.resize(); });
+</script>
+
+<!-- 策略导入弹窗 -->
+<div id="importModal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+    <div class="bg-slate-800 rounded-xl p-5 w-full max-w-lg mx-4 border border-slate-600">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-bold text-slate-200">📤 导入自定义策略</h3>
+            <button onclick="closeStrategyImport()" class="text-slate-400 hover:text-white text-xl">&times;</button>
+        </div>
+        <!-- Tab切换 -->
+        <div class="flex gap-1 mb-4 bg-slate-900 rounded-lg p-1">
+            <div class="import-tab active flex-1 text-center py-2 rounded cursor-pointer text-sm" data-tab="file">文件上传</div>
+            <div class="import-tab flex-1 text-center py-2 rounded cursor-pointer text-sm" data-tab="code">代码输入</div>
+        </div>
+        <!-- 文件上传 -->
+        <div id="importFilePanel">
+            <div class="space-y-3">
+                <div>
+                    <label class="text-xs text-slate-400 block mb-1">策略文件 (.py)</label>
+                    <input type="file" id="importFileInput" accept=".py" class="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-sm">
+                </div>
+                <div>
+                    <label class="text-xs text-slate-400 block mb-1">策略名称 *</label>
+                    <input type="text" id="importNameInput" placeholder="例如：我的MACD策略" class="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-sm">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">合约符号</label>
+                        <input type="text" id="importSymbolInput" value="PTA" class="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">K线周期</label>
+                        <select id="importPeriodInput" class="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-sm">
+                            <option value="1min">1分钟</option>
+                            <option value="5min" selected>5分钟</option>
+                            <option value="15min">15分钟</option>
+                            <option value="30min">30分钟</option>
+                            <option value="60min">1小时</option>
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label class="text-xs text-slate-400 block mb-1">策略描述</label>
+                    <input type="text" id="importDescInput" placeholder="可选" class="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-sm">
+                </div>
+                <button class="btn btn-primary w-full" id="btnImportFile">确认导入</button>
+            </div>
+        </div>
+        <!-- 代码输入 -->
+        <div id="importCodePanel" class="hidden">
+            <div class="space-y-3">
+                <div>
+                    <label class="text-xs text-slate-400 block mb-1">策略名称 *</label>
+                    <input type="text" id="importCodeNameInput" placeholder="例如：我的布林带策略" class="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-sm">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">合约符号</label>
+                        <input type="text" id="importCodeSymbolInput" value="PTA" class="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">K线周期</label>
+                        <select id="importCodePeriodInput" class="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-sm">
+                            <option value="1min">1分钟</option>
+                            <option value="5min" selected>5分钟</option>
+                            <option value="15min">15分钟</option>
+                            <option value="30min">30分钟</option>
+                            <option value="60min">1小时</option>
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label class="text-xs text-slate-400 block mb-1">策略描述</label>
+                    <input type="text" id="importCodeDescInput" placeholder="可选" class="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-sm">
+                </div>
+                <div>
+                    <label class="text-xs text-slate-400 block mb-1">策略代码（继承 StrategyBase） *</label>
+                    <textarea id="importCodeInput" rows="12" placeholder="from backtest.strategy_base import StrategyBase, StrategySignal&#10;class MyStrategy(StrategyBase):&#10;    def on_bar(self, bar):&#10;        close = bar['close']&#10;        # 实现你的策略逻辑&#10;        ...&#10;        return signal" class="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-sm font-mono"></textarea>
+                </div>
+                <button class="btn btn-primary w-full" id="btnImportCode">确认导入</button>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>

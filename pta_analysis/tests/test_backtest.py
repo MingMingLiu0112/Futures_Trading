@@ -302,5 +302,170 @@ class TestBacktestEngine:
         assert stats['total_pnl'] == 50  # 100 - 50
 
 
+class TestPerformanceMetrics:
+    """绩效指标测试"""
+
+    def test_all_metrics_present(self):
+        """测试所有绩效指标都存在"""
+        from backtest.performance_metrics import calculate_performance_metrics
+
+        trades = [
+            {'trade_id': 't1', 'direction': 'long', 'entry_price': 5000, 'exit_price': 5100,
+             'quantity': 1, 'pnl': 100, 'pnl_pct': 2.0, 'exit_reason': 'signal'},
+            {'trade_id': 't2', 'direction': 'long', 'entry_price': 5100, 'exit_price': 5050,
+             'quantity': 1, 'pnl': -50, 'pnl_pct': -1.0, 'exit_reason': 'signal'},
+        ]
+
+        equity_curve = [
+            {'time': '2024-01-01', 'balance': 100000},
+            {'time': '2024-01-02', 'balance': 100100},
+            {'time': '2024-01-03', 'balance': 100050},
+        ]
+
+        metrics = calculate_performance_metrics(trades, equity_curve, 100000)
+
+        # 检查所有新增指标
+        assert 'sharpe_ratio' in metrics
+        assert 'sortino_ratio' in metrics
+        assert 'calmar_ratio' in metrics
+        assert 'max_consecutive_losses' in metrics
+        assert 'max_consecutive_wins' in metrics
+        assert 'daily_pnl' in metrics
+        assert 'annual_return' in metrics
+
+
+class TestGridOptimizer:
+    """参数优化测试"""
+
+    def test_parameter_grid_generation(self):
+        """测试参数网格生成"""
+        from backtest.optimizer import ParameterGrid
+
+        param_grid = {
+            'fast_period': [12, 26],
+            'signal_period': [9]
+        }
+
+        grid = ParameterGrid(param_grid)
+        assert len(grid) == 2  # 2 * 1 = 2 组合
+
+        params_list = list(grid)
+        assert params_list[0] == {'fast_period': 12, 'signal_period': 9}
+        assert params_list[1] == {'fast_period': 26, 'signal_period': 9}
+
+    def test_grid_optimizer_integration(self):
+        """测试优化器集成"""
+        from backtest.optimizer import GridOptimizer, ParameterGrid, run_backtest_for_optimization
+        from backtest.strategy_base import StrategyBase
+
+        class SimpleTestStrategy(StrategyBase):
+            def on_bar(self, bar):
+                if bar.get('close', 5000) > bar.get('open', 4900):
+                    return self.generate_signal('buy', bar['close'], bar.get('time', ''))
+                elif self.position:
+                    return self.generate_signal('close', bar['close'], bar.get('time', ''))
+                return None
+
+        param_grid = {
+            'fast_period': [12]  # 简化测试
+        }
+
+        data = [
+            {'time': '2024-01-01', 'open': 5000, 'close': 5050},
+            {'time': '2024-01-02', 'open': 5050, 'close': 5100},
+        ]
+
+        grid = ParameterGrid(param_grid)
+        optimizer = GridOptimizer(objective='total_return', mode='max', top_n=1)
+
+        result = optimizer.optimize(
+            backtest_func=run_backtest_for_optimization,
+            param_grid=grid,
+            strategy_class=SimpleTestStrategy,
+            data=data,
+            fixed_params={},
+            initial_balance=100000.0
+        )
+
+        assert result['success'] == True
+        assert len(result['top_params']) >= 1
+
+
+class TestStrategyComparator:
+    """策略对比测试"""
+
+    def test_comparator_basic(self):
+        """测试策略对比器基本功能"""
+        from backtest.strategy_comparison import StrategyComparator
+        from backtest.strategy_base import StrategyBase
+
+        class StrategyA(StrategyBase):
+            def on_bar(self, bar):
+                if bar['close'] > bar['open']:
+                    return self.generate_signal('buy', bar['close'], bar.get('time', ''))
+                elif self.position:
+                    return self.generate_signal('close', bar['close'], bar.get('time', ''))
+                return None
+
+        class StrategyB(StrategyBase):
+            def on_bar(self, bar):
+                if bar['close'] < bar['open']:
+                    return self.generate_signal('sell', bar['close'], bar.get('time', ''))
+                elif self.position:
+                    return self.generate_signal('close', bar['close'], bar.get('time', ''))
+                return None
+
+        data = [
+            {'time': '2024-01-01', 'open': 5000, 'close': 5050},
+            {'time': '2024-01-02', 'open': 5050, 'close': 5100},
+            {'time': '2024-01-03', 'open': 5100, 'close': 5050},
+        ]
+
+        comparator = StrategyComparator(initial_balance=100000.0)
+        strategies = {
+            'StrategyA': StrategyA(),
+            'StrategyB': StrategyB()
+        }
+
+        result = comparator.run_multiple_strategies(strategies, data)
+
+        assert result['success'] == True
+        assert result['total_strategies'] == 2
+        assert 'comparison' in result
+        assert len(result['comparison']) == 2
+
+
+class TestBacktestExporter:
+    """回测导出测试"""
+
+    def test_exporter_to_dict(self):
+        """测试导出为字典"""
+        from backtest.backtest_exporter import BacktestExporter
+
+        result_data = {
+            'strategy_name': 'TestStrategy',
+            'initial_balance': 100000,
+            'final_balance': 105000,
+            'statistics': {
+                'total_return': 5.0,
+                'total_trades': 10,
+                'win_rate': 60.0,
+                'sharpe_ratio': 1.5,
+                'sortino_ratio': 2.0,
+                'calmar_ratio': 3.0,
+                'max_drawdown': 5000,
+            },
+            'trades': [],
+            'equity_curve': []
+        }
+
+        exporter = BacktestExporter(result_data)
+        output = exporter.to_dict()
+
+        assert 'summary' in output
+        assert output['summary']['strategy_name'] == 'TestStrategy'
+        assert output['summary']['final_balance'] == 105000
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

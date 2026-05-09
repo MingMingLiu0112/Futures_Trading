@@ -40,6 +40,17 @@ from analysis import industry_analysis as pta_industry
 # 风险控制模块
 from risk_control import register_risk_routes
 
+# 策略导入模块
+from backtest.strategy_import_api import register_strategy_import_routes
+
+# ========== 交易系统模块（回测+风控+执行+策略） ==========
+from backtest.backtest_engine import BacktestEngine
+from strategies import MACDStrategy, MovingAverageStrategy, KDJStrategy, RSIStrategy, BollingerStrategy, ATRStrategy, BreakoutStrategy
+from execution.order_manager import OrderManager, Order, OrderStatus, OrderType, OrderSide
+from execution.trade_executor import TradeExecutor
+from execution.position_tracker import PositionTracker, PositionDirection
+from risk_control import MoneyManager, PositionManager
+
 # TqSdk 认证配置
 TQS_USER = os.environ.get('TQS_AUTH_USER', 'mingmingliu')
 TQS_PASS = os.environ.get('TQS_AUTH_PASS', 'Liuzhaoning2025')
@@ -76,6 +87,103 @@ def _iv_interpretation(p):
 
 # 注册风险控制路由
 register_risk_routes(app)
+
+# 注册策略导入路由
+register_strategy_import_routes(app)
+
+# ==================== 交易系统全局实例 ====================
+_trading_system = None
+
+def get_trading_system():
+    """获取或创建交易系统实例（延迟初始化）"""
+    global _trading_system
+    if _trading_system is None:
+        _trading_system = TradingSystem()
+    return _trading_system
+
+
+class TradingSystem:
+    """交易系统主类：整合数据、风控、策略、执行"""
+
+    def __init__(self):
+        # 风控
+        self.money_manager = MoneyManager(initial_balance=1000000.0, max_drawdown=0.1)
+        self.position_manager = PositionManager(account_balance=1000000.0)
+        # 执行
+        self.order_manager = OrderManager()
+        self.trade_executor = TradeExecutor(self.order_manager)
+        self.position_tracker = PositionTracker()
+        # 回测引擎
+        self.backtest_engine = BacktestEngine(
+            initial_balance=1000000.0,
+            risk_per_trade=0.01,
+            commission_rate=0.0001
+        )
+        # 策略列表
+        self.strategies = {
+            'macd': MACDStrategy,
+            'ma': MovingAverageStrategy,
+            'kdj': KDJStrategy,
+            'rsi': RSIStrategy,
+            'bollinger': BollingerStrategy,
+            'atr': ATRStrategy,
+            'breakout': BreakoutStrategy,
+        }
+
+    def run_backtest(self, strategy_name: str, kline_data: list, params: dict = None) -> dict:
+        """运行回测"""
+        strategy_cls = self.strategies.get(strategy_name.lower())
+        if not strategy_cls:
+            raise ValueError(f"未知策略: {strategy_name}")
+        strategy = strategy_cls(params) if params else strategy_cls()
+        return self.backtest_engine.run(strategy, kline_data)
+
+    def submit_order(self, symbol: str, side: str, quantity: int = 1,
+                     order_type: str = 'market', price: float = None,
+                     stop_price: float = None) -> Order:
+        """提交订单"""
+        side_enum = OrderSide.BUY if side.lower() == 'buy' else OrderSide.SELL
+        type_enum = {
+            'market': OrderType.MARKET,
+            'limit': OrderType.LIMIT,
+            'stop': OrderType.STOP,
+        }.get(order_type.lower(), OrderType.MARKET)
+
+        order = self.order_manager.create_order(
+            symbol=symbol,
+            side=side_enum,
+            quantity=quantity,
+            order_type=type_enum,
+            price=price,
+            stop_price=stop_price
+        )
+        self.trade_executor.submit_order(order)
+        return order
+
+    def get_positions(self) -> dict:
+        """获取当前持仓"""
+        return self.position_tracker.get_all_positions()
+
+    def get_orders(self) -> dict:
+        """获取订单列表"""
+        return {
+            'active': [o.to_dict() for o in self.order_manager.get_active_orders()],
+            'history': [o.to_dict() for o in self.order_manager.get_order_history()],
+        }
+
+    def get_account_status(self) -> dict:
+        """获取账户状态"""
+        stats = self.money_manager.get_trade_statistics()
+        pos_summary = self.position_tracker.get_position_summary()
+        return {
+            'balance': self.money_manager.current_balance,
+            'highest_balance': self.money_manager.highest_balance,
+            'max_drawdown': self.money_manager.max_drawdown,
+            'current_drawdown': self.money_manager.current_drawdown,
+            'total_trades': stats.get('total_trades', 0),
+            'win_rate': stats.get('win_rate', 0),
+            'positions': pos_summary,
+        }
 
 
 @app.route('/api/status')
@@ -135,6 +243,19 @@ def index():
         resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
         resp.headers['Pragma'] = 'no-cache'
         resp.headers['Expires'] = '0'
+        return resp
+    except FileNotFoundError:
+        return "页面正在开发中，请稍后访问", 404
+
+@app.route('/trading')
+def trading_page():
+    """交易系统页面"""
+    try:
+        with open(os.path.join(WORKSPACE, 'templates', 'trading.html'), 'r', encoding='utf-8') as f:
+            content = f.read()
+        from flask import make_response
+        resp = make_response(content)
+        resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
         return resp
     except FileNotFoundError:
         return "页面正在开发中，请稍后访问", 404
@@ -450,10 +571,123 @@ def _add_kline_changes(data):
             bar['volume_change'] = round(_safe_val(bar['volume'] - prev['volume'], 0), 2)
             bar['open_interest_change'] = round(_safe_val(bar['open_interest'] - prev['open_interest'], 0), 0)
 
+def _fetch_kline_data(symbol='TA609', period='5min', count=500,
+                      start_date=None, end_date=None, source='auto'):
+    """内部K线数据获取（供回测等内部调用），返回 [{time, open, high, low, close, volume}, ...]
+
+    Args:
+        symbol: 品种代码，如 TA609
+        period: K线周期，如 5min
+        count: 最大K线数量
+        start_date: 可选，起始日期 YYYY-MM-DD（TqSdk有效）
+        end_date: 可选，结束日期 YYYY-MM-DD（TqSdk有效）
+        source: 数据源 'tqsdk' | 'akshare' | 'auto'（默认自动选择）
+    """
+    import re
+    period_seconds_map = {
+        '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '60min': 3600,
+        '1day': 86400, '1week': 604800, '1month': 2592000
+    }
+    tqsdk_symbol_map = {
+        'TA0': 'CZCE.TA609', 'TA909': 'CZCE.TA609', 'TA609': 'CZCE.TA609',
+        'TA607': 'CZCE.TA607', 'TA610': 'CZCE.TA610',
+    }
+    tqsdk_symbol = tqsdk_symbol_map.get(symbol, 'CZCE.TA609')
+
+    m = re.match(r'^(\d+)min$', period)
+    if m:
+        n = int(m.group(1))
+        period_sec = n * 60
+    elif period in period_seconds_map:
+        period_sec = period_seconds_map[period]
+    else:
+        period_sec = 300  # 默认5min
+
+    # 解析日期范围（转为unix时间戳秒）
+    start_ts = None
+    end_ts = None
+    if start_date:
+        try:
+            start_ts = int(pd.Timestamp(start_date).timestamp())
+        except Exception:
+            start_ts = None
+    if end_date:
+        try:
+            end_ts = int(pd.Timestamp(end_date + ' 23:59:59').timestamp())
+        except Exception:
+            end_ts = None
+
+    # TqSdk 分支
+    if source in ('auto', 'tqsdk'):
+        try:
+            api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS), debug=False,
+                        connect_timeout=10, recv_timeout=10)
+            klines = api.get_kline_serial(tqsdk_symbol, period_sec, data_length=count)
+            api.close()
+            data = []
+            for _, row in klines.iterrows():
+                close = float(row['close']) if math.isfinite(row['close']) else None
+                if close is None or close == 0:
+                    continue
+                bar_time = _parse_kline_time(row['datetime'])
+                # 日期范围过滤
+                if start_ts and bar_time < start_ts:
+                    continue
+                if end_ts and bar_time > end_ts:
+                    continue
+                data.append({
+                    'time': bar_time,
+                    'open': _safe_val(float(row['open']), close),
+                    'high': _safe_val(float(row['high']), close),
+                    'low': _safe_val(float(row['low']), close),
+                    'close': close,
+                    'volume': _safe_val(float(row['volume']), 0),
+                })
+            data.sort(key=lambda x: x['time'])
+            if data:
+                return data
+        except Exception:
+            if source == 'tqsdk':
+                return []  # 指定tqsdk但失败了，直接返回空
+
+    # Akshare 分支
+    if source in ('auto', 'akshare'):
+        try:
+            period_code = period.replace('min', 'm') if 'min' in period else period
+            df = ak.futures_zh_minute_sina(symbol='TA0', period=period_code)
+            df.columns = [c.strip() for c in df.columns]
+            df['datetime'] = pd.to_datetime(df['datetime'])
+            df = df.sort_values('datetime').tail(count).reset_index(drop=True)
+            data = []
+            for _, row in df.iterrows():
+                close = float(row['close']) if math.isfinite(row['close']) else None
+                if close is None or close == 0:
+                    continue
+                bar_time = _parse_kline_time(row['datetime'])
+                if start_ts and bar_time < start_ts:
+                    continue
+                if end_ts and bar_time > end_ts:
+                    continue
+                data.append({
+                    'time': bar_time,
+                    'open': _safe_val(float(row['open']), close),
+                    'high': _safe_val(float(row['high']), close),
+                    'low': _safe_val(float(row['low']), close),
+                    'close': close,
+                    'volume': _safe_val(float(row['volume']), 0),
+                })
+            data.sort(key=lambda x: x['time'])
+            return data
+        except Exception:
+            return []
+
+    return []
+
 def _get_yesterday_close_tqsdk(symbol='CZCE.TA609'):
     """通过TqSdk获取昨日收盘价（用于计算涨跌）"""
     try:
-        api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS))
+        # TqKq() 是免费行情连接，不需要账号密码
+        api = TqApi(TqKq(), auth=TqAuth('test', 'test'))
         # 获取2根日K线，取倒数第2根的收盘价作为昨日收盘价
         daily_klines = api.get_kline_serial(symbol, 86400, data_length=10)
         api.close()
@@ -513,17 +747,17 @@ def api_kline_data():
     if m:
         n = int(m.group(1))
         period_sec = n * 60
-        count = 1000
+        count = min(int(request.args.get('count', 1000)), 2000)
     elif period in period_seconds_map:
         period_sec = period_seconds_map[period]
-        count = 500 if period in ['1day', '1week', '1month'] else 1000
+        count = 500 if period in ['1day', '1week', '1month'] else min(int(request.args.get('count', 1000)), 2000)
     else:
         return jsonify({'error': f'unsupported period: {period}', 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0})
     
     # ==================== TqSdk 分支 ====================
     try:
-        # 给 TqSdk 加10秒超时，避免网络问题时卡死
-        api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS))
+        # TqKq() 是免费行情连接，不需要账号密码
+        api = TqApi(TqKq(), auth=TqAuth('test', 'test'))
         klines = api.get_kline_serial(tqsdk_symbol, period_sec, data_length=count)
         
         # 获取昨日收盘价（用于计算涨跌）
@@ -1083,6 +1317,290 @@ def api_volatility_refresh():
         _volatility_cache_time.clear()
         return jsonify({'success': True, 'message': '缓存已刷新',
                         'timestamp': dt_datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ========== 交易系统 API ==========
+
+@app.route('/api/trading/backtest', methods=['POST'])
+def api_trading_backtest():
+    """运行回测"""
+    try:
+        req_data = request.get_json() or {}
+        strategy_name = req_data.get('strategy', 'macd')
+        symbol = req_data.get('symbol', 'TA609')
+        period = req_data.get('period', '5min')
+        count = min(req_data.get('count', 500), 2000)
+        params = req_data.get('params', {})
+        start_date = req_data.get('start_date')  # YYYY-MM-DD
+        end_date = req_data.get('end_date')      # YYYY-MM-DD
+        source = req_data.get('source', 'auto')  # tqsdk / akshare / auto
+
+        # 获取K线数据（直接调内部数据获取逻辑，不走HTTP）
+        kline_data = _fetch_kline_data(symbol, period, count,
+                                        start_date=start_date, end_date=end_date, source=source)
+
+        if not kline_data:
+            return jsonify({'success': False, 'error': '无K线数据'}), 400
+
+        ts = get_trading_system()
+        result = ts.run_backtest(strategy_name, kline_data, params)
+
+        return jsonify({
+            'success': True,
+            'strategy': strategy_name,
+            'symbol': symbol,
+            'period': period,
+            'data_count': len(kline_data),
+            'result': result
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/trading/optimize', methods=['POST'])
+def api_trading_optimize():
+    """参数优化（网格搜索）"""
+    try:
+        req_data = request.get_json() or {}
+        strategy_name = req_data.get('strategy', 'macd')
+        symbol = req_data.get('symbol', 'TA609')
+        period = req_data.get('period', '5min')
+        count = min(req_data.get('count', 500), 2000)
+        start_date = req_data.get('start_date')
+        end_date = req_data.get('end_date')
+        source = req_data.get('source', 'auto')
+        
+        # 参数网格定义
+        param_grid_config = req_data.get('param_grid', {})
+        if not param_grid_config:
+            return jsonify({'success': False, 'error': '缺少参数网格定义 param_grid'}), 400
+        
+        # 目标指标和模式
+        objective = req_data.get('objective', 'total_return')
+        mode = req_data.get('mode', 'max')  # 'max' 或 'min'
+        top_n = min(req_data.get('top_n', 5), 20)
+        
+        # 获取K线数据
+        kline_data = _fetch_kline_data(symbol, period, count,
+                                        start_date=start_date, end_date=end_date, source=source)
+        if not kline_data:
+            return jsonify({'success': False, 'error': '无K线数据'}), 400
+        
+        # 获取策略类
+        ts = get_trading_system()
+        strategy_class = ts.strategies.get(strategy_name)
+        if not strategy_class:
+            return jsonify({'success': False, 'error': f'未找到策略: {strategy_name}'}), 400
+        
+        # 执行优化
+        from backtest import GridOptimizer, ParameterGrid, run_backtest_for_optimization
+        
+        grid = ParameterGrid(param_grid_config)
+        optimizer = GridOptimizer(objective=objective, mode=mode, top_n=top_n)
+        
+        result = optimizer.optimize(
+            backtest_func=run_backtest_for_optimization,
+            param_grid=grid,
+            strategy_class=strategy_class,
+            data=kline_data,
+            fixed_params={},
+            initial_balance=100000.0
+        )
+        
+        return jsonify({
+            'success': True,
+            'strategy': strategy_name,
+            'symbol': symbol,
+            'period': period,
+            'objective': objective,
+            'mode': mode,
+            'total_combinations': len(grid),
+            'result': result
+        })
+    
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/trading/compare', methods=['POST'])
+def api_trading_compare():
+    """多策略对比"""
+    try:
+        req_data = request.get_json() or {}
+        strategies = req_data.get('strategies', [])  # ['macd', 'kdj', 'rsi']
+        symbol = req_data.get('symbol', 'TA609')
+        period = req_data.get('period', '5min')
+        count = min(req_data.get('count', 500), 2000)
+        start_date = req_data.get('start_date')
+        end_date = req_data.get('end_date')
+        source = req_data.get('source', 'auto')
+        
+        if len(strategies) < 2:
+            return jsonify({'success': False, 'error': '至少需要2个策略进行对比'}), 400
+        
+        # 获取K线数据
+        kline_data = _fetch_kline_data(symbol, period, count,
+                                        start_date=start_date, end_date=end_date, source=source)
+        if not kline_data:
+            return jsonify({'success': False, 'error': '无K线数据'}), 400
+        
+        # 获取策略类并创建实例
+        ts = get_trading_system()
+        strategy_instances = {}
+        for name in strategies:
+            strategy_class = ts.strategies.get(name)
+            if strategy_class:
+                strategy_instances[name] = strategy_class()
+        
+        if len(strategy_instances) < 2:
+            return jsonify({'success': False, 'error': '有效的策略少于2个'}), 400
+        
+        # 执行对比
+        from backtest import StrategyComparator
+        comparator = StrategyComparator(initial_balance=100000.0)
+        result = comparator.run_multiple_strategies(strategy_instances, kline_data)
+        
+        return jsonify({
+            'success': True,
+            'strategies': list(strategy_instances.keys()),
+            'symbol': symbol,
+            'period': period,
+            'data_count': len(kline_data),
+            'result': result
+        })
+    
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/trading/export', methods=['POST'])
+def api_trading_export():
+    """导出回测报告"""
+    try:
+        req_data = request.get_json() or {}
+        export_format = req_data.get('format', 'json')  # 'json', 'excel'
+        result_data = req_data.get('result_data')
+        
+        if not result_data:
+            return jsonify({'success': False, 'error': '缺少回测结果数据'}), 400
+        
+        from backtest import BacktestExporter
+        
+        exporter = BacktestExporter(result_data)
+        
+        if export_format == 'excel':
+            # 返回 base64 编码的 Excel 文件
+            import base64
+            excel_bytes = exporter.to_excel(None)
+            return jsonify({
+                'success': True,
+                'format': 'excel',
+                'data': base64.b64encode(excel_bytes).decode('utf-8'),
+                'filename': f"backtest_report_{dt_datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            })
+        else:
+            # 返回 JSON
+            return jsonify({
+                'success': True,
+                'format': 'json',
+                'data': exporter.to_dict()
+            })
+    
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/trading/strategies', methods=['GET'])
+def api_trading_strategies():
+    """获取可用策略列表"""
+    ts = get_trading_system()
+    return jsonify({
+        'success': True,
+        'strategies': list(ts.strategies.keys())
+    })
+
+
+@app.route('/api/trading/order', methods=['POST'])
+def api_trading_order():
+    """提交订单"""
+    try:
+        data = request.get_json() or {}
+        symbol = data.get('symbol', 'TA609')
+        side = data.get('side', 'buy')
+        quantity = int(data.get('quantity', 1))
+        order_type = data.get('type', 'market')
+        price = data.get('price')
+        stop_price = data.get('stop_price')
+
+        ts = get_trading_system()
+        order = ts.submit_order(
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            order_type=order_type,
+            price=price,
+            stop_price=stop_price
+        )
+
+        return jsonify({
+            'success': True,
+            'order': order.to_dict()
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/trading/order/<order_id>', methods=['DELETE'])
+def api_trading_cancel_order(order_id):
+    """取消订单"""
+    try:
+        ts = get_trading_system()
+        order = ts.order_manager.get_order(order_id)
+        if not order:
+            return jsonify({'success': False, 'error': '订单不存在'}), 404
+        ts.trade_executor.cancel_order(order_id)
+        return jsonify({'success': True, 'order_id': order_id})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/trading/orders', methods=['GET'])
+def api_trading_orders():
+    """获取订单列表"""
+    try:
+        ts = get_trading_system()
+        return jsonify({
+            'success': True,
+            **ts.get_orders()
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/trading/positions', methods=['GET'])
+def api_trading_positions():
+    """获取持仓"""
+    try:
+        ts = get_trading_system()
+        return jsonify({
+            'success': True,
+            'positions': ts.get_positions()
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/trading/account', methods=['GET'])
+def api_trading_account():
+    """获取账户状态"""
+    try:
+        ts = get_trading_system()
+        return jsonify({
+            'success': True,
+            **ts.get_account_status()
+        })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
