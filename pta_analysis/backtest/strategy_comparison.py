@@ -1,166 +1,147 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-多策略对比分析模块
+多策略对比模块
+
+同时运行多个策略并对比它们的绩效表现。
+
+用法:
+```python
+from backtest.strategy_comparison import StrategyComparator
+from backtest.strategy_base import StrategyBase
+
+class StrategyA(StrategyBase):
+    def on_bar(self, bar):
+        ...
+
+class StrategyB(StrategyBase):
+    def on_bar(self, bar):
+        ...
+
+comparator = StrategyComparator(initial_balance=100000.0)
+strategies = {
+    'StrategyA': StrategyA(),
+    'StrategyB': StrategyB()
+}
+result = comparator.run_multiple_strategies(strategies, kline_data)
+```
 """
 
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Type
+
 from .backtest_engine import BacktestEngine
 from .strategy_base import StrategyBase
 
 
 class StrategyComparator:
-    """多策略对比分析器"""
+    """
+    多策略对比器
 
-    def __init__(self, initial_balance: float = 100000.0, 
-                 commission_rate: float = 0.0001):
+    在相同的K线数据上运行多个策略，并对比它们的绩效指标。
+    """
+
+    def __init__(self, initial_balance: float = 100000.0, commission_rate: float = 0.0001):
+        """
+        Args:
+            initial_balance: 初始资金
+            commission_rate: 手续费率
+        """
         self.initial_balance = initial_balance
         self.commission_rate = commission_rate
         self.results: Dict[str, Dict[str, Any]] = {}
 
-    def run_single_strategy(self, strategy: StrategyBase, 
-                           data: List[Dict[str, Any]],
-                           strategy_name: str,
-                           params: Dict[str, Any] = None) -> Dict[str, Any]:
+    def run_multiple_strategies(
+        self,
+        strategies: Dict[str, StrategyBase],
+        data: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
         """
-        运行单个策略回测
+        运行多个策略并对比
+
+        Args:
+            strategies: 策略字典，key为策略名，value为策略实例
+            data: K线数据
+
+        Returns:
+            对比结果字典
         """
+        self.results = {}
         engine = BacktestEngine(
             initial_balance=self.initial_balance,
             commission_rate=self.commission_rate
         )
-        
-        result = engine.run(strategy, data)
-        result['strategy_name'] = strategy_name
-        result['params'] = params or {}
-        
-        self.results[strategy_name] = result
-        return result
 
-    def run_multiple_strategies(self,
-                               strategies: Dict[str, StrategyBase],
-                               data: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        运行多个策略并对比
-        :param strategies: 策略名字典 {策略名: 策略实例}
-        :param data: K线数据
-        :return: 对比结果
-        """
-        self.results = {}
-        
+        comparison = []
         for name, strategy in strategies.items():
-            try:
-                result = self.run_single_strategy(strategy, data, name)
-                print(f"[策略对比] {name}: 收益率 {result['statistics'].get('total_return', 0):.2f}%")
-            except Exception as e:
-                print(f"[策略对比] {name} 执行失败: {e}")
-                self.results[name] = {'success': False, 'error': str(e)}
-        
-        return self.compare()
+            result = engine.run(strategy, data)
+            stats = result.get('statistics', {})
 
-    def compare(self) -> Dict[str, Any]:
-        """
-        对比所有策略结果
-        """
-        valid_results = {k: v for k, v in self.results.items() 
-                        if v.get('success', False)}
-        
-        if not valid_results:
-            return {'success': False, 'error': '没有成功的策略结果'}
-        
-        # 按总收益率排序
-        sorted_results = sorted(
-            valid_results.items(),
-            key=lambda x: x[1]['statistics'].get('total_return', 0),
-            reverse=True
-        )
-        
-        # 生成对比表格数据
-        comparison_data = []
-        for name, result in sorted_results:
-            stats = result['statistics']
-            comparison_data.append({
-                'strategy': name,
-                'total_return': stats.get('total_return', 0),
+            entry = {
+                'strategy_name': name,
+                'total_trades': stats.get('total_trades', 0),
                 'win_rate': stats.get('win_rate', 0),
-                'profit_factor': stats.get('profit_factor', 0),
+                'total_return': stats.get('total_return', 0),
+                'annual_return': stats.get('annual_return', 0),
                 'max_drawdown': stats.get('max_drawdown', 0),
                 'sharpe_ratio': stats.get('sharpe_ratio', 0),
                 'sortino_ratio': stats.get('sortino_ratio', 0),
                 'calmar_ratio': stats.get('calmar_ratio', 0),
-                'total_trades': stats.get('total_trades', 0),
-                'total_pnl': stats.get('total_pnl', 0),
-                'final_balance': stats.get('final_balance', 0),
+                'profit_loss_ratio': stats.get('profit_loss_ratio', 0),
+                'max_consecutive_losses': stats.get('max_consecutive_losses', 0),
+            }
+            comparison.append(entry)
+            self.results[name] = result
+
+        # 按总收益率排序
+        comparison.sort(key=lambda x: x['total_return'], reverse=True)
+
+        # 排名
+        for i, entry in enumerate(comparison):
+            entry['rank'] = i + 1
+
+        return {
+            'success': True,
+            'total_strategies': len(strategies),
+            'comparison': comparison,
+            'initial_balance': self.initial_balance,
+            'data_count': len(data),
+        }
+
+    def get_best_strategy(self) -> str:
+        """获取最优策略名"""
+        if not self.results:
+            return ''
+        comparison = sorted(
+            self.results.items(),
+            key=lambda x: x[1].get('statistics', {}).get('total_return', 0),
+            reverse=True
+        )
+        return comparison[0][0] if comparison else ''
+
+    def get_comparison_table(self) -> str:
+        """获取对比表格（文本格式）"""
+        if not self.results:
+            return '无结果'
+
+        comparison = []
+        for name, result in self.results.items():
+            stats = result.get('statistics', {})
+            comparison.append({
+                'name': name,
+                'trades': stats.get('total_trades', 0),
+                'win_rate': f"{stats.get('win_rate', 0):.1f}%",
+                'return': f"{stats.get('total_return', 0):.2f}%",
+                'sharpe': f"{stats.get('sharpe_ratio', 0):.2f}",
+                'max_dd': f"{stats.get('max_drawdown', 0):.2f}",
             })
-        
-        # 计算排名
-        metrics = ['total_return', 'win_rate', 'profit_factor', 
-                   'sharpe_ratio', 'sortino_ratio', 'calmar_ratio']
-        
-        for metric in metrics:
-            values = [d[metric] for d in comparison_data]
-            if metric in ['max_drawdown']:  # 回撤越小越好
-                sorted_values = sorted(values)
-                for d in comparison_data:
-                    d[f'{metric}_rank'] = sorted_values.index(d[metric]) + 1
-            else:
-                sorted_values = sorted(values, reverse=True)
-                for d in comparison_data:
-                    d[f'{metric}_rank'] = sorted_values.index(d[metric]) + 1
-        
-        # 综合排名（平均排名）
-        for d in comparison_data:
-            ranks = [d.get(f'{m}_rank', 0) for m in metrics]
-            d['avg_rank'] = sum(ranks) / len(ranks) if ranks else 0
-        
-        # 重新按综合排名排序
-        comparison_data.sort(key=lambda x: x['avg_rank'])
-        
-        return {
-            'success': True,
-            'total_strategies': len(valid_results),
-            'comparison': comparison_data,
-            'best_by_return': sorted_results[0][0] if sorted_results else None,
-            'best_by_sharpe': max(valid_results.items(), 
-                                   key=lambda x: x[1]['statistics'].get('sharpe_ratio', 0))[0],
-            'best_by_drawdown': min(valid_results.items(),
-                                    key=lambda x: x[1]['statistics'].get('max_drawdown', 999))[0],
-            'details': valid_results
-        }
 
+        comparison.sort(key=lambda x: float(x['return'][:-1]), reverse=True)
 
-class StrategyMultiPeriod:
-    """多周期策略对比"""
-
-    def __init__(self, initial_balance: float = 100000.0):
-        self.initial_balance = initial_balance
-
-    def run(self, strategy_class, data_by_period: Dict[str, List[Dict[str, Any]]],
-            params: Dict[str, Any] = None) -> Dict[str, Any]:
-        """
-        在多个周期上运行同一策略
-        :param strategy_class: 策略类
-        :param data_by_period: {周期名: K线数据} 的字典
-        :param params: 策略参数
-        :return: 多周期结果
-        """
-        results = {}
-        
-        for period, data in data_by_period.items():
-            try:
-                strategy = strategy_class(**(params or {}))
-                engine = BacktestEngine(initial_balance=self.initial_balance)
-                result = engine.run(strategy, data)
-                results[period] = {
-                    'success': True,
-                    'data_count': len(data),
-                    'statistics': result['statistics']
-                }
-            except Exception as e:
-                results[period] = {'success': False, 'error': str(e)}
-        
-        return {
-            'success': True,
-            'periods': list(data_by_period.keys()),
-            'results': results
-        }
+        header = f"{'策略':<15} {'交易数':<8} {'胜率':<8} {'收益率':<10} {'夏普':<8} {'最大回撤':<10}"
+        lines = [header, '-' * 60]
+        for entry in comparison:
+            lines.append(
+                f"{entry['name']:<15} {entry['trades']:<8} {entry['win_rate']:<8} "
+                f"{entry['return']:<10} {entry['sharpe']:<8} {entry['max_dd']:<10}"
+            )
+        return '\n'.join(lines)

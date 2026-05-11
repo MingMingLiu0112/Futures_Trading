@@ -89,6 +89,8 @@
         <div class="tab active" data-tab="backtest">回测</div>
         <div class="tab" data-tab="optimize">参数优化</div>
         <div class="tab" data-tab="compare">策略对比</div>
+        <div class="tab" data-tab="walkforward">Walk-Forward</div>
+        <div class="tab" data-tab="montecarlo">Monte Carlo</div>
         <div class="tab" data-tab="signals">实盘信号</div>
         <div class="tab" data-tab="orders">订单管理</div>
         <div class="tab" data-tab="risk">风控面板</div>
@@ -276,8 +278,12 @@
                         <select id="optObjective" class="w-full">
                             <option value="total_return">总收益率</option>
                             <option value="sharpe_ratio">夏普比率</option>
-                            <option value="profit_factor">盈亏比</option>
+                            <option value="annual_return">年化收益率</option>
+                            <option value="return_drawdown_ratio">收益回撤比</option>
                             <option value="max_drawdown">最小回撤</option>
+                            <option value="daily_net_pnl">日均盈亏</option>
+                            <option value="sortino_ratio">索提诺比率</option>
+                            <option value="calmar_ratio">卡尔玛比率</option>
                         </select>
                     </div>
                     <div>
@@ -306,6 +312,147 @@
                     <h3 class="text-sm font-semibold text-slate-300 mb-3">Top 5 参数组合</h3>
                     <div id="optTopParams" class="text-sm"></div>
                 </div>
+                <!-- 热力图 -->
+                <div class="card p-4 mt-3" id="optHeatmapCard" style="display:none;">
+                    <h3 class="text-sm font-semibold text-slate-300 mb-3">参数优化热力图</h3>
+                    <div id="optHeatmap" style="width:100%;height:320px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== Walk-Forward Tab ==================== -->
+    <div id="tab-walkforward" class="tab-content hidden">
+        <div class="card p-4 mb-4">
+            <h3 class="text-sm font-semibold text-slate-300 mb-3">Walk-Forward 滚动验证（防止过拟合）</h3>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                <div>
+                    <label class="text-xs text-slate-400 block mb-1">品种</label>
+                    <select id="wfSymbol" class="w-full"><option value="TA609">TA609</option></select>
+                </div>
+                <div>
+                    <label class="text-xs text-slate-400 block mb-1">周期</label>
+                    <select id="wfPeriod" class="w-full">
+                        <option value="5min">5分钟</option><option value="15min">15分钟</option>
+                        <option value="30min">30分钟</option><option value="1hour">1小时</option>
+                        <option value="1day">日线</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs text-slate-400 block mb-1">K线数量</label>
+                    <input type="number" id="wfCount" value="1200" min="300" max="2000" class="w-full">
+                </div>
+                <div>
+                    <label class="text-xs text-slate-400 block mb-1">数据源</label>
+                    <select id="wfSource" class="w-full">
+                        <option value="auto">自动</option><option value="tqsdk">天勤TqSdk</option>
+                        <option value="akshare">AKShare</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs text-slate-400 block mb-1">训练窗口</label>
+                    <input type="number" id="wfTrainWindow" value="240" min="30" class="w-full">
+                </div>
+                <div>
+                    <label class="text-xs text-slate-400 block mb-1">测试窗口</label>
+                    <input type="number" id="wfTestWindow" value="60" min="10" class="w-full">
+                </div>
+                <div>
+                    <label class="text-xs text-slate-400 block mb-1">滚动步长</label>
+                    <input type="number" id="wfStep" value="60" min="10" class="w-full">
+                </div>
+                <div>
+                    <label class="text-xs text-slate-400 block mb-1">优化目标</label>
+                    <select id="wfObjective" class="w-full">
+                        <option value="total_return">总收益率</option>
+                        <option value="sharpe_ratio">夏普比率</option>
+                        <option value="sortino_ratio">索提诺比率</option>
+                        <option value="calmar_ratio">卡尔玛比率</option>
+                        <option value="return_drawdown_ratio">收益回撤比</option>
+                    </select>
+                </div>
+            </div>
+            <!-- 参数网格 -->
+            <div class="mb-3">
+                <label class="text-xs text-slate-400 block mb-1">参数网格 (JSON)</label>
+                <textarea id="wfParamGrid" rows="3" class="w-full bg-slate-900 border border-slate-600 rounded text-xs text-slate-200 p-2 font-mono" placeholder='{"fast_period":[5,10,15],"signal_period":[5,9]}'>{"fast_period":[5,10,15],"slow_period":[20,30,40]}</textarea>
+            </div>
+            <div class="flex gap-2 items-center">
+                <button id="btnRunWalkforward" class="btn btn-primary">🚀 Walk-Forward 分析</button>
+                <span id="wfStatus" class="text-xs text-slate-400 ml-2"></span>
+            </div>
+        </div>
+        <div id="wfSummary" class="card p-4 mb-4 hidden">
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-3" id="wfSummaryStats"></div>
+        </div>
+        <div id="wfConclusion" class="card p-4 mb-4 hidden">
+            <div id="wfConclusionText" class="text-sm"></div>
+        </div>
+        <div id="wfRounds" class="card p-4 hidden">
+            <h4 class="text-sm font-semibold text-slate-300 mb-3">各轮详情</h4>
+            <div id="wfRoundsTable" class="overflow-x-auto"></div>
+        </div>
+    </div>
+
+    <!-- ==================== Monte Carlo Tab ==================== -->
+    <div id="tab-montecarlo" class="tab-content hidden">
+        <div class="card p-4 mb-4">
+            <h3 class="text-sm font-semibold text-slate-300 mb-3">Monte Carlo 模拟（策略稳健性验证）</h3>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                <div>
+                    <label class="text-xs text-slate-400 block mb-1">品种</label>
+                    <select id="mcSymbol" class="w-full"><option value="TA609">TA609</option></select>
+                </div>
+                <div>
+                    <label class="text-xs text-slate-400 block mb-1">周期</label>
+                    <select id="mcPeriod" class="w-full">
+                        <option value="5min">5分钟</option><option value="15min">15分钟</option>
+                        <option value="30min">30分钟</option><option value="1hour">1小时</option>
+                        <option value="1day">日线</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs text-slate-400 block mb-1">K线数量</label>
+                    <input type="number" id="mcCount" value="1000" min="300" max="2000" class="w-full">
+                </div>
+                <div>
+                    <label class="text-xs text-slate-400 block mb-1">数据源</label>
+                    <select id="mcSource" class="w-full">
+                        <option value="auto">自动</option><option value="tqsdk">天勤TqSdk</option>
+                        <option value="akshare">AKShare</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs text-slate-400 block mb-1">策略</label>
+                    <select id="mcStrategy" class="w-full">
+                        <option value="macd">MACD</option>
+                        <option value="kdj">KDJ</option>
+                        <option value="rsi">RSI</option>
+                        <option value="bollinger">布林带</option>
+                        <option value="ma">均线</option>
+                        <option value="breakout">突破</option>
+                        <option value="atr">ATR</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs text-slate-400 block mb-1">模拟次数</label>
+                    <input type="number" id="mcSimCount" value="1000" min="100" max="5000" step="100" class="w-full">
+                </div>
+            </div>
+            <div class="flex gap-2 items-center">
+                <button id="btnRunMonteCarlo" class="btn btn-primary">🎲 运行 Monte Carlo</button>
+                <span id="mcStatus" class="text-xs text-slate-400 ml-2"></span>
+            </div>
+        </div>
+        <div id="mcResults" class="hidden">
+            <div class="card p-4 mb-4">
+                <h4 class="text-sm font-semibold text-slate-300 mb-3">最终权益分布</h4>
+                <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4" id="mcPercentiles"></div>
+                <div id="mcChart" style="height:200px"></div>
+            </div>
+            <div class="card p-4 mb-4">
+                <h4 class="text-sm font-semibold text-slate-300 mb-3">风险统计</h4>
+                <div class="grid grid-cols-2 md:grid-cols-3 gap-3" id="mcRiskStats"></div>
             </div>
         </div>
     </div>
@@ -371,7 +518,10 @@
                         📊 运行策略对比
                     </button>
                     <button class="btn btn-outline w-full mt-2" id="btnExportReport">
-                        📥 导出报告
+                        📥 导出Excel
+                    </button>
+                    <button class="btn btn-outline w-full mt-2" id="btnExportPdf">
+                        📄 导出PDF
                     </button>
                 </div>
             </div>
@@ -628,6 +778,21 @@
     </div>
 
 <script>
+// ========== 初始化：设置默认日期 ==========
+(function initDefaultDates() {
+    const today = new Date();
+    const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const fmt = d => d.toISOString().split('T')[0];
+    const setIfEmpty = (id, val) => {
+        const el = document.getElementById(id);
+        if (el && !el.value) el.value = val;
+    };
+    setIfEmpty('btStartDate', fmt(thirtyDaysAgo));
+    setIfEmpty('btEndDate', fmt(today));
+    setIfEmpty('optStartDate', fmt(thirtyDaysAgo));
+    setIfEmpty('optEndDate', fmt(today));
+})();
+
 // ========== 全局状态 ==========
 let equityChart = null;
 let lastEquityData = [];
@@ -1040,15 +1205,12 @@ document.getElementById('btnRunBacktest').addEventListener('click', async () => 
             drawEquityChart(res.equity_curve);
         }
 
-        // 绘制信号图表（K线+买卖点）—— 不重复拉数据，直接用已有信息
+        // 绘制信号图表（K线+买卖点）—— 直接用回测返回的K线数据，不重复拉取
         if (res.trade_entries && res.trade_entries.length > 0) {
-            // 获取K线数据用于画K线图（同一批数据，不要重复拉）
-            if (!lastKlineData) {
-                const kData = await api(`/api/kline/data?symbol=${symbol}&period=${period}&count=${count}`);
-                lastKlineData = kData.data || [];
-            }
-            if (lastKlineData.length > 0) {
-                drawSignalChart(lastKlineData, res.trade_entries);
+            // 优先使用回测返回的原始K线数据（bar_index精确对应）
+            const btKline = res.kline_data;
+            if (btKline && btKline.length > 0) {
+                drawSignalChart(btKline, res.trade_entries);
             }
         } else {
             // 无交易则隐藏图表
@@ -1170,11 +1332,249 @@ document.getElementById('btnRunOptimize')?.addEventListener('click', async () =>
             document.getElementById('optTopParams').innerHTML = topHtml;
         }
 
+        // 热力图渲染（仅当有2个优化参数时）
+        const allResults = result.all_results || [];
+        if (allResults.length > 1) {
+            const paramKeys = Object.keys(result.top_params[0] || {});
+            if (paramKeys.length === 2) {
+                const [px, py] = paramKeys;
+                const xVals = [...new Set(allResults.map(r => r._params[px]))].sort((a,b) => a-b);
+                const yVals = [...new Set(allResults.map(r => r._params[py]))].sort((a,b) => a-b);
+                const metric = objective;
+
+                // 构建热力图数据
+                const zData = [];
+                for (const yv of yVals) {
+                    const row = [];
+                    for (const xv of xVals) {
+                        const found = allResults.find(r => r._params[px] === xv && r._params[py] === yv);
+                        if (found && found.statistics) {
+                            let val = found.statistics[metric] || 0;
+                            if (metric === 'max_drawdown') val = -val; // 回撤越小越好
+                            row.push(val);
+                        } else {
+                            row.push(null);
+                        }
+                    }
+                    zData.push(row);
+                }
+
+                document.getElementById('optHeatmapCard').style.display = 'block';
+                const hmDom = document.getElementById('optHeatmap');
+                let hmChart = echarts.getInstanceByDom(hmDom);
+                if (!hmChart) hmChart = echarts.init(hmDom);
+
+                const isNegGood = metric === 'max_drawdown';
+                const maxVal = Math.max(...zData.flat().filter(v => v !== null).map(Math.abs));
+                const colorRange = isNegGood
+                    ? [{offset: 0, color: '#22c55e'}, {offset: 1, color: '#ef4444'}]
+                    : [{offset: 0, color: '#fef08a'}, {offset: 0.5, color: '#22c55e'}, {offset: 1, color: '#3b82f6'}];
+
+                hmChart.setOption({
+                    tooltip: { formatter: p => `${px}=${p.data[0]}, ${py}=${p.data[1]}<br>${metric}: ${(p.data[2] || 0).toFixed(4)}` },
+                    grid: { top: 40, right: 60, bottom: 50, left: 60 },
+                    xAxis: { type: 'category', data: xVals, name: px, nameLocation: 'middle', nameGap: 28, axisLabel: { fontSize: 11 } },
+                    yAxis: { type: 'category', data: yVals, name: py, nameLocation: 'middle', nameGap: 40, axisLabel: { fontSize: 11 } },
+                    visualMap: { show: true, min: isNegGood ? -maxVal : 0, max: maxVal, inRange: { color: ['#ef4444','#fbbf24','#22c55e'] }, textStyle: { fontSize: 10 }, right: 10, top: 'center' },
+                    series: [{ type: 'heatmap', data: zData.map((row, iy) => row.map((v, ix) => [ix, iy, v])), emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.5)' } } }]
+                });
+            }
+        }
+
     } catch(e) {
         document.getElementById('optResults').innerHTML = `<span class="text-red-400">错误: ${e.message}</span>`;
     } finally {
         btn.disabled = false;
         btn.innerHTML = '🔍 开始参数优化';
+    }
+});
+
+// ========== Walk-Forward ==========
+document.getElementById('btnRunWalkforward')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btnRunWalkforward');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="loading"></span> 分析中...';
+    const status = document.getElementById('wfStatus');
+
+    const symbol = document.getElementById('wfSymbol').value;
+    const period = document.getElementById('wfPeriod').value;
+    const count = parseInt(document.getElementById('wfCount').value);
+    const source = document.getElementById('wfSource').value;
+    const trainWindow = parseInt(document.getElementById('wfTrainWindow').value);
+    const testWindow = parseInt(document.getElementById('wfTestWindow').value);
+    const step = parseInt(document.getElementById('wfStep').value);
+    const objective = document.getElementById('wfObjective').value;
+    let paramGrid;
+    try {
+        paramGrid = JSON.parse(document.getElementById('wfParamGrid').value);
+    } catch(e) {
+        alert('参数网格JSON格式错误');
+        btn.disabled = false; btn.innerHTML = '🚀 Walk-Forward 分析';
+        return;
+    }
+
+    try {
+        status.textContent = '获取数据...';
+        const r = await api('/api/trading/walkforward', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                strategy: 'macd', symbol, period, count, source,
+                train_window: trainWindow, test_window: testWindow,
+                step, objective, param_grid: paramGrid
+            })
+        });
+
+        if (!r.success) {
+            document.getElementById('wfSummary').classList.add('hidden');
+            document.getElementById('wfConclusion').classList.add('hidden');
+            document.getElementById('wfRounds').classList.add('hidden');
+            status.textContent = '';
+            alert('Walk-Forward 失败: ' + r.error);
+            btn.disabled = false; btn.innerHTML = '🚀 Walk-Forward 分析';
+            return;
+        }
+
+        const res = r.result;
+        const cfg = r.config;
+
+        // 汇总卡片
+        document.getElementById('wfSummary').classList.remove('hidden');
+        document.getElementById('wfSummaryStats').innerHTML = `
+            <div class="stat-card"><div class="stat-label">滚动轮次</div><div class="stat-value">${res.rounds.length}</div></div>
+            <div class="stat-card"><div class="stat-label">训练均分</div><div class="stat-value">${res.train_score_avg?.toFixed(4) || 'N/A'}</div></div>
+            <div class="stat-card"><div class="stat-label">测试均分</div><div class="stat-value">${res.test_score_avg?.toFixed(4) || 'N/A'}</div></div>
+            <div class="stat-card"><div class="stat-label">平均衰退</div><div class="stat-value ${res.train_degradation_avg > 20 ? 'negative' : 'positive'}">${res.train_degradation_avg?.toFixed(1) || 0}%</div></div>
+            <div class="stat-card"><div class="stat-label">稳健性</div><div class="stat-value ${res.is_robust ? 'positive' : 'negative'}">${res.is_robust ? '✅ 稳健' : '❌ 过拟合'}</div></div>
+        `;
+
+        // 结论
+        document.getElementById('wfConclusion').classList.remove('hidden');
+        document.getElementById('wfConclusionText').innerHTML = `
+            <div class="flex items-center gap-3">
+                <span class="badge ${res.is_robust ? 'badge-green' : 'badge-red'}">${res.is_robust ? '参数稳健' : '存在过拟合'}</span>
+                <span class="text-slate-300">${res.conclusion}</span>
+            </div>
+            <div class="text-xs text-slate-500 mt-2">测试得分一致率: ${((res.consistency || 0) * 100).toFixed(0)}%</div>
+        `;
+
+        // 各轮详情表格
+        if (res.rounds && res.rounds.length > 0) {
+            document.getElementById('wfRounds').classList.remove('hidden');
+            let tableHtml = '<table class="w-full text-xs"><thead><tr class="text-slate-400 border-b border-slate-700">';
+            tableHtml += '<th class="py-2 text-left">轮次</th><th class="py-2 text-right">训练区间</th><th class="py-2 text-right">测试区间</th>';
+            tableHtml += '<th class="py-2 text-right">训练得分</th><th class="py-2 text-right">测试得分</th><th class="py-2 text-right">衰退%</th>';
+            tableHtml += '<th class="py-2 text-left">最优参数</th></tr></thead><tbody>';
+            for (const rnd of res.rounds) {
+                const degClass = rnd.degradation_pct > 50 ? 'text-red-400' : rnd.degradation_pct > 20 ? 'text-yellow-400' : 'text-green-400';
+                tableHtml += `<tr class="border-b border-slate-800 hover:bg-slate-800/50">
+                    <td class="py-1">Round ${rnd.round_index + 1}</td>
+                    <td class="py-1 text-right text-slate-400">[${rnd.train_start}-${rnd.train_end}]</td>
+                    <td class="py-1 text-right text-slate-400">[${rnd.test_start}-${rnd.test_end}]</td>
+                    <td class="py-1 text-right">${rnd.train_score?.toFixed(4)}</td>
+                    <td class="py-1 text-right">${rnd.test_score?.toFixed(4)}</td>
+                    <td class="py-1 text-right ${degClass}">${rnd.degradation_pct?.toFixed(1)}%</td>
+                    <td class="py-1 text-left text-slate-400 font-mono">${JSON.stringify(rnd.best_params)}</td>
+                </tr>`;
+            }
+            tableHtml += '</tbody></table>';
+            document.getElementById('wfRoundsTable').innerHTML = tableHtml;
+        }
+
+        status.textContent = '';
+    } catch(e) {
+        status.textContent = '异常: ' + e.message;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '🚀 Walk-Forward 分析';
+    }
+});
+
+// ========== Monte Carlo ==========
+document.getElementById('btnRunMonteCarlo')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btnRunMonteCarlo');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="loading"></span> 模拟中...';
+    const status = document.getElementById('mcStatus');
+
+    const symbol = document.getElementById('mcSymbol').value;
+    const period = document.getElementById('mcPeriod').value;
+    const count = parseInt(document.getElementById('mcCount').value);
+    const source = document.getElementById('mcSource').value;
+    const strategy = document.getElementById('mcStrategy').value;
+    const nSims = parseInt(document.getElementById('mcSimCount').value);
+
+    try {
+        status.textContent = '获取数据并运行回测...';
+        const r = await api('/api/trading/montecarlo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                strategy, symbol, period, count, source, n_simulations: nSims
+            })
+        });
+
+        if (!r.success) {
+            status.textContent = '';
+            alert('Monte Carlo 失败: ' + r.error);
+            btn.disabled = false; btn.innerHTML = '🎲 运行 Monte Carlo';
+            return;
+        }
+
+        document.getElementById('mcResults').classList.remove('hidden');
+        const res = r.result;
+
+        // 分位数卡片
+        document.getElementById('mcPercentiles').innerHTML = `
+            <div class="stat-card"><div class="stat-label">5% 最差</div><div class="stat-value negative">${(res.p5_final_balance/100000-1*100).toFixed(1)}%</div></div>
+            <div class="stat-card"><div class="stat-label">25%</div><div class="stat-value">${(res.p25_final_balance/100000-1*100).toFixed(1)}%</div></div>
+            <div class="stat-card"><div class="stat-label">50% 中位数</div><div class="stat-value">${(res.p50_final_balance/100000-1*100).toFixed(1)}%</div></div>
+            <div class="stat-card"><div class="stat-label">75%</div><div class="stat-value">${(res.p75_final_balance/100000-1*100).toFixed(1)}%</div></div>
+            <div class="stat-card"><div class="stat-label">95% 最好</div><div class="stat-value positive">${(res.p95_final_balance/100000-1*100).toFixed(1)}%</div></div>
+        `;
+
+        // 风险统计
+        const ruinClass = res.probability_of_ruin < 0.05 ? 'positive' : res.probability_of_ruin < 0.20 ? 'neutral' : 'negative';
+        document.getElementById('mcRiskStats').innerHTML = `
+            <div class="stat-card"><div class="stat-label">破产概率</div><div class="stat-value ${ruinClass}">${(res.probability_of_ruin*100).toFixed(1)}%</div></div>
+            <div class="stat-card"><div class="stat-label">最大回撤 5%~95%</div><div class="stat-value">${res.p5_max_drawdown?.toFixed(0) || 0} ~ ${res.p95_max_drawdown?.toFixed(0) || 0}</div></div>
+            <div class="stat-card"><div class="stat-label">夏普比率 (模拟均)</div><div class="stat-value">${res.sharpe_ratios_summary?.mean?.toFixed(2) || 0}</div></div>
+        `;
+
+        // 绘制柱状分布图
+        const chartDom = document.getElementById('mcChart');
+        let mcChart = echarts.getInstanceByDom(chartDom);
+        if (!mcChart) mcChart = echarts.init(chartDom);
+        const pcts = res.final_balance_pcts || [];
+        const bins = 30;
+        const minPct = Math.min(...pcts);
+        const maxPct = Math.max(...pcts);
+        const binWidth = (maxPct - minPct) / bins;
+        const hist = new Array(bins).fill(0);
+        for (const p of pcts) {
+            const idx = Math.min(bins - 1, Math.floor((p - minPct) / binWidth));
+            hist[idx]++;
+        }
+        const xData = Array.from({length: bins}, (_, i) => (minPct + binWidth * (i + 0.5)).toFixed(1));
+        mcChart.setOption({
+            tooltip: { trigger: 'axis' },
+            grid: { top: 10, right: 10, bottom: 25, left: 40 },
+            xAxis: { type: 'category', data: xData, axisLabel: { color: '#64748b', fontSize: 9, rotate: 45 } },
+            yAxis: { type: 'value', axisLabel: { color: '#64748b' }, splitLine: { lineStyle: { color: '#334155' } } },
+            series: [{ type: 'bar', data: hist, itemStyle: { color: '#3b82f6' } }],
+            markLine: {
+                data: [
+                    { xAxis: Math.floor((0 - minPct) / binWidth), name: '盈亏平衡', lineStyle: { color: '#f59e0b' }, label: { formatter: '0%', color: '#f59e0b', fontSize: 9 } }
+                ]
+            }
+        });
+
+        status.textContent = '';
+    } catch(e) {
+        status.textContent = '异常: ' + e.message;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '🎲 运行 Monte Carlo';
     }
 });
 
@@ -1280,53 +1680,46 @@ document.getElementById('btnRunCompare')?.addEventListener('click', async () => 
 });
 
 // ========== 导出报告 ==========
-document.getElementById('btnExportReport')?.addEventListener('click', async () => {
+async function doExport(format) {
     if (!lastCompareResult) {
         alert('请先运行策略对比');
         return;
     }
 
-    const btn = document.getElementById('btnExportReport');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="loading"></span> 导出中...';
+    const exportData = {
+        strategy_name: 'Multi-Strategy Comparison',
+        initial_balance: 100000,
+        final_balance: 100000,
+        statistics: {},
+        trades: [],
+        equity_curve: [],
+        comparison: lastCompareResult.comparison
+    };
 
-    try {
-        // 构造一个用于导出的结果数据结构
-        const exportData = {
-            strategy_name: 'Multi-Strategy Comparison',
-            initial_balance: 100000,
-            final_balance: 100000,
-            statistics: {},
-            trades: [],
-            equity_curve: [],
-            comparison: lastCompareResult.comparison
-        };
+    const r = await api('/api/trading/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            format,
+            result_data: exportData
+        })
+    });
 
-        const r = await api('/api/trading/export', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                format: 'excel',
-                result_data: exportData
-            })
-        });
-
-        if (r.success && r.data) {
-            // 下载文件
-            const link = document.createElement('a');
-            link.href = 'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,' + r.data;
-            link.download = r.filename || 'backtest_report.xlsx';
-            link.click();
-        } else {
-            alert('导出失败: ' + (r.error || '未知错误'));
-        }
-    } catch(e) {
-        alert('导出错误: ' + e.message);
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = '📥 导出报告';
+    if (r.success && r.data) {
+        const mimeType = format === 'pdf'
+            ? 'application/pdf'
+            : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        const link = document.createElement('a');
+        link.href = `data:${mimeType};base64,` + r.data;
+        link.download = r.filename || `backtest_report.${format}`;
+        link.click();
+    } else {
+        alert(`导出${format.toUpperCase()}失败: ` + (r.error || '未知错误'));
     }
-});
+}
+
+document.getElementById('btnExportReport')?.addEventListener('click', () => doExport('excel'));
+document.getElementById('btnExportPdf')?.addEventListener('click', () => doExport('pdf'));
 
 // ========== 绘制权益曲线 ==========
 function drawEquityChart(equityData) {
@@ -1390,46 +1783,60 @@ function drawSignalChart(klineData, tradeEntries) {
     }
     if (card) card.style.display = 'block';
 
-    // 懒初始化
-    if (!window.signalChartInstance) {
-        window.signalChartInstance = echarts.init(chartDom);
+    // 每次重建图表，确保配置干净
+    if (window.signalChartInstance) {
+        window.signalChartInstance.dispose();
+        window.signalChartInstance = null;
     }
+    window.signalChartInstance = echarts.init(chartDom);
 
-    // 建立 bar_index -> timestamp 的映射（用于scatter用时间戳定位）
-    const barIndexToTime = {};
-    klineData.forEach((bar, i) => {
-        barIndexToTime[i] = Number(bar.time) * 1000; // 转毫秒
+    // K线数据 — 扁平数组 [open, close, low, high]
+    const ohlc = klineData.map(d => [d.open, d.close, d.low, d.high]);
+
+    // 时间标签
+    const timeLabels = klineData.map(d => {
+        const t = Number(d.time) * 1000;
+        const dt = new Date(t);
+        return `${String(dt.getMonth()+1).padStart(2,'0')}/${String(dt.getDate()).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
     });
 
-    // K线数据：[timestamp, open, close, low, high] — ECharts时间轴自动识别第一项
-    const ohlc = klineData.map((d, i) => [barIndexToTime[i], d.open, d.close, d.low, d.high]);
-
-    // 提取买卖点，用时间戳定位
-    const buyEntries = tradeEntries.filter(e => e.type === 'entry' && e.direction === 'long');
+    // 分类提取买卖点
+    const buyEntries  = tradeEntries.filter(e => e.type === 'entry' && e.direction === 'long');
     const sellEntries = tradeEntries.filter(e => e.type === 'entry' && e.direction === 'short');
-    const longExits = tradeEntries.filter(e => e.type === 'exit' && e.direction === 'long');
-    const shortExits = tradeEntries.filter(e => e.type === 'exit' && e.direction === 'short');
+    const longExits   = tradeEntries.filter(e => e.type === 'exit'  && e.direction === 'long');
+    const shortExits  = tradeEntries.filter(e => e.type === 'exit'  && e.direction === 'short');
 
+    // Scatter 在 category axis 下数据格式: [xIndex, yValue]（扁平数组，不是对象）
     const buyMarks = buyEntries.map(e => ({
-        coord: [barIndexToTime[e.bar_index] || 0, e.price],
-        value: '多入场',
-        pnl: e.pnl
+        value: [e.bar_index, e.price],
+        entry: e          // 保留原始数据用于 tooltip
     }));
     const sellMarks = sellEntries.map(e => ({
-        coord: [barIndexToTime[e.bar_index] || 0, e.price],
-        value: '空入场',
-        pnl: e.pnl
+        value: [e.bar_index, e.price],
+        entry: e
     }));
     const longExitMarks = longExits.map(e => ({
-        coord: [barIndexToTime[e.bar_index] || 0, e.price],
-        value: '平多',
-        exitReason: e.exit_reason
+        value: [e.bar_index, e.price],
+        entry: e
     }));
     const shortExitMarks = shortExits.map(e => ({
-        coord: [barIndexToTime[e.bar_index] || 0, e.price],
-        value: '平空',
-        exitReason: e.exit_reason
+        value: [e.bar_index, e.price],
+        entry: e
     }));
+
+    // 颜色映射
+    const SERIES_CFG = [
+        { key: 'buy',       name: '多入场', marker: '▲', color: '#22c55e', labelPos: 'insideRight', symbol: 'triangle', symbolRotate: 0   },
+        { key: 'sell',      name: '空入场', marker: '▼', color: '#ef4444', labelPos: 'insideLeft',  symbol: 'triangle', symbolRotate: 180 },
+        { key: 'longExit',  name: '平多',   marker: '●', color: '#86efac', labelPos: 'insideRight', symbol: 'circle',    symbolRotate: 0   },
+        { key: 'shortExit', name: '平空',   marker: '●', color: '#fca5a5', labelPos: 'insideLeft',  symbol: 'circle',    symbolRotate: 0   },
+    ];
+
+    // 格式化出场原因（现在后端已直接返回中文，这里只做安全回退）
+    function fmtExitReason(reason) {
+        if (!reason) return '';
+        return reason; // 后端已格式化为中文，直接显示
+    }
 
     const option = {
         backgroundColor: 'transparent',
@@ -1439,23 +1846,41 @@ function drawSignalChart(klineData, tradeEntries) {
             formatter: function(params) {
                 const candi = params.find(p => p.seriesType === 'candlestick');
                 if (!candi) return '';
-                // ECharts时间轴返回的时间格式
-                const ts = candi.data[0];
-                const d = new Date(ts);
-                const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-                const [o, c, l, h] = candi.data;
-                const color = c >= o ? '#22c55e' : '#ef4444';
-                let tip = `<b>${dateStr}</b><br/>`;
+                const idx = candi.dataIndex;
+                const label = timeLabels[idx] || '';
+                const item  = candi.data;
+                const [o, c, l, h] = item;
+                const up = c >= o;
+                const color = up ? '#22c55e' : '#ef4444';
+
+                let tip = `<b>${label}</b><br/>`;
                 tip += `开: ${o} &nbsp; 高: ${h}<br/>`;
                 tip += `收: <span style="color:${color}">${c}</span> &nbsp; 低: ${l}<br/>`;
+
+                // 遍历所有 series，找到匹配的 bar_index
                 params.forEach(p => {
-                    if (p.marker && p.data.value) {
-                        tip += `<br/>${p.marker} <b>${p.data.value}</b>`;
-                        if (p.data.exitReason) tip += ` (${p.data.exitReason})`;
-                        if (p.data.pnl !== undefined) {
-                            const pn = p.data.pnl;
-                            tip += ` <span style="color:${pn>=0?'#22c55e':'#ef4444'}">${pn>=0?'+':''}${typeof pn === 'number' ? pn.toFixed(2) : pn}</span>`;
-                        }
+                    if (!p.data || !p.data.entry) return;
+                    const entry = p.data.entry;
+                    // 只显示当前 bar 的信号
+                    if (entry.bar_index !== idx) return;
+
+                    const cfg = SERIES_CFG.find(s => s.name === p.seriesName);
+                    const marker = cfg ? `<span style="color:${cfg.color}">${cfg.marker}</span>` : '';
+                    const dirLabel = { long: '多', short: '空' }[entry.direction] || '';
+
+                    if (entry.type === 'entry') {
+                        // 入场点：显示方向、价格、入场理由、止损、止盈
+                        tip += `<br/>${marker} <b>${cfg?.name || p.seriesName}</b> @ ${entry.price}`;
+                        if (entry.reason) tip += `<br/>&nbsp;&nbsp;<span style="color:#60a5fa">[${entry.reason}]</span>`;
+                        if (entry.stop_loss)   tip += `<br/>&nbsp;&nbsp;止损: <span style="color:#ef4444">${entry.stop_loss.toFixed(1)}</span>`;
+                        if (entry.take_profit) tip += `<br/>&nbsp;&nbsp;止盈: <span style="color:#22c55e">${entry.take_profit.toFixed(1)}</span>`;
+                    } else {
+                        // 出场点：显示方向、价格、出场原因（已中文）、盈亏
+                        const pnl = entry.pnl;
+                        const pnlColor = pnl >= 0 ? '#22c55e' : '#ef4444';
+                        tip += `<br/>${marker} <b>${cfg?.name || p.seriesName}</b> @ ${entry.price}`;
+                        tip += ` <span style="color:${pnlColor}">${pnl >= 0 ? '+' : ''}${typeof pnl === 'number' ? pnl.toFixed(2) : pnl}</span>`;
+                        if (entry.exit_reason) tip += `<br/>&nbsp;&nbsp;<span style="color:#fcd34d">[${fmtExitReason(entry.exit_reason)}]</span>`;
                     }
                 });
                 return tip;
@@ -1463,9 +1888,10 @@ function drawSignalChart(klineData, tradeEntries) {
         },
         grid: { top: 10, right: 10, bottom: 30, left: 60 },
         xAxis: {
-            type: 'time',  // 时间轴 — ECharts自动处理夜盘断档
+            type: 'category',
+            data: timeLabels,
             axisLine: { lineStyle: { color: '#334155' } },
-            axisLabel: { color: '#64748b', fontSize: 10, formatter: '{MM}/{dd} {HH}:{mm}' },
+            axisLabel: { color: '#64748b', fontSize: 10, interval: Math.floor(klineData.length / 10) },
             splitLine: { show: false }
         },
         yAxis: {
@@ -1487,34 +1913,34 @@ function drawSignalChart(klineData, tradeEntries) {
                     borderColor: '#22c55e', borderColor0: '#ef4444'
                 }
             },
-            {
-                type: 'scatter', name: '多入场',
-                symbol: 'triangle', symbolSize: 10,
-                data: buyMarks,
-                itemStyle: { color: '#22c55e', borderColor: '#fff', borderWidth: 1 },
-                label: { show: true, position: 'bottom', formatter: '{b}', color: '#22c55e', fontSize: 10 }
-            },
-            {
-                type: 'scatter', name: '空入场',
-                symbol: 'triangle', symbolSize: 10, symbolRotate: 180,
-                data: sellMarks,
-                itemStyle: { color: '#ef4444', borderColor: '#fff', borderWidth: 1 },
-                label: { show: true, position: 'top', formatter: '{b}', color: '#ef4444', fontSize: 10 }
-            },
-            {
-                type: 'scatter', name: '平多',
-                symbol: 'circle', symbolSize: 8,
-                data: longExitMarks,
-                itemStyle: { color: '#86efac', borderColor: '#fff', borderWidth: 1 },
-                label: { show: true, position: 'bottom', formatter: '{b}', color: '#86efac', fontSize: 9 }
-            },
-            {
-                type: 'scatter', name: '平空',
-                symbol: 'circle', symbolSize: 8,
-                data: shortExitMarks,
-                itemStyle: { color: '#fca5a5', borderColor: '#fff', borderWidth: 1 },
-                label: { show: true, position: 'top', formatter: '{b}', color: '#fca5a5', fontSize: 9 }
-            }
+            ...SERIES_CFG.flatMap(cfg => {
+                let data;
+                if (cfg.key === 'buy')      data = buyMarks;
+                else if (cfg.key === 'sell')     data = sellMarks;
+                else if (cfg.key === 'longExit')  data = longExitMarks;
+                else if (cfg.key === 'shortExit') data = shortExitMarks;
+                else return [];
+
+                // 过滤掉 bar_index 越界的点
+                data = data.filter(d => d.value[0] < klineData.length);
+
+                return [{
+                    type: 'scatter', name: cfg.name,
+                    symbol: cfg.symbol, symbolSize: cfg.key.includes('Exit') ? 8 : 11,
+                    symbolRotate: cfg.symbolRotate,
+                    data: data,
+                    itemStyle: { color: cfg.color, borderColor: '#fff', borderWidth: 1 },
+                    label: {
+                        show: true,
+                        position: cfg.labelPos,
+                        formatter: cfg.marker,
+                        color: cfg.color,
+                        fontSize: 9,
+                        textShadowColor: '#0f172a',
+                        textShadowBlur: 2
+                    }
+                }];
+            })
         ]
     };
 

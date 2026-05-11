@@ -1115,8 +1115,19 @@ class OptionChainAPI:
             if len(strike_rows) == 0:
                 return {'success': False, 'error': '解析期权数据失败'}
             
-            # 计算ATM行权价
-            atm_strike = round(S / 50) * 50  # PTA最小跳动50
+            # 计算ATM行权价：基于OI_change加权中心（±5档，反映主力近期建仓意图）
+            all_available_strikes = sorted(set(r.strike for r in strike_rows))
+            if all_available_strikes:
+                # 找标的价格最近的档位索引
+                atm_idx = min(range(len(all_available_strikes)), key=lambda i: abs(all_available_strikes[i] - S))
+                # 用排序后的strike索引slice窗口，再从原始rows中取对应档位的row数据
+                win_strikes = all_available_strikes[max(0, atm_idx - 5):atm_idx + 6]
+                win = [r for r in strike_rows if r.strike in win_strikes]
+                total_w = sum(abs(r.call_oi_change or 0) + abs(r.put_oi_change or 0) for r in win)
+                weighted_center = sum(r.strike * (abs(r.call_oi_change or 0) + abs(r.put_oi_change or 0)) for r in win) / total_w if total_w > 0 else S
+                atm_strike = min(all_available_strikes, key=lambda x: abs(x - weighted_center))
+            else:
+                atm_strike = round(S / 50) * 50
             
             # 计算统计数据
             stats = self._calculate_stats(expiry_list, strike_rows)
@@ -1159,8 +1170,13 @@ class OptionChainAPI:
         # 近月数据
         near_expiry = expiry_list[0]
         
-        # ATM附近的IV
-        atm_row = next((r for r in strike_rows if r.strike == self.analyzer.underlying_price), None)
+        # ATM附近的IV：找实际存在的最近行权价（而非精确匹配）
+        available_strikes = sorted(set(r.strike for r in strike_rows))
+        if available_strikes:
+            nearest_strike = min(available_strikes, key=lambda x: abs(x - self.analyzer.underlying_price))
+            atm_row = next((r for r in strike_rows if r.strike == nearest_strike), None)
+        else:
+            atm_row = None
         if atm_row:
             call_iv = atm_row.call_iv
             put_iv = atm_row.put_iv
@@ -1537,9 +1553,9 @@ def export_atm_option_excel(output_dir: str = None, trade_date: str = None) -> d
     if not result.get('success'):
         return {'success': False, 'error': result.get('error', '获取数据失败')}
     
-    # 计算 ATM 行权价
+    # 计算 ATM 行权价（直接用 get_full_chain 返回的 atm_strike，避免与实际档位不匹配）
     underlying_price = result.get('underlying_price', 0)
-    atm_strike = round(underlying_price / 50) * 50
+    atm_strike = result.get('atm_strike', round(underlying_price / 50) * 50)
     strike_rows = result.get('strike_rows', [])
     
     # ATM 上下各10档，镜像对称排列：ATM居中，高行权价在上，低行权价在下

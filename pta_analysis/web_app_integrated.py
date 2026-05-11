@@ -17,7 +17,7 @@ import pandas as pd
 import numpy as np
 
 # 天勤量化 TqSdk
-from tqsdk import TqApi, TqAuth
+from tqsdk import TqApi, TqAuth, TqKq
 
 # 配置 TqSdk 日志级别，抑制每10秒的连接通知噪音
 import logging
@@ -135,7 +135,7 @@ class TradingSystem:
         strategy_cls = self.strategies.get(strategy_name.lower())
         if not strategy_cls:
             raise ValueError(f"未知策略: {strategy_name}")
-        strategy = strategy_cls(params) if params else strategy_cls()
+        strategy = strategy_cls(params=params) if params else strategy_cls()
         return self.backtest_engine.run(strategy, kline_data)
 
     def submit_order(self, symbol: str, side: str, quantity: int = 1,
@@ -620,9 +620,21 @@ def _fetch_kline_data(symbol='TA609', period='5min', count=500,
     # TqSdk 分支
     if source in ('auto', 'tqsdk'):
         try:
-            api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS), debug=False,
-                        connect_timeout=10, recv_timeout=10)
-            klines = api.get_kline_serial(tqsdk_symbol, period_sec, data_length=count)
+            # 关键修复：count 和日期范围协同工作
+            # 如果指定了 start_date，从 start_date 开始取最多 count 根
+            # 如果只指定了 end_date，取最近 count 根且不晚于 end_date
+            # 如果都没指定，取最近 count 根
+            fetch_count = count
+            if start_ts and not end_ts:
+                # 有起始日期：从起始日期开始取 count 根（end_date 留空让 TqSdk 取到最新）
+                fetch_count = count
+            elif start_ts and end_ts:
+                # 双方都指定：需要多取一些数据再过滤，避免 TqSdk 自动截断
+                fetch_count = max(count * 3, 2000)
+            # else: 都没指定，取最近 count 根（默认行为）
+
+            api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS), debug=False)
+            klines = api.get_kline_serial(tqsdk_symbol, period_sec, data_length=fetch_count)
             api.close()
             data = []
             for _, row in klines.iterrows():
@@ -630,7 +642,7 @@ def _fetch_kline_data(symbol='TA609', period='5min', count=500,
                 if close is None or close == 0:
                     continue
                 bar_time = _parse_kline_time(row['datetime'])
-                # 日期范围过滤
+                # 日期范围过滤（永远执行，确保 count 不会覆盖日期范围）
                 if start_ts and bar_time < start_ts:
                     continue
                 if end_ts and bar_time > end_ts:
@@ -644,6 +656,9 @@ def _fetch_kline_data(symbol='TA609', period='5min', count=500,
                     'volume': _safe_val(float(row['volume']), 0),
                 })
             data.sort(key=lambda x: x['time'])
+            # 最后再截断到 count（保持数据完整，在日期范围内取最新的 count 根）
+            if len(data) > count:
+                data = data[-count:]
             if data:
                 return data
         except Exception:
@@ -657,7 +672,7 @@ def _fetch_kline_data(symbol='TA609', period='5min', count=500,
             df = ak.futures_zh_minute_sina(symbol='TA0', period=period_code)
             df.columns = [c.strip() for c in df.columns]
             df['datetime'] = pd.to_datetime(df['datetime'])
-            df = df.sort_values('datetime').tail(count).reset_index(drop=True)
+            df = df.sort_values('datetime').reset_index(drop=True)  # 移除 tail(count)，让日期过滤生效
             data = []
             for _, row in df.iterrows():
                 close = float(row['close']) if math.isfinite(row['close']) else None
@@ -677,6 +692,9 @@ def _fetch_kline_data(symbol='TA609', period='5min', count=500,
                     'volume': _safe_val(float(row['volume']), 0),
                 })
             data.sort(key=lambda x: x['time'])
+            # 在日期范围内的数据，再截断到 count（取最新的 count 根）
+            if len(data) > count:
+                data = data[-count:]
             return data
         except Exception:
             return []
@@ -1326,6 +1344,7 @@ def api_volatility_refresh():
 @app.route('/api/trading/backtest', methods=['POST'])
 def api_trading_backtest():
     """运行回测"""
+    import traceback
     try:
         req_data = request.get_json() or {}
         strategy_name = req_data.get('strategy', 'macd')
@@ -1337,15 +1356,49 @@ def api_trading_backtest():
         end_date = req_data.get('end_date')      # YYYY-MM-DD
         source = req_data.get('source', 'auto')  # tqsdk / akshare / auto
 
+        app.logger.info(f"[回测] 开始 | strategy={strategy_name} symbol={symbol} period={period} count={count} source={source}")
+
         # 获取K线数据（直接调内部数据获取逻辑，不走HTTP）
         kline_data = _fetch_kline_data(symbol, period, count,
                                         start_date=start_date, end_date=end_date, source=source)
 
         if not kline_data:
-            return jsonify({'success': False, 'error': '无K线数据'}), 400
+            app.logger.error(f"[回测] K线数据为空 | symbol={symbol} period={period} source={source}")
+            return jsonify({'success': False, 'error': f'无法获取K线数据（品种:{symbol} 周期:{period} 数据源:{source}），请尝试切换数据源或检查网络连接'}), 400
+
+        app.logger.info(f"[回测] K线获取成功 | count={len(kline_data)}")
 
         ts = get_trading_system()
         result = ts.run_backtest(strategy_name, kline_data, params)
+
+        # 把K线数据也返回给前端，用于绘制信号图表
+        result['kline_data'] = kline_data
+
+        # 将 trades 转换为前端期望的 trade_entries 格式（入场+出场拆成两条记录）
+        trade_entries = []
+        for t in result.get('trades', []):
+            # 入场记录
+            if t.get('entry_bar_index', -1) >= 0:
+                trade_entries.append({
+                    'type': 'entry',
+                    'direction': t['direction'],
+                    'price': t['entry_price'],
+                    'bar_index': t['entry_bar_index'],
+                    'stop_loss': t.get('stop_loss', 0),
+                    'take_profit': t.get('take_profit', 0),
+                    'exit_reason': '',  # 入场时还不知道出场原因，留空
+                })
+            # 出场记录
+            if t.get('exit_bar_index', -1) >= 0:
+                trade_entries.append({
+                    'type': 'exit',
+                    'direction': t['direction'],
+                    'price': t['exit_price'],
+                    'bar_index': t['exit_bar_index'],
+                    'exit_reason': t.get('exit_reason', ''),
+                    'pnl': t.get('pnl', 0),
+                })
+        result['trade_entries'] = trade_entries
 
         return jsonify({
             'success': True,
@@ -1356,7 +1409,9 @@ def api_trading_backtest():
             'result': result
         })
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        tb = traceback.format_exc()
+        app.logger.error(f"[回测] 异常: {e}\n{tb}")
+        return jsonify({'success': False, 'error': f'回测执行异常: {str(e)}'}), 500
 
 
 @app.route('/api/trading/optimize', methods=['POST'])
@@ -1400,7 +1455,7 @@ def api_trading_optimize():
         grid = ParameterGrid(param_grid_config)
         optimizer = GridOptimizer(objective=objective, mode=mode, top_n=top_n)
         
-        result = optimizer.optimize(
+        opt_result = optimizer.optimize(
             backtest_func=run_backtest_for_optimization,
             param_grid=grid,
             strategy_class=strategy_class,
@@ -1408,6 +1463,12 @@ def api_trading_optimize():
             fixed_params={},
             initial_balance=100000.0
         )
+        
+        # 补充 best_statistics 和 best_params（前端依赖这两个字段）
+        if opt_result.get('top_results') and len(opt_result['top_results']) > 0:
+            best = opt_result['top_results'][0]
+            opt_result['best_statistics'] = best.get('statistics', {})
+            opt_result['best_params'] = best.get('_params', {})
         
         return jsonify({
             'success': True,
@@ -1417,7 +1478,7 @@ def api_trading_optimize():
             'objective': objective,
             'mode': mode,
             'total_combinations': len(grid),
-            'result': result
+            'result': opt_result
         })
     
     except Exception as e:
@@ -1500,6 +1561,19 @@ def api_trading_export():
                 'data': base64.b64encode(excel_bytes).decode('utf-8'),
                 'filename': f"backtest_report_{dt_datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
             })
+        elif export_format == 'pdf':
+            # 返回 base64 编码的 PDF 文件
+            import base64
+            import io
+            buffer = io.BytesIO()
+            exporter.to_pdf_buffer(buffer)
+            buffer.seek(0)
+            return jsonify({
+                'success': True,
+                'format': 'pdf',
+                'data': base64.b64encode(buffer.getvalue()).decode('utf-8'),
+                'filename': f"backtest_report_{dt_datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+            })
         else:
             # 返回 JSON
             return jsonify({
@@ -1507,8 +1581,184 @@ def api_trading_export():
                 'format': 'json',
                 'data': exporter.to_dict()
             })
-    
     except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/trading/walkforward', methods=['POST'])
+def api_trading_walkforward():
+    """Walk-Forward 滚动验证（防止过拟合）"""
+    try:
+        req_data = request.get_json() or {}
+        strategy_name = req_data.get('strategy', 'macd')
+        symbol = req_data.get('symbol', 'TA609')
+        period = req_data.get('period', '5min')
+        count = min(req_data.get('count', 500), 2000)
+        start_date = req_data.get('start_date')
+        end_date = req_data.get('end_date')
+        source = req_data.get('source', 'auto')
+
+        # Walk-Forward 参数
+        train_window = max(req_data.get('train_window', 240), 30)
+        test_window = max(req_data.get('test_window', 60), 10)
+        step = max(req_data.get('step', 60), 10)
+        top_n = min(req_data.get('top_n', 5), 20)
+        objective = req_data.get('objective', 'total_return')
+        mode = req_data.get('mode', 'max')
+
+        # 参数网格
+        param_grid_config = req_data.get('param_grid', {})
+        if not param_grid_config:
+            return jsonify({'success': False, 'error': '缺少 param_grid'}), 400
+
+        app.logger.info(f"[WF] 开始 | strategy={strategy_name} train={train_window} test={test_window} step={step}")
+
+        # 获取K线
+        kline_data = _fetch_kline_data(symbol, period, count,
+                                       start_date=start_date, end_date=end_date, source=source)
+        if not kline_data:
+            return jsonify({'success': False, 'error': '无K线数据'}), 400
+
+        if len(kline_data) < train_window + test_window:
+            return jsonify({'success': False,
+                            'error': f'数据不足（{len(kline_data)}根），需要至少 train_window({train_window}) + test_window({test_window})'}), 400
+
+        ts = get_trading_system()
+        strategy_class = ts.strategies.get(strategy_name)
+        if not strategy_class:
+            return jsonify({'success': False, 'error': f'未找到策略: {strategy_name}'}), 400
+
+        # 执行 Walk-Forward
+        from backtest import WalkForwardAnalyzer, WalkForwardConfig
+        from backtest.optimizer_extension import run_backtest_for_optimization
+
+        config = WalkForwardConfig(
+            train_window=train_window,
+            test_window=test_window,
+            step=step,
+            top_n=top_n,
+            objective=objective,
+            mode=mode,
+        )
+        analyzer = WalkForwardAnalyzer(config)
+        wf_result = analyzer.run(
+            strategy_class=strategy_class,
+            data=kline_data,
+            param_grid=param_grid_config,
+            backtest_func=run_backtest_for_optimization,
+            initial_balance=100000.0,
+        )
+
+        # 序列化结果
+        rounds_data = []
+        for r in wf_result.rounds:
+            rounds_data.append({
+                'round_index': r.round_index,
+                'train_start': r.train_start,
+                'train_end': r.train_end,
+                'test_start': r.test_start,
+                'test_end': r.test_end,
+                'best_params': r.best_params,
+                'train_stats': r.train_stats,
+                'test_stats': r.test_stats,
+                'train_score': r.train_score,
+                'test_score': r.test_score,
+                'degradation': r.degradation,
+                'degradation_pct': r.degradation_pct,
+            })
+
+        return jsonify({
+            'success': True,
+            'strategy': strategy_name,
+            'data_count': len(kline_data),
+            'config': {
+                'train_window': train_window,
+                'test_window': test_window,
+                'step': step,
+                'top_n': top_n,
+                'objective': objective,
+            },
+            'result': {
+                'rounds': rounds_data,
+                'train_degradation_avg': wf_result.train_degradation_avg,
+                'test_score_avg': wf_result.test_score_avg,
+                'train_score_avg': wf_result.train_score_avg,
+                'is_robust': wf_result.is_robust,
+                'consistency': wf_result.consistency,
+                'conclusion': wf_result.conclusion,
+            }
+        })
+
+    except Exception as e:
+        import traceback
+        app.logger.error(f"[WF] 异常: {e}\n{traceback.format_exc()}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/trading/montecarlo', methods=['POST'])
+def api_trading_montecarlo():
+    """Monte Carlo 模拟（策略稳健性验证）"""
+    try:
+        req_data = request.get_json() or {}
+        strategy_name = req_data.get('strategy', 'macd')
+        symbol = req_data.get('symbol', 'TA609')
+        period = req_data.get('period', '5min')
+        count = min(req_data.get('count', 500), 2000)
+        start_date = req_data.get('start_date')
+        end_date = req_data.get('end_date')
+        source = req_data.get('source', 'auto')
+        n_simulations = min(req_data.get('n_simulations', 1000), 5000)
+
+        app.logger.info(f"[MC] 开始 | strategy={strategy_name} simulations={n_simulations}")
+
+        # 先跑一次回测获取交易记录
+        kline_data = _fetch_kline_data(symbol, period, count,
+                                       start_date=start_date, end_date=end_date, source=source)
+        if not kline_data:
+            return jsonify({'success': False, 'error': '无K线数据'}), 400
+
+        ts = get_trading_system()
+        strategy_class = ts.strategies.get(strategy_name)
+        if not strategy_class:
+            return jsonify({'success': False, 'error': f'未找到策略: {strategy_name}'}), 400
+
+        result = ts.run_backtest(strategy_name, kline_data, {})
+        trades = result.get('trades', [])
+
+        if len(trades) < 10:
+            return jsonify({'success': False,
+                            'error': f'交易次数不足（{len(trades)}笔），Monte Carlo 需要至少10笔交易'}), 400
+
+        from backtest import run_monte_carlo, MonteCarloConfig
+        config = MonteCarloConfig(n_simulations=n_simulations)
+        mc_result = run_monte_carlo(trades, initial_balance=100000.0, config=config)
+
+        return jsonify({
+            'success': True,
+            'strategy': strategy_name,
+            'trade_count': len(trades),
+            'n_simulations': n_simulations,
+            'result': {
+                'p5_final_balance': round(mc_result.p5_final_balance, 2),
+                'p25_final_balance': round(mc_result.p25_final_balance, 2),
+                'p50_final_balance': round(mc_result.p50_final_balance, 2),
+                'p75_final_balance': round(mc_result.p75_final_balance, 2),
+                'p95_final_balance': round(mc_result.p95_final_balance, 2),
+                'p5_max_drawdown': round(mc_result.p5_max_drawdown, 2),
+                'p95_max_drawdown': round(mc_result.p95_max_drawdown, 2),
+                'probability_of_ruin': round(mc_result.probability_of_ruin, 4),
+                'sharpe_ratios_summary': {
+                    'mean': round(sum(mc_result.sharpe_ratios) / len(mc_result.sharpe_ratios), 4),
+                    'min': round(min(mc_result.sharpe_ratios), 4),
+                    'max': round(max(mc_result.sharpe_ratios), 4),
+                },
+                'final_balance_pcts': [round(p, 2) for p in mc_result.final_balance_pcts[:100]],  # 限制返回量
+            }
+        })
+
+    except Exception as e:
+        import traceback
+        app.logger.error(f"[MC] 异常: {e}\n{traceback.format_exc()}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

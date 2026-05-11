@@ -14,6 +14,7 @@
 
 
 
+
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -2987,15 +2988,31 @@
                 
                 // 获取实时标的价格
                 const realtimePrice = data.underlying_price || 6500;
-                const atmStrike = Math.round(realtimePrice / 50) * 50;
+                // ATM行权价：基于OI_change加权中心（±5档，反映主力近期建仓意图）
+                const rows = data.strike_rows || [];
+                const sortedRows = [...rows].sort((a, b) => a.strike - b.strike);
+                const allStrikes = sortedRows.map(r => r.strike);
+                let atmStrike, weightedCenter = realtimePrice;
+                if (!allStrikes.length) { atmStrike = Math.round(realtimePrice / 50) * 50; }
+                else {
+                    // 找标的价格最近的档位索引
+                    let atmIdx = 0;
+                    allStrikes.forEach((s, i) => { if (Math.abs(s - realtimePrice) < Math.abs(allStrikes[atmIdx] - realtimePrice)) atmIdx = i; });
+                    // 取±5档范围计算OI_change加权中心
+                    const win = sortedRows.slice(Math.max(0, atmIdx - 5), atmIdx + 6);
+                    const totalW = win.reduce((sum, r) => sum + Math.abs(r.call_oi_change || 0) + Math.abs(r.put_oi_change || 0), 0);
+                    weightedCenter = totalW > 0
+                        ? win.reduce((sum, r) => sum + r.strike * (Math.abs(r.call_oi_change || 0) + Math.abs(r.put_oi_change || 0)), 0) / totalW
+                        : realtimePrice;
+                    // 取实际档位中离加权中心最近的
+                    atmStrike = allStrikes.reduce((p, c) => Math.abs(c - weightedCenter) < Math.abs(p - weightedCenter) ? c : p);
+                }
                 
                 // 更新标题栏信息
                 const nearExpiryDisplay = data.near_expiry_display || data.near_expiry;
                 document.getElementById('optionExpiry').textContent = nearExpiryDisplay;
                 
-                // 计算仓变阈值（自动跟踪当下持仓变化总和）- sortedRows定义在前
-                const rows = data.strike_rows || [];
-                const sortedRows = [...rows].sort((a, b) => a.strike - b.strike);
+                // 计算仓变阈值（自动跟踪当下持仓变化总和）
                 const totalOiChg = sortedRows.reduce((sum, r) => sum + (r.call_oi_change || 0) + (r.put_oi_change || 0), 0);
                 const oiChgThresh = totalOiChg > 5000 ? '大加仓' : (totalOiChg > 0 ? '小幅加仓' : (totalOiChg < -5000 ? '大减仓' : (totalOiChg < 0 ? '小幅减仓' : '中性')));
                 
@@ -3027,7 +3044,9 @@
                 const stats = data.stats || {};
                 document.getElementById('optionStats').innerHTML = `
                     <div class="option-stat"><div class="option-stat-label">标的价格</div><div class="option-stat-value text-primary fw-bold" id="stat-symbol-price">${realtimePrice?.toFixed(0) || '--'}</div></div>
+                    <div class="option-stat"><div class="option-stat-label">OI重心</div><div class="option-stat-value text-info" id="stat-oi-center">${(weightedCenter || realtimePrice)?.toFixed(0) || '--'}</div></div>
                     <div class="option-stat"><div class="option-stat-label">ATM行权价</div><div class="option-stat-value text-warning fw-bold" id="stat-atm-strike">${atmStrike || '--'}</div></div>
+                    <div class="option-stat"><div class="option-stat-label">ATM隐波</div><div class="option-stat-value" id="stat-atm-iv">${atmIv.toFixed(1) || '--'}%</div></div>
                     <div class="option-stat"><div class="option-stat-label">Call IV均值</div><div class="option-stat-value" id="stat-call-iv">${stats.avg_call_iv?.toFixed(1) || '--'}%</div></div>
                     <div class="option-stat"><div class="option-stat-label">Put IV均值</div><div class="option-stat-value" id="stat-put-iv">${stats.avg_put_iv?.toFixed(1) || '--'}%</div></div>
                     <div class="option-stat"><div class="option-stat-label">导出Excel</div><div class="option-stat-value"><a href="http://47.100.97.88/api/options/export_excel" target="_blank" class="btn btn-sm btn-outline-light">📥 下载</a></div></div>

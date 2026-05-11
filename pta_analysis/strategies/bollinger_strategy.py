@@ -25,7 +25,8 @@ class BollingerStrategy(StrategyBase):
                  period: int = 20, 
                  std_dev: float = 2.0,
                  stop_loss_pct: float = 0.02,
-                 take_profit_pct: float = 0.04):
+                 take_profit_pct: float = 0.04,
+                 params: dict = None):
         """
         初始化布林带策略
         
@@ -33,7 +34,15 @@ class BollingerStrategy(StrategyBase):
         :param std_dev: 标准差倍数，默认2.0
         :param stop_loss_pct: 止损百分比，默认2%
         :param take_profit_pct: 止盈百分比，默认4%
+        :param params: 可选参数字典（用于API兼容性，自动提取策略参数）
         """
+        # 兼容API调用：params字典中的参数优先
+        if params and isinstance(params, dict):
+            period = params.get('period', period)
+            std_dev = params.get('std_dev', std_dev)
+            stop_loss_pct = params.get('stop_loss_pct', stop_loss_pct)
+            take_profit_pct = params.get('take_profit_pct', take_profit_pct)
+        
         super().__init__()
         self.period = period
         self.std_dev = std_dev

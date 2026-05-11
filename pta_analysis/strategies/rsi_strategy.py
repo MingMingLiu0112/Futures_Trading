@@ -26,7 +26,8 @@ class RSIStrategy(StrategyBase):
                  oversold_threshold: float = 30.0,
                  overbought_threshold: float = 70.0,
                  stop_loss_pct: float = 0.02,
-                 take_profit_pct: float = 0.04):
+                 take_profit_pct: float = 0.04,
+                 params: dict = None):
         """
         初始化RSI策略
         
@@ -35,7 +36,16 @@ class RSIStrategy(StrategyBase):
         :param overbought_threshold: 超买阈值，默认70
         :param stop_loss_pct: 止损百分比，默认2%
         :param take_profit_pct: 止盈百分比，默认4%
+        :param params: 可选参数字典（用于API兼容性，自动提取策略参数）
         """
+        # 兼容API调用：params字典中的参数优先
+        if params and isinstance(params, dict):
+            rsi_period = params.get('rsi_period', rsi_period)
+            oversold_threshold = params.get('oversold_threshold', oversold_threshold)
+            overbought_threshold = params.get('overbought_threshold', overbought_threshold)
+            stop_loss_pct = params.get('stop_loss_pct', stop_loss_pct)
+            take_profit_pct = params.get('take_profit_pct', take_profit_pct)
+        
         super().__init__()
         self.rsi_period = rsi_period
         self.oversold_threshold = oversold_threshold

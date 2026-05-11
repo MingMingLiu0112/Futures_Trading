@@ -10,6 +10,7 @@ import pandas as pd
 import json
 from datetime import datetime
 import os
+import sys
 
 app = FastAPI(title="PTA量化分析系统", version="1.0.0")
 
@@ -24,7 +25,7 @@ app.add_middleware(
 
 # 数据路径
 DATA_DIR = "/data"
-sys.path.insert(0, '/home/admin/.openclaw/workspace/codeman/pta_analysis')
+sys.path.insert(0, '/home/admin/.openclaw/workspace/Futures_Trading/pta_analysis')
 
 def load_data():
     """加载PTA数据"""

@@ -1,295 +1,330 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-回测引擎模块
-执行策略回测并生成结果
+轻量级回测引擎
+
+与 native_engine.py 的专业回测引擎不同，这个引擎专注于：
+1. 与 web_app TradingSystem 集成
+2. 支持 StrategyBase 轻量级策略
+3. 支持止损/止盈
+4. 输出标准化的回测结果
+
+用法:
+```python
+from backtest.backtest_engine import BacktestEngine
+from backtest.strategy_base import StrategyBase
+
+class MyStrategy(StrategyBase):
+    def on_bar(self, bar):
+        if bar['close'] > bar['open']:
+            return self.generate_signal('buy', bar['close'], bar.get('time', ''))
+        return None
+
+engine = BacktestEngine(initial_balance=100000, commission_rate=0.0001)
+result = engine.run(MyStrategy(), kline_data)
+```
 """
 
-from typing import List, Dict, Any, Optional
-from datetime import datetime
-import pandas as pd
+import uuid
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional, Type
+import copy
 
-from .strategy_base import StrategyBase, StrategySignal
+from .strategy_base import StrategyBase, TradeResult
 from .performance_metrics import calculate_performance_metrics
 
 
-class TradeResult:
-    """单笔交易结果"""
-
-    def __init__(self, trade_id: str, entry_time: str, exit_time: str,
-                 direction: str, entry_price: float, exit_price: float,
-                 quantity: int = 1, stop_loss: Optional[float] = None,
-                 take_profit: Optional[float] = None,
-                 entry_bar_index: int = -1, exit_bar_index: int = -1,
-                 exit_reason: str = 'signal'):
-        self.trade_id = trade_id
-        self.entry_time = entry_time
-        self.exit_time = exit_time
-        self.direction = direction
-        self.entry_price = entry_price
-        self.exit_price = exit_price
-        self.quantity = quantity
-        self.stop_loss = stop_loss
-        self.take_profit = take_profit
-        self.entry_bar_index = entry_bar_index
-        self.exit_bar_index = exit_bar_index
-        self.exit_reason = exit_reason  # 'signal', 'stop_loss', 'take_profit'
-
-    @property
-    def pnl(self) -> float:
-        """计算盈亏"""
-        if self.direction == 'long':
-            return (self.exit_price - self.entry_price) * self.quantity
-        else:
-            return (self.entry_price - self.exit_price) * self.quantity
-
-    @property
-    def pnl_pct(self) -> float:
-        """计算盈亏百分比"""
-        if self.entry_price == 0:
-            return 0.0
-        return self.pnl / (self.entry_price * self.quantity) * 100
-
-    def to_dict(self) -> Dict[str, Any]:
-        """转换为字典，包含属性"""
-        return {
-            'trade_id': self.trade_id,
-            'entry_time': self.entry_time,
-            'exit_time': self.exit_time,
-            'direction': self.direction,
-            'entry_price': self.entry_price,
-            'exit_price': self.exit_price,
-            'quantity': self.quantity,
-            'stop_loss': self.stop_loss,
-            'take_profit': self.take_profit,
-            'pnl': self.pnl,
-            'pnl_pct': self.pnl_pct,
-            'entry_bar_index': self.entry_bar_index,
-            'exit_bar_index': self.exit_bar_index,
-            'exit_reason': self.exit_reason
-        }
-
-
+@dataclass
 class BacktestEngine:
-    """回测引擎"""
-    
-    def __init__(self, initial_balance: float = 100000.0, 
-                 risk_per_trade: float = 0.01, commission_rate: float = 0.0001):
-        self.initial_balance = initial_balance
-        self.risk_per_trade = risk_per_trade
-        self.commission_rate = commission_rate
-        self.balance = initial_balance
+    """
+    轻量级回测引擎
+
+    Attributes:
+        initial_balance: 初始资金
+        commission_rate: 手续费率（按成交金额）
+        risk_per_trade: 每笔交易风险比例（用于仓位计算）
+    """
+
+    initial_balance: float = 100000.0
+    commission_rate: float = 0.0001
+    risk_per_trade: float = 0.01
+    slippage: float = 0.0   # 滑点（按价格比例，如 0.0005 = 5跳/万分之五）
+
+    def __post_init__(self):
+        self.balance: float = self.initial_balance
+        self.trades: List[Dict[str, Any]] = []
+        self.equity_curve: List[Dict[str, Any]] = []
+        self.position: Optional[str] = None  # 'long', 'short'
+        self.entry_price: float = 0
+        self.entry_time: str = ''
+        self.quantity: int = 1
+        self.stop_loss: float = 0
+        self.take_profit: float = 0
+        self.strategy: Optional[StrategyBase] = None
+        self.trade_id_counter: int = 0
+        self.entry_bar_index: int = -1   # 记录入场K线索引，供前端图表使用
+
+    def reset(self):
+        """重置引擎状态"""
+        self.balance = self.initial_balance
+        self.trades = []
         self.equity_curve = []
-        self.trades: List[TradeResult] = []
-        self.current_position = None  # 'long', 'short', or None
-        self.current_entry_price = None
-        self.current_stop_loss = None
-        self.current_take_profit = None
-        self.trade_counter = 0
-        self.current_entry_bar_index = -1  # 新增：记录入场bar索引
-        self.trade_entries: List[Dict[str, Any]] = []  # 新增：记录入场点信息（用于可视化）
+        self.position = None
+        self.entry_price = 0
+        self.entry_time = ''
+        self.quantity = 1
+        self.stop_loss = 0
+        self.take_profit = 0
+        self.trade_id_counter = 0
+        self.entry_bar_index = -1
 
-    def _calculate_position_size(self, entry_price: float, stop_price: float) -> int:
-        """计算仓位大小"""
-        if entry_price == stop_price:
-            return 1
-
-        risk_amount = self.balance * self.risk_per_trade
-        risk_per_unit = abs(entry_price - stop_price)
-
-        if risk_per_unit <= 0:
-            return 1
-
-        position_size = int(risk_amount / risk_per_unit)
-        return max(1, position_size)
-
-    def _execute_trade(self, signal: StrategySignal, bar: Dict[str, Any], 
-                       bar_index: int = -1, exit_reason: str = 'signal') -> Optional[TradeResult]:
-        """执行交易"""
-        if signal.signal_type == 'buy' and self.current_position is None:
-            # 开多
-            stop_price = signal.stop_loss if signal.stop_loss else signal.price * 0.98
-            position_size = self._calculate_position_size(signal.price, stop_price)
-
-            self.current_position = 'long'
-            self.current_entry_price = signal.price
-            self.current_stop_loss = signal.stop_loss
-            self.current_take_profit = signal.take_profit
-            self.current_entry_bar_index = bar_index
-
-            # 记录入场点（用于可视化）
-            self.trade_entries.append({
-                'type': 'entry',
-                'direction': 'long',
-                'bar_index': bar_index,
-                'time': bar.get('time', ''),
-                'price': signal.price,
-                'stop_loss': signal.stop_loss,
-                'take_profit': signal.take_profit
-            })
-
-            return None  # 开仓不返回交易结果
-
-        elif signal.signal_type == 'sell' and self.current_position is None:
-            # 开空
-            stop_price = signal.stop_loss if signal.stop_loss else signal.price * 1.02
-            position_size = self._calculate_position_size(signal.price, stop_price)
-
-            self.current_position = 'short'
-            self.current_entry_price = signal.price
-            self.current_stop_loss = signal.stop_loss
-            self.current_take_profit = signal.take_profit
-            self.current_entry_bar_index = bar_index
-
-            # 记录入场点（用于可视化）
-            self.trade_entries.append({
-                'type': 'entry',
-                'direction': 'short',
-                'bar_index': bar_index,
-                'time': bar.get('time', ''),
-                'price': signal.price,
-                'stop_loss': signal.stop_loss,
-                'take_profit': signal.take_profit
-            })
-
-            return None  # 开仓不返回交易结果
-
-        elif signal.signal_type == 'close' and self.current_position is not None:
-            # 平仓
-            exit_price = bar['close']
-            trade = TradeResult(
-                trade_id=f"trade_{self.trade_counter}",
-                entry_time=bar.get('time', ''),
-                exit_time=bar.get('time', ''),
-                direction=self.current_position,
-                entry_price=self.current_entry_price,
-                exit_price=exit_price,
-                stop_loss=self.current_stop_loss,
-                take_profit=self.current_take_profit,
-                entry_bar_index=self.current_entry_bar_index,
-                exit_bar_index=bar_index,
-                exit_reason=exit_reason
-            )
-
-            # 更新余额
-            pnl = trade.pnl
-            commission = exit_price * 1 * self.commission_rate * 2  # 开仓+平仓
-            self.balance += pnl - commission
-
-            self.trades.append(trade)
-
-            # 记录出场点（用于可视化）
-            self.trade_entries.append({
-                'type': 'exit',
-                'direction': self.current_position,
-                'bar_index': bar_index,
-                'time': bar.get('time', ''),
-                'price': exit_price,
-                'exit_reason': exit_reason,
-                'pnl': pnl
-            })
-
-            self.trade_counter += 1
-
-            # 重置状态
-            self.current_position = None
-            self.current_entry_price = None
-            self.current_stop_loss = None
-            self.current_take_profit = None
-            self.current_entry_bar_index = -1
-
-            return trade
-
-        return None
-
-    def _check_stop_loss_take_profit(self, bar: Dict[str, Any], 
-                                      bar_index: int = -1) -> Optional[TradeResult]:
-        """检查止损/止盈"""
-        if self.current_position is None:
-            return None
-
-        current_price = bar['close']
-
-        # 检查止损
-        if self.current_stop_loss:
-            if self.current_position == 'long' and current_price <= self.current_stop_loss:
-                return self._execute_trade(
-                    StrategySignal('close', self.current_stop_loss, bar.get('time', '')),
-                    bar, bar_index, 'stop_loss'
-                )
-            elif self.current_position == 'short' and current_price >= self.current_stop_loss:
-                return self._execute_trade(
-                    StrategySignal('close', self.current_stop_loss, bar.get('time', '')),
-                    bar, bar_index, 'stop_loss'
-                )
-
-        # 检查止盈
-        if self.current_take_profit:
-            if self.current_position == 'long' and current_price >= self.current_take_profit:
-                return self._execute_trade(
-                    StrategySignal('close', self.current_take_profit, bar.get('time', '')),
-                    bar, bar_index, 'take_profit'
-                )
-            elif self.current_position == 'short' and current_price <= self.current_take_profit:
-                return self._execute_trade(
-                    StrategySignal('close', self.current_take_profit, bar.get('time', '')),
-                    bar, bar_index, 'take_profit'
-                )
-
-        return None
-
-    def run(self, strategy: StrategyBase, data: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def run(
+        self,
+        strategy: StrategyBase,
+        data: List[Dict[str, Any]],
+        initial_balance: float = None
+    ) -> Dict[str, Any]:
         """
         运行回测
-        :param strategy: 策略实例
-        :param data: K线数据列表
-        :return: 回测结果
+
+        Args:
+            strategy: 策略实例（StrategyBase 子类）
+            data: K线数据列表，每项包含 time, open, high, low, close, volume
+            initial_balance: 可覆盖初始资金
+
+        Returns:
+            包含 trades, equity_curve, statistics 的字典
         """
-        # 重置状态
-        self.balance = self.initial_balance
-        self.equity_curve = []
-        self.trades = []
-        self.current_position = None
-        self.current_entry_price = None
-        self.current_entry_bar_index = -1
-        self.trade_entries = []
-        self.trade_counter = 0
-        strategy.reset()
+        if initial_balance is not None:
+            self.initial_balance = initial_balance
+        self.reset()
+        self.strategy = copy.deepcopy(strategy)
 
+        # 生成权益曲线时间索引
+        time_index: Dict[str, int] = {}
         for i, bar in enumerate(data):
-            # 检查止损/止盈
-            self._check_stop_loss_take_profit(bar, i)
+            ts = bar.get('time', f'bar_{i}')
+            time_index[ts] = i
 
-            # 执行策略
-            signal = strategy.on_bar(bar)
+        # 逐根K线回测
+        for i, bar in enumerate(data):
+            self._process_bar(bar, data, i)
 
-            # 执行信号
-            if signal:
-                self._execute_trade(signal, bar, i, 'signal')
+        # 平仓（如果有持仓）
+        if self.position is not None and data:
+            last_bar = data[-1]
+            self._close_position(last_bar, 'end_of_data', len(data) - 1)
 
-            # 记录权益曲线
-            self.equity_curve.append({
-                'time': bar.get('time', ''),
-                'balance': self.balance,
-                'position': self.current_position or 'none',
-                'price': bar.get('close', 0)
-            })
+        # 生成权益曲线
+        self._generate_equity_curve(data)
 
         # 计算统计指标
-        stats = self._calculate_stats()
+        statistics = calculate_performance_metrics(
+            self.trades,
+            self.equity_curve,
+            self.initial_balance
+        )
+        statistics['initial_balance'] = self.initial_balance
+        statistics['final_balance'] = self.balance
 
         return {
             'success': True,
-            'initial_balance': self.initial_balance,
-            'final_balance': self.balance,
-            'total_return': (self.balance - self.initial_balance) / self.initial_balance * 100,
-            'trades': [t.to_dict() for t in self.trades],
+            'trades': self.trades,
             'equity_curve': self.equity_curve,
-            'statistics': stats,
-            'trade_entries': self.trade_entries  # 新增：用于K线图标注
+            'statistics': statistics,
+            'final_balance': self.balance,
         }
-    
-    def _calculate_stats(self) -> Dict[str, Any]:
-        """计算统计指标（委托给 performance_metrics 模块）"""
-        trades_dict = [t.to_dict() for t in self.trades]
-        return calculate_performance_metrics(trades_dict, self.equity_curve, self.initial_balance)
+
+    def _process_bar(
+        self,
+        bar: Dict[str, Any],
+        data: List[Dict[str, Any]],
+        index: int
+    ):
+        """处理单根K线"""
+        ts = bar.get('time', f'bar_{index}')
+        close = bar.get('close', 0)
+        high = bar.get('high', 0)
+        low = bar.get('low', 0)
+
+        # ========== 持仓检查：止损/止盈 ==========
+        if self.position == 'long':
+            # 止损
+            if self.stop_loss > 0 and low <= self.stop_loss:
+                self._close_position(bar, 'stop_loss', index)
+                self.balance += self._calc_pnl('long', self.stop_loss, self.quantity)
+                return
+            # 止盈
+            if self.take_profit > 0 and high >= self.take_profit:
+                self._close_position(bar, 'take_profit', index)
+                return
+        elif self.position == 'short':
+            if self.stop_loss > 0 and high >= self.stop_loss:
+                self._close_position(bar, 'stop_loss', index)
+                return
+            if self.take_profit > 0 and low <= self.take_profit:
+                self._close_position(bar, 'take_profit', index)
+                return
+
+        # ========== 调用策略 ==========
+        signal = self.strategy.on_bar(bar)
+        if signal is None:
+            return
+
+        signal_type = signal.signal_type
+
+        # ========== 执行信号 ==========
+        if signal_type in ('buy', 'long'):
+            if self.position is None:
+                self._open_position('long', signal, bar, index)
+            elif self.position == 'short':
+                # 平空再开多
+                self._close_position(bar, 'reverse', index)
+                self._open_position('long', signal, bar, index)
+
+        elif signal_type in ('sell', 'close'):
+            if self.position in ('long', 'short'):
+                self._close_position(bar, 'signal', index)
+
+        elif signal_type in ('short', 'sell_short'):
+            if self.position is None:
+                self._open_position('short', signal, bar, index)
+            elif self.position == 'long':
+                self._close_position(bar, 'reverse', index)
+                self._open_position('short', signal, bar, index)
+
+        elif signal_type == 'cover':
+            if self.position in ('long', 'short'):
+                self._close_position(bar, 'signal', index)
+
+    def _open_position(
+        self,
+        direction: str,
+        signal,
+        bar: Dict[str, Any],
+        bar_index: int
+    ):
+        """开仓（考虑滑点）"""
+        # 开仓价：做多时高，卖空时低（滑点使开仓成本更差）
+        if direction == 'long':
+            slippage_price = signal.price * (1 + self.slippage)
+        else:
+            slippage_price = signal.price * (1 - self.slippage)
+        price = slippage_price
+        ts = bar.get('time', '')
+        quantity = signal.quantity if signal.quantity else 1
+
+        # 计算手续费（计入成本）
+        commission = price * quantity * self.commission_rate
+        self.balance -= commission
+
+        self.position = direction
+        self.entry_price = price
+        self.entry_time = ts
+        self.quantity = quantity
+        self.stop_loss = signal.stop_loss or 0
+        self.take_profit = signal.take_profit or 0
+        self.entry_bar_index = bar_index  # 记录入场K线索引
+
+    def _close_position(
+        self,
+        bar: Dict[str, Any],
+        reason: str,
+        bar_index: int = -1
+    ):
+        """平仓（考虑滑点：平多时低，平空时高）"""
+        if self.position is None:
+            return
+
+        # 平仓价：平多时低（更差价格），平空时高（更差价格）
+        raw_close = bar.get('close', self.entry_price)
+        if self.position == 'long':
+            price = raw_close * (1 - self.slippage)
+        else:
+            price = raw_close * (1 + self.slippage)
+        ts = bar.get('time', '')
+
+        # 计算盈亏
+        pnl = self._calc_pnl(self.position, price, self.quantity)
+
+        # 扣除手续费
+        commission = price * self.quantity * self.commission_rate
+
+        trade_id = f"trade_{self.trade_id_counter}"
+        self.trade_id_counter += 1
+
+        trade = {
+            'trade_id': trade_id,
+            'direction': self.position,
+            'entry_time': self.entry_time,
+            'exit_time': ts,
+            'entry_price': self.entry_price,
+            'exit_price': price,
+            'quantity': self.quantity,
+            'pnl': pnl - commission,
+            'pnl_pct': (abs(price - self.entry_price) / self.entry_price * 100
+                        if self.entry_price > 0 else 0),
+            'exit_reason': reason,
+            'stop_loss': self.stop_loss,               # 入场时设置的止损价
+            'take_profit': self.take_profit,           # 入场时设置的止盈价
+            'commission': commission,
+            'entry_bar_index': self.entry_bar_index,   # 供前端图表定位入场点
+            'exit_bar_index': bar_index,               # 供前端图表定位出场点
+        }
+        self.trades.append(trade)
+
+        self.balance += pnl - commission
+
+        # 重置持仓
+        self.position = None
+        self.entry_price = 0
+        self.entry_time = ''
+        self.quantity = 1
+        self.stop_loss = 0
+        self.take_profit = 0
+        self.entry_bar_index = -1
+
+    def _calc_pnl(self, direction: str, price: float, quantity: float) -> float:
+        """计算盈亏"""
+        if direction == 'long':
+            return (price - self.entry_price) * quantity
+        else:  # short
+            return (self.entry_price - price) * quantity
+
+    def _generate_equity_curve(self, data: List[Dict[str, Any]]):
+        """生成权益曲线"""
+        self.equity_curve = []
+        running_balance = self.initial_balance
+
+        # 按时间排序的交易
+        time_to_trade: Dict[str, Dict] = {}
+        for trade in self.trades:
+            time_to_trade[trade['exit_time']] = trade
+
+        for bar in data:
+            ts = bar.get('time', '')
+            if ts in time_to_trade:
+                trade = time_to_trade[ts]
+                running_balance += trade['pnl']
+            self.equity_curve.append({
+                'time': ts,
+                'balance': round(running_balance, 2)
+            })
+
+    def _calculate_position_size(
+        self,
+        entry_price: float,
+        stop_loss: float
+    ) -> int:
+        """
+        根据风险金额计算仓位大小
+
+        风险金额 = 账户余额 * risk_per_trade
+        风险金额 = (入场价 - 止损价) * 仓位
+        """
+        risk_amount = self.balance * self.risk_per_trade
+        risk_per_unit = abs(entry_price - stop_loss)
+        if risk_per_unit <= 0:
+            return 1
+        size = int(risk_amount / risk_per_unit)
+        return max(size, 1)

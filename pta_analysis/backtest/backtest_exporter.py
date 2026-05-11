@@ -1,430 +1,448 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-回测报告导出模块
-支持导出Excel格式的回测报告
+回测结果导出模块
+
+支持导出为 Excel 和 PDF 格式。
+
+用法:
+```python
+from backtest.backtest_exporter import BacktestExporter
+
+exporter = BacktestExporter(result_data)
+excel_bytes = exporter.to_excel()
+exporter.to_pdf('report.pdf')
+```
 """
 
-import os
 import io
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
 
-# 尝试导入 openpyxl，如果不可用则使用 xlsxwriter
+# Excel支持
 try:
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
-    EXPORT_LIBRARY = 'openpyxl'
+    OPENEXCEL_AVAILABLE = True
 except ImportError:
-    try:
-        import xlsxwriter
-        EXPORT_LIBRARY = 'xlsxwriter'
-    except ImportError:
-        EXPORT_LIBRARY = None
+    OPENEXCEL_AVAILABLE = False
+
+# PDF支持
+try:
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch, cm
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    PDF_AVAILABLE = True
+except ImportError:
+    PDF_AVAILABLE = False
 
 
 class BacktestExporter:
-    """回测报告导出器"""
+    """
+    回测结果导出器
 
-    def __init__(self, result: Dict[str, Any]):
-        """
-        初始化导出器
-        :param result: 回测结果字典
-        """
-        self.result = result
-        self.statistics = result.get('statistics', {})
-        self.trades = result.get('trades', [])
-        self.equity_curve = result.get('equity_curve', [])
-        self.trade_entries = result.get('trade_entries', [])
+    将回测结果导出为 Excel 或 PDF 格式。
+    """
 
-    def to_excel(self, filepath: Optional[str] = None) -> bytes:
+    def __init__(self, result_data: Dict[str, Any]):
         """
-        导出为Excel文件
-        :param filepath: 保存路径，如果为None则返回bytes
-        :return: Excel文件bytes或保存路径
+        Args:
+            result_data: 回测结果字典，应包含:
+                - strategy_name: 策略名
+                - initial_balance: 初始资金
+                - final_balance: 最终资金
+                - statistics: 绩效指标字典
+                - trades: 交易记录列表
+                - equity_curve: 权益曲线
         """
-        if EXPORT_LIBRARY == 'openpyxl':
-            return self._export_openpyxl(filepath)
-        elif EXPORT_LIBRARY == 'xlsxwriter':
-            return self._export_xlsxwriter(filepath)
-        else:
-            raise ImportError("需要安装 openpyxl 或 xlsxwriter 库来导出Excel")
+        self.result_data = result_data
 
-    def _export_openpyxl(self, filepath: Optional[str] = None) -> bytes:
-        """使用 openpyxl 导出"""
-        wb = Workbook()
-        
-        # 样式定义
-        header_font = Font(bold=True, color="FFFFFF")
-        header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-        thin_border = Border(
-            left=Side(style='thin'),
-            right=Side(style='thin'),
-            top=Side(style='thin'),
-            bottom=Side(style='thin')
-        )
-        
-        # 1. 概要 sheet
-        ws_summary = wb.active
-        ws_summary.title = "回测概要"
-        self._write_summary_sheet(ws_summary, header_font, header_fill, thin_border)
-        
-        # 2. 绩效指标 sheet
-        ws_metrics = wb.create_sheet("绩效指标")
-        self._write_metrics_sheet(ws_metrics, header_font, header_fill, thin_border)
-        
-        # 3. 交易明细 sheet
-        ws_trades = wb.create_sheet("交易明细")
-        self._write_trades_sheet(ws_trades, header_font, header_fill, thin_border)
-        
-        # 4. 权益曲线 sheet
-        ws_equity = wb.create_sheet("权益曲线")
-        self._write_equity_sheet(ws_equity, header_font, header_fill, thin_border)
-        
-        # 保存
+    def to_dict(self) -> Dict[str, Any]:
+        """导出为字典格式"""
+        stats = self.result_data.get('statistics', {})
+        trades = self.result_data.get('trades', [])
+        equity_curve = self.result_data.get('equity_curve', [])
+
+        return {
+            'summary': {
+                'strategy_name': self.result_data.get('strategy_name', 'Unknown'),
+                'initial_balance': self.result_data.get('initial_balance', 0),
+                'final_balance': self.result_data.get('final_balance', 0),
+                'total_return': stats.get('total_return', 0),
+                'total_trades': stats.get('total_trades', 0),
+                'win_rate': stats.get('win_rate', 0),
+                'sharpe_ratio': stats.get('sharpe_ratio', 0),
+                'sortino_ratio': stats.get('sortino_ratio', 0),
+                'calmar_ratio': stats.get('calmar_ratio', 0),
+                'max_drawdown': stats.get('max_drawdown', 0),
+            },
+            'statistics': stats,
+            'trades': trades,
+            'equity_curve': equity_curve,
+            'export_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        }
+
+    def to_excel(self, filepath: str = None) -> Optional[bytes]:
+        """
+        导出为 Excel 文件
+
+        Args:
+            filepath: 保存路径，如果为 None 则返回 bytes
+
+        Returns:
+            Excel 文件 bytes 或 None
+        """
+        if not OPENEXCEL_AVAILABLE:
+            raise ImportError("需要 openpyxl: pip install openpyxl")
+
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active)  # 删除默认sheet
+
+        stats = self.result_data.get('statistics', {})
+        trades = self.result_data.get('trades', [])
+        equity_curve = self.result_data.get('equity_curve', [])
+
+        # ========== 汇总 sheet ==========
+        ws_summary = wb.create_sheet('汇总')
+        self._write_summary_sheet(ws_summary, stats)
+
+        # ========== 统计 sheet ==========
+        ws_stats = wb.create_sheet('绩效指标')
+        self._write_stats_sheet(ws_stats, stats)
+
+        # ========== 交易明细 sheet ==========
+        ws_trades = wb.create_sheet('交易明细')
+        self._write_trades_sheet(ws_trades, trades)
+
+        # ========== 权益曲线 sheet ==========
+        ws_equity = wb.create_sheet('权益曲线')
+        self._write_equity_sheet(ws_equity, equity_curve)
+
         if filepath:
             wb.save(filepath)
-            return filepath.encode() if isinstance(filepath, str) else filepath
+            return None
         else:
             buffer = io.BytesIO()
             wb.save(buffer)
             return buffer.getvalue()
 
-    def _export_xlsxwriter(self, filepath: Optional[str] = None) -> bytes:
-        """使用 xlsxwriter 导出"""
-        if filepath:
-            workbook = xlsxwriter.Workbook(filepath)
-        else:
-            workbook = xlsxwriter.Workbook(io.BytesIO())
-        
-        # 1. 概要 sheet
-        ws_summary = workbook.add_worksheet("回测概要")
-        self._write_summary_xlsxwriter(workbook, ws_summary)
-        
-        # 2. 绩效指标 sheet
-        ws_metrics = workbook.add_worksheet("绩效指标")
-        self._write_metrics_xlsxwriter(workbook, ws_metrics)
-        
-        # 3. 交易明细 sheet
-        ws_trades = workbook.add_worksheet("交易明细")
-        self._write_trades_xlsxwriter(workbook, ws_trades)
-        
-        # 4. 权益曲线 sheet
-        ws_equity = workbook.add_worksheet("权益曲线")
-        self._write_equity_xlsxwriter(workbook, ws_equity)
-        
-        workbook.close()
-        
-        if filepath:
-            return filepath.encode() if isinstance(filepath, str) else filepath
-        else:
-            buffer = workbook
-            return buffer
-        
-    def _write_summary_sheet(self, ws, header_font, header_fill, thin_border):
-        """写入概要 sheet"""
+    def to_pdf(self, filepath: str) -> bool:
+        """
+        导出为 PDF 文件
+
+        Args:
+            filepath: 保存路径
+
+        Returns:
+            是否成功
+        """
+        if not PDF_AVAILABLE:
+            raise ImportError("需要 reportlab: pip install reportlab")
+
+        doc = SimpleDocTemplate(
+            filepath,
+            pagesize=landscape(A4),
+            rightMargin=0.5 * inch,
+            leftMargin=0.5 * inch,
+            topMargin=0.5 * inch,
+            bottomMargin=0.5 * inch
+        )
+
+        stats = self.result_data.get('statistics', {})
+        trades = self.result_data.get('trades', [])
+        elements = []
+
         # 标题
-        ws['A1'] = '回测报告'
-        ws['A1'].font = Font(bold=True, size=16)
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            'Title',
+            parent=styles['Heading1'],
+            fontSize=18,
+            spaceAfter=20,
+            alignment=1  # 居中
+        )
+        elements.append(Paragraph('回测报告', title_style))
+        elements.append(Spacer(1, 0.2 * inch))
+
+        # 中文支持
+        try:
+            pdfmetrics.registerFont(TTFont('SimHei', '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc'))
+            chinese_font = 'SimHei'
+        except Exception:
+            chinese_font = 'Helvetica'
+
+        summary_data = [
+            ['策略名称', self.result_data.get('strategy_name', 'Unknown')],
+            ['初始资金', f"¥{self.result_data.get('initial_balance', 0):,.2f}"],
+            ['最终资金', f"¥{self.result_data.get('final_balance', 0):,.2f}"],
+            ['总收益率', f"{stats.get('total_return', 0):.2f}%"],
+            ['年化收益', f"{stats.get('annual_return', 0):.2f}%"],
+            ['总交易次数', str(stats.get('total_trades', 0))],
+            ['胜率', f"{stats.get('win_rate', 0):.2f}%"],
+            ['夏普比率', f"{stats.get('sharpe_ratio', 0):.4f}"],
+            ['索提诺比率', f"{stats.get('sortino_ratio', 0):.4f}"],
+            ['卡尔玛比率', f"{stats.get('calmar_ratio', 0):.4f}"],
+            ['最大回撤', f"¥{stats.get('max_drawdown', 0):,.2f}"],
+            ['最大连续亏损', str(stats.get('max_consecutive_losses', 0))],
+        ]
+
+        summary_table = Table(summary_data, colWidths=[2 * inch, 3 * inch])
+        summary_table.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (-1, -1), chinese_font),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#E8E8E8')),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ]))
+        elements.append(summary_table)
+        elements.append(Spacer(1, 0.3 * inch))
+
+        # 交易明细表（只显示前20条）
+        if trades:
+            trade_header = ['交易ID', '方向', '入场时间', '出场时间', '入场价', '出场价', '数量', '盈亏', '盈亏%', '出场原因']
+            trade_rows = [trade_header]
+            for t in trades[:20]:
+                trade_rows.append([
+                    t.get('trade_id', ''),
+                    t.get('direction', ''),
+                    t.get('entry_time', ''),
+                    t.get('exit_time', ''),
+                    f"{t.get('entry_price', 0):.2f}",
+                    f"{t.get('exit_price', 0):.2f}",
+                    str(t.get('quantity', 0)),
+                    f"¥{t.get('pnl', 0):.2f}",
+                    f"{t.get('pnl_pct', 0):.2f}%",
+                    t.get('exit_reason', ''),
+                ])
+
+            trade_table = Table(trade_rows, repeatRows=1)
+            trade_table.setStyle(TableStyle([
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 0), (-1, -1), 8),
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4472C4')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ]))
+            elements.append(Paragraph('交易明细（前20条）', styles['Heading2']))
+            elements.append(trade_table)
+
+        doc.build(elements)
+        return True
+
+    def to_pdf_buffer(self, buffer) -> bool:
+        """
+        导出为 PDF 到内存缓冲区（用于API返回）
+
+        Args:
+            buffer: io.BytesIO 缓冲区
+
+        Returns:
+            是否成功
+        """
+        if not PDF_AVAILABLE:
+            raise ImportError("需要 reportlab: pip install reportlab")
+
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=landscape(A4),
+            rightMargin=0.5 * inch,
+            leftMargin=0.5 * inch,
+            topMargin=0.5 * inch,
+            bottomMargin=0.5 * inch
+        )
+
+        stats = self.result_data.get('statistics', {})
+        trades = self.result_data.get('trades', [])
+        elements = []
+
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            'Title',
+            parent=styles['Heading1'],
+            fontSize=18,
+            spaceAfter=20,
+            alignment=1
+        )
+        elements.append(Paragraph('回测报告', title_style))
+        elements.append(Spacer(1, 0.2 * inch))
+
+        # 中文支持
+        try:
+            pdfmetrics.registerFont(TTFont('SimHei', '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc'))
+            chinese_font = 'SimHei'
+        except Exception:
+            chinese_font = 'Helvetica'
+
+        summary_data = [
+            ['策略名称', self.result_data.get('strategy_name', 'Unknown')],
+            ['初始资金', f"¥{self.result_data.get('initial_balance', 0):,.2f}"],
+            ['最终资金', f"¥{self.result_data.get('final_balance', 0):,.2f}"],
+            ['总收益率', f"{stats.get('total_return', 0):.2f}%"],
+            ['年化收益', f"{stats.get('annual_return', 0):.2f}%"],
+            ['总交易次数', str(stats.get('total_trades', 0))],
+            ['胜率', f"{stats.get('win_rate', 0):.2f}%"],
+            ['夏普比率', f"{stats.get('sharpe_ratio', 0):.4f}"],
+            ['索提诺比率', f"{stats.get('sortino_ratio', 0):.4f}"],
+            ['卡尔玛比率', f"{stats.get('calmar_ratio', 0):.4f}"],
+            ['最大回撤', f"¥{stats.get('max_drawdown', 0):,.2f}"],
+            ['最大连续亏损', str(stats.get('max_consecutive_losses', 0))],
+        ]
+
+        summary_table = Table(summary_data, colWidths=[2 * inch, 3 * inch])
+        summary_table.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (-1, -1), chinese_font),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#E8E8E8')),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ]))
+        elements.append(summary_table)
+        elements.append(Spacer(1, 0.3 * inch))
+
+        if trades:
+            trade_header = ['交易ID', '方向', '入场时间', '出场时间', '入场价', '出场价', '数量', '盈亏', '盈亏%', '出场原因']
+            trade_rows = [trade_header]
+            for t in trades[:20]:
+                trade_rows.append([
+                    str(t.get('trade_id', '')),
+                    t.get('direction', ''),
+                    t.get('entry_time', ''),
+                    t.get('exit_time', ''),
+                    f"{t.get('entry_price', 0):.2f}",
+                    f"{t.get('exit_price', 0):.2f}",
+                    str(t.get('quantity', 0)),
+                    f"¥{t.get('pnl', 0):.2f}",
+                    f"{t.get('pnl_pct', 0):.2f}%",
+                    t.get('exit_reason', ''),
+                ])
+
+            trade_table = Table(trade_rows, repeatRows=1)
+            trade_table.setStyle(TableStyle([
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTNAME', (0, 1), (-1, -1), chinese_font),
+                ('FONTSIZE', (0, 0), (-1, -1), 8),
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4472C4')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ]))
+            elements.append(Paragraph('交易明细（前20条）', styles['Heading2']))
+            elements.append(trade_table)
+
+        doc.build(elements)
+        return True
+
+    def _write_summary_sheet(self, ws, stats: Dict):
+        """写入汇总 sheet"""
+        ws['A1'] = '回测汇总'
+        ws['A1'].font = Font(bold=True, size=14)
         ws.merge_cells('A1:C1')
-        
-        # 基本信息
-        ws['A3'] = '项目'
-        ws['B3'] = '值'
-        for cell in [ws['A3'], ws['B3']]:
-            cell.font = header_font
-            cell.fill = header_fill
-        
-        info = [
-            ('策略名称', self.result.get('strategy_name', 'N/A')),
-            ('初始资金', f"{self.result.get('initial_balance', 0):,.2f}"),
-            ('最终权益', f"{self.result.get('final_balance', 0):,.2f}"),
-            ('总收益率', f"{self.statistics.get('total_return', 0):.2f}%"),
-            ('交易次数', self.statistics.get('total_trades', 0)),
-            ('生成时间', datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
-        ]
-        
-        for i, (label, value) in enumerate(info, start=4):
-            ws[f'A{i}'] = label
-            ws[f'B{i}'] = value
-        
-        # 设置列宽
-        ws.column_dimensions['A'].width = 15
-        ws.column_dimensions['B'].width = 20
 
-    def _write_metrics_sheet(self, ws, header_font, header_fill, thin_border):
-        """写入绩效指标 sheet"""
-        ws['A1'] = '绩效指标'
+        rows = [
+            ['策略名称', self.result_data.get('strategy_name', 'Unknown')],
+            ['初始资金', self.result_data.get('initial_balance', 0)],
+            ['最终资金', self.result_data.get('final_balance', 0)],
+            ['总收益率', f"{stats.get('total_return', 0):.2f}%"],
+            ['年化收益', f"{stats.get('annual_return', 0):.2f}%"],
+            ['夏普比率', stats.get('sharpe_ratio', 0)],
+            ['索提诺比率', stats.get('sortino_ratio', 0)],
+            ['卡尔玛比率', stats.get('calmar_ratio', 0)],
+            ['最大回撤', stats.get('max_drawdown', 0)],
+            ['最大回撤%', f"{stats.get('max_drawdown_pct', 0):.2f}%"],
+            ['导出时间', datetime.now().strftime('%Y-%m-%d %H:%M:%S')],
+        ]
+        for i, (k, v) in enumerate(rows, start=3):
+            ws.cell(row=i, column=1, value=k).font = Font(bold=True)
+            ws.cell(row=i, column=2, value=v)
+
+        for col in range(1, 4):
+            ws.column_dimensions[get_column_letter(col)].width = 20
+
+    def _write_stats_sheet(self, ws, stats: Dict):
+        """写入统计指标 sheet"""
+        ws['A1'] = '绩效指标详情'
         ws['A1'].font = Font(bold=True, size=14)
-        
-        ws['A3'] = '指标名称'
-        ws['B3'] = '数值'
-        ws['C3'] = '说明'
-        for cell in [ws['A3'], ws['B3'], ws['C3']]:
-            cell.font = header_font
-            cell.fill = header_fill
-        
-        metrics = [
-            ('总交易次数', self.statistics.get('total_trades', 0), '总执行交易数'),
-            ('盈利次数', self.statistics.get('win_count', 0), '盈利交易数量'),
-            ('亏损次数', self.statistics.get('loss_count', 0), '亏损交易数量'),
-            ('胜率', f"{self.statistics.get('win_rate', 0):.2f}%", '盈利交易/总交易'),
-            ('平均盈利', f"{self.statistics.get('avg_win', 0):.2f}", '平均盈利金额'),
-            ('平均亏损', f"{self.statistics.get('avg_loss', 0):.2f}", '平均亏损金额'),
-            ('盈亏比', self.statistics.get('profit_factor', 0), '平均盈利/平均亏损'),
-            ('总盈亏', f"{self.statistics.get('total_pnl', 0):.2f}", '总盈利-总亏损'),
-            ('年化收益率', f"{self.statistics.get('annual_return', 0):.2f}%", '年化收益'),
-            ('日均盈亏', f"{self.statistics.get('daily_pnl', 0):.2f}", '日均盈亏金额'),
-            ('最大回撤', f"{self.statistics.get('max_drawdown', 0):.2f}", '最大回撤金额'),
-            ('最大回撤率', f"{self.statistics.get('max_drawdown_pct', 0):.2f}%", '最大回撤比例'),
-            ('夏普比率', self.statistics.get('sharpe_ratio', 0), '风险调整收益'),
-            ('索提诺比率', self.statistics.get('sortino_ratio', 0), '下行风险调整收益'),
-            ('卡尔玛比率', self.statistics.get('calmar_ratio', 0), '年化收益/最大回撤'),
-            ('最大连续亏损', self.statistics.get('max_consecutive_losses', 0), '最大连续亏损次数'),
-            ('最大连续盈利', self.statistics.get('max_consecutive_wins', 0), '最大连续盈利次数'),
-            ('止损次数', self.statistics.get('stop_loss_count', 0), '触发止损次数'),
-            ('止盈次数', self.statistics.get('take_profit_count', 0), '触发止盈次数'),
-            ('主动平仓次数', self.statistics.get('close_count', 0), '信号平仓次数'),
-        ]
-        
-        for i, (name, value, desc) in enumerate(metrics, start=4):
-            ws[f'A{i}'] = name
-            ws[f'B{i}'] = value
-            ws[f'C{i}'] = desc
-        
-        ws.column_dimensions['A'].width = 18
-        ws.column_dimensions['B'].width = 15
-        ws.column_dimensions['C'].width = 25
+        ws.merge_cells('A1:B1')
 
-    def _write_trades_sheet(self, ws, header_font, header_fill, thin_border):
-        """写入交易明细 sheet"""
-        ws['A1'] = '交易明细'
-        ws['A1'].font = Font(bold=True, size=14)
-        
-        headers = ['交易ID', '方向', '入场时间', '入场价格', '出场时间', '出场价格', 
-                   '数量', '盈亏', '盈亏%', '止损', '止盈', '出场原因', '入场Bar', '出场Bar']
-        
-        for col, header in enumerate(headers, start=1):
-            cell = ws.cell(row=3, column=col, value=header)
-            cell.font = header_font
-            cell.fill = header_fill
-        
-        for row, trade in enumerate(self.trades, start=4):
-            ws.cell(row=row, column=1, value=trade.get('trade_id', ''))
-            ws.cell(row=row, column=2, value='多' if trade.get('direction') == 'long' else '空')
-            ws.cell(row=row, column=3, value=trade.get('entry_time', ''))
-            ws.cell(row=row, column=4, value=trade.get('entry_price', 0))
-            ws.cell(row=row, column=5, value=trade.get('exit_time', ''))
-            ws.cell(row=row, column=6, value=trade.get('exit_price', 0))
-            ws.cell(row=row, column=7, value=trade.get('quantity', 1))
-            ws.cell(row=row, column=8, value=trade.get('pnl', 0))
-            ws.cell(row=row, column=9, value=f"{trade.get('pnl_pct', 0):.2f}%")
-            ws.cell(row=row, column=10, value=trade.get('stop_loss', ''))
-            ws.cell(row=row, column=11, value=trade.get('take_profit', ''))
-            ws.cell(row=row, column=12, value=trade.get('exit_reason', ''))
-            ws.cell(row=row, column=13, value=trade.get('entry_bar_index', -1))
-            ws.cell(row=row, column=14, value=trade.get('exit_bar_index', -1))
-            
-            # 盈亏着色
-            pnl = trade.get('pnl', 0)
-            if pnl > 0:
-                ws.cell(row=row, column=8).font = Font(color="00B050")  # 绿色
-            elif pnl < 0:
-                ws.cell(row=row, column=8).font = Font(color="FF0000")  # 红色
-        
-        # 设置列宽
-        for col in range(1, 15):
-            ws.column_dimensions[get_column_letter(col)].width = 14
-
-    def _write_equity_sheet(self, ws, header_font, header_fill, thin_border):
-        """写入权益曲线 sheet"""
-        ws['A1'] = '权益曲线'
-        ws['A1'].font = Font(bold=True, size=14)
-        
-        headers = ['时间', '余额', '持仓状态', '价格']
-        
-        for col, header in enumerate(headers, start=1):
-            cell = ws.cell(row=3, column=col, value=header)
-            cell.font = header_font
-            cell.fill = header_fill
-        
-        for row, point in enumerate(self.equity_curve, start=4):
-            ws.cell(row=row, column=1, value=point.get('time', ''))
-            ws.cell(row=row, column=2, value=point.get('balance', 0))
-            ws.cell(row=row, column=3, value=point.get('position', ''))
-            ws.cell(row=row, column=4, value=point.get('price', 0))
-        
-        ws.column_dimensions['A'].width = 20
-        ws.column_dimensions['B'].width = 15
-        ws.column_dimensions['C'].width = 12
-        ws.column_dimensions['D'].width = 12
-
-    # ========== xlsxwriter 导出方法 ==========
-    
-    def _write_summary_xlsxwriter(self, workbook, ws):
-        """写入概要 sheet (xlsxwriter)"""
-        title_format = workbook.add_format({'bold': True, 'font_size': 16})
-        header_format = workbook.add_format({'bold': True, 'font_color': 'white', 
-                                            'bg_color': '#4472C4'})
-        
-        ws.write('A1', '回测报告', title_format)
-        ws.merge_cells('A1:C1')
-        
-        ws.write('A3', '项目')
-        ws.write('B3', '值')
-        ws.write('A3', '项目', header_format)
-        ws.write('B3', '值', header_format)
-        
-        info = [
-            ('策略名称', self.result.get('strategy_name', 'N/A')),
-            ('初始资金', f"{self.result.get('initial_balance', 0):,.2f}"),
-            ('最终权益', f"{self.result.get('final_balance', 0):,.2f}"),
-            ('总收益率', f"{self.statistics.get('total_return', 0):.2f}%"),
-            ('交易次数', self.statistics.get('total_trades', 0)),
-            ('生成时间', datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
-        ]
-        
-        for i, (label, value) in enumerate(info, start=4):
-            ws.write(f'A{i}', label)
-            ws.write(f'B{i}', value)
-        
-        ws.set_column('A:A', 15)
-        ws.set_column('B:B', 20)
-
-    def _write_metrics_xlsxwriter(self, workbook, ws):
-        """写入绩效指标 sheet (xlsxwriter)"""
-        title_format = workbook.add_format({'bold': True, 'font_size': 14})
-        header_format = workbook.add_format({'bold': True, 'font_color': 'white', 
-                                            'bg_color': '#4472C4'})
-        
-        ws.write('A1', '绩效指标', title_format)
-        
-        ws.write('A3', '指标名称')
-        ws.write('B3', '数值')
-        ws.write('C3', '说明')
-        for col in ['A3', 'B3', 'C3']:
-            ws.write(col, col, header_format)
-        
-        metrics = [
-            ('总交易次数', self.statistics.get('total_trades', 0), '总执行交易数'),
-            ('盈利次数', self.statistics.get('win_count', 0), '盈利交易数量'),
-            ('亏损次数', self.statistics.get('loss_count', 0), '亏损交易数量'),
-            ('胜率', f"{self.statistics.get('win_rate', 0):.2f}%", '盈利交易/总交易'),
-            ('平均盈利', f"{self.statistics.get('avg_win', 0):.2f}", '平均盈利金额'),
-            ('平均亏损', f"{self.statistics.get('avg_loss', 0):.2f}", '平均亏损金额'),
-            ('盈亏比', self.statistics.get('profit_factor', 0), '平均盈利/平均亏损'),
-            ('总盈亏', f"{self.statistics.get('total_pnl', 0):.2f}", '总盈利-总亏损'),
-            ('年化收益率', f"{self.statistics.get('annual_return', 0):.2f}%", '年化收益'),
-            ('日均盈亏', f"{self.statistics.get('daily_pnl', 0):.2f}", '日均盈亏金额'),
-            ('最大回撤', f"{self.statistics.get('max_drawdown', 0):.2f}", '最大回撤金额'),
-            ('最大回撤率', f"{self.statistics.get('max_drawdown_pct', 0):.2f}%", '最大回撤比例'),
-            ('夏普比率', self.statistics.get('sharpe_ratio', 0), '风险调整收益'),
-            ('索提诺比率', self.statistics.get('sortino_ratio', 0), '下行风险调整收益'),
-            ('卡尔玛比率', self.statistics.get('calmar_ratio', 0), '年化收益/最大回撤'),
-        ]
-        
-        for i, (name, value, desc) in enumerate(metrics, start=4):
-            ws.write(f'A{i}', name)
-            ws.write(f'B{i}', value)
-            ws.write(f'C{i}', desc)
-        
-        ws.set_column('A:A', 18)
-        ws.set_column('B:B', 15)
-        ws.set_column('C:C', 25)
-
-    def _write_trades_xlsxwriter(self, workbook, ws):
-        """写入交易明细 sheet (xlsxwriter)"""
-        title_format = workbook.add_format({'bold': True, 'font_size': 14})
-        header_format = workbook.add_format({'bold': True, 'font_color': 'white', 
-                                            'bg_color': '#4472C4'})
-        green_format = workbook.add_format({'font_color': '00B050'})
-        red_format = workbook.add_format({'font_color': 'FF0000'})
-        
-        ws.write('A1', '交易明细', title_format)
-        
-        headers = ['交易ID', '方向', '入场时间', '入场价格', '出场时间', '出场价格', 
-                   '数量', '盈亏', '盈亏%', '止损', '止盈', '出场原因']
-        
-        for col, header in enumerate(headers, start=0):
-            ws.write(3, col, header, header_format)
-        
-        for row, trade in enumerate(self.trades, start=4):
-            ws.write(row, 0, trade.get('trade_id', ''))
-            ws.write(row, 1, '多' if trade.get('direction') == 'long' else '空')
-            ws.write(row, 2, trade.get('entry_time', ''))
-            ws.write(row, 3, trade.get('entry_price', 0))
-            ws.write(row, 4, trade.get('exit_time', ''))
-            ws.write(row, 5, trade.get('exit_price', 0))
-            ws.write(row, 6, trade.get('quantity', 1))
-            
-            pnl = trade.get('pnl', 0)
-            if pnl > 0:
-                ws.write(row, 7, pnl, green_format)
-            elif pnl < 0:
-                ws.write(row, 7, pnl, red_format)
-            else:
-                ws.write(row, 7, pnl)
-                
-            ws.write(row, 8, f"{trade.get('pnl_pct', 0):.2f}%")
-            ws.write(row, 9, trade.get('stop_loss', ''))
-            ws.write(row, 10, trade.get('take_profit', ''))
-            ws.write(row, 11, trade.get('exit_reason', ''))
-        
-        for col_width in [14, 8, 20, 12, 20, 12, 8, 12, 10, 10, 10, 12]:
-            pass  # 已通过下面的方式设置
-        ws.set_column(0, 0, 14)
-        ws.set_column(1, 1, 8)
-        ws.set_column(2, 2, 20)
-        ws.set_column(3, 3, 12)
-        ws.set_column(4, 4, 20)
-        ws.set_column(5, 5, 12)
-        ws.set_column(6, 6, 8)
-        ws.set_column(7, 7, 12)
-        ws.set_column(8, 8, 10)
-        ws.set_column(9, 9, 10)
-        ws.set_column(10, 10, 10)
-        ws.set_column(11, 11, 12)
-
-    def _write_equity_xlsxwriter(self, workbook, ws):
-        """写入权益曲线 sheet (xlsxwriter)"""
-        title_format = workbook.add_format({'bold': True, 'font_size': 14})
-        header_format = workbook.add_format({'bold': True, 'font_color': 'white', 
-                                            'bg_color': '#4472C4'})
-        
-        ws.write('A1', '权益曲线', title_format)
-        
-        headers = ['时间', '余额', '持仓状态', '价格']
-        for col, header in enumerate(headers, start=0):
-            ws.write(3, col, header, header_format)
-        
-        for row, point in enumerate(self.equity_curve, start=4):
-            ws.write(row, 0, point.get('time', ''))
-            ws.write(row, 1, point.get('balance', 0))
-            ws.write(row, 2, point.get('position', ''))
-            ws.write(row, 3, point.get('price', 0))
-        
-        ws.set_column('A:A', 20)
-        ws.set_column('B:B', 15)
-        ws.set_column('C:C', 12)
-        ws.set_column('D:D', 12)
-
-    def to_dict(self) -> Dict[str, Any]:
-        """导出为字典格式"""
-        return {
-            'summary': {
-                'strategy_name': self.result.get('strategy_name', 'N/A'),
-                'initial_balance': self.result.get('initial_balance', 0),
-                'final_balance': self.result.get('final_balance', 0),
-                'total_return': self.statistics.get('total_return', 0),
-                'total_trades': self.statistics.get('total_trades', 0),
-            },
-            'statistics': self.statistics,
-            'trades': self.trades,
-            'equity_curve': self.equity_curve,
+        categories = {
+            '基础统计': ['total_trades', 'win_count', 'loss_count', 'win_rate',
+                        'avg_win', 'avg_loss', 'profit_loss_ratio', 'total_pnl'],
+            '收益指标': ['total_return', 'annual_return', 'daily_pnl', 'return_std'],
+            '风险指标': ['max_drawdown', 'max_drawdown_pct', 'sharpe_ratio',
+                        'sortino_ratio', 'calmar_ratio', 'return_drawdown_ratio'],
+            '连续性指标': ['max_consecutive_losses', 'max_consecutive_wins'],
         }
 
-    def to_json_string(self) -> str:
-        """导出为JSON字符串"""
-        import json
-        return json.dumps(self.to_dict(), ensure_ascii=False, indent=2)
+        row = 3
+        for category, keys in categories.items():
+            ws.cell(row=row, column=1, value=category)
+            ws.cell(row=row, column=1).font = Font(bold=True, color='4472C4')
+            ws.cell(row=row, column=1).fill = PatternFill('solid', fgColor='D9E1F2')
+            ws.merge_cells(f'A{row}:B{row}')
+            row += 1
+
+            for key in keys:
+                ws.cell(row=row, column=1, value=key)
+                ws.cell(row=row, column=2, value=stats.get(key, 0))
+                row += 1
+            row += 1
+
+        for col in range(1, 3):
+            ws.column_dimensions[get_column_letter(col)].width = 25
+
+    def _write_trades_sheet(self, ws, trades: List[Dict]):
+        """写入交易明细 sheet"""
+        headers = ['交易ID', '方向', '入场时间', '出场时间', '入场价', '出场价',
+                   '数量', '盈亏', '盈亏%', '出场原因']
+        for col, h in enumerate(headers, start=1):
+            cell = ws.cell(row=1, column=col, value=h)
+            cell.font = Font(bold=True, color='FFFFFF')
+            cell.fill = PatternFill('solid', fgColor='4472C4')
+
+        for row_idx, trade in enumerate(trades, start=2):
+            ws.cell(row=row_idx, column=1, value=trade.get('trade_id', ''))
+            ws.cell(row=row_idx, column=2, value=trade.get('direction', ''))
+            ws.cell(row=row_idx, column=3, value=trade.get('entry_time', ''))
+            ws.cell(row=row_idx, column=4, value=trade.get('exit_time', ''))
+            ws.cell(row=row_idx, column=5, value=trade.get('entry_price', 0))
+            ws.cell(row=row_idx, column=6, value=trade.get('exit_price', 0))
+            ws.cell(row=row_idx, column=7, value=trade.get('quantity', 0))
+            ws.cell(row=row_idx, column=8, value=trade.get('pnl', 0))
+            ws.cell(row=row_idx, column=9, value=trade.get('pnl_pct', 0))
+            ws.cell(row=row_idx, column=10, value=trade.get('exit_reason', ''))
+
+        widths = [12, 8, 20, 20, 12, 12, 8, 12, 10, 15]
+        for i, w in enumerate(widths, start=1):
+            ws.column_dimensions[get_column_letter(i)].width = w
+
+    def _write_equity_sheet(self, ws, equity_curve: List[Dict]):
+        """写入权益曲线 sheet"""
+        headers = ['时间', '余额']
+        for col, h in enumerate(headers, start=1):
+            cell = ws.cell(row=1, column=col, value=h)
+            cell.font = Font(bold=True, color='FFFFFF')
+            cell.fill = PatternFill('solid', fgColor='4472C4')
+
+        for row_idx, eq in enumerate(equity_curve, start=2):
+            ws.cell(row=row_idx, column=1, value=eq.get('time', ''))
+            ws.cell(row=row_idx, column=2, value=eq.get('balance', 0))
+
+        ws.column_dimensions['A'].width = 20
+        ws.column_dimensions['B'].width = 15

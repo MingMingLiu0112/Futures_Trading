@@ -591,8 +591,12 @@
             }
             
             // 计算IV阈值 - 基于ATM行权价对应的隐波均值（波动环境）
-            const atmStrike = optionData.atm_strike;
-            const atmRow = (optionData.strike_rows || []).find(r => r.strike === atmStrike);
+            // ATM行权价可能不在合约列表中（如6544对应6500/6600），找实际存在的最近档
+            const strikes = strikeRows.map(r => r.strike);
+            const atmStrikeRaw = optionData.atm_strike;
+            const nearestStrike = strikes.length ? strikes.reduce((prev, curr) =>
+                Math.abs(curr - atmStrikeRaw) < Math.abs(prev - atmStrikeRaw) ? curr : prev) : atmStrikeRaw;
+            const atmRow = (optionData.strike_rows || []).find(r => r.strike === nearestStrike);
             const atmIv = atmRow ? ((atmRow.call_iv || 0) + (atmRow.put_iv || 0)) / 2 : 0;
             const avgIv = atmIv || (optionData.stats?.avg_call_iv || optionData.stats?.avg_put_iv) || 20;
             const ivThresholds = getIvThresholds(avgIv);

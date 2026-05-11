@@ -25,7 +25,8 @@ class ATRStrategy(StrategyBase):
                  atr_period: int = 14, 
                  breakout_factor: float = 1.5,
                  stop_loss_multiplier: float = 1.0,
-                 take_profit_multiplier: float = 2.0):
+                 take_profit_multiplier: float = 2.0,
+                 params: dict = None):
         """
         初始化ATR策略
         
@@ -33,7 +34,15 @@ class ATRStrategy(StrategyBase):
         :param breakout_factor: 突破系数，默认1.5
         :param stop_loss_multiplier: 止损ATR倍数，默认1.0
         :param take_profit_multiplier: 止盈ATR倍数，默认2.0
+        :param params: 可选参数字典（用于API兼容性，自动提取策略参数）
         """
+        # 兼容API调用：params字典中的参数优先
+        if params and isinstance(params, dict):
+            atr_period = params.get('atr_period', atr_period)
+            breakout_factor = params.get('breakout_factor', breakout_factor)
+            stop_loss_multiplier = params.get('stop_loss_multiplier', stop_loss_multiplier)
+            take_profit_multiplier = params.get('take_profit_multiplier', take_profit_multiplier)
+        
         super().__init__()
         self.atr_period = atr_period
         self.breakout_factor = breakout_factor
