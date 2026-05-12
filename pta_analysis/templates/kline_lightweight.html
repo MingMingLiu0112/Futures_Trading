@@ -3020,24 +3020,32 @@
                 
                 // 获取实时标的价格
                 const realtimePrice = data.underlying_price || 6500;
-                // ATM行权价：基于OI_change加权中心（±5档，反映主力近期建仓意图）
+                // ATM行权价：最大痛点（Max Pain）—— 持仓价值损失最小的行权价
+                // 公式：pain(K) = Σ OI_put × |S - K| + Σ OI_call × |S - K|，ATM = argmin pain(K)
                 const rows = data.strike_rows || [];
                 const sortedRows = [...rows].sort((a, b) => a.strike - b.strike);
                 const allStrikes = sortedRows.map(r => r.strike);
-                let atmStrike, weightedCenter = realtimePrice;
-                if (!allStrikes.length) { atmStrike = Math.round(realtimePrice / 50) * 50; }
-                else {
-                    // 找标的价格最近的档位索引
-                    let atmIdx = 0;
-                    allStrikes.forEach((s, i) => { if (Math.abs(s - realtimePrice) < Math.abs(allStrikes[atmIdx] - realtimePrice)) atmIdx = i; });
-                    // 取±5档范围计算OI_change加权中心
-                    const win = sortedRows.slice(Math.max(0, atmIdx - 5), atmIdx + 6);
-                    const totalW = win.reduce((sum, r) => sum + Math.abs(r.call_oi_change || 0) + Math.abs(r.put_oi_change || 0), 0);
-                    weightedCenter = totalW > 0
-                        ? win.reduce((sum, r) => sum + r.strike * (Math.abs(r.call_oi_change || 0) + Math.abs(r.put_oi_change || 0)), 0) / totalW
-                        : realtimePrice;
-                    // 取实际档位中离加权中心最近的
-                    atmStrike = allStrikes.reduce((p, c) => Math.abs(c - weightedCenter) < Math.abs(p - weightedCenter) ? c : p);
+                let atmStrike, maxPainStrike;
+                if (!allStrikes.length) {
+                    atmStrike = Math.round(realtimePrice / 50) * 50;
+                    maxPainStrike = atmStrike;
+                } else {
+                    // 计算每个行权价的痛点值：put痛点 + call痛点
+                    const painMap = {};
+                    allStrikes.forEach(K => {
+                        const pain = sortedRows.reduce((sum, r) => {
+                            if (r.strike !== K) return sum;
+                            const callOi = r.call_oi || 0;
+                            const putOi = r.put_oi || 0;
+                            const dist = Math.abs(realtimePrice - K);
+                            return (callOi + putOi) * dist;
+                        }, 0);
+                        painMap[K] = pain;
+                    });
+                    // 最大痛点：痛点值最小的行权价（持有该行权价合约的账户损失最小）
+                    maxPainStrike = allStrikes.reduce((p, c) => (painMap[c] || Infinity) < (painMap[p] || Infinity) ? c : p);
+                    // 备选：如果最大痛点计算无效，用标的价格最近档
+                    atmStrike = maxPainStrike || allStrikes.reduce((p, c) => Math.abs(c - realtimePrice) < Math.abs(p - realtimePrice) ? c : p);
                 }
                 
                 // 更新标题栏信息
@@ -3076,7 +3084,7 @@
                 const stats = data.stats || {};
                 document.getElementById('optionStats').innerHTML = `
                     <div class="option-stat"><div class="option-stat-label">标的价格</div><div class="option-stat-value text-primary fw-bold" id="stat-symbol-price">${realtimePrice?.toFixed(0) || '--'}</div></div>
-                    <div class="option-stat"><div class="option-stat-label">OI重心</div><div class="option-stat-value text-info" id="stat-oi-center">${(weightedCenter || realtimePrice)?.toFixed(0) || '--'}</div></div>
+                    <div class="option-stat"><div class="option-stat-label">最大痛点</div><div class="option-stat-value text-info" id="stat-oi-center">${(maxPainStrike || realtimePrice)?.toFixed(0) || '--'}</div></div>
                     <div class="option-stat"><div class="option-stat-label">ATM行权价</div><div class="option-stat-value text-warning fw-bold" id="stat-atm-strike">${atmStrike || '--'}</div></div>
                     <div class="option-stat"><div class="option-stat-label">ATM隐波</div><div class="option-stat-value" id="stat-atm-iv">${atmIv.toFixed(1) || '--'}%</div></div>
                     <div class="option-stat"><div class="option-stat-label">Call IV均值</div><div class="option-stat-value" id="stat-call-iv">${stats.avg_call_iv?.toFixed(1) || '--'}%</div></div>
