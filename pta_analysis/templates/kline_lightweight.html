@@ -3030,21 +3030,23 @@
                     atmStrike = Math.round(realtimePrice / 50) * 50;
                     maxPainStrike = atmStrike;
                 } else {
-                    // 计算每个行权价的痛点值：put痛点 + call痛点
-                    const painMap = {};
-                    allStrikes.forEach(K => {
-                        const pain = sortedRows.reduce((sum, r) => {
-                            if (r.strike !== K) return sum;
-                            const callOi = r.call_oi || 0;
-                            const putOi = r.put_oi || 0;
-                            const dist = Math.abs(realtimePrice - K);
-                            return (callOi + putOi) * dist;
-                        }, 0);
-                        painMap[K] = pain;
+                    // 正确Max Pain公式：对每个K，累加所有档位的 (call_oi + put_oi) × |S - K|
+                    // pain(K) = Σᵢ (call_oiᵢ + put_oiᵢ) × |S - K|，取最小值
+                    const strikeOiMap = {};
+                    sortedRows.forEach(r => {
+                        if (!strikeOiMap[r.strike]) strikeOiMap[r.strike] = { call_oi: 0, put_oi: 0 };
+                        strikeOiMap[r.strike].call_oi += r.call_oi || 0;
+                        strikeOiMap[r.strike].put_oi += r.put_oi || 0;
                     });
-                    // 最大痛点：痛点值最小的行权价（持有该行权价合约的账户损失最小）
-                    maxPainStrike = allStrikes.reduce((p, c) => (painMap[c] || Infinity) < (painMap[p] || Infinity) ? c : p);
-                    // 备选：如果最大痛点计算无效，用标的价格最近档
+                    let minPain = Infinity, mpStrike = null;
+                    allStrikes.forEach(K => {
+                        const pain = allStrikes.reduce((sum, strike) => {
+                            const oi = strikeOiMap[strike];
+                            return sum + (oi.call_oi + oi.put_oi) * Math.abs(realtimePrice - K);
+                        }, 0);
+                        if (pain < minPain) { minPain = pain; mpStrike = K; }
+                    });
+                    maxPainStrike = mpStrike;
                     atmStrike = maxPainStrike || allStrikes.reduce((p, c) => Math.abs(c - realtimePrice) < Math.abs(p - realtimePrice) ? c : p);
                 }
                 
