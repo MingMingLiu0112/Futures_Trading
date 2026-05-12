@@ -228,7 +228,109 @@ def init_db():
             macro_score INT, tech_score INT, signal TEXT, tech_detail TEXT
         )
     """)
+    # 绘图持久化表
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS chart_drawings (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            drawing_id INT    NOT NULL UNIQUE,
+            drawing_type TEXT NOT NULL,
+            color      TEXT,
+            line_width INT,
+            price      REAL,
+            time       REAL,
+            end_time   REAL,
+            points     TEXT,
+            top        REAL,
+            bottom     REAL,
+            cycles     TEXT,
+            price_min  REAL,
+            price_max  REAL,
+            updated_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
     conn.commit()
+
+# ==================== 绘图持久化 API ====================
+
+@app.route('/api/chart/drawings', methods=['GET'])
+def get_chart_drawings():
+    """获取所有已保存的绘图"""
+    conn = get_db()
+    rows = conn.execute("SELECT drawing_id, drawing_type, color, line_width, "
+                        "price, time, end_time, points, top, bottom, cycles, "
+                        "price_min, price_max FROM chart_drawings ORDER BY drawing_id").fetchall()
+    drawings = []
+    for r in rows:
+        d = {
+            'id': r['drawing_id'],
+            'type': r['drawing_type'],
+            'color': r['color'],
+            'lineWidth': r['line_width'],
+            'price': r['price'],
+            'time': r['time'],
+            'endTime': r['end_time'],
+            'points': json.loads(r['points']) if r['points'] else None,
+            'top': r['top'],
+            'bottom': r['bottom'],
+            'cycles': json.loads(r['cycles']) if r['cycles'] else ['1min','5min','15min','30min','60min','240min','1day','1week','1month'],
+            'priceMin': r['price_min'],
+            'priceMax': r['price_max'],
+        }
+        drawings.append(d)
+    return jsonify({'success': True, 'drawings': drawings})
+
+@app.route('/api/chart/drawings', methods=['POST'])
+def save_chart_drawings():
+    """批量保存绘图（整体替换）"""
+    try:
+        req_data = request.get_json() or {}
+        drawings = req_data.get('drawings', [])
+        if not isinstance(drawings, list):
+            return jsonify({'success': False, 'error': 'drawings must be an array'}), 400
+
+        conn = get_db()
+        # 事务：清空旧数据，插入新数据
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM chart_drawings")
+        for d in drawings:
+            cursor.execute(
+                "INSERT INTO chart_drawings "
+                "(drawing_id, drawing_type, color, line_width, price, time, end_time, "
+                "points, top, bottom, cycles, price_min, price_max) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    d.get('id'),
+                    d.get('type'),
+                    d.get('color'),
+                    d.get('lineWidth'),
+                    d.get('price'),
+                    d.get('time'),
+                    d.get('endTime'),
+                    json.dumps(d.get('points')) if d.get('points') else None,
+                    d.get('top'),
+                    d.get('bottom'),
+                    json.dumps(d.get('cycles')) if d.get('cycles') else None,
+                    d.get('priceMin'),
+                    d.get('priceMax'),
+                )
+            )
+        conn.commit()
+        app.logger.info(f"[绘图] 已保存 {len(drawings)} 个图形到数据库")
+        return jsonify({'success': True, 'count': len(drawings)})
+    except Exception as e:
+        app.logger.error(f"[绘图] 保存失败: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/chart/drawings/<int:drawing_id>', methods=['DELETE'])
+def delete_chart_drawing(drawing_id):
+    """删除指定绘图"""
+    try:
+        conn = get_db()
+        conn.execute("DELETE FROM chart_drawings WHERE drawing_id = ?", (drawing_id,))
+        conn.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 # ==================== 主页面 ====================
 
@@ -1856,4 +1958,9 @@ def api_trading_account():
 
 
 if __name__ == '__main__':
+    init_db()
     app.run(host='0.0.0.0', port=8424, debug=False)
+else:
+    # gunicorn / uwsgi 等 WSGI 服务器启动时初始化数据库
+    with app.app_context():
+        init_db()

@@ -1115,17 +1115,11 @@ class OptionChainAPI:
             if len(strike_rows) == 0:
                 return {'success': False, 'error': '解析期权数据失败'}
             
-            # 计算ATM行权价：基于OI_change加权中心（±5档，反映主力近期建仓意图）
+            # 计算ATM行权价：ATM = 最接近标的价格的行权价（核心定义）
+            # OI_change加权中心仅作辅助参考信息，不应决定ATM位置
             all_available_strikes = sorted(set(r.strike for r in strike_rows))
             if all_available_strikes:
-                # 找标的价格最近的档位索引
-                atm_idx = min(range(len(all_available_strikes)), key=lambda i: abs(all_available_strikes[i] - S))
-                # 用排序后的strike索引slice窗口，再从原始rows中取对应档位的row数据
-                win_strikes = all_available_strikes[max(0, atm_idx - 5):atm_idx + 6]
-                win = [r for r in strike_rows if r.strike in win_strikes]
-                total_w = sum(abs(r.call_oi_change or 0) + abs(r.put_oi_change or 0) for r in win)
-                weighted_center = sum(r.strike * (abs(r.call_oi_change or 0) + abs(r.put_oi_change or 0)) for r in win) / total_w if total_w > 0 else S
-                atm_strike = min(all_available_strikes, key=lambda x: abs(x - weighted_center))
+                atm_strike = min(all_available_strikes, key=lambda x: abs(x - S))
             else:
                 atm_strike = round(S / 50) * 50
             
