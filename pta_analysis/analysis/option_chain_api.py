@@ -1115,11 +1115,25 @@ class OptionChainAPI:
             if len(strike_rows) == 0:
                 return {'success': False, 'error': '解析期权数据失败'}
             
-            # 计算ATM行权价：ATM = 最接近标的价格的行权价（核心定义）
-            # OI_change加权中心仅作辅助参考信息，不应决定ATM位置
+            # 计算ATM行权价：最大痛点（Max Pain）
+            # pain(K) = Σᵢ (call_oiᵢ + put_oiᵢ) × |S - K|，取最小值
             all_available_strikes = sorted(set(r.strike for r in strike_rows))
             if all_available_strikes:
-                atm_strike = min(all_available_strikes, key=lambda x: abs(x - S))
+                # 按strike合并OI（同类合约多条记录需累加）
+                strike_oi = {}
+                for r in strike_rows:
+                    k = r.strike
+                    if k not in strike_oi:
+                        strike_oi[k] = {'call_oi': 0, 'put_oi': 0}
+                    strike_oi[k]['call_oi'] += getattr(r, 'call_oi', 0) or 0
+                    strike_oi[k]['put_oi'] += getattr(r, 'put_oi', 0) or 0
+                # 找痛点最小的行权价
+                min_pain, mp_strike = None, None
+                for K in all_available_strikes:
+                    pain = sum((strike_oi[k]['call_oi'] + strike_oi[k]['put_oi']) * abs(S - K) for k in all_available_strikes)
+                    if min_pain is None or pain < min_pain:
+                        min_pain, mp_strike = pain, K
+                atm_strike = mp_strike or min(all_available_strikes, key=lambda x: abs(x - S))
             else:
                 atm_strike = round(S / 50) * 50
             
@@ -1265,7 +1279,7 @@ class OptionChainAPI:
                     atm_iv = (atm_call_iv + atm_put_iv) / 2 if atm_call_iv or atm_put_iv else 0
                     near_expiry = chain.get('near_expiry', '')
                     if near_expiry:
-                        days_to_exp = int(calculate_days_to_expiry(near_expiry, today) * 365)
+                        days_to_exp = max(1, round(calculate_days_to_expiry(near_expiry, today) * 365))
                     else:
                         days_to_exp = 24
                 except:
