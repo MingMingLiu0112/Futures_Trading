@@ -1082,8 +1082,8 @@ class OptionChainAPI:
             
             S = None
             
-            # 方法1：用TqSdk获取TA606实时价格
-            S = get_tq_ta606_price(timeout=5.0)
+            # 方法1：用TqSdk获取TA606实时价格（加长超时确保连接成功）
+            S = get_tq_ta606_price(timeout=15.0)
             
             # 方法2：用Put-Call Parity从期权数据估算
             if not S or S <= 0:
@@ -1099,12 +1099,9 @@ class OptionChainAPI:
                 except:
                     pass
             
-            # 方法3：回退到成交量最大期权的行权价
-            if S is None or S <= 0:
-                try:
-                    S = float(df.loc[df['成交量(手)'].idxmax(), 'strike'])
-                except:
-                    S = 6300  # 默认值
+            # 方法3：回退值（所有方法失败后的保底）
+            if not S or S <= 0:
+                S = 6572  # PTA期货近月合约合理价格保底
             
             # 第三步：设置analyzer的标的价格（在调用build_t_type_quote之前！）
             self.analyzer.underlying_price = S
