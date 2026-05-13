@@ -40,37 +40,167 @@ TQS_PASS = os.environ.get('TQS_AUTH_PASS', 'Liuzhaoning2025')
 
 # CZCE PTA期权合约代码到实际到期日的映射
 # 注意: TA606只是代号，不代表实际到期月份
-# 根据akshare数据(20260416)，TA606是近月合约，实际到期日为5月13日
-# CZCE规则: 期权到期日 = 标的期货合约交割月前一个月的第5个交易日
-PTA_EXPIRY_MAP = {
-    'TA606': '20260513',  # 2026年5月13日到期 (近月)
-    'TA607': '20260615',  # 2026年6月15日到期
-    'TA608': '20260714',  # 2026年7月14日到期
-    'TA609': '20260812',  # 2026年8月12日到期
-    'TA610': '20260914',  # 2026年9月14日到期
-    'TA611': '20261014',  # 2026年10月14日到期
-    'TA701': '20270113',  # 2027年1月13日到期
-}
+# 规则: 期权到期日 = 标的期货合约交割月前一个月的第5个交易日
+# 期货交割月规则: PTA每月都有期货合约（1,3,5,7,8,9,11,12月）
+PTA_DELIVERY_MONTHS = [1, 3, 5, 7, 8, 9, 11, 12]  # PTA期货可交割月份
 
-# 期权合约到标的期货的映射（akshare的symbol命名）
-# TA606期权 -> TA606期货, TA609期权 -> TA609期货
-OPTION_TO_FUTURES_SYMBOL = {
-    'TA606': 'TA606',
-    'TA607': 'TA607',
-    'TA608': 'TA608',
-    'TA609': 'TA609',
-    'TA610': 'TA610',
-    'TA611': 'TA611',
-    'TA701': 'TA701',
-}
+def _get_nth_trading_day_of_month(year: int, month: int, n: int = 5) -> str:
+    """
+    获取指定月份的第N个交易日（排除周末）
+    CZCE交易日 = 工作日（周一至周五）
+    n=5 → 第5个交易日（即该月第5个工作日）
+    """
+    from datetime import date
+    # 找到该月第1天
+    day = date(year, month, 1)
+    trading_day_count = 0
+    
+    while True:
+        # 跳过周末（weekday 5=Saturday, 6=Sunday）
+        if day.weekday() < 5:
+            trading_day_count += 1
+            if trading_day_count == n:
+                return day.strftime('%Y%m%d')
+        # 进到下一天
+        if day.day < 28:
+            day = date(day.year, day.month, day.day + 1)
+        else:
+            # 跨月
+            if month == 12:
+                year += 1; month = 1
+            else:
+                month += 1
+            day = date(year, month, 1)
+        if trading_day_count >= n:
+            break
+
+def _parse_ta_code(expiry_code: str) -> Tuple[int, int]:
+    """
+    解析TA期权合约代码，返回(年份, 期货交割月份)
+    例如: TA606 → (2026, 6), TA701 → (2027, 1)
+    
+    编码规则: TA[M][Y]
+    - M: 月份数字 (0=10月, 1=1月, 2=2月, 3=3月, ..., 9=9月)
+    - Y: 年份个位 (6=2026, 7=2027, ...)
+    如果M是1或2（1月/2月），说明期权到期在下一年
+    """
+    if not expiry_code or len(expiry_code) < 5:
+        return 2026, 6
+    year_digit = int(expiry_code[4])  # 最后一位：6→2026, 7→2027
+    month_code = int(expiry_code[3])  # 第4位：0=10月, 1=1月, 2=2月...
+    month_map = {0: 10, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9}
+    month = month_map.get(month_code, 6)
+    year = 2000 + year_digit
+    # 1月/2月期权属于下一年（如TA701是2027年1月到期）
+    if month <= 2:
+        year += 1
+    return year, month
+
+def calculate_expiry_date(expiry_code: str) -> str:
+    """
+    根据CZCE规则动态计算期权到期日
+    期权到期日 = 标的期货合约交割月前一个月的第5个交易日
+    
+    注意：这是理论计算。实际到期日应以交易所公布为准，
+    当PTA_EXPIRY_MAP从akshare获取到真实数据时优先使用真实数据。
+    """
+    year, delivery_month = _parse_ta_code(expiry_code)
+    
+    # 期权到期月 = 期货交割月前一个月
+    expiry_month = delivery_month - 1
+    expiry_year = year
+    
+    if expiry_month <= 0:
+        expiry_month += 12
+        expiry_year -= 1
+    
+    return _get_nth_trading_day_of_month(expiry_year, expiry_month, n=5)
+
+# ==================== 动态获取真实到期日（权威数据） ====================
+# 从akshare获取当前上市的所有PTA期权合约的真实最后交易日
+_PTA_EXPIRY_CACHE = {}
+_PTA_EXPIRY_CACHE_DATE = None
+
+def refresh_expiry_map_from_akshare() -> Dict[str, str]:
+    """
+    从akshare获取PTA期权合约的真实到期日（最后交易日）
+    结果会被缓存，当日有效
+    """
+    global _PTA_EXPIRY_CACHE, _PTA_EXPIRY_CACHE_DATE
+    today_str = datetime.now().strftime('%Y%m%d')
+    
+    # 当日缓存
+    if _PTA_EXPIRY_CACHE and _PTA_EXPIRY_CACHE_DATE == today_str:
+        return _PTA_EXPIRY_CACHE
+    
+    try:
+        df = ak.option_contract_info_ctp()
+        ta = df[(df['交易所ID'] == 'CZCE') & (df['合约名称'].str.startswith('TA', na=False))]
+        if not ta.empty and '最后交易日' in ta.columns:
+            # 提取唯一合约代码（去掉后缀C/P）
+            contract_expiry = {}
+            for name in ta['合约名称'].unique():
+                # 提取基础合约代码：TA606（去掉C或P后面的行权价部分）
+                expiry_code = name[:5]  # TA606
+                last_trade = ta[ta['合约名称'] == name]['最后交易日'].iloc[0]
+                if pd.notna(last_trade):
+                    # 转换为YYYYMMDD格式
+                    if isinstance(last_trade, str):
+                        contract_expiry[expiry_code] = last_trade.replace('-', '')
+                    elif hasattr(last_trade, 'strftime'):
+                        contract_expiry[expiry_code] = last_trade.strftime('%Y%m%d')
+            
+            if contract_expiry:
+                _PTA_EXPIRY_CACHE = contract_expiry
+                _PTA_EXPIRY_CACHE_DATE = today_str
+                return contract_expiry
+    except Exception as e:
+        print(f"[WARN] refresh_expiry_map_from_akshare failed: {e}")
+    
+    return None
 
 def get_expiry_date(expiry_code: str) -> str:
-    """获取合约的实际到期日"""
-    return PTA_EXPIRY_MAP.get(expiry_code, '20260615')  # 默认6月
+    """
+    获取合约的实际到期日
+    优先使用akshare真实数据，其次用理论计算
+    """
+    # 尝试从akshare获取真实数据
+    expiry_map = refresh_expiry_map_from_akshare()
+    if expiry_map and expiry_code in expiry_map:
+        return expiry_map[expiry_code]
+    
+    # 回退：使用理论计算
+    return calculate_expiry_date(expiry_code)
+
+def get_all_current_expiry_codes() -> List[str]:
+    """
+    获取当前所有上市的TA期权合约代码（按到期日排序）
+    """
+    expiry_map = refresh_expiry_map_from_akshare()
+    if expiry_map:
+        return sorted(expiry_map.keys(), key=lambda x: expiry_map[x])
+    
+    # 回退：生成当前年份的合约
+    from datetime import datetime
+    year = datetime.now().year
+    result = {}
+    months = [1, 3, 5, 7, 8, 9, 11, 12]
+    month_to_code = {1: '3', 3: '5', 5: '7', 7: '9', 8: '0', 9: '1', 11: '2', 12: '6'}
+    for month in months:
+        yd = str(year)[-1]
+        code = f'TA{month_to_code[month]}{yd}'
+        result[code] = calculate_expiry_date(code)
+    return sorted(result.keys(), key=lambda x: result[x])
+
+# 期权合约到标的期货的映射（akshare的symbol命名）
+OPTION_TO_FUTURES_SYMBOL = {
+    'TA606': 'TA606', 'TA607': 'TA607', 'TA608': 'TA608',
+    'TA609': 'TA609', 'TA610': 'TA610', 'TA611': 'TA611', 'TA701': 'TA701',
+}
 
 def get_futures_symbol(expiry_code: str) -> str:
     """获取期权合约对应的标的期货akshare symbol"""
-    return OPTION_TO_FUTURES_SYMBOL.get(expiry_code, 'TA606')
+    return OPTION_TO_FUTURES_SYMBOL.get(expiry_code, expiry_code)
 
 def sort_expiry_list(expiry_list: List) -> List:
     """按实际到期日排序（最近优先）"""
@@ -353,24 +483,26 @@ def get_tq_futures_price(symbol: str = 'KQ.m@CZCE.TA', timeout: float = 5.0) -> 
         return 0
 
 
-def get_tq_ta606_price(timeout: float = 5.0) -> float:
-    """从TqSdk获取TA606（PTA 6月期货）实时价格
+def get_tq_futures_price_by_expiry(expiry_code: str, timeout: float = 5.0) -> float:
+    """从TqSdk获取指定PTA期货合约的实时价格
     
     Args:
+        expiry_code: 期货合约代码，如 'TA606', 'TA607', 'TA608'
         timeout: 超时秒数
         
     Returns:
-        float: TA606最新价，失败返回0
+        float: 最新价，失败返回0
     """
     try:
         import threading
         result = {'price': 0, 'done': False}
+        # 去掉TA前缀得到数字代码，如 TA607 -> 607
+        futures_code = expiry_code[2:]  # 'TA607' -> '607'
         
         def fetch():
             try:
                 api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS), debug=False)
-                # TA606合约代码: CZCE.TA606
-                quote = api.get_quote('CZCE.TA606')
+                quote = api.get_quote(f'CZCE.TA{futures_code}')
                 start = time.time()
                 while time.time() - start < timeout and not result['done']:
                     try:
@@ -395,6 +527,11 @@ def get_tq_ta606_price(timeout: float = 5.0) -> float:
         return result['price']
     except Exception:
         return 0
+
+
+def get_tq_ta606_price(timeout: float = 5.0) -> float:
+    """从TqSdk获取TA606（PTA 6月期货）实时价格（兼容旧调用）"""
+    return get_tq_futures_price_by_expiry('TA606', timeout)
 
 def get_tq_option_prices(symbols: List[str]) -> Dict[str, Dict]:
     """从TqSdk获取期权实时价格（暂时禁用，因TqSdk连接阻塞）
@@ -1065,25 +1202,45 @@ class OptionChainAPI:
             # 按到期日分组获取expiry列表
             expiry_groups = df.groupby('expiry')
             temp_expiry_list = []
+            today_str = datetime.now().strftime('%Y%m%d')
             for expiry, group in expiry_groups:
+                actual_expiry = get_expiry_date(expiry)
                 temp_expiry_list.append({
                     'expiry': expiry,
-                    'actual_expiry_date': get_expiry_date(expiry)
+                    'actual_expiry_date': actual_expiry
                 })
             # 按实际到期日排序
             temp_expiry_list.sort(key=lambda x: x['actual_expiry_date'])
-            near_expiry_code = temp_expiry_list[0]['expiry'] if temp_expiry_list else None
             
-            # 第二步：获取真实TA606期货标的价格
-            # 方法1：优先使用TqSdk获取CZCE.TA606的实时价格
+            # 自动切换合约：
+            # 规则：如果最近的合约到期日 > 今天，切换到该合约
+            # 到期日 = 今天或更早 → 切换到下月合约
+            # 原因：到期日当天近月合约已结算/退市，数据应显示下月合约
+            # 适用于：收盘后近月合约到期、夜盘开盘前（交易所更新数据时）
+            near_expiry_code = None
+            for item in temp_expiry_list:
+                if item['actual_expiry_date'] > today_str:
+                    near_expiry_code = item['expiry']
+                    break
+            
+            # 所有合约都已到期（极端情况）：使用成交量最大的合约
+            if near_expiry_code is None:
+                if temp_expiry_list:
+                    # 取最后一个（已过期但最接近的）
+                    near_expiry_code = temp_expiry_list[-1]['expiry']
+                else:
+                    near_expiry_code = 'TA607'  # 保底默认近月
+            
+            # 第二步：获取近月期货标的的真实价格
+            # 方法1：优先使用TqSdk获取近月合约的实时价格
             # 方法2：用Put-Call Parity从期权数据估算
             # 方法3：回退到akshare的TA0（主力合约）
-            # 方法4：回退到成交量最大期权的行权价
+            # 方法4：回退到保底默认值
             
             S = None
             
-            # 方法1：用TqSdk获取TA606实时价格（加长超时确保连接成功）
-            S = get_tq_ta606_price(timeout=15.0)
+            # 方法1：用TqSdk获取近月期货实时价格
+            S = get_tq_futures_price_by_expiry(near_expiry_code, timeout=15.0)
             
             # 方法2：用Put-Call Parity从期权数据估算
             if not S or S <= 0:
@@ -1099,7 +1256,7 @@ class OptionChainAPI:
                 except:
                     pass
             
-            # 方法3：回退值（所有方法失败后的保底）
+            # 方法4：保底默认值（所有方法失败后的最后兜底）
             if not S or S <= 0:
                 S = 6572  # PTA期货近月合约合理价格保底
             
@@ -1112,13 +1269,17 @@ class OptionChainAPI:
             if len(strike_rows) == 0:
                 return {'success': False, 'error': '解析期权数据失败'}
             
-            # 计算ATM行权价：最大痛点（Max Pain）
+            # 构建返回
+            # 只返回最近月合约数据
+            near_strike_rows = [r for r in strike_rows if r.expiry == near_expiry_code]
+            
+            # 计算ATM行权价：最大痛点（Max Pain），只用近月合约的OI
             # pain(K) = Σᵢ (call_oiᵢ + put_oiᵢ) × |S - K|，取最小值
-            all_available_strikes = sorted(set(r.strike for r in strike_rows))
+            all_available_strikes = sorted(set(r.strike for r in near_strike_rows))
             if all_available_strikes:
                 # 按strike合并OI（同类合约多条记录需累加）
                 strike_oi = {}
-                for r in strike_rows:
+                for r in near_strike_rows:
                     k = r.strike
                     if k not in strike_oi:
                         strike_oi[k] = {'call_oi': 0, 'put_oi': 0}
@@ -1134,13 +1295,10 @@ class OptionChainAPI:
             else:
                 atm_strike = round(S / 50) * 50
             
-            # 计算统计数据
-            stats = self._calculate_stats(expiry_list, strike_rows)
-            
-            # 构建返回
-            # 只返回最近月合约数据
-            near_strike_rows = [r for r in strike_rows if r.expiry == near_expiry_code]
-            near_stats = self._calculate_stats([expiry_list[0]], near_strike_rows) if expiry_list else {}
+            # 统计数据（已在上方计算完毕）
+            # 找到近月合约对应的 ExpiryData（不能用 expiry_list[0]，因为排序后 TA606 可能排在前面）
+            near_expiry_obj = next((e for e in expiry_list if e.expiry == near_expiry_code), expiry_list[0] if expiry_list else None)
+            near_stats = self._calculate_stats([near_expiry_obj], near_strike_rows) if near_expiry_obj else {}
             near_stats['full_market_pcr'] = self._calculate_full_market_pcr(expiry_list)
             
             result = {
@@ -1150,9 +1308,9 @@ class OptionChainAPI:
                 'underlying': near_expiry_code if near_expiry_code else 'CZCE.TA',  # 近月合约代码
                 'underlying_price': S,
                 'atm_strike': atm_strike,
-                'near_expiry': near_expiry_code,  # 合约代码 TA606
-                'near_expiry_date': expiry_list[0].actual_expiry_date if expiry_list else None,  # 实际到期日 20260513
-                'near_expiry_display': f"{near_expiry_code}（到期日：{expiry_list[0].actual_expiry_date[:4]}/{expiry_list[0].actual_expiry_date[4:6]}/{expiry_list[0].actual_expiry_date[6:8]}）" if expiry_list else None,
+                'near_expiry': near_expiry_code,  # 合约代码 TA607
+                'near_expiry_date': near_expiry_obj.actual_expiry_date if near_expiry_obj else None,  # 实际到期日 20260611
+                'near_expiry_display': f"{near_expiry_code}（到期日：{near_expiry_obj.actual_expiry_date[:4]}/{near_expiry_obj.actual_expiry_date[4:6]}/{near_expiry_obj.actual_expiry_date[6:8]}）" if near_expiry_obj else None,
                 'expiry_list': [asdict(e) for e in expiry_list],  # 全部到期日列表
                 'strike_rows': [asdict(r) for r in near_strike_rows],  # 只返回近月数据
                 'stats': near_stats
