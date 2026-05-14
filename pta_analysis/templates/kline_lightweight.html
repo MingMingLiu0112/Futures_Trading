@@ -2443,14 +2443,15 @@
             
             const hasPrevData = smilePrevPutIv.some(v => v > 0) || smilePrevCallIv.some(v => v > 0);
             
+            const labelFmt = function(p) { return p.value !== null ? p.value.toFixed(2) + '%' : ''; };
             const series = [
-                { name: 'Put IV(今)', data: smilePutIv, color: '#4169e1', style: { width: 2.5 } },
-                { name: 'Call IV(今)', data: smileCallIv, color: '#ff6347', style: { width: 2.5 } }
+                { name: 'Put IV(今)', data: smilePutIv, color: '#4169e1', style: { width: 2.5 }, showLabel: true },
+                { name: 'Call IV(今)', data: smileCallIv, color: '#ff6347', style: { width: 2.5 }, showLabel: true }
             ];
             if (hasPrevData) {
                 series.push(
-                    { name: 'Put IV(昨)', data: smilePrevPutIv, color: '#4169e1', style: { type: 'dashed', width: 1.5, opacity: 0.5 } },
-                    { name: 'Call IV(昨)', data: smilePrevCallIv, color: '#ff6347', style: { type: 'dashed', width: 1.5, opacity: 0.5 } }
+                    { name: 'Put IV(昨)', data: smilePrevPutIv, color: '#4169e1', style: { type: 'dashed', width: 1.5, opacity: 0.5 }, showLabel: true },
+                    { name: 'Call IV(昨)', data: smilePrevCallIv, color: '#ff6347', style: { type: 'dashed', width: 1.5, opacity: 0.5 }, showLabel: true }
                 );
             }
             
@@ -2493,7 +2494,7 @@
                     itemStyle: { color: s.color },
                     lineStyle: s.style,
                     symbol: 'circle', symbolSize: 6,
-                    label: { show: true, formatter: '{c}%', fontSize: 10, color: '#aaa' },
+                    label: { show: s.showLabel, formatter: labelFmt, fontSize: 9, color: s.color },
                     connectNulls: true
                 }))
             });

@@ -808,15 +808,19 @@
                     yAxis: { type: 'value', axisLabel: { color: '#aaa', formatter: '{value}%' } },
                     series: [
                         { name: 'Put IV(今)', type: 'line', data: smilePutIv, smooth: true, 
-                          itemStyle: { color: '#4169e1' }, lineStyle: { width: 2 }, connectNulls: true },
+                          itemStyle: { color: '#4169e1' }, lineStyle: { width: 2 }, connectNulls: true,
+                          label: { show: true, formatter: function(p) { return p.value !== null ? p.value.toFixed(2) : ''; }, color: '#4169e1', fontSize: 9 } },
                         { name: 'Call IV(今)', type: 'line', data: smileCallIv, smooth: true,
-                          itemStyle: { color: '#ff6347' }, lineStyle: { width: 2 }, connectNulls: true },
+                          itemStyle: { color: '#ff6347' }, lineStyle: { width: 2 }, connectNulls: true,
+                          label: { show: true, formatter: function(p) { return p.value !== null ? p.value.toFixed(2) : ''; }, color: '#ff6347', fontSize: 9 } },
                         { name: 'Put IV(昨)', type: 'line', data: smilePrevPutIv, smooth: true, 
                           itemStyle: { color: '#4169e1', opacity: 0.5 }, lineStyle: { type: 'dashed', width: 1.5 },
-                          symbol: 'none', connectNulls: true },
+                          symbol: 'none', connectNulls: true,
+                          label: { show: true, formatter: function(p) { return p.value !== null ? p.value.toFixed(2) : ''; }, color: '#4169e1', opacity: 0.7, fontSize: 9 } },
                         { name: 'Call IV(昨)', type: 'line', data: smilePrevCallIv, smooth: true,
                           itemStyle: { color: '#ff6347', opacity: 0.5 }, lineStyle: { type: 'dashed', width: 1.5 },
-                          symbol: 'none', connectNulls: true }
+                          symbol: 'none', connectNulls: true,
+                          label: { show: true, formatter: function(p) { return p.value !== null ? p.value.toFixed(2) : ''; }, color: '#ff6347', opacity: 0.7, fontSize: 9 } }
                     ]
                 });
             } else {
@@ -832,9 +836,11 @@
                     yAxis: { type: 'value', axisLabel: { color: '#aaa', formatter: '{value}%' } },
                     series: [
                         { name: 'Put IV(虚值)', type: 'line', data: smilePutIv, smooth: true, 
-                          itemStyle: { color: '#4169e1' }, connectNulls: true },
+                          itemStyle: { color: '#4169e1' }, connectNulls: true,
+                          label: { show: true, formatter: function(p) { return p.value !== null ? p.value.toFixed(2) : ''; }, color: '#4169e1', fontSize: 9 } },
                         { name: 'Call IV(虚值)', type: 'line', data: smileCallIv, smooth: true,
-                          itemStyle: { color: '#ff6347' }, connectNulls: true }
+                          itemStyle: { color: '#ff6347' }, connectNulls: true,
+                          label: { show: true, formatter: function(p) { return p.value !== null ? p.value.toFixed(2) : ''; }, color: '#ff6347', fontSize: 9 } }
                     ]
                 });
             }
