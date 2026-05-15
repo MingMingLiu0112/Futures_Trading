@@ -5,6 +5,8 @@
 
 
 
+
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -1292,10 +1294,14 @@ class OptionChainAPI:
                     pain = sum((strike_oi[k]['call_oi'] + strike_oi[k]['put_oi']) * abs(S - K) for k in all_available_strikes)
                     if min_pain is None or pain < min_pain:
                         min_pain, mp_strike = pain, K
-                # ATM = max pain 结果，只在该档位实际存在时使用；否则用最近档
-                atm_strike = mp_strike if mp_strike and mp_strike in all_available_strikes else min(all_available_strikes, key=lambda x: abs(x - S))
+                # ATM = 最大痛点行权价（已在 all_available_strikes 中遍历计算）
+                atm_strike = mp_strike
             else:
-                atm_strike = round(S / 50) * 50
+                # 没有合约数据时，用实际档位的最小最大值保护
+                if all_available_strikes:
+                    atm_strike = min(all_available_strikes, key=lambda x: abs(x - S))
+                else:
+                    atm_strike = round(S / 100) * 100
             
             # 统计数据（已在上方计算完毕）
             # 找到近月合约对应的 ExpiryData（不能用 expiry_list[0]，因为排序后 TA606 可能排在前面）
