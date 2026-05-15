@@ -4,6 +4,7 @@
 
 
 
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -1273,7 +1274,7 @@ class OptionChainAPI:
             # 只返回最近月合约数据
             near_strike_rows = [r for r in strike_rows if r.expiry == near_expiry_code]
             
-            # 计算ATM行权价：最大痛点（Max Pain），只用近月合约的OI
+            # 计算ATM行权价：直接取最大痛点（Max Pain）结果
             # pain(K) = Σᵢ (call_oiᵢ + put_oiᵢ) × |S - K|，取最小值
             all_available_strikes = sorted(set(r.strike for r in near_strike_rows))
             if all_available_strikes:
@@ -1291,7 +1292,8 @@ class OptionChainAPI:
                     pain = sum((strike_oi[k]['call_oi'] + strike_oi[k]['put_oi']) * abs(S - K) for k in all_available_strikes)
                     if min_pain is None or pain < min_pain:
                         min_pain, mp_strike = pain, K
-                atm_strike = mp_strike or min(all_available_strikes, key=lambda x: abs(x - S))
+                # ATM = max pain 结果，只在该档位实际存在时使用；否则用最近档
+                atm_strike = mp_strike if mp_strike and mp_strike in all_available_strikes else min(all_available_strikes, key=lambda x: abs(x - S))
             else:
                 atm_strike = round(S / 50) * 50
             
