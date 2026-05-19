@@ -487,20 +487,20 @@ def get_tq_futures_price(symbol: str = 'KQ.m@CZCE.TA', timeout: float = 5.0) -> 
         return 0
 
 
-def get_tq_futures_price_by_expiry(expiry_code: str, timeout: float = 5.0) -> float:
-    """从TqSdk获取指定PTA期货合约的实时价格
+def get_tq_futures_price_by_expiry(expiry_code: str, timeout: float = 5.0) -> tuple:
+    """从TqSdk获取指定PTA期货合约的实时价格和行情时间
     
     Args:
         expiry_code: 期货合约代码，如 'TA606', 'TA607', 'TA608'
         timeout: 超时秒数
         
     Returns:
-        float: 最新价，失败返回0
+        tuple: (price: float, datetime: int)，失败返回 (0, 0)
+               datetime 是 TQSdk 的行情时间戳（秒），0 表示无效
     """
     try:
         import threading
-        result = {'price': 0, 'done': False}
-        # 去掉TA前缀得到数字代码，如 TA607 -> 607
+        result = {'price': 0, 'qdatetime': 0, 'done': False}
         futures_code = expiry_code[2:]  # 'TA607' -> '607'
         
         def fetch():
@@ -513,6 +513,14 @@ def get_tq_futures_price_by_expiry(expiry_code: str, timeout: float = 5.0) -> fl
                         api.wait_update(deadline=min(time.time() + 1.0, start + timeout))
                         if quote.last_price and quote.last_price > 0:
                             result['price'] = float(quote.last_price)
+                            # 取行情时间字符串，解析为Unix时间戳（秒）
+                            dt_str = getattr(quote, 'datetime', None)
+                            if dt_str:
+                                try:
+                                    from datetime import datetime as dt
+                                    result['qdatetime'] = int(dt.strptime(str(dt_str)[:19], '%Y-%m-%d %H:%M:%S').timestamp())
+                                except Exception:
+                                    result['qdatetime'] = 0
                             break
                     except Exception:
                         break
@@ -528,14 +536,15 @@ def get_tq_futures_price_by_expiry(expiry_code: str, timeout: float = 5.0) -> fl
         t = threading.Thread(target=fetch, daemon=True)
         t.start()
         t.join(timeout=timeout + 2)
-        return result['price']
+        return result['price'], result['qdatetime']
     except Exception:
-        return 0
+        return 0, 0
 
 
 def get_tq_ta606_price(timeout: float = 5.0) -> float:
     """从TqSdk获取TA606（PTA 6月期货）实时价格（兼容旧调用）"""
-    return get_tq_futures_price_by_expiry('TA606', timeout)
+    price, _ = get_tq_futures_price_by_expiry('TA606', timeout)
+    return price
 
 def get_tq_option_prices(symbols: List[str]) -> Dict[str, Dict]:
     """从TqSdk获取期权实时价格（暂时禁用，因TqSdk连接阻塞）
@@ -1137,207 +1146,223 @@ class OptionChainAPI:
         self._lock = threading.Lock()
         self._cache = {}
         self._cache_ttl = 300  # 缓存5分钟
+        self._last_update = None
+        self._pending = False   # 是否有请求正在处理中（尚未返回）
+        self._pending_error = None  # 正在处理中的请求如果失败，记录错误
     
     def get_full_chain(self) -> Dict[str, Any]:
         """获取完整期权链数据"""
         import warnings
         warnings.filterwarnings('ignore')
         
-        with self._lock:
-            now = time.time()
-            
-            # 检查缓存
-            if self._cache and self._last_update:
-                if now - self._last_update < self._cache_ttl:
-                    return self._cache
-            
-            # 获取交易日期 - 优先尝试今日，其次最近交易日
-            today = datetime.now()
-            weekday = today.weekday()
-            
-            trade_date = None
-            
-            # 首先尝试今日（收盘后一般就有当日数据）
-            try:
-                today_str = today.strftime('%Y%m%d')
-                df_test = ak.option_hist_czce(symbol='PTA期权', trade_date=today_str)
-                if df_test is not None and len(df_test) > 0:
-                    trade_date = today_str
-            except:
-                pass
-            
-            # 如果今日无数据，尝试最近交易日
-            if trade_date is None:
-                if weekday == 6:  # Sunday
-                    start_offset = 2
-                elif weekday == 5:  # Saturday
-                    start_offset = 1
-                else:
-                    start_offset = 1  # 今天之前最近交易日
-                
-                for i in range(start_offset, 15):
-                    dt = today - timedelta(days=i)
-                    date_str = dt.strftime('%Y%m%d')
-                    try:
-                        df_test = ak.option_hist_czce(symbol='PTA期权', trade_date=date_str)
-                        if df_test is not None and len(df_test) > 0:
-                            trade_date = date_str
-                            break
-                    except:
-                        continue
-            
-            if trade_date is None:
-                    return {'success': False, 'error': '无法获取交易日'}
-            
-            self.trade_date = trade_date
-            
-            # 获取当前期权数据（用于确定近月合约）
-            df = AkshareOptionData.get_option_data(self.trade_date)
-            if df is None or len(df) == 0:
-                return {'success': False, 'error': '获取期权数据失败'}
-            
-            # 获取昨日数据用于IV日间对比
-            prev_df = self.store.get_prev_day_data(self.trade_date)
-            
-            # 保存今日数据
-            self.store.save_option_data(df, trade_date)
-            
-            # 第一步：先确定近月合约（不计算Greeks，只需要解析数据）
-            # 按到期日分组获取expiry列表
-            expiry_groups = df.groupby('expiry')
-            temp_expiry_list = []
-            today_str = datetime.now().strftime('%Y%m%d')
-            for expiry, group in expiry_groups:
-                actual_expiry = get_expiry_date(expiry)
-                temp_expiry_list.append({
-                    'expiry': expiry,
-                    'actual_expiry_date': actual_expiry
-                })
-            # 按实际到期日排序
-            temp_expiry_list.sort(key=lambda x: x['actual_expiry_date'])
-            
-            # 自动切换合约：
-            # 规则：如果最近的合约到期日 > 今天，切换到该合约
-            # 到期日 = 今天或更早 → 切换到下月合约
-            # 原因：到期日当天近月合约已结算/退市，数据应显示下月合约
-            # 适用于：收盘后近月合约到期、夜盘开盘前（交易所更新数据时）
-            near_expiry_code = None
-            for item in temp_expiry_list:
-                if item['actual_expiry_date'] > today_str:
-                    near_expiry_code = item['expiry']
-                    break
-            
-            # 所有合约都已到期（极端情况）：使用成交量最大的合约
-            if near_expiry_code is None:
-                if temp_expiry_list:
-                    # 取最后一个（已过期但最接近的）
-                    near_expiry_code = temp_expiry_list[-1]['expiry']
-                else:
-                    near_expiry_code = 'TA607'  # 保底默认近月
-            
-            # 第二步：获取近月期货标的的真实价格
-            # 优先级：TqSdk实时 > PC Parity估算 > akshare TA0分钟 > 保底默认值
-            # 注意：PC Parity用历史期权数据估算，akshare TA0为主力合约，
-            #      两者都可能在某些时刻有偏差，优先使用TqSdk实时期货价格。
-            
-            S = None
-            prev_S = self.analyzer.underlying_price if self.analyzer.underlying_price > 0 else None
-            
-            # 方法1：TqSdk获取近月期货实时价格（最快最准）
-            S = get_tq_futures_price_by_expiry(near_expiry_code, timeout=15.0)
-            
-            # 方法2：TqSdk失败时，保留原值（不在运行时用旧期权数据反推，避免误差）
-            if not S or S <= 0:
-                if prev_S and prev_S > 0:
-                    S = prev_S  # 保留原值
-                elif near_expiry_code:
-                    # 没有原值时用PC Parity估算（保底）
-                    S = estimate_underlying_from_options(df, near_expiry_code)
-            
-            # 方法3：仍无有效值则用akshare主力合约（保底）
-            if not S or S <= 0:
+        # 防并发：请求正在处理中时，直接拒绝（不排队等锁）
+        if self._pending:
+            return {'success': False, 'error': '请求正在处理中，请稍后刷新'}
+
+        # 标记为处理中（放在锁外面，避免请求卡在门外）
+        self._pending = True
+        self._pending_error = None
+
+        try:
+            with self._lock:
+                now = time.time()
+
+                # 检查缓存
+                if self._cache and self._last_update:
+                    if now - self._last_update < self._cache_ttl:
+                        return self._cache  # finally会执行
+
+                # 获取交易日期 - 优先尝试今日，其次最近交易日
+                today = datetime.now()
+                weekday = today.weekday()
+
+                trade_date = None
+
+                # 首先尝试今日（收盘后一般就有当日数据）
                 try:
-                    ta_df = ak.futures_zh_minute_sina(symbol='TA0', period='1m')
-                    if ta_df is not None and len(ta_df) > 0:
-                        ta_df.columns = [c.strip() for c in ta_df.columns]
-                        S = float(ta_df['close'].iloc[-1])
-                except Exception:
+                    today_str = today.strftime('%Y%m%d')
+                    df_test = ak.option_hist_czce(symbol='PTA期权', trade_date=today_str)
+                    if df_test is not None and len(df_test) > 0:
+                        trade_date = today_str
+                except:
                     pass
-            
-            # 方法4：保底默认值
-            if not S or S <= 0:
-                S = prev_S if prev_S and prev_S > 0 else 6572
-            
-            # 第三步：设置analyzer的标的价格（在调用build_t_type_quote之前！）
-            self.analyzer.underlying_price = S
-            
-            # 第四步：构建T型报价（此时underlying_price已正确设置）
-            expiry_list, strike_rows = self.analyzer.build_t_type_quote(df, prev_df)
-            
-            if len(strike_rows) == 0:
-                return {'success': False, 'error': '解析期权数据失败'}
-            
-            # 构建返回
-            # 只返回最近月合约数据
-            near_strike_rows = [r for r in strike_rows if r.expiry == near_expiry_code]
-            
-            # 计算ATM行权价：直接取最大痛点（Max Pain）结果
-            # pain(K) = Σᵢ (call_oiᵢ + put_oiᵢ) × |S - K|，取最小值
-            all_available_strikes = sorted(set(r.strike for r in near_strike_rows))
-            if all_available_strikes:
-                # 按strike合并OI（同类合约多条记录需累加）
-                strike_oi = {}
-                for r in near_strike_rows:
-                    k = r.strike
-                    if k not in strike_oi:
-                        strike_oi[k] = {'call_oi': 0, 'put_oi': 0}
-                    strike_oi[k]['call_oi'] += getattr(r, 'call_oi', 0) or 0
-                    strike_oi[k]['put_oi'] += getattr(r, 'put_oi', 0) or 0
-                # 找痛点最小的行权价
-                min_pain, mp_strike = None, None
-                for K in all_available_strikes:
-                    pain = sum((strike_oi[k]['call_oi'] + strike_oi[k]['put_oi']) * abs(S - K) for k in all_available_strikes)
-                    if min_pain is None or pain < min_pain:
-                        min_pain, mp_strike = pain, K
-                # ATM = 最大痛点行权价（已在 all_available_strikes 中遍历计算）
-                atm_strike = mp_strike
-            else:
-                # 没有合约数据时，用实际档位的最小最大值保护
+
+                # 如果今日无数据，尝试最近交易日
+                if trade_date is None:
+                    if weekday == 6:  # Sunday
+                        start_offset = 2
+                    elif weekday == 5:  # Saturday
+                        start_offset = 1
+                    else:
+                        start_offset = 1  # 今天之前最近交易日
+
+                    for i in range(start_offset, 15):
+                        dt = today - timedelta(days=i)
+                        date_str = dt.strftime('%Y%m%d')
+                        try:
+                            df_test = ak.option_hist_czce(symbol='PTA期权', trade_date=date_str)
+                            if df_test is not None and len(df_test) > 0:
+                                trade_date = date_str
+                                break
+                        except:
+                            continue
+
+                if trade_date is None:
+                    return {'success': False, 'error': '无法获取交易日'}
+
+                self.trade_date = trade_date
+
+                # 获取当前期权数据（用于确定近月合约）
+                df = AkshareOptionData.get_option_data(self.trade_date)
+                if df is None or len(df) == 0:
+                    return {'success': False, 'error': '获取期权数据失败'}
+
+                # 获取昨日数据用于IV日间对比
+                prev_df = self.store.get_prev_day_data(self.trade_date)
+
+                # 保存今日数据
+                self.store.save_option_data(df, trade_date)
+
+                # 第一步：先确定近月合约（不计算Greeks，只需要解析数据）
+                # 按到期日分组获取expiry列表
+                expiry_groups = df.groupby('expiry')
+                temp_expiry_list = []
+                today_str = datetime.now().strftime('%Y%m%d')
+                for expiry, group in expiry_groups:
+                    actual_expiry = get_expiry_date(expiry)
+                    temp_expiry_list.append({
+                        'expiry': expiry,
+                        'actual_expiry_date': actual_expiry
+                    })
+                # 按实际到期日排序
+                temp_expiry_list.sort(key=lambda x: x['actual_expiry_date'])
+
+                # 自动切换合约：
+                # 规则：如果最近的合约到期日 > 今天，切换到该合约
+                # 到期日 = 今天或更早 → 切换到下月合约
+                # 原因：到期日当天近月合约已结算/退市，数据应显示下月合约
+                # 适用于：收盘后近月合约到期、夜盘开盘前（交易所更新数据时）
+                near_expiry_code = None
+                for item in temp_expiry_list:
+                    if item['actual_expiry_date'] > today_str:
+                        near_expiry_code = item['expiry']
+                        break
+
+                # 所有合约都已到期（极端情况）：使用成交量最大的合约
+                if near_expiry_code is None:
+                    if temp_expiry_list:
+                        # 取最后一个（已过期但最接近的）
+                        near_expiry_code = temp_expiry_list[-1]['expiry']
+                    else:
+                        near_expiry_code = 'TA607'  # 保底默认近月
+
+                # 第二步：获取近月期货标的的真实价格
+                # 优先级：TqSdk实时(未过期) > 保留上一次值 > PC Parity估算 > akshare > 默认值
+                S = None
+                prev_S = self.analyzer.underlying_price if self.analyzer.underlying_price > 0 else None
+
+                # 方法1：TqSdk获取近月期货实时价格（最快最准）
+                tq_price, tq_datetime = get_tq_futures_price_by_expiry(near_expiry_code, timeout=15.0)
+
+                # 判断TqSdk价格是否过期：行情时间距今超过5分钟则丢弃
+                DATA_STALE_SECONDS = 300
+                if tq_price > 0 and tq_datetime > 0:
+                    age = time.time() - tq_datetime
+                    if age < DATA_STALE_SECONDS:
+                        S = tq_price
+                    else:
+                        print(f"[get_full_chain] TqSdk价格{tq_price}已过期(行情时间{age:.0f}秒前)，丢弃")
+
+                # 方法2：TqSdk失败或过期时，保留原值
+                if S is None or S <= 0:
+                    if prev_S and prev_S > 0:
+                        S = prev_S
+
+                # 方法3：仍无有效值则用akshare主力合约
+                if not S or S <= 0:
+                    try:
+                        ta_df = ak.futures_zh_minute_sina(symbol='TA0', period='1m')
+                        if ta_df is not None and len(ta_df) > 0:
+                            ta_df.columns = [c.strip() for c in ta_df.columns]
+                            S = float(ta_df['close'].iloc[-1])
+                    except Exception:
+                        pass
+
+                # 方法4：保底默认值
+                if not S or S <= 0:
+                    S = prev_S if prev_S and prev_S > 0 else 6572
+
+                # 第三步：设置analyzer的标的价格（在调用build_t_type_quote之前！）
+                self.analyzer.underlying_price = S
+
+                # 第四步：构建T型报价（此时underlying_price已正确设置）
+                expiry_list, strike_rows = self.analyzer.build_t_type_quote(df, prev_df)
+
+                if len(strike_rows) == 0:
+                    return {'success': False, 'error': '解析期权数据失败'}
+
+                # 构建返回
+                # 只返回最近月合约数据
+                near_strike_rows = [r for r in strike_rows if r.expiry == near_expiry_code]
+
+                # 计算ATM行权价：直接取最大痛点（Max Pain）结果
+                # pain(K) = Σᵢ (call_oiᵢ + put_oiᵢ) × |S - K|，取最小值
+                all_available_strikes = sorted(set(r.strike for r in near_strike_rows))
                 if all_available_strikes:
-                    atm_strike = min(all_available_strikes, key=lambda x: abs(x - S))
+                    # 按strike合并OI（同类合约多条记录需累加）
+                    strike_oi = {}
+                    for r in near_strike_rows:
+                        k = r.strike
+                        if k not in strike_oi:
+                            strike_oi[k] = {'call_oi': 0, 'put_oi': 0}
+                        strike_oi[k]['call_oi'] += getattr(r, 'call_oi', 0) or 0
+                        strike_oi[k]['put_oi'] += getattr(r, 'put_oi', 0) or 0
+                    # 找痛点最小的行权价
+                    min_pain, mp_strike = None, None
+                    for K in all_available_strikes:
+                        pain = sum((strike_oi[k]['call_oi'] + strike_oi[k]['put_oi']) * abs(S - K) for k in all_available_strikes)
+                        if min_pain is None or pain < min_pain:
+                            min_pain, mp_strike = pain, K
+                    atm_strike = mp_strike
                 else:
-                    atm_strike = round(S / 100) * 100
-            
-            # 统计数据（已在上方计算完毕）
-            # 找到近月合约对应的 ExpiryData（不能用 expiry_list[0]，因为排序后 TA606 可能排在前面）
-            near_expiry_obj = next((e for e in expiry_list if e.expiry == near_expiry_code), expiry_list[0] if expiry_list else None)
-            near_stats = self._calculate_stats([near_expiry_obj], near_strike_rows) if near_expiry_obj else {}
-            near_stats['full_market_pcr'] = self._calculate_full_market_pcr(expiry_list)
-            
-            result = {
-                'success': True,
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'trade_date': self.trade_date,
-                'underlying': near_expiry_code if near_expiry_code else 'CZCE.TA',  # 近月合约代码
-                'underlying_price': S,
-                'atm_strike': atm_strike,
-                'near_expiry': near_expiry_code,  # 合约代码 TA607
-                'near_expiry_date': near_expiry_obj.actual_expiry_date if near_expiry_obj else None,  # 实际到期日 20260611
-                'near_expiry_display': f"{near_expiry_code}（到期日：{near_expiry_obj.actual_expiry_date[:4]}/{near_expiry_obj.actual_expiry_date[4:6]}/{near_expiry_obj.actual_expiry_date[6:8]}）" if near_expiry_obj else None,
-                'expiry_list': [asdict(e) for e in expiry_list],  # 全部到期日列表
-                'strike_rows': [asdict(r) for r in near_strike_rows],  # 只返回近月数据
-                'stats': near_stats
-            }
-            
-            self._cache = result
-            self._last_update = now
-            
-            return result
-    
-    def _last_update(self):
-        return getattr(self, '_last_update', None)
-    
-    def _calculate_stats(self, expiry_list: List[ExpiryData], 
+                    # 没有合约数据时，用实际档位的最小最大值保护
+                    if all_available_strikes:
+                        atm_strike = min(all_available_strikes, key=lambda x: abs(x - S))
+                    else:
+                        atm_strike = round(S / 100) * 100
+
+                # 统计数据
+                near_expiry_obj = next((e for e in expiry_list if e.expiry == near_expiry_code), expiry_list[0] if expiry_list else None)
+                near_stats = self._calculate_stats([near_expiry_obj], near_strike_rows) if near_expiry_obj else {}
+                near_stats['full_market_pcr'] = self._calculate_full_market_pcr(expiry_list)
+
+                result = {
+                    'success': True,
+                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'trade_date': self.trade_date,
+                    'underlying': near_expiry_code if near_expiry_code else 'CZCE.TA',  # 近月合约代码
+                    'underlying_price': S,
+                    'atm_strike': atm_strike,
+                    'near_expiry': near_expiry_code,  # 合约代码 TA607
+                    'near_expiry_date': near_expiry_obj.actual_expiry_date if near_expiry_obj else None,  # 实际到期日 20260611
+                    'near_expiry_display': f"{near_expiry_code}（到期日：{near_expiry_obj.actual_expiry_date[:4]}/{near_expiry_obj.actual_expiry_date[4:6]}/{near_expiry_obj.actual_expiry_date[6:8]}）" if near_expiry_obj else None,
+                    'expiry_list': [asdict(e) for e in expiry_list],  # 全部到期日列表
+                    'strike_rows': [asdict(r) for r in near_strike_rows],  # 只返回近月数据
+                    'stats': near_stats
+                }
+
+                self._cache = result
+                self._last_update = now
+
+                return result
+
+        except Exception as e:
+            self._pending_error = str(e)
+            return {'success': False, 'error': str(e)}
+        finally:
+            self._pending = False
+
+    def _calculate_stats(self, expiry_list: List[ExpiryData],
                          strike_rows: List[StrikeRow]) -> Dict[str, Any]:
         """计算统计数据"""
         if not expiry_list or not strike_rows:

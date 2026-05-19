@@ -372,6 +372,9 @@
         let ivChart = null;
         let oiChart = null;
         let greekChart = null;
+        let isLoading = false;        // 防重入标志，防止自动刷新和手动刷新并发
+        let refreshTimer = null;      // 自动刷新定时器
+        let pendingRefresh = false;   // 刷新期间是否有新的刷新请求
         
         // IV变化阈值（基于ATM平均IV判断波动环境）
         // 高波(IV≥30%): 噪音<±3%, 显著±3%~±6%, 重大>±6%
@@ -398,8 +401,10 @@
             initCharts();
             loadData();
             
-            // 自动刷新每60秒
-            setInterval(loadData, 60000);
+            // 自动刷新每60秒（用timer追踪，避免累积漂移）
+            refreshTimer = setInterval(() => {
+                loadData();
+            }, 60000);
         });
         
         // 初始化图表
@@ -420,42 +425,60 @@
             greekChart.setOption(defaultOption);
         }
         
-        // 加载数据
+        // 加载数据（防重入）
         async function loadData() {
-            console.log('loadData called');
-            showLoading(true);
-            
+            if (isLoading) {
+                // 标记有刷新请求，但不中断当前请求
+                pendingRefresh = true;
+                console.log('上次请求未完成，标记pendingRefresh');
+                return;
+            }
+            isLoading = true;
+            console.log('loadData 开始');
+
             try {
-                console.log('Fetching /api/options/chain');
+                showLoading(true);
                 const response = await fetch('/api/options/chain');
-                console.log('Response:', response);
-                console.log('Parsing JSON...');
                 const data = await response.json();
-                console.log('Data:', data);
                 
                 if (data.success) {
                     optionData = data;
                     updateUI(data);
+                    console.log('loadData 成功');
                 } else {
                     console.error('获取数据失败:', data.error);
                     alert('获取期权数据失败: ' + (data.error || '未知错误'));
                 }
             } catch (e) {
                 console.error('请求错误:', e);
+                alert('网络错误: ' + e.message);
+            } finally {
+                isLoading = false;
+                showLoading(false);
+                
+                // 如果刷新期间有新的刷新请求，立即执行一次
+                if (pendingRefresh) {
+                    pendingRefresh = false;
+                    console.log('执行被跳过的刷新请求');
+                    loadData();
+                }
             }
-            
-            showLoading(false);
         }
         
-        // 刷新数据
+        // 刷新数据（强制清缓存手动刷新）
         async function refreshData() {
+            if (isLoading) {
+                // 强制刷新：先等当前请求完成
+                pendingRefresh = true;
+                console.log('等待当前请求完成后强制刷新');
+                return;
+            }
+            isLoading = true;
             showLoading(true);
             
             try {
                 const response = await fetch('/api/options/refresh', { method: 'POST' });
-                console.log('Parsing JSON...');
                 const data = await response.json();
-                console.log('Data:', data);
                 
                 if (data.success) {
                     optionData = data;
@@ -463,9 +486,16 @@
                 }
             } catch (e) {
                 console.error('刷新错误:', e);
+                alert('刷新失败: ' + e.message);
+            } finally {
+                isLoading = false;
+                showLoading(false);
+                
+                if (pendingRefresh) {
+                    pendingRefresh = false;
+                    refreshData();
+                }
             }
-            
-            showLoading(false);
         }
         
         // 更新UI
