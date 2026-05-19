@@ -7,6 +7,7 @@
 
 
 
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -1235,33 +1236,37 @@ class OptionChainAPI:
                     near_expiry_code = 'TA607'  # 保底默认近月
             
             # 第二步：获取近月期货标的的真实价格
-            # 方法1：优先使用TqSdk获取近月合约的实时价格
-            # 方法2：用Put-Call Parity从期权数据估算
-            # 方法3：回退到akshare的TA0（主力合约）
-            # 方法4：回退到保底默认值
+            # 优先级：TqSdk实时 > PC Parity估算 > akshare TA0分钟 > 保底默认值
+            # 注意：PC Parity用历史期权数据估算，akshare TA0为主力合约，
+            #      两者都可能在某些时刻有偏差，优先使用TqSdk实时期货价格。
             
             S = None
+            prev_S = self.analyzer.underlying_price if self.analyzer.underlying_price > 0 else None
             
-            # 方法1：用TqSdk获取近月期货实时价格
+            # 方法1：TqSdk获取近月期货实时价格（最快最准）
             S = get_tq_futures_price_by_expiry(near_expiry_code, timeout=15.0)
             
-            # 方法2：用Put-Call Parity从期权数据估算
+            # 方法2：TqSdk失败时，保留原值（不在运行时用旧期权数据反推，避免误差）
             if not S or S <= 0:
-                if near_expiry_code:
+                if prev_S and prev_S > 0:
+                    S = prev_S  # 保留原值
+                elif near_expiry_code:
+                    # 没有原值时用PC Parity估算（保底）
                     S = estimate_underlying_from_options(df, near_expiry_code)
             
-            # 方法3：回退到akshare的TA0（主力合约）
+            # 方法3：仍无有效值则用akshare主力合约（保底）
             if not S or S <= 0:
                 try:
                     ta_df = ak.futures_zh_minute_sina(symbol='TA0', period='1m')
-                    ta_df.columns = [c.strip() for c in ta_df.columns]
-                    S = float(ta_df['close'].iloc[-1])
-                except:
+                    if ta_df is not None and len(ta_df) > 0:
+                        ta_df.columns = [c.strip() for c in ta_df.columns]
+                        S = float(ta_df['close'].iloc[-1])
+                except Exception:
                     pass
             
-            # 方法4：保底默认值（所有方法失败后的最后兜底）
+            # 方法4：保底默认值
             if not S or S <= 0:
-                S = 6572  # PTA期货近月合约合理价格保底
+                S = prev_S if prev_S and prev_S > 0 else 6572
             
             # 第三步：设置analyzer的标的价格（在调用build_t_type_quote之前！）
             self.analyzer.underlying_price = S
