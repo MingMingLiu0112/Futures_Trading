@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 TqSdk PTA 实时行情服务
@@ -64,6 +65,15 @@ def start_tqsdk_thread():
         print("TqSdk not available, skipping TqSdk thread")
         return
     
+    # 保留上一次的正确值
+    _last_valid = {
+        'price': 0.0,
+        'bid': 0.0,
+        'ask': 0.0,
+        'volume': 0,
+        'datetime': ''
+    }
+    
     def tqsdk_loop():
         print("[TqSdk] 启动天勤实时行情线程...")
         try:
@@ -79,11 +89,31 @@ def start_tqsdk_thread():
                 api.wait_update(deadline=time.time() + 5)
                 
                 with data_lock:
-                    latest_data['price'] = float(quote.last_price) if quote.last_price else 0
-                    latest_data['bid'] = float(quote.bid_price1) if quote.bid_price1 else 0
-                    latest_data['ask'] = float(quote.ask_price1) if quote.ask_price1 else 0
-                    latest_data['volume'] = int(quote.volume) if quote.volume else 0
-                    latest_data['datetime'] = str(quote.datetime) if quote.datetime else ''
+                    # 提取当前值（可能为None或0表示无效）
+                    cur_price = quote.last_price
+                    cur_bid = quote.bid_price1
+                    cur_ask = quote.ask_price1
+                    cur_vol = quote.volume
+                    cur_dt = quote.datetime
+                    
+                    # 只有有效数据才更新，失败时保留上一次正确值
+                    if cur_price not in (None, 0, ''):
+                        _last_valid['price'] = float(cur_price)
+                    if cur_bid not in (None, 0, ''):
+                        _last_valid['bid'] = float(cur_bid)
+                    if cur_ask not in (None, 0, ''):
+                        _last_valid['ask'] = float(cur_ask)
+                    if cur_vol not in (None, 0, ''):
+                        _last_valid['volume'] = int(cur_vol)
+                    if cur_dt not in (None, ''):
+                        _last_valid['datetime'] = str(cur_dt)
+                    
+                    # 用保留的正确值更新 latest_data
+                    latest_data['price'] = _last_valid['price']
+                    latest_data['bid'] = _last_valid['bid']
+                    latest_data['ask'] = _last_valid['ask']
+                    latest_data['volume'] = _last_valid['volume']
+                    latest_data['datetime'] = _last_valid['datetime']
                     latest_data['timestamp'] = time.time()
                     
                     # 更新K线
