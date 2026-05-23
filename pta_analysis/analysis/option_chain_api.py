@@ -23,6 +23,9 @@ from __future__ import annotations
 import json
 import math
 import re
+
+import iv_smile_service  # 共享 iv_smile_service 的实时期货价格
+
 import sqlite3
 import threading
 import time
@@ -506,7 +509,9 @@ def get_tq_futures_price_by_expiry(expiry_code: str, timeout: float = 5.0) -> tu
         def fetch():
             try:
                 api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS), debug=False)
+                print(f"[TqSdk] CZCE.TA{futures_code} connected, auth OK")
                 quote = api.get_quote(f'CZCE.TA{futures_code}')
+                print(f"[TqSdk] Got quote for CZCE.TA{futures_code}, last_price={quote.last_price}")
                 start = time.time()
                 while time.time() - start < timeout and not result['done']:
                     try:
@@ -521,15 +526,17 @@ def get_tq_futures_price_by_expiry(expiry_code: str, timeout: float = 5.0) -> tu
                                     result['qdatetime'] = int(dt.strptime(str(dt_str)[:19], '%Y-%m-%d %H:%M:%S').timestamp())
                                 except Exception:
                                     result['qdatetime'] = 0
+                            print(f"[TqSdk] Got price={result['price']} for CZCE.TA{futures_code}")
                             break
-                    except Exception:
+                    except Exception as e:
+                        print(f"[TqSdk] wait_update error: {e}")
                         break
                 try:
                     api.close()
                 except Exception:
                     pass
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[TqSdk] fetch exception: {e}")
             finally:
                 result['done'] = True
         
@@ -1257,28 +1264,60 @@ class OptionChainAPI:
                         near_expiry_code = 'TA607'  # 保底默认近月
 
                 # 第二步：获取近月期货标的的真实价格
-                # 优先级：TqSdk实时(未过期) > 保留上一次值 > PC Parity估算 > akshare > 默认值
+                # 优先级：iv_smile共享TqSdk价格 > iv_smile缓存价格 > TqSdk实时(未过期) > 保留上一次值 > PC Parity估算 > akshare > 默认值
                 S = None
                 prev_S = self.analyzer.underlying_price if self.analyzer.underlying_price > 0 else None
 
-                # 方法1：TqSdk获取近月期货实时价格（最快最准）
-                tq_price, tq_datetime = get_tq_futures_price_by_expiry(near_expiry_code, timeout=15.0)
-
-                # 判断TqSdk价格是否过期：行情时间距今超过5分钟则丢弃
-                DATA_STALE_SECONDS = 300
-                if tq_price > 0 and tq_datetime > 0:
-                    age = time.time() - tq_datetime
-                    if age < DATA_STALE_SECONDS:
-                        S = tq_price
+                # 方法0：优先使用 iv_smile_service 共享的实时价格（独立TqSdk连接，更稳定）
+                shared_price, shared_source = iv_smile_service.get_shared_futures_price()
+                if shared_price and shared_price > 0:
+                    # 合理性检查：偏离上次值不超过15%
+                    if prev_S and prev_S > 0:
+                        ratio = shared_price / prev_S
+                        if 0.85 <= ratio <= 1.15:
+                            S = shared_price
+                            print(f"[get_full_chain] 使用共享期货价格: {S} (source={shared_source})")
                     else:
-                        print(f"[get_full_chain] TqSdk价格{tq_price}已过期(行情时间{age:.0f}秒前)，丢弃")
+                        S = shared_price
+                        print(f"[get_full_chain] 使用共享期货价格: {S} (source={shared_source})")
+
+                # 方法1：TqSdk获取近月期货实时价格（最快最准）
+                # 超时2秒：避免TqSdk网络抖动时阻塞整个API（最长等2秒）
+                if S is None:
+                    tq_price, tq_datetime = get_tq_futures_price_by_expiry(near_expiry_code, timeout=2.0)
+
+                    # 判断TqSdk价格是否过期：
+                    # 交易时段（9:00-15:00）内：超过5分钟视为过期
+                    # 盘后（15:00-次日9:00）：行情时间在2小时内仍然有效（避免收盘后价格被误判）
+                    DATA_STALE_SECONDS = 300
+                    USE_AFTER_HOURS_SECONDS = 7200  # 2小时
+                    if tq_price > 0 and tq_datetime > 0:
+                        age = time.time() - tq_datetime
+                        now_hour = datetime.now().hour + datetime.now().minute / 60
+                        # 9:00-15:00 交易时段：5分钟过期；15:00-次日9:00 盘后：2小时有效期
+                        if now_hour >= 9 and now_hour < 15:
+                            stale_threshold = DATA_STALE_SECONDS
+                        else:
+                            stale_threshold = USE_AFTER_HOURS_SECONDS
+
+                        # 合理性检查：价格偏离上次有效值超过15%视为异常，直接丢弃
+                        # 防止TqSdk在网络抖动时返回极端异常值（如6410 vs 真实6538）
+                        price_sane = True
+                        if prev_S and prev_S > 0:
+                            price_ratio = tq_price / prev_S
+                            if price_ratio < 0.85 or price_ratio > 1.15:
+                                print(f"[get_full_chain] TqSdk价格{tq_price}偏离上次值{prev_S}过多({price_ratio:.2%})，丢弃")
+                                price_sane = False
+
+                        if age < stale_threshold and price_sane:
+                            S = tq_price
 
                 # 方法2：TqSdk失败或过期时，保留原值
                 if S is None or S <= 0:
                     if prev_S and prev_S > 0:
                         S = prev_S
 
-                # 方法3：仍无有效值则用akshare主力合约
+                # 方法3：仍无有效值则用akshare主力合约（夜盘/收盘后）
                 if not S or S <= 0:
                     try:
                         ta_df = ak.futures_zh_minute_sina(symbol='TA0', period='1m')

@@ -351,9 +351,11 @@
                 <option value="1month">月线</option>
             </select>
             <button onclick="loadAllData()">🔄 刷新</button>
-            <button onclick="location.href='/option_chain'" style="padding:6px 12px;border-radius:4px;border:1px solid #444;background:#2d2d44;color:#94a3b8;cursor:pointer;font-size:13px;">📊 期权链</button>
-            <button onclick="location.href='/chan/'" style="padding:6px 12px;border-radius:4px;border:1px solid #444;background:#2d2d44;color:#94a3b8;cursor:pointer;font-size:13px;">📐 缠论</button>
-            <button onclick="location.href='/trading'" style="padding:6px 12px;border-radius:4px;border:1px solid #FF9800;background:#2d2d44;color:#FF9800;cursor:pointer;font-size:13px;font-weight:bold;">📉 回测</button>
+            <button onclick="window.open('/option_chain', '_blank')" style="padding:6px 12px;border-radius:4px;border:1px solid #444;background:#2d2d44;color:#94a3b8;cursor:pointer;font-size:13px;">📊 期权链</button>
+            <button onclick="window.open('/iv_smile', '_blank')" style="padding:6px 12px;border-radius:4px;border:1px solid #444;background:#2d2d44;color:#94a3b8;cursor:pointer;font-size:13px;">📈 隐波微笑</button>
+            <button onclick="window.open('/chan/', '_blank')" style="padding:6px 12px;border-radius:4px;border:1px solid #444;background:#2d2d44;color:#94a3b8;cursor:pointer;font-size:13px;">📐 缠论</button>
+
+            <button onclick="window.open('/trading', '_blank')" style="padding:6px 12px;border-radius:4px;border:1px solid #FF9800;background:#2d2d44;color:#FF9800;cursor:pointer;font-size:13px;font-weight:bold;">📉 回测</button>
         </div>
     </div>
 

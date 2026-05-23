@@ -16,6 +16,16 @@ import akshare as ak
 import pandas as pd
 import numpy as np
 
+# 加载 .env 环境变量（确保TqSdk认证凭据可用）
+_env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+if os.path.exists(_env_path):
+    with open(_env_path) as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if _line and not _line.startswith('#') and '=' in _line:
+                _k, _v = _line.split('=', 1)
+                os.environ.setdefault(_k, _v)
+
 # 天勤量化 TqSdk
 from tqsdk import TqApi, TqAuth, TqKq
 
@@ -50,6 +60,9 @@ from execution.order_manager import OrderManager, Order, OrderStatus, OrderType,
 from execution.trade_executor import TradeExecutor
 from execution.position_tracker import PositionTracker, PositionDirection
 from risk_control import MoneyManager, PositionManager
+
+# IV Smile 隐波微笑曲线模块（独立进程已合并到主服务）
+import iv_smile_service
 
 # TqSdk 认证配置
 TQS_USER = os.environ.get('TQS_AUTH_USER', 'mingmingliu')
@@ -374,6 +387,10 @@ def api_option_chain():
     """期权链数据API"""
     try:
         api = oca.get_option_api()
+        # 自我修复：如果上次请求异常退出，pending可能卡住
+        if api._pending:
+            print("[api_option_chain] 检测到pending卡住，重置状态")
+            api._pending = False
         result = api.get_full_chain()
         return jsonify(result)
     except Exception as e:
@@ -408,6 +425,7 @@ def api_option_refresh():
         api = oca.get_option_api()
         api._cache = None
         api._last_update = None
+        api._pending = False  # 清除请求锁定状态
         result = api.get_full_chain()
         return jsonify(result)
     except Exception as e:
@@ -580,6 +598,171 @@ def option_chain_page():
         with open(os.path.join(WORKSPACE, 'option_chain.html'), 'r', encoding='utf-8') as f:
             content = f.read()
         return content
+    except Exception as e:
+        return f"Error loading page: {e}", 500
+
+
+# ==================== 科创50ETF期权 隐波微笑 ====================
+
+@app.route('/api/kcb_iv')
+def api_kcb_iv():
+    """科创50ETF(588000) 期权隐波微笑曲线数据"""
+    try:
+        from flask import request
+        from datetime import datetime, timedelta
+        import akshare as ak
+
+        month = request.args.get('month', type=int)
+
+        # 取最近交易日
+        today = datetime.now()
+        trade_dates = []
+        for i in range(10):
+            check = today - timedelta(days=i)
+            if check.weekday() < 5:
+                trade_dates.append(check.strftime('%Y%m%d'))
+
+        # 今日风险指标
+        df_today = None
+        for td in trade_dates:
+            try:
+                _df = ak.option_risk_indicator_sse(date=td)
+                if 'IMPLC_VOLATLTY' in _df.columns and len(_df) > 100:
+                    df_today = _df
+                    break
+            except Exception:
+                continue
+        if df_today is None:
+            return jsonify({'success': False, 'error': '无法获取风险指标数据'})
+
+        # 昨日风险指标（用于IV变化）
+        df_yesterday = None
+        for td in trade_dates[1:]:
+            try:
+                _df = ak.option_risk_indicator_sse(date=td)
+                if 'IMPLC_VOLATLTY' in _df.columns and len(_df) > 100:
+                    df_yesterday = _df
+                    break
+            except Exception:
+                continue
+
+        # 过滤科创50ETF期权
+        import re
+        def parse_symbol(sym):
+            m = re.match(r'科创50(购|沽)(\d+)月(\d+)', str(sym))
+            if m:
+                opt_type = 'C' if m.group(1) == '购' else 'P'
+                month_val = int(m.group(2))
+                strike = float(m.group(3)) / 1000
+                return opt_type, month_val, strike
+            return None, None, None
+
+        df_today['opt_type'], df_today['month'], df_today['strike'] = zip(
+            *df_today['CONTRACT_SYMBOL'].apply(parse_symbol))
+        df_today = df_today.dropna(subset=['opt_type'])
+
+        if df_yesterday is not None:
+            df_yesterday['opt_type'], df_yesterday['month'], df_yesterday['strike'] = zip(
+                *df_yesterday['CONTRACT_SYMBOL'].apply(parse_symbol))
+            df_yesterday = df_yesterday.dropna(subset=['opt_type'])
+            ytd_idx = df_yesterday.set_index(['CONTRACT_SYMBOL'])
+
+        today_idx = df_today.set_index(['CONTRACT_SYMBOL'])
+        months = sorted(df_today['month'].unique())
+
+        result_data = {}
+        atm_strike = None
+
+        for m in months:
+            cm_t = df_today[(df_today['opt_type'] == 'C') & (df_today['month'] == m)].copy()
+            pm_t = df_today[(df_today['opt_type'] == 'P') & (df_today['month'] == m)].copy()
+
+            cm_t = cm_t.sort_values('strike')
+            pm_t = pm_t.sort_values('strike')
+
+            c_dict, p_dict = {}, {}
+
+            for _, row in cm_t.iterrows():
+                k = str(row['strike'])
+                iv = float(row['IMPLC_VOLATLTY']) if row['IMPLC_VOLATLTY'] > 0 else None
+                ytd_iv = None
+                if df_yesterday is not None and row.name in ytd_idx.index:
+                    ytd_iv = float(ytd_idx.loc[row.name]['IMPLC_VOLATLTY']) if ytd_idx.loc[row.name]['IMPLC_VOLATLTY'] > 0 else None
+                iv_change = (iv - ytd_iv) if (iv and ytd_iv is not None) else None
+                c_dict[k] = {
+                    'iv': iv,
+                    'iv_change': iv_change,
+                    'delta': float(row['DELTA_VALUE']) if row['DELTA_VALUE'] else None,
+                    'gamma': float(row['GAMMA_VALUE']) if row['GAMMA_VALUE'] else None,
+                    'theta': float(row['THETA_VALUE']) if row['THETA_VALUE'] else None,
+                    'vega': float(row['VEGA_VALUE']) if row['VEGA_VALUE'] else None,
+                    'volume': None,
+                    'oi': None,
+                    'price': None,
+                }
+
+            for _, row in pm_t.iterrows():
+                k = str(row['strike'])
+                iv = float(row['IMPLC_VOLATLTY']) if row['IMPLC_VOLATLTY'] > 0 else None
+                ytd_iv = None
+                if df_yesterday is not None and row.name in ytd_idx.index:
+                    ytd_iv = float(ytd_idx.loc[row.name]['IMPLC_VOLATLTY']) if ytd_idx.loc[row.name]['IMPLC_VOLATLTY'] > 0 else None
+                iv_change = (iv - ytd_iv) if (iv and ytd_iv is not None) else None
+                p_dict[k] = {
+                    'iv': iv,
+                    'iv_change': iv_change,
+                    'delta': float(row['DELTA_VALUE']) if row['DELTA_VALUE'] else None,
+                    'gamma': float(row['GAMMA_VALUE']) if row['GAMMA_VALUE'] else None,
+                    'theta': float(row['THETA_VALUE']) if row['DELTA_VALUE'] else None,
+                    'vega': float(row['VEGA_VALUE']) if row['VEGA_VALUE'] else None,
+                    'volume': None,
+                    'oi': None,
+                    'price': None,
+                }
+
+            result_data[str(int(m))] = {'calls': c_dict, 'puts': p_dict}
+
+        # ATM：取 Delta 在 0.3~0.7 之间的认购档位
+        atm_strike = None
+        calls_all = df_today[df_today['opt_type'] == 'C']
+        atm_candidates = calls_all[
+            (calls_all['IMPLC_VOLATLTY'] > 0) &
+            (calls_all['DELTA_VALUE'].notna()) &
+            (calls_all['DELTA_VALUE'].abs() < 0.7) &
+            (calls_all['DELTA_VALUE'].abs() > 0.3)
+        ]
+        if not atm_candidates.empty:
+            atm_strike = float(atm_candidates.sort_values('IMPLC_VOLATLTY', ascending=False).iloc[0]['strike'])
+
+        resp_data = {
+            'success': True,
+            'data_date': trade_dates[0],
+            'underlying': 'SH.588000',
+            'atm_strike': atm_strike,
+            'expiry_list': [str(int(m)) for m in months],
+            'data': result_data
+        }
+
+        if month:
+            if str(month) in result_data:
+                resp_data['data'] = {str(month): result_data[str(month)]}
+            else:
+                return jsonify({'success': False, 'error': f'无月份 {month} 数据'})
+
+        return jsonify(resp_data)
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/kcb_iv_smile')
+def kcb_iv_smile_page():
+    """科创50ETF期权隐波微笑曲线页面"""
+    try:
+        with open(os.path.join(WORKSPACE, 'templates', 'kcb_option_chain.html'), 'r', encoding='utf-8') as f:
+            return f.read()
     except Exception as e:
         return f"Error loading page: {e}", 500
 
@@ -1957,10 +2140,60 @@ def api_trading_account():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+# IV Smile 隐波微笑曲线模块 - 注册路由到主 app
+iv_smile_service.register_routes(app)
+
 if __name__ == '__main__':
     init_db()
+
+    # 初始化 IV Smile 服务（TqSdk 线程 + 调度器）
+    import threading
+    iv_smile_service._state['running'] = True
+    tqsdk_t = threading.Thread(target=iv_smile_service.tqsdk_loop, daemon=True)
+    tqsdk_t.start()
+    print("[iv_smile] 等待数据就绪（最多60秒）...")
+    for i in range(60):
+        time.sleep(1)
+        if iv_smile_service._state.get('data_ready'):
+            print("[iv_smile] ✅ 数据已就绪")
+            break
+    if iv_smile_service._state.get('data_ready'):
+        iv_smile_service.compute_once()
+    iv_smile_service.start_scheduler(interval_minutes=1)
+
+    # 预热期权链缓存（后台，提前触发首次计算，避免第一个用户请求卡住）
+    def prewarm_option_chain():
+        import time
+        time.sleep(3)  # 等服务完全启动
+        try:
+            from analysis.option_chain_api import get_option_api
+            api = get_option_api()
+            result = api.get_full_chain()
+            print(f"[option_chain] 预热完成: {'成功' if result.get('success') else '失败 - ' + str(result.get('error', ''))}")
+        except Exception as e:
+            print(f"[option_chain] 预热失败: {e}")
+
+    pt = threading.Thread(target=prewarm_option_chain, daemon=True)
+    pt.start()
+
     app.run(host='0.0.0.0', port=8424, debug=False)
 else:
     # gunicorn / uwsgi 等 WSGI 服务器启动时初始化数据库
     with app.app_context():
         init_db()
+        # IV Smile 服务初始化（WSGI 模式下启动 TqSdk 线程）
+        import threading
+        iv_smile_service._state['running'] = True
+        tqsdk_t = threading.Thread(target=iv_smile_service.tqsdk_loop, daemon=True)
+        tqsdk_t.start()
+        print("[iv_smile] WSGI模式：IV Smile TqSdk 线程已启动")
+        # 等待首次数据（后台进行，不阻塞）
+        def wait_and_compute():
+            for i in range(60):
+                time.sleep(1)
+                if iv_smile_service._state.get('data_ready'):
+                    print("[iv_smile] WSGI模式：数据已就绪")
+                    iv_smile_service.compute_once()
+                    iv_smile_service.start_scheduler(interval_minutes=1)
+                    return
+        threading.Thread(target=wait_and_compute, daemon=True).start()

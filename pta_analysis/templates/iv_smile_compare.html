@@ -150,8 +150,8 @@
         <span class="status-value" id="fPrice">--</span>
       </div>
       <div class="status-item">
-        <span class="status-label">ATM行权价</span>
-        <span class="status-value" id="atmStrike">--</span>
+        <span class="status-label">最大痛点</span>
+        <span class="status-value" id="refStrike">--</span>
       </div>
       <div class="status-item">
         <span class="status-label">15分钟前</span>
@@ -516,7 +516,7 @@ async function fetchData() {
 
     // 状态栏
     document.getElementById('fPrice').textContent = status.futures_price ? status.futures_price.toFixed(0) : '--';
-    document.getElementById('atmStrike').textContent = status.atm_strike || '--';
+    document.getElementById('refStrike').textContent = (status.ref_strike || status.max_pain) || '--';
     document.getElementById('prevTime').textContent = data.prev_timestamp
       ? new Date(data.prev_timestamp).toLocaleTimeString('zh-CN')
       : '无历史';
