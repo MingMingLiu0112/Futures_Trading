@@ -55,7 +55,8 @@ _last_valid = {
 # 历史快照（按固定15分钟时间点存储）
 # key: "HH:MM" 如 "09:00", "09:15", ... 或 'night'（昨夜盘锚点）
 # value: {'smooth': {strike: iv}, 'raw': {strike: {'C': iv, 'P': iv}}, 'timestamp': str}
-_interval_snapshots = {}
+_interval_snapshots = {}          # 内存快照: key="HH:MM" 或 "night"
+_interval_loaded_from_disk = set()  # 已从磁盘加载的日期，避免重复
 
 # ===================== 跨模块共享接口 =====================
 def get_shared_futures_price():
@@ -75,94 +76,63 @@ _dummy_lock = type('DummyLock', (), {'__enter__': lambda s: s, '__exit__': lambd
 _SNAPSHOT_DIR = os.path.join(WORKSPACE, 'data', 'iv_snapshots')
 _SAVED_DATES = set()   # 记录已写入磁盘的日期，避免重复保存
 
-def _get_snapshot_path(date_str, session='day'):
-    """返回指定日期+交易时段的快照文件路径。
-    session='day'   -> iv_snapshots_YYYYMMDD.json（日盘快照集合）
-    session='night' -> iv_snapshots_YYYYMMDD_night.json（昨夜盘锚点）"""
-    return os.path.join(_SNAPSHOT_DIR, f'iv_snapshots_{date_str}_{session}.json')
+def _get_snapshot_path(date_str):
+    """返回指定日期的日盘快照文件路径（包含全天所有15分钟时间点）。"""
+    return os.path.join(_SNAPSHOT_DIR, f'iv_snapshots_{date_str}.json')
 
 def _ensure_snapshot_dir():
     """确保快照目录存在"""
     os.makedirs(_SNAPSHOT_DIR, exist_ok=True)
 
-def _save_night_session_snapshot():
+def _save_all_snapshots():
     """
-    每日夜盘收盘时（23:00前后）保存当日最后一个快照到磁盘。
-    下一交易日早盘可加载作为对比锚点。
-    文件命名：iv_snapshots_YYYYMMDD.json，仅保存一个最新夜盘快照。
+    每15分钟调用一次：将 _interval_snapshots 完整写入磁盘（覆盖）。
+    文件为 iv_snapshots_YYYYMMDD.json，包含当天所有 HH:MM 时间点的完整快照。
     """
     if not _interval_snapshots:
         return
     _ensure_snapshot_dir()
     date_str = datetime.now().strftime('%Y%m%d')
-    # 取当日最新的快照（最晚时间点）
-    latest_key = max(_interval_snapshots.keys(),
-                     default=None, key=lambda k: (int(k.replace(':', '')), k))
-    if latest_key is None:
-        return
-    snap = _interval_snapshots[latest_key]
+    path = _get_snapshot_path(date_str)
     payload = {
         'date': date_str,
-        'interval_key': latest_key,
-        'snapshot': snap,
+        'snapshots': _interval_snapshots,   # 全量快照 dict
     }
-    path = _get_snapshot_path(date_str)
     try:
         with open(path, 'w', encoding='utf-8') as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
-        print(f"[iv_smile] 📦 夜盘快照已持久化: {path} ({latest_key})")
+        print(f"[iv_smile] 📦 全量快照已持久化: {date_str} ({len(_interval_snapshots)}个时间点)")
     except Exception as e:
         print(f"[iv_smile] ⚠️ 快照持久化失败: {e}")
 
-def _load_night_session_snapshot(date_str=None):
+def _load_previous_day_snapshots():
     """
-    启动时加载上一交易日夜盘快照作为对比锚点。
-    如果当前交易日已读过（_last_loaded_date == today），不重复加载。
-    """
-    global _interval_snapshots
-    if date_str is None:
-        date_str = datetime.now().strftime('%Y%m%d')
-    # 尝试加载上一交易日的快照
-    path = _get_snapshot_path(date_str)
-    if not os.path.exists(path):
-        return  # 没有历史快照
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            payload = json.load(f)
-        snap = payload.get('snapshot', {})
-        if not snap:
-            return
-        # 快照interval_key保持原样（"22:45"），前端会用 prev_key 逻辑取
-        _interval_snapshots.update({payload.get('interval_key', 'night'): snap})
-        print(f"[iv_smile] 📂 已加载夜盘快照: {payload.get('interval_key')} (from {date_str})")
-    except Exception as e:
-        print(f"[iv_smile] ⚠️ 加载夜盘快照失败: {e}")
-
-def _load_previous_night_snapshot():
-    """
-    启动时加载上一交易日夜盘快照作为对比锚点。
-    尝试加载"昨日"快照文件（上一交易日23:00前后保存的）。
+    启动时加载上一交易日（全天所有15分钟时间点）的快照到 _interval_snapshots。
+    最多回溯5个自然日找上一个有快照的交易日。
     """
     global _interval_snapshots
-    # 上一交易日：减1天（绝大多数情况覆盖）
-    yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y%m%d')
-    path = _get_snapshot_path(yesterday)
-    if not os.path.exists(path):
-        return  # 没有历史快照
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            payload = json.load(f)
-        snap = payload.get('snapshot', {})
-        if not snap:
+    for days_ago in range(1, 6):
+        candidate = (datetime.now() - timedelta(days=days_ago)).strftime('%Y%m%d')
+        path = _get_snapshot_path(candidate)
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                payload = json.load(f)
+            snaps = payload.get('snapshots', {})
+            if not snaps:
+                continue
+            _interval_snapshots = dict(snaps)
+            _interval_loaded_from_disk.add(candidate)
+            print(f"[iv_smile] 📂 已加载上一交易日快照 ({candidate}): {len(snaps)}个时间点")
             return
-        # 用 'night' 作为key，前端 prev_key 逻辑会兜底取这个
-        _interval_snapshots['night'] = snap
-        print(f"[iv_smile] 📂 已加载昨夜盘快照: {payload.get('interval_key')} (from {yesterday})")
-    except Exception as e:
-        print(f"[iv_smile] ⚠️ 加载昨夜盘快照失败: {e}")
+        except Exception as e:
+            print(f"[iv_smile] ⚠️ 加载快照失败: {e}")
+            continue
+    print("[iv_smile] ⚠️ 未找到上一交易日快照（正常，服务初次启动）")
 
-# 启动时尝试加载上一交易日夜盘快照
-_load_previous_night_snapshot()
+# 启动时尝试加载上一交易日的全量快照
+_load_previous_day_snapshots()
 
 # ===================== 15分钟时间点辅助 =====================
 
@@ -190,6 +160,9 @@ _tqsdk_thread = None
 _tqsdk_ready = False
 _option_symbols = []
 _tqsdk_quotes = {}
+_tqsdk_restart_requested = False   # 请求重启 TqSdk 线程
+_tqsdk_reconnect_count = 0         # 累计重连次数
+_tqsdk_last_data_time = None      # 上次数据更新时间戳
 
 # ===================== 动态查主力合约 =====================
 
@@ -370,135 +343,215 @@ def smooth_smile(K_list, IV_list, F, T):
 
     return smooth_iv, sabr
 
-# ===================== TQSdk 线程 =====================
+_MAX_INIT_WAIT = 20   # 初始化等待 wait_update 次数（每次约0.1秒，共约2秒）
+_MAX_CONNECT_WAIT = 90  # 期货行情等待秒数
+_DATA_STALE_SECONDS = 120  # 数据超过此秒数未更新则触发重连
+
+def _request_tqsdk_restart(reason=""):
+    """请求重启 TqSdk 线程（异步安全）"""
+    global _tqsdk_restart_requested
+    _tqsdk_restart_requested = True
+    print(f"[iv_smile] 🔄 请求重启 TqSdk: {reason}")
+
 
 def tqsdk_loop():
-    """独立线程运行TQSdk事件循环"""
+    """独立线程运行TQSdk事件循环（支持初始化超时自重启）"""
     global _tqsdk_ready, _tqsdk_quotes, _state, _option_symbols
+    global _tqsdk_restart_requested, _tqsdk_reconnect_count, _tqsdk_last_data_time
 
     import asyncio
     from tqsdk import TqApi, TqAuth, TqKq
 
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        api = TqApi(TqKq(), auth=TqAuth('mingmingliu', 'Liuzhaoning2025'), loop=loop)
-        print("[iv_smile] TQSdk已连接")
+    connect_attempts = 0
+    max_restarts = 10  # 最多自动重连10次，避免无限循环
 
-        # === 动态查主力合约 ===
-        opt_prefix, expiry = get_active_ta_contract()
-        fut_sym = f"CZCE.{opt_prefix}"
+    while _state['running'] and connect_attempts < max_restarts:
+        # 重置重启标志
+        _tqsdk_restart_requested = False
+        connect_attempts += 1
+        _tqsdk_reconnect_count = connect_attempts - 1
 
-        _state['active_contract'] = opt_prefix
-        _state['expiry'] = expiry
-        print(f"[iv_smile] 主力合约: {opt_prefix} 到期: {expiry.date()}")
+        if connect_attempts > 1:
+            print(f"[iv_smile] 🔄 第{connect_attempts-1}次重连中...（最多{max_restarts}次）")
+            time.sleep(3)  # 重连前等3秒
 
-        # === 获取期货行情 ===
-        fut_quote = api.get_quote(fut_sym)
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            api = TqApi(TqKq(), auth=TqAuth('mingmingliu', 'Liuzhaoning2025'), loop=loop)
+            print("[iv_smile] TQSdk已连接")
 
-        # === 生成期权列表（平值上下10档） ===
-        # 先获取期货价格确定ATM
-        max_wait = 20  # 最多等20次wait_update
-        S = None
-        for i in range(max_wait):
-            api.wait_update()
-            loop.run_until_complete(asyncio.sleep(0.1))
-            bid = getattr(fut_quote, 'bid_price1', None)
-            ask = getattr(fut_quote, 'ask_price1', None)
-            if bid and ask and bid > 0:
-                S = (bid + ask) / 2
+            # === 动态查主力合约 ===
+            opt_prefix, expiry = get_active_ta_contract()
+            fut_sym = f"CZCE.{opt_prefix}"
+
+            _state['active_contract'] = opt_prefix
+            _state['expiry'] = expiry
+            _state['data_ready'] = False  # 重置数据就绪标志
+            print(f"[iv_smile] 主力合约: {opt_prefix} 到期: {expiry.date()}")
+
+            # === 获取期货行情 ===
+            fut_quote = api.get_quote(fut_sym)
+
+            # === 生成期权列表（平值上下10档） ===
+            # 先获取期货价格确定ATM
+            S = None
+            connect_wait = 0
+            while connect_wait < _MAX_CONNECT_WAIT:
+                if _tqsdk_restart_requested or not _state['running']:
+                    break
+                api.wait_update()
+                loop.run_until_complete(asyncio.sleep(0.1))
+                bid = getattr(fut_quote, 'bid_price1', None)
+                ask = getattr(fut_quote, 'ask_price1', None)
+                if bid and ask and bid > 0:
+                    S = (bid + ask) / 2
+                    break
+                last = getattr(fut_quote, 'last_price', None)
+                if last and last > 0:
+                    S = last
+                    break
+                connect_wait += 1
+
+            if not S:
+                print(f"[iv_smile] ⚠️ 期货行情未到达，使用默认值 S=6500")
+                S = 6500.0
+
+            # 检查是否被请求重启（等待期货行情时被中断）
+            if _tqsdk_restart_requested or not _state['running']:
+                api.close()
+                loop.close()
+                continue
+
+            # PTA 最小变动价位为2，取偶数
+            S = round(S / 2) * 2
+            atm_strike = round(S / 100) * 100
+            strikes = list(range(atm_strike - 10 * 100, atm_strike + 11 * 100, 100))
+
+            print(f"[iv_smile] S={S:.0f} ATM={atm_strike} 档位:{strikes[0]}~{strikes[-1]}")
+
+            # === 订阅期权行情 ===
+            option_quotes = {}
+            option_symbols = []
+            for strike in strikes:
+                for opt_type in ['C', 'P']:
+                    sym = f'CZCE.{opt_prefix}{opt_type}{strike}'
+                    option_symbols.append((sym, strike, opt_type))
+                    option_quotes[sym] = api.get_quote(sym)
+
+            _option_symbols = option_symbols
+            print(f"[iv_smile] 订阅期权数: {len(option_symbols)}")
+
+            # === 等待所有期权行情到达（每次wait_update约0.1秒）===
+            print("[iv_smile] 等待期权行情...")
+            data_ready_count = 0
+            init_timeout = 0
+            while init_timeout < _MAX_INIT_WAIT:
+                if _tqsdk_restart_requested or not _state['running']:
+                    break
+                api.wait_update()
+                loop.run_until_complete(asyncio.sleep(0.1))
+                count = 0
+                for sym, _, _ in option_symbols:
+                    oq = option_quotes.get(sym)
+                    if oq:
+                        bid = getattr(oq, 'bid_price1', None)
+                        if bid and bid > 0:
+                            count += 1
+                if count > data_ready_count:
+                    print(f"  wait_update {init_timeout}: {count}/{len(option_symbols)} 个期权有报价")
+                    data_ready_count = count
+                if count >= len(option_symbols) * 0.8:  # 80%有报价就继续
+                    break
+                init_timeout += 1
+
+            # 检查是否被请求重启（等待期权时被中断）
+            if _tqsdk_restart_requested or not _state['running']:
+                api.close()
+                loop.close()
+                continue
+
+            # 如果初始化超时，触发重启
+            if data_ready_count < len(option_symbols) * 0.8:
+                print(f"[iv_smile] ⚠️ 期权行情初始化超时 ({data_ready_count}/{len(option_symbols)})，触发重启")
+                _request_tqsdk_restart(f"init timeout ({data_ready_count}/{len(option_symbols)} options)")
+                api.close()
+                loop.close()
+                continue
+
+            _state['data_ready'] = True
+            _tqsdk_ready = True
+            _tqsdk_last_data_time = time.time()
+            print(f"[iv_smile] ✅ 数据就绪，{data_ready_count}/{len(option_symbols)} 个期权有有效报价")
+
+            # === 主事件循环 ===
+            counter = 0
+            last_log_time = time.time()
+            while _state['running'] and not _tqsdk_restart_requested:
+                try:
+                    api.wait_update(deadline=loop.time() + 1.0)
+
+                    # 每5秒快照一次（用于compute_once）
+                    counter += 1
+                    if counter % 5 == 0:
+                        snap = {
+                            'futures': {
+                                'last': getattr(fut_quote, 'last_price', None),
+                                'bid': getattr(fut_quote, 'bid_price1', None),
+                                'ask': getattr(fut_quote, 'ask_price1', None),
+                            },
+                            'options': {},
+                        }
+                        for sym, _, _ in option_symbols:
+                            oq = option_quotes.get(sym)
+                            if oq:
+                                snap['options'][sym] = {
+                                    'bid': getattr(oq, 'bid_price1', None) or 0,
+                                    'ask': getattr(oq, 'ask_price1', None) or 0,
+                                    'last': getattr(oq, 'last_price', None) or 0,
+                                }
+                        _tqsdk_quotes['snap'] = snap
+                        _tqsdk_last_data_time = time.time()
+
+                    # 每60秒检查数据时效
+                    if time.time() - last_log_time >= 60:
+                        stale = time.time() - _tqsdk_last_data_time
+                        if stale > _DATA_STALE_SECONDS:
+                            print(f"[iv_smile] ⚠️ 数据超时 {stale:.0f}秒，触发重启")
+                            _request_tqsdk_restart(f"data stale {stale:.0f}s")
+                        last_log_time = time.time()
+
+                except Exception as e:
+                    if _state['running']:
+                        print(f"[iv_smile] wait_update异常: {e}")
+                    break
+
+            api.close()
+            loop.close()
+
+            # 如果是主动请求重启，不算异常，继续重连
+            if _tqsdk_restart_requested:
+                print("[iv_smile] 🔄 TqSdk 线程重启中...")
+                continue
+
+            # 非主动退出的异常，退出重试循环
+            if _state['running']:
+                print(f"[iv_smile] ⚠️ TqSdk 连接中断，退出（running={_state['running']}）")
                 break
-            last = getattr(fut_quote, 'last_price', None)
-            if last and last > 0:
-                S = last
+
+        except Exception as e:
+            print(f"[iv_smile] TQSdk线程异常: {e}")
+            import traceback; traceback.print_exc()
+            _tqsdk_ready = False
+            # 达到最大重连次数则放弃
+            if connect_attempts >= max_restarts:
+                print(f"[iv_smile] ❌ 已达最大重连次数（{max_restarts}），停止重连")
                 break
+            print(f"[iv_smile] 🔄 3秒后重连（第{connect_attempts}次）...")
+            time.sleep(3)
 
-        if not S:
-            print(f"[iv_smile] ⚠️ 期货行情未到达，使用默认值 S=6500")
-            S = 6500.0
-
-        # PTA 最小变动价位为2，取偶数
-        S = round(S / 2) * 2
-        atm_strike = round(S / 100) * 100
-        strikes = list(range(atm_strike - 10 * 100, atm_strike + 11 * 100, 100))
-
-        print(f"[iv_smile] S={S:.0f} ATM={atm_strike} 档位:{strikes[0]}~{strikes[-1]}")
-
-        # === 订阅期权行情 ===
-        option_quotes = {}
-        option_symbols = []
-        for strike in strikes:
-            for opt_type in ['C', 'P']:
-                sym = f'CZCE.{opt_prefix}{opt_type}{strike}'
-                option_symbols.append((sym, strike, opt_type))
-                option_quotes[sym] = api.get_quote(sym)
-
-        _option_symbols = option_symbols
-        print(f"[iv_smile] 订阅期权数: {len(option_symbols)}")
-
-        # === 等待所有期权行情到达 ===
-        print("[iv_smile] 等待期权行情...")
-        data_ready_count = 0
-        for i in range(max_wait):
-            api.wait_update()
-            loop.run_until_complete(asyncio.sleep(0.1))
-            count = 0
-            for sym, _, _ in option_symbols:
-                oq = option_quotes.get(sym)
-                if oq:
-                    bid = getattr(oq, 'bid_price1', None)
-                    if bid and bid > 0:
-                        count += 1
-            if count > data_ready_count:
-                print(f"  wait_update {i}: {count}/{len(option_symbols)} 个期权有报价")
-                data_ready_count = count
-            if count >= len(option_symbols) * 0.8:  # 80%有报价就继续
-                break
-
-        _state['data_ready'] = True
-        _tqsdk_ready = True
-        print(f"[iv_smile] ✅ 数据就绪，{data_ready_count}/{len(option_symbols)} 个期权有有效报价")
-
-        # === 主事件循环 ===
-        counter = 0
-        while _state['running']:
-            try:
-                api.wait_update(deadline=loop.time() + 1.0)
-
-                # 每5秒快照一次（用于compute_once）
-                counter += 1
-                if counter % 5 == 0:
-                    snap = {
-                        'futures': {
-                            'last': getattr(fut_quote, 'last_price', None),
-                            'bid': getattr(fut_quote, 'bid_price1', None),
-                            'ask': getattr(fut_quote, 'ask_price1', None),
-                        },
-                        'options': {},
-                    }
-                    for sym, _, _ in option_symbols:
-                        oq = option_quotes.get(sym)
-                        if oq:
-                            snap['options'][sym] = {
-                                'bid': getattr(oq, 'bid_price1', None) or 0,
-                                'ask': getattr(oq, 'ask_price1', None) or 0,
-                                'last': getattr(oq, 'last_price', None) or 0,
-                            }
-                    _tqsdk_quotes['snap'] = snap
-
-            except Exception as e:
-                if _state['running']:
-                    print(f"[iv_smile] wait_update异常: {e}")
-                break
-
-        api.close()
-        loop.close()
-        print("[iv_smile] TQSdk线程已退出")
-
-    except Exception as e:
-        print(f"[iv_smile] TQSdk线程异常: {e}")
-        import traceback; traceback.print_exc()
-        _tqsdk_ready = False
+    _tqsdk_ready = False
+    print("[iv_smile] TQSdk线程已退出")
 
 # ===================== 核心计算 =====================
 
@@ -685,26 +738,25 @@ def compute_once():
 
 # ===================== 定时调度 =====================
 
-# 调度器：记录是否已做日终快照
-_saved_today = False
+# 调度器
+_last_snapshot_minute = -1  # 上次持久化的时间（分钟），避免重复
 
 def start_scheduler(interval_minutes=1):
     def loop():
-        global _saved_today
+        global _last_snapshot_minute
         print(f"[iv_smile] 调度器启动，间隔={interval_minutes}分钟")
         counter = 0
         while _state['running']:
             compute_once()
             counter += 1
-            # 每天 22:45 自动保存夜盘快照
-            if not _saved_today:
-                now = datetime.now()
-                if now.hour == 22 and now.minute >= 45:
-                    _save_night_session_snapshot()
-                    _saved_today = True
-            # 新的一天（0点）重置标志
-            elif _saved_today and datetime.now().hour == 0:
-                _saved_today = False
+
+            # 每15分钟持久化一次快照（每刻钟整点：0,15,30,45分钟）
+            now = datetime.now()
+            current_15min = (now.hour * 60 + now.minute) // 15
+            if current_15min != _last_snapshot_minute:
+                _save_all_snapshots()
+                _last_snapshot_minute = current_15min
+
             if counter % 5 == 0:
                 print(f"[iv_smile] ⏰ 定时更新 S={_state.get('futures_price')} MP={_state.get('max_pain')}")
             for _ in range(interval_minutes * 60):
@@ -743,6 +795,7 @@ def register_routes(app):
                 'rate': _state['rate'],
                 'active_contract': _state.get('active_contract'),
                 'option_count': len(_option_symbols),
+                'reconnect_count': _tqsdk_reconnect_count,
             })
 
     @app.route('/api/iv_smile/curve')
@@ -951,22 +1004,8 @@ def main():
     _tqsdk_thread = Thread(target=tqsdk_loop, daemon=True)
     _tqsdk_thread.start()
 
-    # 等待数据就绪（最多90秒）
-    print("[iv_smile] 等待数据就绪...")
-    for i in range(90):
-        time.sleep(1)
-        if _state.get('data_ready'):
-            print("[iv_smile] ✅ 数据已就绪")
-            break
-        if i % 15 == 0 and i > 0:
-            print(f"[iv_smile] 等待中... {i+1}/90秒")
-    else:
-        print("[iv_smile] ⚠️ 数据等待超时，继续启动（可用trigger手动触发）")
-
-    # 首次计算
-    if _state.get('data_ready'):
-        print("[iv_smile] 执行首次计算...")
-        compute_once()
+    # 不再阻塞等待——tqsdk_loop 内部有自重启机制
+    print("[iv_smile] TqSdk线程已启动（内部自愈重连已启用）")
 
     # 启动调度器
     scheduler_t = start_scheduler(interval_minutes=args.interval)

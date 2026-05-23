@@ -2146,19 +2146,14 @@ iv_smile_service.register_routes(app)
 if __name__ == '__main__':
     init_db()
 
-    # 初始化 IV Smile 服务（TqSdk 线程 + 调度器）
+    # 初始化 IV Smile 服务（TqSdk 线程 + 调度器，内部自愈重连）
     import threading
     iv_smile_service._state['running'] = True
     tqsdk_t = threading.Thread(target=iv_smile_service.tqsdk_loop, daemon=True)
     tqsdk_t.start()
-    print("[iv_smile] 等待数据就绪（最多60秒）...")
-    for i in range(60):
-        time.sleep(1)
-        if iv_smile_service._state.get('data_ready'):
-            print("[iv_smile] ✅ 数据已就绪")
-            break
-    if iv_smile_service._state.get('data_ready'):
-        iv_smile_service.compute_once()
+    print("[iv_smile] TqSdk线程已启动（内部自愈重连已启用）")
+
+    # 调度器也立即启动，data_ready后compute_once会自动生效
     iv_smile_service.start_scheduler(interval_minutes=1)
 
     # 预热期权链缓存（后台，提前触发首次计算，避免第一个用户请求卡住）
@@ -2186,14 +2181,6 @@ else:
         iv_smile_service._state['running'] = True
         tqsdk_t = threading.Thread(target=iv_smile_service.tqsdk_loop, daemon=True)
         tqsdk_t.start()
-        print("[iv_smile] WSGI模式：IV Smile TqSdk 线程已启动")
-        # 等待首次数据（后台进行，不阻塞）
-        def wait_and_compute():
-            for i in range(60):
-                time.sleep(1)
-                if iv_smile_service._state.get('data_ready'):
-                    print("[iv_smile] WSGI模式：数据已就绪")
-                    iv_smile_service.compute_once()
-                    iv_smile_service.start_scheduler(interval_minutes=1)
-                    return
-        threading.Thread(target=wait_and_compute, daemon=True).start()
+        print("[iv_smile] WSGI模式：TqSdk线程已启动（内部自愈重连已启用）")
+        # 调度器立即启动，data_ready后compute_once自动生效
+        iv_smile_service.start_scheduler(interval_minutes=1)
