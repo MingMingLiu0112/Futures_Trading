@@ -1,0 +1,1044 @@
+
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PTA期权隐波微笑曲线</title>
+<script src="/static/js/echarts.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a0f;
+    color: #e0e0e0;
+    font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    padding: 12px;
+  }
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border: 1px solid #2a2a4a;
+    border-radius: 8px;
+    margin-bottom: 10px;
+  }
+  .header h2 { color: #00d4ff; font-size: 16px; }
+  .status-bar { display: flex; gap: 20px; font-size: 13px; }
+  .status-item { display: flex; align-items: center; gap: 6px; }
+  .status-label { color: #888; }
+  .status-value { color: #00ff88; font-weight: 600; }
+  .status-value.warn { color: #ffaa00; }
+  .status-value.error { color: #ff4444; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .card {
+    background: #12121a;
+    border: 1px solid #2a2a4a;
+    border-radius: 8px;
+    padding: 10px;
+  }
+  .card.full { grid-column: 1 / -1; }
+  .card-title {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .chart { width: 100%; height: 260px; }
+  .chart-sm { width: 100%; height: 200px; }
+
+  .params-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 8px;
+  }
+  .param-box {
+    background: #1a1a2e;
+    border: 1px solid #2a2a4a;
+    border-radius: 6px;
+    padding: 8px;
+    text-align: center;
+  }
+  .param-name { font-size: 11px; color: #666; margin-bottom: 4px; }
+  .param-value { font-size: 18px; font-weight: 600; }
+  .param-desc { font-size: 10px; color: #555; margin-top: 2px; }
+
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .summary-box {
+    background: #1a1a2e;
+    border: 1px solid #2a2a4a;
+    border-radius: 6px;
+    padding: 8px;
+    text-align: center;
+  }
+  .summary-name { font-size: 10px; color: #555; margin-bottom: 4px; }
+  .summary-val { font-size: 16px; font-weight: 600; }
+  .summary-sub { font-size: 10px; color: #444; margin-top: 2px; }
+
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    margin-top: 5px;
+  }
+  .data-table th {
+    color: #555;
+    text-align: right;
+    padding: 4px 8px;
+    border-bottom: 1px solid #2a2a4a;
+  }
+  .data-table th:first-child { text-align: center; }
+  .data-table td {
+    text-align: right;
+    padding: 3px 8px;
+    border-bottom: 1px solid #1a1a2a;
+  }
+  .data-table td:first-child { text-align: center; color: #888; }
+  .iv-call { color: #00d4ff; }
+  .iv-put { color: #ff6b9d; }
+  .iv-avg { color: #aaffaa; }
+  .iv-smooth { color: #ffaa00; }
+
+  .legend-row {
+    display: flex;
+    gap: 20px;
+    font-size: 12px;
+    margin-bottom: 6px;
+  }
+  .legend-item { display: flex; align-items: center; gap: 5px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .legend-dot.current { background: #ffaa00; }
+  .legend-dot.prev { background: #8888ff; }
+  .legend-dot.diff-up { background: #ff4444; }
+  .legend-dot.diff-down { background: #00d4ff; }
+  .legend-text { color: #aaa; }
+
+  .param-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    margin-left: 6px;
+  }
+  .badge-up { background: rgba(255,68,68,0.2); color: #ff4444; }
+  .badge-down { background: rgba(0,212,255,0.2); color: #00d4ff; }
+  .badge-flat { background: rgba(136,136,136,0.2); color: #888; }
+
+  .loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 200px;
+    color: #444;
+    font-size: 14px;
+  }
+  .loading::after {
+    content: '';
+    margin-left: 10px;
+    animation: pulse 1s infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:0.3} 50%{opacity:1} }
+
+  .footer {
+    margin-top: 10px;
+    text-align: center;
+    font-size: 11px;
+    color: #333;
+  }
+  .btn {
+    background: #1a4a8a;
+    color: #00d4ff;
+    border: 1px solid #2a6aba;
+    padding: 4px 14px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .btn:hover { background: #2a6aba; }
+  .last-update { color: #444; font-size: 11px; }
+  .prev-curve-label { color: #8888ff; font-size: 10px; font-weight: normal; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h2>📊 PTA期权隐波微笑曲线</h2>
+  <div style="display:flex;align-items:center;gap:16px;">
+    <div class="status-bar">
+      <div class="status-item">
+        <span class="status-label">期货价</span>
+        <span class="status-value" id="fPrice">--</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">最大痛点</span>
+        <span class="status-value" id="refStrike">--</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">到期日</span>
+        <span class="status-value" id="expiry">--</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">前次曲线</span>
+        <span class="status-value warn" id="prevTime">--</span>
+      </div>
+    </div>
+    <button class="btn" onclick="triggerCalc()">🔄 刷新</button>
+  </div>
+</div>
+
+<!-- 15分钟隐波变化摘要 -->
+<div class="card full" style="margin-bottom:10px;">
+  <div class="card-title">15分钟隐波变化摘要</div>
+  <div class="summary-grid">
+    <div class="summary-box">
+      <div class="summary-name">ATM 隐波变化</div>
+      <div class="summary-val" id="sAtmDiff" style="color:#888;">--</div>
+      <div class="summary-sub" id="sAtmPrev">前值 --</div>
+    </div>
+    <div class="summary-box">
+      <div class="summary-name">ATM 隐波</div>
+      <div class="summary-val" id="sAtmCur" style="color:#ffaa00;">--</div>
+      <div class="summary-sub">当前值</div>
+    </div>
+    <div class="summary-box">
+      <div class="summary-name">波动率偏向</div>
+      <div class="summary-val" id="sSkew" style="color:#00d4ff;">--</div>
+      <div class="summary-sub" id="sSkewLabel">Call-Put 斜度</div>
+    </div>
+    <div class="summary-box">
+      <div class="summary-name">曲线形态变化</div>
+      <div class="summary-val" id="sShape" style="color:#aaffaa;">--</div>
+      <div class="summary-sub" id="sShapeLabel">整体平移</div>
+    </div>
+  </div>
+</div>
+
+<div class="grid">
+  <!-- 隐波微笑曲线（散点+平滑） -->
+  <div class="card">
+    <div class="card-title">隐含波动率微笑曲线 <span id="prevCurveLabel" class="prev-curve-label"></span></div>
+    <div id="smileChart" style="width:100%;height:280px;"></div>
+  </div>
+  <!-- ATM隐波图 -->
+  <div class="card">
+    <div class="card-title">ATM IV 走势</div>
+    <div id="atmChart" style="width:100%;height:280px;"></div>
+  </div>
+
+  <!-- SABR参数 -->
+  <div class="card full">
+    <div class="card-title">SABR 模型参数</div>
+    <div class="params-grid">
+      <div class="param-box">
+        <div class="param-name">α (alpha)</div>
+        <div class="param-value" id="pAlpha" style="color:#00d4ff;">--</div>
+        <div class="param-desc">波动率水平</div>
+      </div>
+      <div class="param-box">
+        <div class="param-name">ρ (rho)</div>
+        <div class="param-value" id="pRho" style="color:#ff6b9d;">--</div>
+        <div class="param-desc">斜度参数</div>
+      </div>
+      <div class="param-box">
+        <div class="param-name">ν (nu)</div>
+        <div class="param-value" id="pNu" style="color:#aaffaa;">--</div>
+        <div class="param-desc">曲率参数</div>
+      </div>
+      <div class="param-box">
+        <div class="param-name">c (skew)</div>
+        <div class="param-value" id="pC" style="color:#ffaa00;">--</div>
+        <div class="param-desc">偏度参数</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 隐波前后对比主图 -->
+  <div class="card">
+    <div class="card-title">隐波微笑曲线对比</div>
+    <div class="legend-row">
+      <div class="legend-item"><div class="legend-dot current"></div><span class="legend-text">当前曲线</span></div>
+      <div class="legend-item"><div class="legend-dot prev"></div><span class="legend-text">15分钟前</span></div>
+    </div>
+    <div id="compareChart" style="width:100%;height:260px;"></div>
+  </div>
+
+  <!-- 隐波变化量柱图 -->
+  <div class="card">
+    <div class="card-title">隐波变化量（当前 - 15分钟前）</div>
+    <div class="legend-row">
+      <div class="legend-item"><div class="legend-dot diff-up"></div><span class="legend-text">升波 ↑</span></div>
+      <div class="legend-item"><div class="legend-dot diff-down"></div><span class="legend-text">降波 ↓</span></div>
+    </div>
+    <div id="diffChart" style="width:100%;height:260px;"></div>
+  </div>
+
+  <!-- Call档位隐波对比 -->
+  <div class="card">
+    <div class="card-title">Call 档位隐波对比</div>
+    <div id="callChart" style="width:100%;height:200px;"></div>
+  </div>
+
+  <!-- Put档位隐波对比 -->
+  <div class="card">
+    <div class="card-title">Put 档位隐波对比</div>
+    <div id="putChart" style="width:100%;height:200px;"></div>
+  </div>
+
+  <!-- 详细数据表 -->
+  <div class="card full">
+    <div class="card-title">分档隐波明细</div>
+    <div style="max-height:200px;overflow-y:auto;">
+      <table class="data-table" id="dataTable">
+        <thead>
+          <tr>
+            <th>行权价</th>
+            <th>Call IV</th>
+            <th>Put IV</th>
+            <th>IV均值</th>
+            <th>平滑IV</th>
+            <th>偏离度</th>
+          </tr>
+        </thead>
+        <tbody id="dataBody">
+          <tr><td colspan="6" style="text-align:center;color:#333;padding:20px;">暂无数据</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  <span class="last-update" id="lastUpdate">--</span>
+</div>
+
+<script>
+// ===================== 全局图表实例 =====================
+const chartInstances = {};
+// 缓存当前曲线数据（用于 diff 图 tooltip 显示当前 IV 绝对值）
+let _cachedCurveData = [];
+// smile 图表数据源缓存（供 tooltip formatter 通过 dataIndex 查找 IV 值）
+let _smileDataSrc = [];
+// ATM走势图：使用固定15分钟时间节点（来自后端快照_times）
+// _atmHistory 每个元素 {time: "HH:MM", value: iv_float}，最多30个点
+let _atmHistory = [];
+let _lastAtmMinute = -1;  // 上次添加ATM点的时间（用于判断是否到新15分钟槽）
+
+// ===================== 通用主题 =====================
+const chartTheme = {
+  backgroundColor: 'transparent',
+  textStyle: { color: '#888', fontSize: 11 },
+};
+
+// ===================== 初始化所有图表 =====================
+function initCharts() {
+  // 1. 微笑曲线散点图
+  const smileEl = document.getElementById('smileChart');
+  const smileChart = echarts.init(smileEl, null, { renderer: 'svg' });
+  chartInstances.smile = smileChart;
+  smileChart.setOption({
+    ...chartTheme,
+    grid: { top: 15, right: 15, bottom: 25, left: 50 },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'cross', crossStyle: { color: '#555' } },
+      backgroundColor: 'rgba(20,20,35,0.95)',
+      borderColor: '#2a2a5a',
+      textStyle: { color: '#ccc', fontSize: 11 },
+      formatter: function(params) {
+        if (!params || params.length === 0) return '';
+        const strike = params[0].axisValue;
+        // axis trigger 下所有 series 同 index 同 X 轴，params 按 series 顺序排列
+        // 从平滑曲线(当前) series 取 IV 值（该 series 在 _smileDataSrc[2]）
+        let ivVal = null;
+        // 优先从平滑曲线(当前) series（idx=2）提取
+        for (const p of params) {
+          if (Array.isArray(p.value) && p.value.length >= 2 && typeof p.value[1] === 'number') {
+            ivVal = p.value[1];
+            break;
+          } else if (typeof p.value === 'number') {
+            ivVal = p.value;
+            break;
+          }
+        }
+        // Fallback: 从 _cachedCurveData 按 strike 查找
+        if ((ivVal === null || ivVal === undefined) && strike) {
+          const sn = parseInt(strike);
+          const curveItem = _cachedCurveData.find(d => d.strike === sn);
+          if (curveItem && curveItem.smooth != null) ivVal = curveItem.smooth;
+        }
+        let html = `<b>行权价 ${strike}</b><br/>`;
+        if (ivVal !== null && ivVal !== undefined && !isNaN(ivVal)) {
+          html += `<span style="color:#ffaa00">IV <b>${(ivVal * 100).toFixed(2)}%</b></span>`;
+        } else {
+          html += `<span style="color:#555">IV --</span>`;
+        }
+        return html;
+      }
+    },
+    legend: {
+      top: 0, right: 10,
+      textStyle: { color: '#666', fontSize: 10 },
+      itemWidth: 12, itemHeight: 8,
+    },
+    xAxis: {
+      type: 'category',
+      name: '行权价',
+      nameTextStyle: { color: '#444', fontSize: 10 },
+      axisLine: { lineStyle: { color: '#2a2a4a' } },
+      axisTick: { show: false },
+      axisLabel: { color: '#555', fontSize: 9, rotate: 45 },
+      splitLine: { show: false },
+    },
+    yAxis: {
+      type: 'value',
+      name: '隐波 (%)',
+      nameTextStyle: { color: '#444', fontSize: 10 },
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: { color: '#555', fontSize: 9, formatter: v => (v * 100).toFixed(1) + '%' },
+      splitLine: { lineStyle: { color: '#1a1a2a', type: 'dashed' } },
+      min: 0.05, max: 0.50,
+    },
+    series: [
+      { name: 'Call原始', type: 'scatter', symbol: 'circle', symbolSize: 6,
+        itemStyle: { color: '#00d4ff', opacity: 0.5 }, data: [], z: 2 },
+      { name: 'Put原始', type: 'scatter', symbol: 'circle', symbolSize: 6,
+        itemStyle: { color: '#ff6b9d', opacity: 0.5 }, data: [], z: 2 },
+      { name: '平滑曲线(当前)', type: 'line', smooth: 0.4, lineWidth: 2.5,
+        itemStyle: { color: '#ffaa00' }, symbol: 'none', data: [], z: 3 },
+      { name: '平滑曲线(15分钟前)', type: 'line', smooth: 0.4, lineWidth: 2,
+        lineStyle: { color: '#8888ff', type: 'dashed', opacity: 0.7 },
+        symbol: 'none', data: [], z: 3 },
+      { name: 'ATM标记', type: 'line', markLine: {
+          silent: true, symbol: 'none',
+          lineStyle: { color: '#00ff88', type: 'dashed', width: 1, opacity: 0.5 },
+          data: [], label: { show: false } },
+        data: [], z: 4 },
+    ],
+  });
+  window.addEventListener('resize', () => {
+    smileChart.resize();
+    atmChart.resize();
+    compareChart.resize();
+    diffChart.resize();
+    callChart.resize();
+    putChart.resize();
+  });
+  const atmEl = document.getElementById('atmChart');
+  const atmChart = echarts.init(atmEl, null, { renderer: 'canvas' });
+  chartInstances.atm = atmChart;
+  atmChart.setOption({
+    ...chartTheme,
+    grid: { top: 15, right: 15, bottom: 25, left: 50 },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'cross', crossStyle: { color: '#555' } },
+      backgroundColor: 'rgba(20,20,35,0.95)',
+      borderColor: '#2a2a5a',
+      textStyle: { color: '#ccc', fontSize: 11 },
+      formatter: params => {
+        const p = params[0];
+        const v = p.value;
+        const iv = (v != null && !isNaN(v)) ? (v * 100).toFixed(2) + '%' : '--';
+        return `<b>${p.axisValue}</b><br/>ATM IV: <b style="color:#00ff88">${iv}</b>`;
+      },
+    },
+    xAxis: {
+      type: 'category',
+      axisLine: { lineStyle: { color: '#2a2a4a' } },
+      axisTick: { show: false },
+      axisLabel: { color: '#444', fontSize: 8, interval: 4, rotate: 45 },
+      splitLine: { show: false },
+    },
+    yAxis: {
+      type: 'value', name: 'ATM IV (%)',
+      nameTextStyle: { color: '#444', fontSize: 10 },
+      axisLine: { show: false }, axisTick: { show: false },
+      axisLabel: { color: '#555', fontSize: 9 },
+      splitLine: { lineStyle: { color: '#1a1a2a', type: 'dashed' } },
+    },
+    series: [{
+      name: 'ATM IV', type: 'line', smooth: true, lineWidth: 2,
+      itemStyle: { color: '#00ff88' },
+      areaStyle: {
+        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+          { offset: 0, color: 'rgba(0,255,136,0.3)' },
+          { offset: 1, color: 'rgba(0,255,136,0.02)' }
+        ])
+      },
+      symbol: 'circle', symbolSize: 4,
+      data: [],  // 初始空，updateAtmChart 会推送 {time, value} 对象
+    }],
+  });
+  window.addEventListener('resize', () => atmChart.resize());
+
+  // 3. 对比主图
+  const compareEl = document.getElementById('compareChart');
+  const compareChart = echarts.init(compareEl, null, { renderer: 'canvas' });
+  chartInstances.compare = compareChart;
+  compareChart.setOption({
+    ...chartTheme,
+    grid: { top: 15, right: 15, bottom: 25, left: 50 },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'cross', crossStyle: { color: '#555' } },
+      backgroundColor: 'rgba(20,20,35,0.95)',
+      borderColor: '#2a2a5a',
+      textStyle: { color: '#ccc', fontSize: 11 },
+      formatter: params => {
+        if (!params || params.length === 0) return '';
+        const strike = params[0].axisValue;
+        let html = `<b>行权价 ${strike}</b><br/>`;
+        for (const p of params) {
+          let yVal = null;
+          const v = p.value;
+          if (Array.isArray(v)) { yVal = v[1] !== undefined ? v[1] : v[0]; }
+          else if (typeof v === 'number') { yVal = v; }
+          if (yVal !== null && !isNaN(yVal)) {
+            html += `${p.seriesName}: <b>${(yVal * 100).toFixed(2)}%</b><br/>`;
+          }
+        }
+        return html;
+      }
+    },
+    legend: {
+      top: 0, right: 10,
+      textStyle: { color: '#666', fontSize: 10 },
+      itemWidth: 12, itemHeight: 8,
+    },
+    xAxis: {
+      type: 'category', name: '行权价',
+      nameTextStyle: { color: '#444', fontSize: 10 },
+      axisLine: { lineStyle: { color: '#2a2a4a' } },
+      axisTick: { show: false },
+      axisLabel: { color: '#555', fontSize: 9, rotate: 45, interval: 0 },
+      splitLine: { show: false },
+    },
+    yAxis: {
+      type: 'value', name: '隐波 (%)',
+      nameTextStyle: { color: '#444', fontSize: 10 },
+      axisLine: { show: false }, axisTick: { show: false },
+      axisLabel: { color: '#555', fontSize: 9, formatter: v => (v * 100).toFixed(1) + '%' },
+      splitLine: { lineStyle: { color: '#1a1a2a', type: 'dashed' } },
+    },
+    series: [
+      { name: '当前平滑', type: 'line', smooth: 0.4, lineWidth: 2.5,
+        itemStyle: { color: '#ffaa00' }, symbol: 'circle', symbolSize: 5, data: [], z: 3 },
+      { name: '15分钟前', type: 'line', smooth: 0.4, lineWidth: 2,
+        itemStyle: { color: '#8888ff' }, symbol: 'circle', symbolSize: 5,
+        lineStyle: { type: 'dashed' }, data: [], z: 2 },
+    ],
+  });
+  window.addEventListener('resize', () => compareChart.resize());
+
+  // 4. 差值柱图
+  const diffEl = document.getElementById('diffChart');
+  const diffChart = echarts.init(diffEl, null, { renderer: 'canvas' });
+  chartInstances.diff = diffChart;
+  diffChart.setOption({
+    ...chartTheme,
+    grid: { top: 15, right: 15, bottom: 25, left: 50 },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'cross', crossStyle: { color: '#555' } },
+      backgroundColor: 'rgba(20,20,35,0.95)',
+      borderColor: '#2a2a5a',
+      textStyle: { color: '#ccc', fontSize: 11 },
+      formatter: params => {
+        const strike = parseInt(params[0].axisValue);
+        const curveItem = _cachedCurveData.find(d => d.strike === strike);
+        const curIv = curveItem && curveItem.smooth != null ? curveItem.smooth : null;
+        let html = `<b>行权价 ${strike}</b><br/>`;
+        if (curIv != null) html += `当前IV: <span style="color:#ffaa00">${(curIv * 100).toFixed(2)}%</span><br/>`;
+        params.forEach(p => {
+          const v = typeof p.value === 'object' ? p.value.value : (typeof p.value === 'number' ? p.value : null);
+          if (v !== null && !isNaN(v)) {
+            const color = v > 0 ? '#ff4444' : v < 0 ? '#00d4ff' : '#888';
+            html += `${p.seriesName}: <b style="color:${color}">${v >= 0 ? '+' : ''}${(v * 100).toFixed(3)}%</b><br/>`;
+          }
+        });
+        return html;
+      }
+    },
+    xAxis: {
+      type: 'category', name: '行权价',
+      nameTextStyle: { color: '#444', fontSize: 10 },
+      axisLine: { lineStyle: { color: '#2a2a4a' } },
+      axisTick: { show: false },
+      axisLabel: { color: '#555', fontSize: 9, rotate: 45 },
+      splitLine: { show: false },
+    },
+    yAxis: {
+      type: 'value', name: '变化量 (%)',
+      nameTextStyle: { color: '#444', fontSize: 10 },
+      axisLine: { show: false }, axisTick: { show: false },
+      axisLabel: { color: '#555', fontSize: 9, formatter: v => (v >= 0 ? '+' : '') + (v * 100).toFixed(3) + '%' },
+      splitLine: { lineStyle: { color: '#1a1a2a', type: 'dashed' } },
+    },
+    series: [{
+      name: '隐波变化', type: 'bar', barMaxWidth: 20,
+      itemStyle: {
+        color: params => {
+          const v = params.value;
+          const threshold = 0.0005; // ~0.05%
+          if (v > threshold) return 'rgba(255,68,68,0.7)';
+          if (v < -threshold) return 'rgba(0,212,255,0.7)';
+          return 'rgba(136,136,136,0.3)';
+        }
+      },
+      data: [],
+    }],
+  });
+  window.addEventListener('resize', () => diffChart.resize());
+
+  // 5. Call对比图
+  const callEl = document.getElementById('callChart');
+  const callChart = echarts.init(callEl, null, { renderer: 'canvas' });
+  chartInstances.call = callChart;
+  callChart.setOption({
+    ...chartTheme,
+    grid: { top: 12, right: 15, bottom: 20, left: 50 },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'cross', crossStyle: { color: '#555' } },
+      backgroundColor: 'rgba(20,20,35,0.95)',
+      borderColor: '#2a2a5a',
+      textStyle: { color: '#ccc', fontSize: 11 },
+      formatter: params => {
+        if (!params || params.length === 0) return '';
+        const strike = params[0].axisValue;
+        let html = `<b>行权价 ${strike}</b><br/>`;
+        for (const p of params) {
+          let yVal = null;
+          const v = p.value;
+          if (Array.isArray(v)) { yVal = v[1] !== undefined ? v[1] : v[0]; }
+          else if (typeof v === 'number') { yVal = v; }
+          if (yVal !== null && !isNaN(yVal)) {
+            html += `${p.seriesName}: <b>${(yVal * 100).toFixed(2)}%</b><br/>`;
+          }
+        }
+        return html;
+      }
+    },
+    xAxis: {
+      type: 'category',
+      axisLine: { lineStyle: { color: '#2a2a4a' } },
+      axisTick: { show: false },
+      axisLabel: { color: '#555', fontSize: 9, rotate: 45, interval: 0 },
+      splitLine: { show: false },
+    },
+    yAxis: {
+      type: 'value', name: 'IV (%)',
+      nameTextStyle: { color: '#444', fontSize: 9 },
+      axisLine: { show: false }, axisTick: { show: false },
+      axisLabel: { color: '#555', fontSize: 9, formatter: v => (v * 100).toFixed(1) + '%' },
+      splitLine: { lineStyle: { color: '#1a1a2a', type: 'dashed' } },
+    },
+    series: [
+      { name: 'Call当前', type: 'line', smooth: 0.4, lineWidth: 2,
+        itemStyle: { color: '#00d4ff' }, symbol: 'circle', symbolSize: 4, data: [] },
+      { name: 'Call前值', type: 'line', smooth: 0.4, lineWidth: 1.5,
+        itemStyle: { color: '#00d4ff', opacity: 0.4 }, symbol: 'circle', symbolSize: 3,
+        lineStyle: { type: 'dashed', opacity: 0.5 }, data: [] },
+    ],
+  });
+  window.addEventListener('resize', () => callChart.resize());
+
+  // 6. Put对比图
+  const putEl = document.getElementById('putChart');
+  const putChart = echarts.init(putEl, null, { renderer: 'canvas' });
+  chartInstances.put = putChart;
+  putChart.setOption({
+    ...chartTheme,
+    grid: { top: 12, right: 15, bottom: 20, left: 50 },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'cross', crossStyle: { color: '#555' } },
+      backgroundColor: 'rgba(20,20,35,0.95)',
+      borderColor: '#2a2a5a',
+      textStyle: { color: '#ccc', fontSize: 11 },
+      formatter: params => {
+        if (!params || params.length === 0) return '';
+        const strike = params[0].axisValue;
+        let html = `<b>行权价 ${strike}</b><br/>`;
+        for (const p of params) {
+          let yVal = null;
+          const v = p.value;
+          if (Array.isArray(v)) { yVal = v[1] !== undefined ? v[1] : v[0]; }
+          else if (typeof v === 'number') { yVal = v; }
+          if (yVal !== null && !isNaN(yVal)) {
+            html += `${p.seriesName}: <b>${(yVal * 100).toFixed(2)}%</b><br/>`;
+          }
+        }
+        return html;
+      }
+    },
+    xAxis: {
+      type: 'category',
+      axisLine: { lineStyle: { color: '#2a2a4a' } },
+      axisTick: { show: false },
+      axisLabel: { color: '#555', fontSize: 9, rotate: 45, interval: 0 },
+      splitLine: { show: false },
+    },
+    yAxis: {
+      type: 'value', name: 'IV (%)',
+      nameTextStyle: { color: '#444', fontSize: 9 },
+      axisLine: { show: false }, axisTick: { show: false },
+      axisLabel: { color: '#555', fontSize: 9, formatter: v => (v * 100).toFixed(1) + '%' },
+      splitLine: { lineStyle: { color: '#1a1a2a', type: 'dashed' } },
+    },
+    series: [
+      { name: 'Put当前', type: 'line', smooth: 0.4, lineWidth: 2,
+        itemStyle: { color: '#ff6b9d' }, symbol: 'circle', symbolSize: 4, data: [] },
+      { name: 'Put前值', type: 'line', smooth: 0.4, lineWidth: 1.5,
+        itemStyle: { color: '#ff6b9d', opacity: 0.4 }, symbol: 'circle', symbolSize: 3,
+        lineStyle: { type: 'dashed', opacity: 0.5 }, data: [] },
+    ],
+  });
+  window.addEventListener('resize', () => putChart.resize());
+}
+
+// ===================== 数据获取 & 更新 =====================
+
+async function fetchData() {
+  try {
+    const [statusResp, curveResp] = await Promise.all([
+      fetch('/api/iv_smile/status'),
+      fetch('/api/iv_smile/curve'),
+    ]);
+    if (!statusResp.ok || !curveResp.ok) { showError('API请求失败'); return; }
+
+    const status = await statusResp.json();
+    const data = await curveResp.json();
+    // 缓存曲线数据（用于 diff 图 tooltip 显示当前 IV 绝对值）
+    _cachedCurveData = data.curve || [];
+    // 缓存标的价格和ATM信息（供 tooltip 使用）
+    window._latestFuturesPrice = data.futures_price || status.futures_price || null;
+    window._latestAtmStrike = data.atm_strike || null;
+    window._latestMaxPain = data.max_pain || null;
+
+    updateStatus(status, data);
+    updateSmileChart(data);
+    updateAtmChart(data);
+    updateCompareChart(data);
+    updateDiffChart(data);
+    updateCallPutChart(data);
+    updateParams(data.sabr_params);
+    updateTable(data);
+    updateSummary(data);
+
+    document.getElementById('lastUpdate').textContent =
+      `最后更新: ${data.last_update || '--'} | 前次曲线: ${data.prev_timestamp || '--'} | 版本 v2.11.2 (SABR平滑)`;
+  } catch (err) {
+    showError('数据加载失败: ' + err.message);
+  }
+}
+
+function updateStatus(status, data) {
+  document.getElementById('fPrice').textContent = status.futures_price ? status.futures_price.toFixed(0) : '--';
+  document.getElementById('refStrike').textContent = (status.ref_strike || status.max_pain) || '--';
+  document.getElementById('expiry').textContent = status.expiry ? new Date(status.expiry).toLocaleDateString('zh-CN') : '--';
+  document.getElementById('prevTime').textContent = data.prev_timestamp
+    ? (data.prev_timestamp === '昨收盘' || data.prev_timestamp.includes(':')
+       ? data.prev_timestamp  // 直接显示时间字符串或"昨收盘"
+       : new Date(data.prev_timestamp).toLocaleTimeString('zh-CN'))
+    : '无历史';
+
+  const fPriceEl = document.getElementById('fPrice');
+  fPriceEl.className = (!status.last_update || status.last_update === 'None') ? 'status-value warn' : 'status-value';
+}
+
+// 微笑散点曲线（iv_smile原有）
+function updateSmileChart(data) {
+  const chart = chartInstances.smile;
+  if (!chart) return;
+  const curve = data.curve || [];
+  if (curve.length === 0) { chart.showLoading({ text: '暂无数据', color: '#444', textColor: '#444' }); return; }
+  chart.hideLoading();
+
+  const callData = [], putData = [], smoothLine = [], smoothLinePrev = [];
+  curve.forEach(item => {
+    const x = item.strike;
+    if (item.raw_C != null && !isNaN(item.raw_C)) callData.push([x, item.raw_C]);
+    if (item.raw_P != null && !isNaN(item.raw_P)) putData.push([x, item.raw_P]);
+    if (item.smooth != null && !isNaN(item.smooth)) smoothLine.push([x, item.smooth]);
+    if (item.smooth_prev != null && !isNaN(item.smooth_prev)) smoothLinePrev.push([x, item.smooth_prev]);
+  });
+  smoothLine.sort((a, b) => a[0] - b[0]);
+  smoothLinePrev.sort((a, b) => a[0] - b[0]);
+
+  // 缓存数据源（供 smile tooltip formatter 按 dataIndex 查找 IV）
+  _smileDataSrc = [callData, putData, smoothLine, smoothLinePrev, []];
+
+  const refStrike = data.ref_strike || data.max_pain || data.atm_strike;
+
+  // 在 merge 模式下单独更新 xAxis（避免 series 配置被覆盖）
+  chart.setOption({ xAxis: { data: curve.map(d => d.strike) } }, false);
+  // 逐 series 更新数据（保持每个 series 的原始配置如 symbol: 'none' 不变）
+  const seriesUpdates = [];
+  chartInstances.smile.getOption().series.forEach((s, idx) => {
+    if (idx === 0) seriesUpdates.push({ data: callData });
+    else if (idx === 1) seriesUpdates.push({ data: putData });
+    else if (idx === 2) seriesUpdates.push({ data: smoothLine });
+    else if (idx === 3) seriesUpdates.push({ data: smoothLinePrev });
+    else if (idx === 4) seriesUpdates.push({
+      data: [],
+      markLine: {
+        silent: true, symbol: 'none',
+        lineStyle: { color: '#ff6b6b', type: 'dashed', width: 1, opacity: 0.6 },
+        label: { show: false },
+        data: refStrike ? [{ xAxis: refStrike }] : [],
+      }
+    });
+    else seriesUpdates.push({ data: [] });
+  });
+  chart.setOption({ series: seriesUpdates }, false);
+
+  if (data.prev_timestamp && !data.is_cold_start_fallback) {
+    const prevLabel = document.getElementById('prevCurveLabel');
+    if (prevLabel) prevLabel.textContent = `（对比曲线: ${data.prev_timestamp}）`;
+  }
+}
+
+// ATM历史走势（固定15分钟时间节点，来自后端快照）
+function updateAtmChart(data) {
+  const chart = chartInstances.atm;
+  if (!chart) return;
+  const atmStrike = data.atm_strike;
+  const curve = data.curve || [];
+  let atmIv = null;
+  if (atmStrike) {
+    const atmItem = curve.find(d => d.strike === atmStrike);
+    if (atmItem) atmIv = atmItem.smooth || atmItem.raw_avg || atmItem.raw_C || atmItem.raw_P;
+  }
+  if (atmIv === null || atmIv === undefined) return;
+
+  // 用后端 last_update 的时间（精确到分钟）
+  const ts = data.last_update
+    ? new Date(data.last_update).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    : new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+
+  // 提取当前分钟数和当前时间点（HH:MM格式，15分钟对齐）
+  const now = new Date();
+  const curMinute = now.getHours() * 60 + now.getMinutes();
+  const cur15Min = Math.floor(curMinute / 15);  // 0, 1, 2, 3, ... 编号
+  const curSlotLabel = `${String(Math.floor((cur15Min * 15) / 60)).padStart(2,'0')}:${String((cur15Min * 15) % 60).padStart(2,'0')}`;
+
+  // 只有到新15分钟槽时才追加点，同一分钟内只更新最后一个点
+  const lastEntry = _atmHistory.length > 0 ? _atmHistory[_atmHistory.length - 1] : null;
+  if (_atmHistory.length === 0 ||
+      curSlotLabel !== _lastAtmMinute) {
+    _atmHistory.push({ time: curSlotLabel, value: atmIv });
+    _lastAtmMinute = curSlotLabel;
+    if (_atmHistory.length > 30) _atmHistory.shift();
+  } else {
+    // 同槽：更新最后一个点
+    if (lastEntry) lastEntry.value = atmIv;
+  }
+
+  chart.setOption({
+    xAxis: { data: _atmHistory.map(d => d.time) },
+    series: [{ data: _atmHistory.map(d => d.value) }],
+  });
+}
+
+// 对比主图（来自iv_smile_compare）
+function updateCompareChart(data) {
+  const chart = chartInstances.compare;
+  if (!chart) return;
+  const curve = data.curve || [];
+  const compareData = curve.filter(d => d.smooth != null).sort((a,b) => a.strike - b.strike);
+  const hasPrev = curve.some(d => d.smooth_prev != null && !data.is_cold_start_fallback);
+  chart.setOption({
+    xAxis: { data: compareData.map(d => d.strike) },
+    series: [
+      { name: '当前平滑', data: compareData.map(d => [d.strike, d.smooth]) },
+      { name: '15分钟前', data: hasPrev ? compareData.map(d => [d.strike, d.smooth_prev]) : [] },
+    ],
+  });
+}
+
+// 差值柱图
+function updateDiffChart(data) {
+  const chart = chartInstances.diff;
+  if (!chart) return;
+  const curve = data.curve || [];
+  const compareData = curve.filter(d => d.smooth != null).sort((a,b) => a.strike - b.strike);
+  // 冷启动兜底时 smooth_prev === smooth，diff 全为0，无对比意义，显示空
+  if (data.is_cold_start_fallback) {
+    chart.setOption({
+      xAxis: { data: compareData.map(d => d.strike) },
+      series: [{ name: '隐波变化', data: compareData.map(() => null) }],
+    });
+    return;
+  }
+  chart.setOption({
+    xAxis: { data: compareData.map(d => d.strike) },
+    series: [{
+      name: '隐波变化',
+      data: compareData.map(d => ({
+        value: d.smooth_prev != null ? d.smooth - d.smooth_prev : null,
+        itemStyle: { color: null }
+      }))
+    }],
+  });
+}
+
+// Call/Put分档对比
+function updateCallPutChart(data) {
+  const curve = data.curve || [];
+  const hasPrev = curve.some(d => d.smooth_prev != null && !data.is_cold_start_fallback);
+
+  const callCurve = curve.filter(d => d.raw_C != null).sort((a,b) => a.strike - b.strike);
+  chartInstances.call.setOption({
+    xAxis: { data: callCurve.map(d => d.strike) },
+    series: [
+      { name: 'Call当前', data: callCurve.map(d => [d.strike, d.raw_C]) },
+      { name: 'Call前值', data: hasPrev ? callCurve.map(d => [d.strike, d.raw_C_prev]) : [] },
+    ],
+  });
+
+  const putCurve = curve.filter(d => d.raw_P != null).sort((a,b) => a.strike - b.strike);
+  chartInstances.put.setOption({
+    xAxis: { data: putCurve.map(d => d.strike) },
+    series: [
+      { name: 'Put当前', data: putCurve.map(d => [d.strike, d.raw_P]) },
+      { name: 'Put前值', data: hasPrev ? putCurve.map(d => [d.strike, d.raw_P_prev]) : [] },
+    ],
+  });
+}
+
+// SABR参数
+function updateParams(sabr) {
+  if (!sabr) {
+    ['Alpha', 'Rho', 'Nu', 'C'].forEach(p => { document.getElementById('p' + p).textContent = '--'; });
+    return;
+  }
+  document.getElementById('pAlpha').textContent = sabr.alpha ? sabr.alpha.toFixed(4) : '--';
+  document.getElementById('pRho').textContent = sabr.rho ? sabr.rho.toFixed(4) : '--';
+  document.getElementById('pNu').textContent = sabr.nu ? sabr.nu.toFixed(4) : '--';
+  document.getElementById('pC').textContent = sabr.c ? sabr.c.toFixed(4) : '--';
+}
+
+// 数据表
+function updateTable(data) {
+  const tbody = document.getElementById('dataBody');
+  const curve = data.curve || [];
+  if (curve.length === 0) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#333;padding:20px;">暂无数据</td></tr>'; return; }
+
+  const atmStrike = data.atm_strike;
+  const refStrike = data.ref_strike || data.max_pain || atmStrike;
+  const atmItem = curve.find(d => d.strike === atmStrike);
+  const atmIv = atmItem ? (atmItem.smooth || atmItem.raw_avg) : null;
+
+  tbody.innerHTML = curve.map(item => {
+    const strike = item.strike;
+    const isRef = strike === refStrike;
+    const bg = isRef ? 'background:#1a2a1a;' : '';
+    const rawC = item.raw_C != null ? `<span class="iv-call">${(item.raw_C*100).toFixed(2)}%</span>` : '--';
+    const rawP = item.raw_P != null ? `<span class="iv-put">${(item.raw_P*100).toFixed(2)}%</span>` : '--';
+    const rawAvg = item.raw_avg != null ? `<span class="iv-avg">${(item.raw_avg*100).toFixed(2)}%</span>` : '--';
+    const smooth = item.smooth != null ? `<span class="iv-smooth">${(item.smooth*100).toFixed(2)}%</span>` : '--';
+    let dev = '--';
+    if (item.smooth != null && atmIv != null && atmIv > 0) {
+      const d = (item.smooth - atmIv) / atmIv * 100;
+      const color = d > 0 ? '#ff6b6b' : d < 0 ? '#00d4ff' : '#888';
+      dev = `<span style="color:${color}">${d >= 0 ? '+' : ''}${d.toFixed(1)}%</span>`;
+    }
+    return `<tr style="${bg}"><td>${isRef ? '★ ' : ''}${strike}</td><td>${rawC}</td><td>${rawP}</td><td>${rawAvg}</td><td>${smooth}</td><td>${dev}</td></tr>`;
+  }).join('');
+}
+
+// 15分钟变化摘要（来自iv_smile_compare）
+function updateSummary(data) {
+  const curve = data.curve || [];
+  if (curve.length === 0) return;
+  const atmStrike = data.atm_strike;
+  const atmItem = curve.find(d => d.strike === atmStrike);
+
+  if (atmItem) {
+    const cur = atmItem.smooth;
+    const prev = atmItem.smooth_prev;
+    if (cur != null) {
+      document.getElementById('sAtmCur').textContent = (cur * 100).toFixed(2) + '%';
+      if (prev != null && !data.is_cold_start_fallback) {
+        const diff = cur - prev;
+        const diffPct = (diff * 100).toFixed(2) + '%';
+        const diffEl = document.getElementById('sAtmDiff');
+        const badge = diff > 0.001 ? `<span class="param-badge badge-up">↑ ${diffPct}</span>`
+          : diff < -0.001 ? `<span class="param-badge badge-down">↓ ${diffPct}</span>`
+          : `<span class="param-badge badge-flat">— 持平</span>`;
+        diffEl.innerHTML = diffPct + ' ' + badge;
+        diffEl.style.color = diff > 0.001 ? '#ff4444' : diff < -0.001 ? '#00d4ff' : '#888';
+        document.getElementById('sAtmPrev').textContent = '前值 ' + (prev * 100).toFixed(2) + '%';
+      } else {
+        document.getElementById('sAtmDiff').textContent = '无历史';
+        document.getElementById('sAtmDiff').style.color = '#888';
+      }
+    }
+  }
+
+  // 斜度
+  const atmItems = curve.filter(d => atmStrike && Math.abs(d.strike - atmStrike) > 0 && d.strike > atmStrike);
+  if (atmItems.length > 0) {
+    const otmCall = atmItems.reduce((min, d) => d.raw_C < min.raw_C ? d : min, atmItems[0]);
+    const atmPutItem = curve.find(d => d.strike === atmStrike);
+    if (otmCall && otmCall.raw_C && atmPutItem && atmPutItem.raw_P) {
+      const skew = (otmCall.raw_C - atmPutItem.raw_P) * 100;
+      document.getElementById('sSkew').textContent = skew.toFixed(2) + '%';
+      document.getElementById('sSkew').style.color = skew > 0 ? '#ff6b9d' : '#00d4ff';
+      document.getElementById('sSkewLabel').textContent = skew > 0 ? 'Call偏高于Put' : 'Put偏高于Call';
+    }
+  }
+
+  // 曲线整体平移
+  const hasPrevData = curve.some(d => d.smooth_prev != null);
+  if (hasPrevData) {
+    let totalDiff = 0, count = 0;
+    curve.forEach(d => {
+      if (d.smooth != null && d.smooth_prev != null) { totalDiff += (d.smooth - d.smooth_prev); count++; }
+    });
+    if (count > 0) {
+      const avgDiff = totalDiff / count * 100;
+      const shapeEl = document.getElementById('sShape');
+      shapeEl.textContent = (avgDiff >= 0 ? '+' : '') + avgDiff.toFixed(2) + '%';
+      shapeEl.style.color = avgDiff > 0.05 ? '#ff4444' : avgDiff < -0.05 ? '#00d4ff' : '#aaffaa';
+      document.getElementById('sShapeLabel').textContent =
+        avgDiff > 0.05 ? '整体升波' : avgDiff < -0.05 ? '整体降波' : '基本持平';
+    }
+  }
+}
+
+function showError(msg) { console.error(msg); }
+
+async function triggerCalc() {
+  try {
+    const resp = await fetch('/api/iv_smile/trigger', { method: 'POST' });
+    const result = await resp.json();
+    if (result.success) await fetchData();
+    else alert('刷新失败，请检查服务状态');
+  } catch (e) { alert('请求失败: ' + e.message); }
+}
+
+// ===================== 初始化 =====================
+document.addEventListener('DOMContentLoaded', () => {
+  initCharts();
+  fetchData();
+  setInterval(fetchData, 60000);
+});
+</script>
+</body>
+</html>

@@ -335,7 +335,7 @@ function initCharts() {
           if (p.value !== null && !isNaN(p.value)) {
             const v = p.value * 100;
             const color = v > 0 ? '#ff4444' : v < 0 ? '#00d4ff' : '#888';
-            html += `<span style="color:${p.color}">●</span> ${p.seriesName}: <b style="color:${color}">${v >= 0 ? '+' : ''}${v.toFixed(2)}%</b><br/>`;
+            html += `<span style="color:${p.color}">●</span> ${p.seriesName}: <b style="color:${color}">${v >= 0 ? '+' : ''}${v.toFixed(3)}%</b><br/>`;
           }
         });
         return html;

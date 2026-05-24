@@ -107,12 +107,31 @@ def _save_all_snapshots():
 
 def _load_previous_day_snapshots():
     """
-    启动时加载上一交易日（全天所有15分钟时间点）的快照到 _interval_snapshots。
-    最多回溯5个自然日找上一个有快照的交易日。
+    启动时加载历史快照到 _interval_snapshots：
+    1. 先尝试加载今日快照（服务中途重启时恢复当天数据）
+    2. 再尝试加载昨日快照（正常启动时恢复历史对比数据）
+    3. 最多再回溯5个自然日找上一有快照的交易日
+    同时将最后一个快照的标的价格（S、atm_strike、max_pain、ref_strike）
+    恢复到 _last_valid 和 _state（用于服务重启后的价格恢复）。
     """
-    global _interval_snapshots
-    for days_ago in range(1, 6):
-        candidate = (datetime.now() - timedelta(days=days_ago)).strftime('%Y%m%d')
+    global _interval_snapshots, _last_valid, _state
+
+    # 候选顺序：今日 → 昨日 → 最多回溯5天
+    candidates = []
+    today = datetime.now().strftime('%Y%m%d')
+    yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y%m%d')
+    candidates.append(today)
+    candidates.append(yesterday)
+    for days_ago in range(2, 7):
+        candidates.append((datetime.now() - timedelta(days=days_ago)).strftime('%Y%m%d'))
+
+    # 用于去重（今日和昨日可能是同一文件）
+    tried = set()
+
+    for candidate in candidates:
+        if candidate in tried:
+            continue
+        tried.add(candidate)
         path = _get_snapshot_path(candidate)
         if not os.path.exists(path):
             continue
@@ -124,12 +143,91 @@ def _load_previous_day_snapshots():
                 continue
             _interval_snapshots = dict(snaps)
             _interval_loaded_from_disk.add(candidate)
-            print(f"[iv_smile] 📂 已加载上一交易日快照 ({candidate}): {len(snaps)}个时间点")
+
+            # 取最后一个时间点的快照恢复标的价格和微笑曲线数据
+            latest_key = max(snaps.keys(), key=lambda k: (int(k.replace(':', '')), k))
+            latest_snap = snaps[latest_key]
+            restored_price = latest_snap.get('futures_price')
+            restored_atm = latest_snap.get('atm_strike')
+            restored_mp = latest_snap.get('max_pain')
+            restored_ref = latest_snap.get('ref_strike')
+            restored_smooth = latest_snap.get('smooth', {})
+            restored_raw = latest_snap.get('raw', {})
+            restored_sabr = latest_snap.get('sabr_params')
+
+            if restored_price and restored_price > 0:
+                _last_valid['futures_price'] = restored_price
+                _state['futures_price'] = restored_price
+            if restored_atm:
+                _last_valid['atm_strike'] = restored_atm
+                _state['atm_strike'] = restored_atm
+            if restored_mp:
+                _last_valid['max_pain'] = restored_mp
+                _state['max_pain'] = restored_mp
+            if restored_ref:
+                _last_valid['ref_strike'] = restored_ref
+                _state['ref_strike'] = restored_ref
+            if restored_smooth:
+                _last_valid['smile_smooth'] = restored_smooth
+                _state['smile_smooth'] = restored_smooth
+            if restored_raw:
+                _last_valid['smile_raw'] = restored_raw
+                _state['smile_raw'] = restored_raw
+            if restored_sabr:
+                _last_valid['sabr_params'] = restored_sabr
+                _state['sabr_params'] = restored_sabr
+
+            date_label = "今日" if candidate == today else ("昨日" if candidate == yesterday else candidate)
+            print(f"[iv_smile] 📂 已加载{date_label}快照 ({candidate}): {len(snaps)}个时间点")
+            if restored_price:
+                print(f"[iv_smile] 📂 已恢复标的价格: S={restored_price}, ATM={restored_atm}, MP={restored_mp} (from {latest_key})")
+            if restored_smooth:
+                print(f"[iv_smile] 📂 已恢复微笑曲线: {len(restored_smooth)}档平滑IV (from {latest_key})")
             return
         except Exception as e:
             print(f"[iv_smile] ⚠️ 加载快照失败: {e}")
             continue
-    print("[iv_smile] ⚠️ 未找到上一交易日快照（正常，服务初次启动）")
+    print("[iv_smile] ⚠️ 未找到历史快照（正常，服务初次启动）")
+
+def _try_restore_from_cache():
+    """
+    当TqSdk数据未到达时，用_last_valid缓存的数据恢复微笑曲线。
+    这样即使TqSdk断线，页面仍能显示上次的曲线数据。
+    """
+    global _state
+    if _last_valid.get('smile_smooth') and not _state.get('smile_smooth'):
+        _state['smile_smooth'] = _last_valid['smile_smooth']
+        _state['smile_raw'] = _last_valid.get('smile_raw', {})
+        _state['sabr_params'] = _last_valid.get('sabr_params')
+        if _last_valid.get('futures_price'):
+            _state['futures_price'] = _last_valid['futures_price']
+        if _last_valid.get('atm_strike'):
+            _state['atm_strike'] = _last_valid['atm_strike']
+        print("[iv_smile] ✅ 已从缓存恢复微笑曲线数据")
+
+def _restore_from_latest_snapshot():
+    """
+    用_interval_snapshots中最新的快照数据恢复_state，
+    使得TqSdk断开时API仍能返回有效的微笑曲线。
+    """
+    global _state
+    if not _interval_snapshots:
+        return
+    all_keys = sorted(_interval_snapshots.keys(),
+                     key=lambda k: (int(k.replace(':', '')), k))
+    latest_key = all_keys[-1]
+    snap = _interval_snapshots[latest_key]
+    if snap.get('smooth'):
+        _state['smile_smooth'] = snap['smooth']
+        _state['smile_raw'] = snap.get('raw', {})
+        _state['sabr_params'] = snap.get('sabr_params')
+        if snap.get('futures_price'):
+            _state['futures_price'] = snap['futures_price']
+        if snap.get('atm_strike'):
+            _state['atm_strike'] = snap['atm_strike']
+        if snap.get('last_update'):
+            _state['last_update'] = snap['last_update']
+        print(f"[iv_smile] ✅ 已从快照恢复数据 ({latest_key})")
 
 # 启动时尝试加载上一交易日的全量快照
 _load_previous_day_snapshots()
@@ -343,8 +441,8 @@ def smooth_smile(K_list, IV_list, F, T):
 
     return smooth_iv, sabr
 
-_MAX_INIT_WAIT = 20   # 初始化等待 wait_update 次数（每次约0.1秒，共约2秒）
-_MAX_CONNECT_WAIT = 90  # 期货行情等待秒数
+_MAX_INIT_WAIT = 600  # 初始化等待秒数（10分钟，给模拟账户足够时间接收期权数据）
+_MAX_CONNECT_WAIT = 90  # 期货行情等待秒数（每次0.1秒，共9秒）
 _DATA_STALE_SECONDS = 120  # 数据超过此秒数未更新则触发重连
 
 def _request_tqsdk_restart(reason=""):
@@ -442,11 +540,12 @@ def tqsdk_loop():
             _option_symbols = option_symbols
             print(f"[iv_smile] 订阅期权数: {len(option_symbols)}")
 
-            # === 等待所有期权行情到达（每次wait_update约0.1秒）===
-            print("[iv_smile] 等待期权行情...")
+            # === 等待所有期权行情到达（持续等待，不设超时上限）===
+            print("[iv_smile] 等待期权行情（持续等待，不放弃）...")
             data_ready_count = 0
-            init_timeout = 0
-            while init_timeout < _MAX_INIT_WAIT:
+            last_progress_time = time.time()
+            wait_start = time.time()
+            while True:
                 if _tqsdk_restart_requested or not _state['running']:
                     break
                 api.wait_update()
@@ -458,12 +557,18 @@ def tqsdk_loop():
                         bid = getattr(oq, 'bid_price1', None)
                         if bid and bid > 0:
                             count += 1
+                elapsed = time.time() - wait_start
                 if count > data_ready_count:
-                    print(f"  wait_update {init_timeout}: {count}/{len(option_symbols)} 个期权有报价")
                     data_ready_count = count
-                if count >= len(option_symbols) * 0.8:  # 80%有报价就继续
-                    break
-                init_timeout += 1
+                    print(f"  [{elapsed:.0f}s] {count}/{len(option_symbols)} 个期权有报价")
+                    if count >= len(option_symbols) * 0.8:
+                        print(f"[iv_smile] ✅ 80%期权已就位 ({data_ready_count}/{len(option_symbols)})，继续...")
+                        break
+                # 每5秒报告一次进度（持续等待，不放弃）
+                if time.time() - last_progress_time >= 5:
+                    print(f"  [{elapsed:.0f}s] 等待中... {count}/{len(option_symbols)} 个期权有报价（持续等待，不放弃）")
+                    last_progress_time = time.time()
+                loop.run_until_complete(asyncio.sleep(0.05))
 
             # 检查是否被请求重启（等待期权时被中断）
             if _tqsdk_restart_requested or not _state['running']:
@@ -471,18 +576,18 @@ def tqsdk_loop():
                 loop.close()
                 continue
 
-            # 如果初始化超时，触发重启
+            # 即使没到80%，只要有数据就继续（不做重启，继续等待）
             if data_ready_count < len(option_symbols) * 0.8:
-                print(f"[iv_smile] ⚠️ 期权行情初始化超时 ({data_ready_count}/{len(option_symbols)})，触发重启")
-                _request_tqsdk_restart(f"init timeout ({data_ready_count}/{len(option_symbols)} options)")
-                api.close()
-                loop.close()
-                continue
+                if data_ready_count > 0:
+                    print(f"[iv_smile] ⚠️ 只有 {data_ready_count}/{len(option_symbols)} 期权有报价，持续等待（模拟账户数据可能延迟）")
+                else:
+                    print(f"[iv_smile] ⚠️ 期权数据暂未到达，持续等待（模拟账户数据可能延迟）...")
+            else:
+                print(f"[iv_smile] ✅ 数据就绪，{data_ready_count}/{len(option_symbols)} 个期权有有效报价")
 
             _state['data_ready'] = True
             _tqsdk_ready = True
             _tqsdk_last_data_time = time.time()
-            print(f"[iv_smile] ✅ 数据就绪，{data_ready_count}/{len(option_symbols)} 个期权有有效报价")
 
             # === 主事件循环 ===
             counter = 0
@@ -592,8 +697,10 @@ def compute_once():
     """执行一次IV计算（每分钟实时触发）"""
     global _state
 
-    if not _state.get('data_ready') or 'snap' not in _tqsdk_quotes:
-        print("[iv_smile] 数据尚未到达")
+    if 'snap' not in _tqsdk_quotes:
+        # 即使 data_ready=False，也要尝试从快照恢复数据（保持微笑曲线活跃）
+        _restore_from_latest_snapshot()
+        print("[iv_smile] 数据尚未到达，已从快照恢复")
         return False
 
     snap = _tqsdk_quotes.get('snap')
@@ -689,29 +796,30 @@ def compute_once():
 
     with _state['lock']:
         # 按固定15分钟时间点存储快照
+        # ⛔ 同一15分钟块内不覆盖：避免同一槽内多次计算导致数据被冲掉
         now = datetime.now()
         interval_key = get_interval_key(now)
-        _interval_snapshots[interval_key] = {
-            'smooth': {k: float(v) for k, v in smooth_iv.items()},
-            'raw': {k: dict(v) for k, v in raw_iv.items()},  # 包含C和P的原始IV
-            'timestamp': now.isoformat(),
-            'sabr_params': sabr,
-        }
+        if interval_key in _interval_snapshots:
+            # 该槽已存在，本次计算跳过（同一15分钟内只保留最早的那次）
+            print(f"[iv_smile] ⏭ 跳过重复写入: {interval_key}（该槽已存在）")
+        else:
+            _interval_snapshots[interval_key] = {
+                'smooth': {k: float(v) for k, v in smooth_iv.items()},
+                'raw': {k: dict(v) for k, v in raw_iv.items()},  # 包含C和P的原始IV
+                'timestamp': now.isoformat(),
+                'sabr_params': sabr,
+                'futures_price': S,
+                'ref_strike': ref_strike,
+                'max_pain': max_pain,
+                'atm_strike': max_pain,
+            }
+            print(f"[iv_smile] 📦 快照已存: {interval_key} ({len(_interval_snapshots)}个时间点)")
         # 只保留当天9:00-15:00的快照（开盘时间段）
         # 清理旧快照（可选：按时间过滤）
         current_hour = now.hour
-        if current_hour >= 9 and current_hour <= 15:
-            pass  # 在交易时间段，正常保存
-        else:
-            # 盘后清除旧数据，只保留最新一个
-            if len(_interval_snapshots) > 1:
-                _interval_snapshots.clear()
-                _interval_snapshots[interval_key] = {
-                    'smooth': {k: float(v) for k, v in smooth_iv.items()},
-                    'raw': {k: dict(v) for k, v in raw_iv.items()},
-                    'timestamp': now.isoformat(),
-                    'sabr_params': sabr,
-                }
+        if not (current_hour >= 9 and current_hour <= 15):
+            # 盘后不清除快照——需要保留用于次日对比
+            pass
 
         # 更新缓存
         _last_valid['futures_price'] = S
@@ -741,12 +849,36 @@ def compute_once():
 # 调度器
 _last_snapshot_minute = -1  # 上次持久化的时间（分钟），避免重复
 
+def _is_trading_hours():
+    """
+    判断当前是否在交易时段（允许SABR校准）。
+    CZCE日盘: 09:00-15:00
+    夜盘:     21:00-02:30（次日）
+    其余时段跳过SABR校准，避免休盘期间虚假波动。
+    """
+    now = datetime.now()
+    h, m = now.hour, now.minute
+    total = h * 60 + m
+    # 日盘: 09:00-15:00 (540-900)
+    day_start, day_end = 9 * 60, 15 * 60
+    # 夜盘: 21:00-02:30 (1260-150), 跨零点处理
+    night_start, night_end = 21 * 60, 2 * 60 + 30  # 1260, 150
+    if night_start <= total < 24 * 60:  # 21:00-23:59
+        return True
+    if 0 <= total <= night_end:  # 00:00-02:30
+        return True
+    if day_start <= total < day_end:  # 09:00-15:00
+        return True
+    return False
+
 def start_scheduler(interval_minutes=1):
     def loop():
         global _last_snapshot_minute
         print(f"[iv_smile] 调度器启动，间隔={interval_minutes}分钟")
         counter = 0
         while _state['running']:
+            # compute_once() 内部有 data_ready 守卫和非交易时段空跑逻辑，
+            # 09:00 后数据到达即自动触发，15:00 后空跑不影响
             compute_once()
             counter += 1
 
@@ -781,6 +913,9 @@ def register_routes(app):
     @app.route('/api/iv_smile/status')
     def iv_api_status():
         with _state['lock']:
+            # 返回快照时间点列表（用于ATM走势图）
+            snapshot_times = sorted(_interval_snapshots.keys(),
+                                   key=lambda k: (int(k.replace(':', '')), k))
             return jsonify({
                 'running': _state['running'],
                 'tqsdk_ready': _tqsdk_ready,
@@ -794,49 +929,103 @@ def register_routes(app):
                 'expiry': _state['expiry'].isoformat() if _state.get('expiry') else None,
                 'rate': _state['rate'],
                 'active_contract': _state.get('active_contract'),
-                'option_count': len(_option_symbols),
+                'snapshot_times': snapshot_times,  # 格式: ["09:00","09:15",...]
                 'reconnect_count': _tqsdk_reconnect_count,
             })
 
     @app.route('/api/iv_smile/curve')
     def iv_api_curve():
-        # 获取当前时间对应的15分钟时间点和上一个时间点
-        now = datetime.now()
-        current_key = get_interval_key(now)
-        prev_key = get_prev_interval_key(now)
-
-        # 尝试获取上一个时间点的快照；如果没找到，兜底用昨夜盘快照
+        """
+        返回当前曲线 + 上一快照曲线（用于对比）。
+        逻辑：取快照中最新时间点作为当前，上一时间点作为对比基准。
+        不依赖"当前时间对应哪个槽"——服务重启后快照仍然是正确的历史顺序。
+        """
         with _state['lock']:
-            prev_snap = _interval_snapshots.get(prev_key) or _interval_snapshots.get('night', {})
-            prev_smooth = prev_snap.get('smooth', {})
-            prev_raw = prev_snap.get('raw', {})
-            raw = _state['smile_raw']
-            smooth = _state['smile_smooth']
-            sabr = _state['sabr_params']
+            # 按时间顺序排列所有快照
+            all_keys = sorted(_interval_snapshots.keys(),
+                             key=lambda k: (int(k.replace(':', '')), k))
 
-            # 判断是否用了昨夜盘快照（作为兜底）
-            using_night_fallback = (prev_key not in _interval_snapshots) and ('night' in _interval_snapshots)
+            # 取最新和次新两个时间点
+            if len(all_keys) < 2:
+                # 只有一个快照：查一下昨日快照中是否有更早的时间点可以对比
+                # 尝试加载昨日的快照，取其最后一个时间点作为prev（用于有意义的对比）
+                prev_key_from_yesterday = None
+                if len(all_keys) == 1:
+                    # 当前只有一个时间点，尝试从昨日快照补充更早的时间点
+                    yesterday_str = (datetime.now() - timedelta(days=1)).strftime('%Y%m%d')
+                    y_path = _get_snapshot_path(yesterday_str)
+                    if os.path.exists(y_path):
+                        try:
+                            with open(y_path, 'r', encoding='utf-8') as f:
+                                y_payload = json.load(f)
+                            y_snaps = y_payload.get('snapshots', {})
+                            if y_snaps:
+                                y_keys = sorted(y_snaps.keys(),
+                                               key=lambda k: (int(k.replace(':', '')), k))
+                                if y_keys:
+                                    prev_key_from_yesterday = y_keys[-1]  # 取昨日最后时间点
+                        except Exception:
+                            pass
 
-        strikes = sorted(set(list(raw.keys()) + list(smooth.keys()))) if smooth else sorted(raw.keys())
-        curve_data = []
-        for k in strikes:
-            entry = {'strike': int(k)}
-            if k in raw:
-                entry['raw_C'] = raw[k].get('C')
-                entry['raw_P'] = raw[k].get('P')
-                vals = [v for v in raw[k].values() if v and not np.isnan(v)]
-                entry['raw_avg'] = float(np.mean(vals)) if vals else None
-            if k in smooth:
-                entry['smooth'] = smooth[k]
-            # 15分钟前的平滑曲线
-            if prev_key and k in prev_smooth:
-                entry['smooth_prev'] = prev_smooth[k]
-                entry['prev_avg'] = prev_smooth[k]
-            # 15分钟前的原始Call/Put IV
-            if prev_key and k in prev_raw:
-                entry['raw_C_prev'] = prev_raw[k].get('C')
-                entry['raw_P_prev'] = prev_raw[k].get('P')
-            curve_data.append(entry)
+                if prev_key_from_yesterday:
+                    # 冷启动但有昨日数据可用：将prev指向昨日快照，同时标记冷启动
+                    latest_key = all_keys[0] if all_keys else None
+                    # prev_key 指向昨日快照，不指向当前
+                    prev_key = prev_key_from_yesterday
+                    # 从昨日快照读取prev_smooth/prev_raw
+                    yesterday_str = (datetime.now() - timedelta(days=1)).strftime('%Y%m%d')
+                    y_path = _get_snapshot_path(yesterday_str)
+                    with open(y_path, 'r', encoding='utf-8') as f:
+                        y_payload = json.load(f)
+                    y_snaps = y_payload.get('snapshots', {})
+                    prev_snap = y_snaps.get(prev_key, {})
+                    prev_smooth = prev_snap.get('smooth', {})
+                    prev_raw = prev_snap.get('raw', {})
+                    is_cold_start_fallback = True   # 仍是冷启动，但prev有历史数据
+                    using_night_fallback = True   # 标记为昨夜盘兜底
+                else:
+                    # 真正冷启动（只有当前时间点，无昨日数据）：prev无意义
+                    latest_key = all_keys[0] if all_keys else None
+                    prev_key = None   # 明确设为None，避免prev_smooth和smooth相同
+                    prev_smooth = {}
+                    prev_raw = {}
+                    is_cold_start_fallback = True
+                    using_night_fallback = False
+            else:
+                latest_key = all_keys[-1]
+                prev_key = all_keys[-2]
+                prev_snap = _interval_snapshots.get(prev_key, {})
+                prev_smooth = prev_snap.get('smooth', {})
+                prev_raw = prev_snap.get('raw', {})
+                is_cold_start_fallback = False
+                using_night_fallback = False
+                if prev_key and ':' in prev_key:
+                    h = int(prev_key.split(':')[0])
+                    using_night_fallback = (h >= 21)
+
+            # 从当前状态取 raw/smooth（compute_once 最新结果）
+            raw = _state.get('smile_raw', {})
+            smooth = _state.get('smile_smooth', {})
+            strikes = sorted(set(list(raw.keys()) + list(smooth.keys()))) if smooth else sorted(raw.keys())
+            curve_data = []
+            for k in strikes:
+                entry = {'strike': int(k)}
+                if k in raw:
+                    entry['raw_C'] = raw[k].get('C')
+                    entry['raw_P'] = raw[k].get('P')
+                    vals = [v for v in raw[k].values() if v and not np.isnan(v)]
+                    entry['raw_avg'] = float(np.mean(vals)) if vals else None
+                if k in smooth:
+                    entry['smooth'] = smooth[k]
+                # 15分钟前的平滑曲线
+                if prev_key and k in prev_smooth:
+                    entry['smooth_prev'] = prev_smooth[k]
+                    entry['prev_avg'] = prev_smooth[k]
+                # 15分钟前的原始Call/Put IV
+                if prev_key and k in prev_raw:
+                    entry['raw_C_prev'] = prev_raw[k].get('C')
+                    entry['raw_P_prev'] = prev_raw[k].get('P')
+                curve_data.append(entry)
 
         # 格式化prev_timestamp（更友好）
         prev_ts = prev_snap.get('timestamp', '')
@@ -852,6 +1041,14 @@ def register_routes(app):
         # 如果用了昨夜盘兜底，timestamp改为"昨收盘"
         if using_night_fallback and not prev_ts_display:
             prev_ts_display = '昨收盘'
+        # 冷启动兜底时（无当日历史对比，但可能有昨夜盘数据）:
+        # 若 prev_key 指向有效历史数据，仍显示时间标签
+        # 只有 prev_key 为 None（真正无历史数据）时才清除时间标签
+        if is_cold_start_fallback and prev_key is None:
+            prev_ts_display = None
+
+        # SABR 参数（从全局状态获取，即使冷启动也有快照中恢复的值）
+        sabr = _state.get('sabr_params', {})
 
         return jsonify({
             'futures_price': _state['futures_price'],
@@ -863,8 +1060,9 @@ def register_routes(app):
             'curve': curve_data,
             'prev_timestamp': prev_ts_display,      # 格式: "09:30" 或 "昨收盘"
             'prev_interval_key': prev_key,          # 格式: "09:30"
-            'current_interval_key': current_key,   # 格式: "09:45"
+            'current_interval_key': latest_key,   # 格式: "10:45"
             'using_night_fallback': using_night_fallback,  # 是否用了昨夜盘兜底
+            'is_cold_start_fallback': is_cold_start_fallback,  # 冷启动兜底（prev与current相同，无对比意义）
         })
 
     @app.route('/api/iv_smile/trigger', methods=['POST'])
