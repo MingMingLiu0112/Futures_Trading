@@ -331,10 +331,10 @@ const chartInstances = {};
 let _cachedCurveData = [];
 // smile 图表数据源缓存（供 tooltip formatter 通过 dataIndex 查找 IV 值）
 let _smileDataSrc = [];
-// ATM走势图：使用固定15分钟时间节点（来自后端快照_times）
-// _atmHistory 每个元素 {time: "HH:MM", value: iv_float}，最多30个点
+// ATM走势图：每分钟追加一点（来自后端atm_history）
+// _atmHistory 每个元素 {time: "HH:MM", value: iv_float}，最多480个点
 let _atmHistory = [];
-let _lastAtmMinute = -1;  // 上次添加ATM点的时间（用于判断是否到新15分钟槽）
+let _atmHistoryInitDone = false;
 
 // ===================== 通用主题 =====================
 const chartTheme = {
@@ -730,6 +730,15 @@ async function fetchData() {
     window._latestAtmStrike = data.atm_strike || null;
     window._latestMaxPain = data.max_pain || null;
 
+    // 用 status.atm_history 初始化 ATM 走势图（仅首次，刷新页面不会重置）
+    if (status.atm_history && Object.keys(status.atm_history).length > 0 && !_atmHistoryInitDone) {
+      _atmHistory = Object.entries(status.atm_history)
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([time, value]) => ({ time, value }));
+      _atmHistoryInitDone = true;
+      console.log('[iv_smile] ATM走势初始化完成，当前', _atmHistory.length, '个点');
+    }
+
     updateStatus(status, data);
     updateSmileChart(data);
     updateAtmChart(data);
@@ -813,42 +822,11 @@ function updateSmileChart(data) {
   }
 }
 
-// ATM历史走势（固定15分钟时间节点，来自后端快照）
+// ATM历史走势（每分钟追加一点，数据来自后端atm_history）
 function updateAtmChart(data) {
   const chart = chartInstances.atm;
   if (!chart) return;
-  const atmStrike = data.atm_strike;
-  const curve = data.curve || [];
-  let atmIv = null;
-  if (atmStrike) {
-    const atmItem = curve.find(d => d.strike === atmStrike);
-    if (atmItem) atmIv = atmItem.smooth || atmItem.raw_avg || atmItem.raw_C || atmItem.raw_P;
-  }
-  if (atmIv === null || atmIv === undefined) return;
-
-  // 用后端 last_update 的时间（精确到分钟）
-  const ts = data.last_update
-    ? new Date(data.last_update).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-    : new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-
-  // 提取当前分钟数和当前时间点（HH:MM格式，15分钟对齐）
-  const now = new Date();
-  const curMinute = now.getHours() * 60 + now.getMinutes();
-  const cur15Min = Math.floor(curMinute / 15);  // 0, 1, 2, 3, ... 编号
-  const curSlotLabel = `${String(Math.floor((cur15Min * 15) / 60)).padStart(2,'0')}:${String((cur15Min * 15) % 60).padStart(2,'0')}`;
-
-  // 只有到新15分钟槽时才追加点，同一分钟内只更新最后一个点
-  const lastEntry = _atmHistory.length > 0 ? _atmHistory[_atmHistory.length - 1] : null;
-  if (_atmHistory.length === 0 ||
-      curSlotLabel !== _lastAtmMinute) {
-    _atmHistory.push({ time: curSlotLabel, value: atmIv });
-    _lastAtmMinute = curSlotLabel;
-    if (_atmHistory.length > 30) _atmHistory.shift();
-  } else {
-    // 同槽：更新最后一个点
-    if (lastEntry) lastEntry.value = atmIv;
-  }
-
+  // 直接用 _atmHistory（已由 fetchData 中的初始化逻辑填充）
   chart.setOption({
     xAxis: { data: _atmHistory.map(d => d.time) },
     series: [{ data: _atmHistory.map(d => d.value) }],

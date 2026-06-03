@@ -58,6 +58,11 @@ _last_valid = {
 _interval_snapshots = {}          # 内存快照: key="HH:MM" 或 "night"
 _interval_loaded_from_disk = set()  # 已从磁盘加载的日期，避免重复
 
+# ATM IV 历史（每分钟追加一点，连续曲线）
+# [{'time_key': '09:01', 'value': 0.2534}, ...]
+_atm_iv_history = []
+_prev_atm_snapshot_minute = -1     # 上次追加时的15分钟窗口编号，不再用于去重，仅占位兼容
+
 # ===================== 跨模块共享接口 =====================
 def get_shared_futures_price():
     """供其他模块共享的实时期货价格。
@@ -839,6 +844,16 @@ def compute_once():
         _state['sabr_params'] = sabr
         _state['last_update'] = now.isoformat()
 
+        # 记录ATM IV到历史（每1分钟追加一点，连续曲线）
+        global _prev_atm_snapshot_minute, _atm_iv_history
+        atm_iv_val = smooth_iv.get(max_pain) if max_pain else None
+        if atm_iv_val:
+            time_key = f"{now.hour:02d}:{now.minute:02d}"
+            _atm_iv_history.append({'time_key': time_key, 'value': float(atm_iv_val)})
+            if len(_atm_iv_history) > 480:
+                del _atm_iv_history[:-480]
+        _prev_atm_snapshot_minute = -1  # 占位兼容，不再用于去重
+
     sabr_str = (f"α={sabr['alpha']:.3f} ρ={sabr['rho']:.2f} ν={sabr['nu']:.2f}") if sabr else "失败"
     mp_str = f"MP={max_pain}" if max_pain else ""
     print(f"[iv_smile] ✅ S={S:.0f} {mp_str} 档位={len(raw_iv)} SABR({sabr_str})")
@@ -930,6 +945,7 @@ def register_routes(app):
                 'rate': _state['rate'],
                 'active_contract': _state.get('active_contract'),
                 'snapshot_times': snapshot_times,  # 格式: ["09:00","09:15",...]
+                'atm_history': {item['time_key']: item['value'] for item in _atm_iv_history},
                 'reconnect_count': _tqsdk_reconnect_count,
             })
 
