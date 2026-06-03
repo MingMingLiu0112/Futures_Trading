@@ -734,6 +734,7 @@ async function fetchData() {
     if (status.atm_history && Object.keys(status.atm_history).length > 0 && !_atmHistoryInitDone) {
       _atmHistory = Object.entries(status.atm_history)
         .sort((a, b) => a[0].localeCompare(b[0]))
+        .filter(([time, value]) => typeof value === 'number' && !isNaN(value))
         .map(([time, value]) => ({ time, value }));
       _atmHistoryInitDone = true;
       console.log('[iv_smile] ATM走势初始化完成，当前', _atmHistory.length, '个点');

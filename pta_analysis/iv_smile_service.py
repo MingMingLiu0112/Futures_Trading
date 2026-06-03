@@ -1,4 +1,5 @@
 
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -150,7 +151,9 @@ def _load_previous_day_snapshots():
             _interval_loaded_from_disk.add(candidate)
 
             # 取最后一个时间点的快照恢复标的价格和微笑曲线数据
-            latest_key = max(snaps.keys(), key=lambda k: (int(k.replace(':', '')), k))
+            # 过滤掉无数据的空快照key（如 'night' 锚点），避免排序/取值时异常
+            valid_keys = [k for k in snaps if snaps[k].get('smooth')]
+            latest_key = max(valid_keys, key=lambda k: (int(k.replace(':', '')), k))
             latest_snap = snaps[latest_key]
             restored_price = latest_snap.get('futures_price')
             restored_atm = latest_snap.get('atm_strike')
@@ -929,7 +932,9 @@ def register_routes(app):
     def iv_api_status():
         with _state['lock']:
             # 返回快照时间点列表（用于ATM走势图）
-            snapshot_times = sorted(_interval_snapshots.keys(),
+            # 过滤掉无数据的空快照key（如 'night' 锚点），避免排序/取值时异常
+            valid_keys = [k for k in _interval_snapshots if _interval_snapshots[k].get('smooth')]
+            snapshot_times = sorted(valid_keys,
                                    key=lambda k: (int(k.replace(':', '')), k))
             return jsonify({
                 'running': _state['running'],
