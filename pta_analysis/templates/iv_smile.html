@@ -346,7 +346,7 @@ const chartTheme = {
 function initCharts() {
   // 1. 微笑曲线散点图
   const smileEl = document.getElementById('smileChart');
-  const smileChart = echarts.init(smileEl, null, { renderer: 'svg' });
+  const smileChart = echarts.init(smileEl, null, { renderer: 'canvas' });
   chartInstances.smile = smileChart;
   smileChart.setOption({
     ...chartTheme,
