@@ -1229,6 +1229,9 @@ def register_routes(app):
             smooth = _state.get('smile_smooth', {})
             strikes = sorted(set(list(raw.keys()) + list(smooth.keys()))) if smooth else sorted(raw.keys())
 
+            # 持仓数据（当前 strike_oi）
+            strike_oi = _state.get('strike_oi', {})
+
             # 前次曲线改为 15:00 收盘基准快照
             # 优先从 _close_baseline 取（运行时记录，有strike_oi）；兜底从 _interval_snapshots 找今日 15:00 槽
             close_baseline = _close_baseline
@@ -1261,6 +1264,10 @@ def register_routes(app):
                     entry['raw_avg'] = float(np.mean(vals)) if vals else None
                 if k in smooth:
                     entry['smooth'] = smooth[k]
+                # 持仓数据（来自快照中的 strike_oi）
+                if k in strike_oi:
+                    entry['call_oi'] = strike_oi[k].get('C', 0) or 0
+                    entry['put_oi'] = strike_oi[k].get('P', 0) or 0
                 # 前次曲线（15:00收盘基准）
                 k_str = str(k)
                 if prev_smooth and k_str in prev_smooth:
