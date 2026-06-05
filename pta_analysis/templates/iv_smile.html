@@ -33,10 +33,10 @@
   .status-value.warn { color: #ffaa00; }
   .status-value.error { color: #ff4444; }
 
-  /* ===== 指标栏（1行8列）===== */
+  /* ===== 指标栏（2行4列 = 8格）===== */
   .metric-grid {
     display: grid;
-    grid-template-columns: repeat(8, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: 8px;
     margin-bottom: 10px;
   }
@@ -73,11 +73,12 @@
   }
 
   /* ===== T型表格 ===== */
-  .t-table-wrap { margin-top: 10px; }
+  .t-table-wrap { margin-top: 10px; padding: 0 2px; }
   .t-table {
     width: 100%;
     border-collapse: collapse;
     font-size: 12px;
+    table-layout: fixed;
   }
   .t-table thead {
     background: #1a1a2e;
@@ -93,17 +94,26 @@
     text-align: right;
     border-bottom: 2px solid #2a2a4a;
   }
-  .t-table th:first-child { text-align: center; }
+  /* 对称列宽：Call 4列 | 行权价 | Put 4列 */
+  .t-table colgroup .col-oi   { width: 14%; }
+  .t-table colgroup .col-oichg { width: 10%; }
+  .t-table colgroup .col-iv   { width: 10%; }
+  .t-table colgroup .col-ivchg { width: 10%; }
+  .t-table colgroup .col-strike { width: 12%; }
   .t-table th.call-h { color: #00d4ff; }
   .t-table th.put-h { color: #ff6b9d; }
-  .t-table th.center-h { color: #ffaa00; }
+  .t-table th.center-h { color: #ffaa00; text-align: center; }
   .t-table td {
     padding: 4px 8px;
     text-align: right;
     color: #ccc;
     border-bottom: 1px solid #1a1a2a;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  .t-table td:first-child { text-align: center; color: #888; font-weight: 600; }
+  /* 行权价居中（第5列） */
+  .t-table td:nth-child(5) { text-align: center; color: #ffaa00; font-weight: 600; }
   .t-table tr:hover { background: #1a1a2e; }
   .t-table tr.atm-row { background: #1a2a1a; }
   .t-table tr.atm-row:hover { background: #1f3020; }
@@ -179,7 +189,7 @@
       </div>
       <div class="status-item">
         <span class="status-label">最大痛点</span>
-        <span class="status-value" id="refStrike">--</span>
+        <span class="status-value" id="maxPain">--</span>
       </div>
       <div class="status-item">
         <span class="status-label">到期日</span>
@@ -194,8 +204,9 @@
   </div>
 </div>
 
-<!-- ===== 指标栏（8格）===== -->
+<!-- ===== 指标栏（2行4列 = 8格）===== -->
 <div class="metric-grid">
+  <!-- 第1行 -->
   <div class="metric-box">
     <div class="metric-name">ATM 隐波</div>
     <div class="metric-value" id="mAtmIv" style="color:#ffaa00;">--</div>
@@ -216,6 +227,7 @@
     <div class="metric-value" id="mShape" style="color:#aaffaa;">--</div>
     <div class="metric-sub" id="mShapeSub">整体平移</div>
   </div>
+  <!-- 第2行 -->
   <div class="metric-box">
     <div class="metric-name">α (alpha)</div>
     <div class="metric-value" id="mAlpha" style="color:#00d4ff;">--</div>
@@ -232,9 +244,9 @@
     <div class="metric-sub">曲率参数</div>
   </div>
   <div class="metric-box">
-    <div class="metric-name">c (skew)</div>
-    <div class="metric-value" id="mC" style="color:#ffaa00;">--</div>
-    <div class="metric-sub">偏度参数</div>
+    <div class="metric-name">c</div>
+    <div class="metric-value" id="mFitErr" style="color:#888;">--</div>
+    <div class="metric-sub">拟合残差 RMSE</div>
   </div>
 </div>
 
@@ -262,6 +274,17 @@
 <div class="t-table-wrap">
   <div class="card-title" style="margin-bottom:8px;">分档隐波明细</div>
   <table class="t-table">
+    <colgroup>
+      <col class="col-oi">
+      <col class="col-oichg">
+      <col class="col-iv">
+      <col class="col-ivchg">
+      <col class="col-strike">
+      <col class="col-ivchg">
+      <col class="col-iv">
+      <col class="col-oichg">
+      <col class="col-oi">
+    </colgroup>
     <thead>
       <tr>
         <th class="call-h">Call持仓</th>
@@ -317,15 +340,13 @@ function initCharts() {
         const strike = params[0].axisValue;
         let html = `<b>行权价 ${strike}</b><br/>`;
         for (const p of params) {
-          let yVal = null;
           const v = p.value;
-          if (Array.isArray(v)) { yVal = v[1] !== undefined ? v[1] : v[0]; }
-          else if (typeof v === 'number') { yVal = v; }
-          if (yVal !== null && !isNaN(yVal)) {
+          // category轴下 value 是纯数值
+          if (v != null && !isNaN(v)) {
             const color = p.seriesName.includes('Call') ? '#00d4ff'
               : p.seriesName.includes('Put') ? '#ff6b9d'
               : p.seriesName.includes('15:00') ? '#8888ff' : '#ffaa00';
-            html += `${p.seriesName}: <b style="color:${color}">${(yVal * 100).toFixed(2)}%</b><br/>`;
+            html += `${p.seriesName}: <b style="color:${color}">${(v * 100).toFixed(2)}%</b><br/>`;
           }
         }
         return html;
@@ -339,6 +360,7 @@ function initCharts() {
       axisTick: { show: false },
       axisLabel: { color: '#555', fontSize: 9, rotate: 45 },
       splitLine: { show: false },
+      data: [],
     },
     yAxis: {
       type: 'value',
@@ -348,13 +370,12 @@ function initCharts() {
       axisTick: { show: false },
       axisLabel: { color: '#555', fontSize: 9, formatter: v => (v * 100).toFixed(1) + '%' },
       splitLine: { lineStyle: { color: '#1a1a2a', type: 'dashed' } },
-      min: 0.05, max: 0.50,
     },
     series: [
       { name: 'Call IV', type: 'scatter', symbol: 'circle', symbolSize: 6,
-        itemStyle: { color: '#00d4ff', opacity: 0.5 }, data: [], z: 2 },
+        itemStyle: { color: '#00d4ff', opacity: 0.6 }, data: [], z: 2 },
       { name: 'Put IV', type: 'scatter', symbol: 'circle', symbolSize: 6,
-        itemStyle: { color: '#ff6b9d', opacity: 0.5 }, data: [], z: 2 },
+        itemStyle: { color: '#ff6b9d', opacity: 0.6 }, data: [], z: 2 },
       { name: '平滑曲线', type: 'line', smooth: 0.4, lineWidth: 2.5,
         itemStyle: { color: '#ffaa00' }, symbol: 'none', data: [], z: 3 },
       { name: '15:00收盘基准', type: 'line', smooth: 0.4, lineWidth: 2,
@@ -455,7 +476,7 @@ async function fetchData() {
 
 function updateStatus(status, data) {
   document.getElementById('fPrice').textContent = status.futures_price ? status.futures_price.toFixed(0) : '--';
-  document.getElementById('refStrike').textContent = (status.ref_strike || status.max_pain) || '--';
+  document.getElementById('maxPain').textContent = data.max_pain || '--';
   document.getElementById('expiry').textContent = status.expiry ? new Date(status.expiry).toLocaleDateString('zh-CN') : '--';
   document.getElementById('prevTime').textContent = data.prev_timestamp || '--';
 
@@ -467,27 +488,39 @@ function updateSmileChart(data) {
   const chart = chartInstances.smile;
   if (!chart) return;
   const curve = data.curve || [];
-  if (curve.length === 0) { chart.showLoading({ text: '暂无数据', color: '#444', textColor: '#444' }); return; }
+  if (curve.length === 0) {
+    chart.showLoading({ text: '暂无数据', color: '#444', textColor: '#444' });
+    return;
+  }
   chart.hideLoading();
 
-  const callData = [], putData = [], smoothLine = [], prevLine = [];
-  curve.forEach(item => {
-    const x = item.strike;
-    if (item.raw_C != null && !isNaN(item.raw_C)) callData.push([x, item.raw_C]);
-    if (item.raw_P != null && !isNaN(item.raw_P)) putData.push([x, item.raw_P]);
-    if (item.smooth != null && !isNaN(item.smooth)) smoothLine.push([x, item.smooth]);
-    if (item.smooth_prev != null && !isNaN(item.smooth_prev)) prevLine.push([x, item.smooth_prev]);
-  });
-  smoothLine.sort((a, b) => a[0] - b[0]);
-  prevLine.sort((a, b) => a[0] - b[0]);
+  // 按行权价排序
+  const sorted = [...curve].sort((a, b) => a.strike - b.strike);
+  const strikes = sorted.map(d => String(d.strike));
+
+  // 构建数据数组：对应 category 轴上每个 index 的值
+  // category 轴的 series data 应为纯数值数组，与 xAxis.data 一一对应
+  const callData = sorted.map(d => (d.raw_C != null && !isNaN(d.raw_C)) ? d.raw_C : null);
+  const putData = sorted.map(d => (d.raw_P != null && !isNaN(d.raw_P)) ? d.raw_P : null);
+  const smoothData = sorted.map(d => (d.smooth != null && !isNaN(d.smooth)) ? d.smooth : null);
+  const prevData = sorted.map(d => (d.smooth_prev != null && !isNaN(d.smooth_prev)) ? d.smooth_prev : null);
+
+  // 计算 y 轴范围
+  const allVals = [...callData, ...putData, ...smoothData, ...prevData].filter(v => v != null);
+  let yMin = Math.min(...allVals);
+  let yMax = Math.max(...allVals);
+  const padding = (yMax - yMin) * 0.1;
+  yMin = Math.max(0, yMin - padding);
+  yMax = yMax + padding;
 
   chart.setOption({
-    xAxis: { data: curve.map(d => d.strike) },
+    xAxis: { data: strikes },
+    yAxis: { min: parseFloat(yMin.toFixed(3)), max: parseFloat(yMax.toFixed(3)) },
     series: [
       { data: callData },
       { data: putData },
-      { data: smoothLine },
-      { data: prevLine },
+      { data: smoothData },
+      { data: prevData },
     ],
   });
 }
@@ -495,13 +528,25 @@ function updateSmileChart(data) {
 function updateAtmChart(data) {
   const chart = chartInstances.atm;
   if (!chart) return;
+
+  if (_atmHistory.length === 0) {
+    chart.showLoading({
+      text: '盘中积累数据后显示',
+      color: '#444',
+      textColor: '#444',
+      maskColor: 'transparent',
+    });
+    return;
+  }
+  chart.hideLoading();
+
   chart.setOption({
     xAxis: { data: _atmHistory.map(d => d.time) },
     series: [{ data: _atmHistory.map(d => d.value) }],
   });
 }
 
-// 更新8格指标栏
+// 更新指标栏（2行4列 = 8格）
 function updateMetrics(data) {
   const curve = data.curve || [];
   if (curve.length === 0) return;
@@ -534,19 +579,21 @@ function updateMetrics(data) {
     }
   }
 
-  // 波动率偏向（Call-Put斜度）
+  // 波动率偏向（Call-Put斜度）：OTM Call avg IV - OTM Put avg IV
   if (atmStrike && curve.length > 0) {
-    const atmPutItem = curve.find(d => d.strike === atmStrike);
-    const otmItems = curve.filter(d => d.strike > atmStrike && d.raw_C != null);
-    if (otmItems.length > 0 && atmPutItem && atmPutItem.raw_P != null) {
-      const otmCall = otmItems.reduce((min, d) => d.raw_C < min.raw_C ? d : min, otmItems[0]);
-      if (otmCall && otmCall.raw_C) {
-        const skew = (otmCall.raw_C - atmPutItem.raw_P) * 100;
-        const skewEl = document.getElementById('mSkew');
-        skewEl.textContent = skew.toFixed(2) + '%';
-        skewEl.style.color = skew > 0 ? '#ff6b9d' : '#00d4ff';
-        document.getElementById('mSkewSub').textContent = skew > 0 ? 'Call > Put' : 'Put > Call';
-      }
+    const otmCalls = curve.filter(d => d.strike > atmStrike && d.raw_C != null && !isNaN(d.raw_C));
+    const otmPuts = curve.filter(d => d.strike < atmStrike && d.raw_P != null && !isNaN(d.raw_P));
+    if (otmCalls.length > 0 && otmPuts.length > 0) {
+      // 取最近的2-3档OTM做对比
+      const nearOtmCalls = otmCalls.slice(0, 3);
+      const nearOtmPuts = otmPuts.slice(-3);
+      const avgCallIv = nearOtmCalls.reduce((s, d) => s + d.raw_C, 0) / nearOtmCalls.length;
+      const avgPutIv = nearOtmPuts.reduce((s, d) => s + d.raw_P, 0) / nearOtmPuts.length;
+      const skew = (avgCallIv - avgPutIv) * 100;
+      const skewEl = document.getElementById('mSkew');
+      skewEl.textContent = (skew >= 0 ? '+' : '') + skew.toFixed(2) + '%';
+      skewEl.style.color = skew > 0 ? '#ff6b9d' : '#00d4ff';
+      document.getElementById('mSkewSub').textContent = skew > 0 ? 'Call > Put' : 'Put > Call';
     }
   }
 
@@ -570,10 +617,25 @@ function updateMetrics(data) {
   // SABR 参数
   const sabr = data.sabr_params;
   if (sabr) {
-    document.getElementById('mAlpha').textContent = sabr.alpha ? sabr.alpha.toFixed(4) : '--';
-    document.getElementById('mRho').textContent = sabr.rho ? sabr.rho.toFixed(4) : '--';
-    document.getElementById('mNu').textContent = sabr.nu ? sabr.nu.toFixed(4) : '--';
-    document.getElementById('mC').textContent = sabr.c ? sabr.c.toFixed(4) : '--';
+    document.getElementById('mAlpha').textContent = sabr.alpha != null ? sabr.alpha.toFixed(4) : '--';
+    document.getElementById('mRho').textContent = sabr.rho != null ? sabr.rho.toFixed(4) : '--';
+    document.getElementById('mNu').textContent = sabr.nu != null ? sabr.nu.toFixed(4) : '--';
+    // 拟合残差：用拟合曲线 vs 实际散点的均方根误差
+    if (curve.length > 0) {
+      let ssq = 0, n = 0;
+      curve.forEach(d => {
+        if (d.smooth != null) {
+          if (d.raw_C != null && !isNaN(d.raw_C)) { ssq += (d.smooth - d.raw_C) ** 2; n++; }
+          if (d.raw_P != null && !isNaN(d.raw_P)) { ssq += (d.smooth - d.raw_P) ** 2; n++; }
+        }
+      });
+      if (n > 0) {
+        const rmse = Math.sqrt(ssq / n) * 100;
+        const fitEl = document.getElementById('mFitErr');
+        fitEl.textContent = rmse.toFixed(2) + '%';
+        fitEl.style.color = rmse < 1 ? '#00ff88' : rmse < 3 ? '#ffaa00' : '#ff4444';
+      }
+    }
   }
 }
 
@@ -607,9 +669,22 @@ function updateTable(alertData, curveData) {
     return `<span class="${cls}">${sign}${chg.toFixed(2)}%</span>`;
   };
 
-  // 格式化持仓变化
-  const fmtOiChg = (chg, level) => {
-    if (chg == null) return '<span style="color:#333">--</span>';
+  // 格式化持仓变化（百分比）
+  const fmtOiChg = (current, prev, level) => {
+    // 如果当前和前次都无数据，显示 --
+    if ((current == null || current === 0) && (prev == null || prev === 0)) {
+      return '<span style="color:#333">--</span>';
+    }
+    // 如果当前无数据但有基准，显示基准值（非交易时段场景）
+    if ((current == null || current === 0) && prev > 0) {
+      return `<span style="color:#555">基${prev.toLocaleString()}</span>`;
+    }
+    // 如果有当前但无基准，不显示变化
+    if (prev == null || prev === 0) {
+      return '<span style="color:#333">--</span>';
+    }
+    // 正常：都有值，计算百分比变化
+    const chg = (current - prev) / prev;
     const pct = (chg * 100).toFixed(1);
     const sign = chg >= 0 ? '+' : '';
     let cls = 'iv-flat';
@@ -621,9 +696,11 @@ function updateTable(alertData, curveData) {
   };
 
   // 格式化持仓量
-  const fmtOi = (oi) => {
-    if (oi == null || oi === 0) return '<span style="color:#333">--</span>';
-    return oi.toLocaleString();
+  const fmtOi = (oi, prev) => {
+    if (oi != null && oi > 0) return oi.toLocaleString();
+    // 非交易时段当前OI=0，显示基准OI（灰色）
+    if (prev != null && prev > 0) return `<span style="color:#555">(${prev.toLocaleString()})</span>`;
+    return '<span style="color:#333">--</span>';
   };
 
   const html = rows.map(r => {
@@ -639,15 +716,15 @@ function updateTable(alertData, curveData) {
       ? r.iv_put - r.iv_put_prev : null;
 
     return `<tr ${trCls}>
-      <td>${fmtOi(r.oi_call)}</td>
-      <td>${fmtOiChg(r.oi_call_chg, r.oi_call_level)}</td>
+      <td>${fmtOi(r.oi_call, r.oi_call_prev)}</td>
+      <td>${fmtOiChg(r.oi_call, r.oi_call_prev, r.oi_call_level)}</td>
       <td>${fmtIv(r.iv_call, 'iv-call')}</td>
       <td>${fmtIvChg(callIvChg, r.iv_level)}</td>
       <td>${star}${r.strike}</td>
       <td>${fmtIvChg(putIvChg, r.iv_level)}</td>
       <td>${fmtIv(r.iv_put, 'iv-put')}</td>
-      <td>${fmtOiChg(r.oi_put_chg, r.oi_put_level)}</td>
-      <td>${fmtOi(r.oi_put)}</td>
+      <td>${fmtOiChg(r.oi_put, r.oi_put_prev, r.oi_put_level)}</td>
+      <td>${fmtOi(r.oi_put, r.oi_put_prev)}</td>
     </tr>`;
   }).join('');
 
