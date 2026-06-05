@@ -63,8 +63,10 @@ _last_valid = {
 # 历史快照（按固定15分钟时间点存储）
 # key: "HH:MM" 如 "09:00", "09:15", ... 或 'night'（昨夜盘锚点）
 # value: {'smooth': {strike: iv}, 'raw': {strike: {'C': iv, 'P': iv}}, 'timestamp': str}
-_interval_snapshots = {}          # 内存快照: key="HH:MM" 或 "night"
+_interval_snapshots = {}          # 内存快照: key="HH:MM" 或 "night"（仅当天数据）
 _interval_loaded_from_disk = set()  # 已从磁盘加载的日期，避免重复
+_prev_day_baseline = {}           # 前一交易日15:00收盘快照（启动时从磁盘加载）
+                                  # {'smooth': {}, 'raw': {}, 'strike_oi': {}, 'timestamp': str, 'futures_price': float}
 
 # ATM IV 历史（每分钟追加一点，连续曲线）
 # [{'time_key': '09:01', 'value': 0.2534}, ...]
@@ -267,76 +269,86 @@ def _save_all_snapshots():
 
 def _load_previous_day_snapshots():
     """
-    启动时加载历史快照到 _interval_snapshots：
-    1. 加载今日快照（服务中途重启时恢复当天数据）
-    2. 加载昨日快照（正常启动时恢复历史对比数据）
-    3. 最多再回溯5个自然日
-    合并策略：今日数据优先（相同 key 覆盖昨日），同时保留昨日的非重叠数据作为兜底。
-    同时恢复标的价格和微笑曲线到 _state（用于服务重启后立即可用）。
+    启动时加载快照：
+    1. 今日快照 → _interval_snapshots（服务中途重启恢复当天数据）
+    2. 前一交易日的15:00快照 → _prev_day_baseline（收盘基准对比）
+    3. 从最新快照恢复标的价格和微笑曲线到 _state
+    
+    关键：_interval_snapshots 只存当天数据，避免多天数据合并后写入磁盘造成污染。
     """
-    global _interval_snapshots, _last_valid, _state
+    global _interval_snapshots, _last_valid, _state, _prev_day_baseline
 
     _interval_snapshots = {}
+    _prev_day_baseline = {}
 
-    # 候选顺序：今日 → 昨日 → 最多回溯5天
-    candidates = []
     today = datetime.now().strftime('%Y%m%d')
-    yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y%m%d')
-    candidates.append(today)
-    candidates.append(yesterday)
-    for days_ago in range(2, 7):
-        candidates.append((datetime.now() - timedelta(days=days_ago)).strftime('%Y%m%d'))
 
-    # 用于去重（今日和昨日可能是同一文件）
-    tried = set()
-    latest_for_restore = None  # 最近一个有数据的快照（用于恢复标的价格）
+    # === 1. 加载今日快照（服务中途重启时恢复） ===
+    today_path = _get_snapshot_path(today)
+    latest_for_restore = None
     latest_for_restore_key = None
-    latest_for_restore_file = None
-    latest_for_restore_ts = None  # 记录来自哪个文件
+    latest_for_restore_ts = None
 
-    for candidate in candidates:
-        if candidate in tried:
-            continue
-        tried.add(candidate)
-        path = _get_snapshot_path(candidate)
-        if not os.path.exists(path):
-            continue
+    if os.path.exists(today_path):
         try:
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(today_path, 'r', encoding='utf-8') as f:
                 payload = json.load(f)
             snaps = payload.get('snapshots', {})
-            if not snaps:
-                continue
-
-            # 合并：今日快照优先；同一 key 重复时后者覆盖前者
+            # 只加载 timestamp 属于今天的快照（过滤掉从旧天污染进来的数据）
             for k, v in snaps.items():
-                _interval_snapshots[k] = v
-
-            _interval_loaded_from_disk.add(candidate)
-
-            # 取最后一个时间点的快照（用于恢复标的价格）
-            valid_keys = [k for k in snaps if snaps[k].get('smooth')]
-            if valid_keys:
-                latest_key = max(valid_keys, key=lambda k: (int(k.replace(':', '')), k))
-                snap_ts = snaps[latest_key].get('timestamp', '')
-                is_newer = (
-                    latest_for_restore is None or
-                    candidate in (today, yesterday) or
-                    (snap_ts and latest_for_restore_ts and snap_ts > latest_for_restore_ts)
-                )
-                if is_newer:
-                    latest_for_restore = snaps[latest_key]
-                    latest_for_restore_key = latest_key
-                    latest_for_restore_file = candidate
-                    latest_for_restore_ts = snap_ts
-
-            date_label = "今日" if candidate == today else ("昨日" if candidate == yesterday else candidate)
-            print(f"[iv_smile] 📂 已加载{date_label}快照 ({candidate}): {len(snaps)}个时间点")
+                snap_ts = v.get('timestamp', '')
+                if snap_ts and snap_ts[:10].replace('-', '') == today:
+                    _interval_snapshots[k] = v
+                # 即使不放进 _interval_snapshots，也检查是否可用于恢复 _state
+                if v.get('smooth'):
+                    ts = v.get('timestamp', '')
+                    if latest_for_restore_ts is None or ts > latest_for_restore_ts:
+                        latest_for_restore = v
+                        latest_for_restore_key = k
+                        latest_for_restore_ts = ts
+            _interval_loaded_from_disk.add(today)
+            print(f"[iv_smile] 📂 已加载今日快照 ({today}): {len(_interval_snapshots)}个时间点")
         except Exception as e:
-            print(f"[iv_smile] ⚠️ 加载快照失败: {e}")
+            print(f"[iv_smile] ⚠️ 加载今日快照失败: {e}")
+
+    # === 2. 从历史文件找前一交易日的15:00基准 ===
+    # 回溯最多7天（跳过周末/假期）
+    for days_ago in range(1, 8):
+        prev_date = (datetime.now() - timedelta(days=days_ago)).strftime('%Y%m%d')
+        prev_path = _get_snapshot_path(prev_date)
+        if not os.path.exists(prev_path):
+            continue
+        try:
+            with open(prev_path, 'r', encoding='utf-8') as f:
+                payload = json.load(f)
+            snaps = payload.get('snapshots', {})
+            snap_15 = snaps.get('15:00')
+            if snap_15 and snap_15.get('smooth'):
+                # 验证 timestamp 确实属于该日期（防止污染数据）
+                snap_ts = snap_15.get('timestamp', '')
+                snap_date = snap_ts[:10].replace('-', '') if snap_ts else ''
+                if snap_date == prev_date:
+                    _prev_day_baseline = snap_15
+                    print(f"[iv_smile] 📂 已加载前一交易日15:00基准 ({prev_date}): "
+                          f"smooth={len(snap_15.get('smooth',{}))}档 "
+                          f"oi={len(snap_15.get('strike_oi',{}))}档 "
+                          f"ts={snap_ts[:19]}")
+                    break
+                else:
+                    print(f"[iv_smile] ⚠️ {prev_date} 的15:00快照timestamp不匹配({snap_ts})，跳过")
+            # 如果该天没有15:00但有其他数据，也用于恢复 _state
+            if not latest_for_restore:
+                valid_keys = [k for k in snaps if snaps[k].get('smooth')]
+                if valid_keys:
+                    lk = max(valid_keys, key=lambda k: snaps[k].get('timestamp', ''))
+                    latest_for_restore = snaps[lk]
+                    latest_for_restore_key = lk
+                    latest_for_restore_ts = snaps[lk].get('timestamp', '')
+        except Exception as e:
+            print(f"[iv_smile] ⚠️ 加载历史快照 {prev_date} 失败: {e}")
             continue
 
-    # 从最新快照恢复标的价格和微笑曲线
+    # === 3. 从最新快照恢复标的价格和微笑曲线 ===
     if latest_for_restore:
         restored_price = latest_for_restore.get('futures_price')
         restored_atm = latest_for_restore.get('atm_strike')
@@ -851,14 +863,14 @@ def tqsdk_loop():
 
 def calc_max_pain(opt_snap, S):
     """
-    计算最大痛点行权价（与 option_chain T型报价 ATM 逻辑一致）。
+    计算最大痛点行权价（标准 Max Pain 公式）。
     opt_snap: {strike: {'C': oi, 'P': oi}}
-    S: 当前期货价格（偶数化）
+    S: 当前期货价格（偶数化，仅用于兜底）
     返回: 最大痛点行权价（偶数），或 None
 
-    公式: pain(K) = Σᵢ (call_oiᵢ + put_oiᵢ) × |S - K|
-    取 pain 最小的 K —— 使所有持仓账户整体"距离"标的最近的行权价，
-    也就是让散户亏最多钱的位置。
+    标准公式: 对每个候选结算价 K，计算所有期权买方的总收益：
+      pain(K) = Σᵢ [ call_oiᵢ × max(K - Kᵢ, 0) + put_oiᵢ × max(Kᵢ - K, 0) ]
+    取 pain 最小的 K —— 买方总收益最低 = 卖方利益最大化 = 散户亏最多钱的位置。
     """
     if not opt_snap:
         return None
@@ -867,17 +879,14 @@ def calc_max_pain(opt_snap, S):
     if len(strikes) < 2:
         return None
 
-    # 预计算每个档位的总OI（call + put）
-    total_oi = {}
-    for K in strikes:
-        c_oi = opt_snap[K].get('C') or 0
-        p_oi = opt_snap[K].get('P') or 0
-        total_oi[K] = c_oi + p_oi
-
-    # 对每个候选K计算 pain = Σ oi * |S - K|
+    # 对每个候选结算价K，计算所有期权买方的总收益
     mp = {}
     for K in strikes:
-        pain = sum(total_oi[s] * abs(S - K) for s in strikes)
+        pain = 0
+        for Ki in strikes:
+            c_oi = opt_snap[Ki].get('C') or 0
+            p_oi = opt_snap[Ki].get('P') or 0
+            pain += c_oi * max(K - Ki, 0) + p_oi * max(Ki - K, 0)
         mp[K] = pain
 
     if not mp or sum(mp.values()) == 0:
@@ -1232,26 +1241,17 @@ def register_routes(app):
             # 持仓数据（当前 strike_oi）
             strike_oi = _state.get('strike_oi', {})
 
-            # 前次曲线改为 15:00 收盘基准快照
-            # 优先从 _close_baseline 取（运行时记录，有strike_oi）；兜底从 _interval_snapshots 找今日 15:00 槽
+            # 前次曲线：15:00 收盘基准快照
+            # 优先 _close_baseline（当天运行时15:00记录的）；兜底 _prev_day_baseline（前一交易日15:00，从磁盘加载）
             close_baseline = _close_baseline
             prev_smooth = close_baseline.get('smooth', {}) if close_baseline else {}
             prev_raw = close_baseline.get('raw', {}) if close_baseline else {}
-            if not prev_smooth:
-                # 从快照中找最近那天的15:00快照作为基准（最近的交易日收盘基准）
-                # 同一 key 可能有多个历史文件，先按时间戳选最晚的
-                snap_15 = None
-                snap_15_ts = None
-                for key in _interval_snapshots:
-                    if key == '15:00' and _interval_snapshots[key].get('smooth'):
-                        ts = _interval_snapshots[key].get('timestamp', '')
-                        if snap_15_ts is None or ts > snap_15_ts:  # 改用 > 而非 <，取最近而非最早
-                            snap_15 = _interval_snapshots[key]
-                            snap_15_ts = ts
-                if snap_15:
-                    prev_smooth = snap_15.get('smooth', {})
-                    prev_raw = snap_15.get('raw', {})
-                    print(f"[iv_smile] 📌 从历史快照恢复15:00基准 smooth={len(prev_smooth)}档 ts={snap_15_ts[:19]}")
+            if not prev_smooth and _prev_day_baseline:
+                prev_smooth = _prev_day_baseline.get('smooth', {})
+                prev_raw = _prev_day_baseline.get('raw', {})
+                if prev_smooth:
+                    ts = _prev_day_baseline.get('timestamp', '')[:19]
+                    print(f"[iv_smile] 📌 使用前一交易日15:00基准 smooth={len(prev_smooth)}档 ts={ts}")
             prev_key = '15:00收盘' if prev_smooth else None
 
             curve_data = []
@@ -1275,38 +1275,42 @@ def register_routes(app):
                     entry['prev_avg'] = prev_smooth[k_str]
                 # 前次原始 Call/Put IV
                 if prev_raw and k_str in prev_raw:
-                    entry['raw_C_prev'] = prev_raw[k_str].get('C')
-                    entry['raw_P_prev'] = prev_raw[k_str].get('P')
+                    pv = prev_raw[k_str]
+                    if isinstance(pv, dict):
+                        entry['raw_C_prev'] = pv.get('C')
+                        entry['raw_P_prev'] = pv.get('P')
+                    elif isinstance(pv, (int, float)):
+                        # 快照中 raw 可能已是平均值（float），无C/P区分
+                        entry['raw_C_prev'] = pv
+                        entry['raw_P_prev'] = pv
                 # 隐波变化绝对值（当前smooth - 15:00收盘smooth）
                 if 'smooth' in entry and 'smooth_prev' in entry:
                     entry['iv_change'] = round(abs(entry['smooth'] - entry['smooth_prev']), 4)
                 curve_data.append(entry)
 
         # 格式化prev_timestamp（更友好）
-        # 前次曲线已改为 15:00 收盘基准
         if prev_smooth:
             close_ts = close_baseline.get('ts', '') if close_baseline else ''
             if close_ts:
+                # 当天运行时记录的 _close_baseline
                 try:
                     prev_dt = datetime.fromisoformat(close_ts)
-                    prev_ts_display = f"昨日{prev_dt.strftime('%m/%d %H:%M')}"
+                    prev_ts_display = prev_dt.strftime('%m/%d %H:%M')
                 except:
-                    prev_ts_display = close_ts[5:16]  # '06-04 15:00'
+                    prev_ts_display = close_ts[5:16]
+            elif _prev_day_baseline:
+                # 从 _prev_day_baseline 取时间戳
+                ts = _prev_day_baseline.get('timestamp', '')
+                if ts:
+                    try:
+                        prev_dt = datetime.fromisoformat(ts)
+                        prev_ts_display = prev_dt.strftime('%m/%d %H:%M')
+                    except:
+                        prev_ts_display = ts[5:16]
+                else:
+                    prev_ts_display = '15:00收盘'
             else:
-                # _close_baseline为空，说明用的是历史快照里的15:00，显示实际日期
-                # 从prev_raw对应的快照timestamp推断（遍历找到匹配的那条）
                 prev_ts_display = '15:00收盘'
-                if prev_raw and not close_baseline:
-                    for k in _interval_snapshots:
-                        if k == '15:00' and _interval_snapshots[k].get('smooth') == prev_smooth:
-                            ts = _interval_snapshots[k].get('timestamp', '')
-                            if ts:
-                                try:
-                                    prev_dt = datetime.fromisoformat(ts)
-                                    prev_ts_display = f"昨日{prev_dt.strftime('%m/%d %H:%M')}"
-                                except:
-                                    prev_ts_display = ts[5:16]  # '06-03 15:00'
-                            break
         else:
             prev_ts_display = None
 
@@ -1344,24 +1348,58 @@ def register_routes(app):
 
     @app.route('/api/iv_smile/inject_baseline', methods=['POST'])
     def iv_api_inject_baseline():
-        """手工注入6/4 15:00收盘基准（从47页面期权链提取的prev_avg数据）"""
+        """手工注入收盘基准（完整T型数据：smooth IV + raw C/P IV + 持仓OI）"""
         global _close_baseline
         from flask import request
         data = request.get_json() or {}
-        strike_ivs = data.get('strike_ivs', {})  # {strike: iv_value}
+
+        # 兼容旧格式（只有 strike_ivs）
+        strike_ivs = data.get('strike_ivs', {})
+        # 新格式：完整T型数据
+        rows = data.get('rows', [])
         ts = data.get('ts', '2026-06-04T15:00:00')
         S = data.get('S', 0)
-        if not strike_ivs:
-            return jsonify({'success': False, 'error': '缺少strike_ivs'})
-        _close_baseline = {
-            'smooth': {str(k): float(v) for k, v in strike_ivs.items()},
-            'raw': {},
-            'strike_oi': {},
-            'S': float(S),
-            'ts': ts,
-        }
-        print(f"[iv_smile] ✅ 手工注入6/4收盘基准: {len(strike_ivs)}档 ts={ts}")
-        return jsonify({'success': True, 'count': len(strike_ivs), 'ts': ts})
+
+        if rows:
+            # 新格式：从T型表格行构建完整基准
+            smooth = {}
+            raw = {}
+            strike_oi = {}
+            for r in rows:
+                k = str(r['strike'])
+                iv = r.get('iv', 0) or 0
+                smooth[k] = float(iv) / 100.0  # 百分比转小数
+                raw[k] = {
+                    'C': float(r.get('iv_call', iv)) / 100.0,
+                    'P': float(r.get('iv_put', iv)) / 100.0,
+                }
+                strike_oi[k] = {
+                    'C': int(r.get('oi_call', 0)),
+                    'P': int(r.get('oi_put', 0)),
+                }
+            _close_baseline = {
+                'smooth': smooth,
+                'raw': raw,
+                'strike_oi': strike_oi,
+                'S': float(S),
+                'ts': ts,
+            }
+            print(f"[iv_smile] ✅ 注入收盘基准(完整): {len(smooth)}档 OI={len(strike_oi)}档 ts={ts}")
+            return jsonify({'success': True, 'count': len(smooth), 'has_oi': True, 'ts': ts})
+
+        elif strike_ivs:
+            # 旧格式兼容
+            _close_baseline = {
+                'smooth': {str(k): float(v) for k, v in strike_ivs.items()},
+                'raw': {},
+                'strike_oi': {},
+                'S': float(S),
+                'ts': ts,
+            }
+            print(f"[iv_smile] ✅ 注入收盘基准(仅IV): {len(strike_ivs)}档 ts={ts}")
+            return jsonify({'success': True, 'count': len(strike_ivs), 'has_oi': False, 'ts': ts})
+
+        return jsonify({'success': False, 'error': '缺少rows或strike_ivs'})
 
     @app.route('/api/iv_smile/alert/config', methods=['GET', 'POST'])
     def iv_api_alert_config():
@@ -1414,7 +1452,7 @@ def register_routes(app):
             futures_price = _state.get('futures_price')
             max_pain = _state.get('max_pain')
 
-        # 前次曲线：优先 _close_baseline（运行时记录），兜底从今日快照找15:00槽
+        # 前次曲线：优先 _close_baseline（运行时记录），兜底 _prev_day_baseline（前一交易日15:00）
         close_baseline = _close_baseline
         b_smooth = close_baseline.get('smooth', {}) if close_baseline else {}
         b_raw = close_baseline.get('raw', {}) if close_baseline else {}
@@ -1422,39 +1460,28 @@ def register_routes(app):
         close_ts = close_baseline.get('ts', '') if close_baseline else ''
         has_baseline = bool(b_smooth)
 
-        # 若 _close_baseline 为空 或 关键字段不完整，从快照中找最近那天的15:00槽
-        if not has_baseline or not b_oi:
-            snap_15 = None
-            snap_15_ts = None
-            for key in _interval_snapshots:
-                if key == '15:00' and _interval_snapshots[key].get('smooth'):
-                    snap = _interval_snapshots[key]
-                    ts = snap.get('timestamp', '')
-                    # 选最近那天的15:00
-                    if snap_15_ts is None or ts > snap_15_ts:
-                        snap_15 = snap
-                        snap_15_ts = ts
-            if snap_15:
-                if not has_baseline:
-                    b_smooth = snap_15.get('smooth', {})
-                    b_raw = snap_15.get('raw', {})
-                    close_ts = snap_15.get('timestamp', '')
-                if not b_oi:
-                    snap_oi = snap_15.get('strike_oi', {})
-                    if snap_oi:
-                        b_oi = snap_oi
-                        print(f"[iv_smile] 📌 alert_data 从快照恢复OI smooth={len(b_smooth)}档")
-                has_baseline = bool(b_smooth)
+        # 若 _close_baseline 为空 或 关键字段不完整，从 _prev_day_baseline 取
+        if (not has_baseline or not b_oi) and _prev_day_baseline:
+            if not has_baseline:
+                b_smooth = _prev_day_baseline.get('smooth', {})
+                b_raw = _prev_day_baseline.get('raw', {})
+                close_ts = _prev_day_baseline.get('timestamp', '')
+            if not b_oi:
+                snap_oi = _prev_day_baseline.get('strike_oi', {})
+                if snap_oi:
+                    b_oi = snap_oi
+                    print(f"[iv_smile] 📌 alert_data 从前一交易日基准恢复OI smooth={len(b_smooth)}档")
+            has_baseline = bool(b_smooth)
 
         # 计算平均IV用于阈值分档
         vals = list(smile_smooth.values())
         avg_iv = sum(vals) / len(vals) if vals else 0
         iv_t = _get_iv_thresholds(avg_iv)
 
-        # 合并所有行权价
-        all_keys = set(list(strike_oi.keys()) + list(b_oi.keys()))
+        # 合并所有行权价（统一为字符串key）
+        all_keys = set(str(k) for k in list(strike_oi.keys()) + list(b_oi.keys()))
         if not all_keys and smile_smooth:
-            all_keys = set(smile_smooth.keys())
+            all_keys = set(str(k) for k in smile_smooth.keys())
             # 补充raw数据
             for k in all_keys:
                 if k not in strike_oi:
@@ -1466,19 +1493,27 @@ def register_routes(app):
         iv_alerts = []  # {'strike': int, 'level': str}
         oi_alerts = []
 
-        for strike in sorted(all_keys):
-            cur_oi = strike_oi.get(strike, {'C': 0, 'P': 0})
-            b_oi_s = b_oi.get(strike, {'C': 0, 'P': 0})
+        for strike in sorted(all_keys, key=lambda x: int(x)):
+            cur_oi = strike_oi.get(strike) or strike_oi.get(int(strike)) or {'C': 0, 'P': 0}
+            b_oi_s = b_oi.get(strike) or b_oi.get(int(strike)) or {'C': 0, 'P': 0}
 
-            # IV
-            raw = smile_raw.get(strike, {})
-            sm = smile_smooth.get(strike)
+            # IV（strike可能是str，但数据源key可能是int，双查找）
+            raw = smile_raw.get(strike) or smile_raw.get(int(strike)) or {}
+            sm = smile_smooth.get(strike) or smile_smooth.get(int(strike))
             iv_c = (raw.get('C') or 0) * 100
             iv_p = (raw.get('P') or 0) * 100
-            b_raw_s = b_raw.get(strike, {})
-            iv_c_b = (b_raw_s.get('C') or 0) * 100
-            iv_p_b = (b_raw_s.get('P') or 0) * 100
-            b_sm = b_smooth.get(strike, 0)
+            b_raw_s = b_raw.get(strike) or b_raw.get(int(strike)) or {}
+            if isinstance(b_raw_s, dict):
+                iv_c_b = (b_raw_s.get('C') or 0) * 100
+                iv_p_b = (b_raw_s.get('P') or 0) * 100
+            elif isinstance(b_raw_s, (int, float)):
+                # 快照中 raw 可能已是平均值（float）
+                iv_c_b = b_raw_s * 100
+                iv_p_b = b_raw_s * 100
+            else:
+                iv_c_b = 0
+                iv_p_b = 0
+            b_sm = b_smooth.get(strike) or b_smooth.get(int(strike)) or 0
 
             # IV变化（用平滑IV）
             iv_chg_c = (sm - b_sm) * 100 if (sm and b_sm) else None
