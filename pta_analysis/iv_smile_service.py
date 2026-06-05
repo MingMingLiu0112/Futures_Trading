@@ -244,7 +244,8 @@ def _save_all_snapshots():
     _ensure_snapshot_dir()
     # 文件名用当前进程时间（session date）而非快照内的 timestamp，
     # 避免进程跨日后把新session数据写入旧文件（如6/4启动时把夜盘数据写进6/3文件）。
-    path = _get_snapshot_path(datetime.now().strftime('%Y%m%d'))
+    date_str = datetime.now().strftime('%Y%m%d')
+    path = _get_snapshot_path(date_str)
     # 先读出磁盘上已存在的快照，再与内存快照合并（避免进程重启时昨夜数据覆盖今日数据）
     existing = {}
     if os.path.exists(path):
@@ -311,15 +312,23 @@ def _load_previous_day_snapshots():
         except Exception as e:
             print(f"[iv_smile] ⚠️ 加载今日快照失败: {e}")
 
-    # === 2. 从历史文件找前一交易日的15:00基准 ===
-    # 回溯最多7天（跳过周末/假期）
-    for days_ago in range(1, 8):
-        prev_date = (datetime.now() - timedelta(days=days_ago)).strftime('%Y%m%d')
-        prev_path = _get_snapshot_path(prev_date)
-        if not os.path.exists(prev_path):
+    # === 2. 找最近一个交易日的15:00基准 ===
+    # 交易日周期：21:00夜盘开盘 → 次日15:00收盘
+    # - 21:00之前（盘后复盘时段）：基准 = 前一交易日15:00（方便复盘对比当天日盘变化）
+    # - 21:00之后（新交易日开盘）：基准 = 当天15:00（切换到新周期）
+    # 这样15:00-21:00之间仍可对比"今天vs昨天"的变化
+    start_days_ago = 0 if datetime.now().hour >= 21 else 1
+    for days_ago in range(start_days_ago, 8):
+        if days_ago == 0:
+            check_date = today
+            check_path = today_path
+        else:
+            check_date = (datetime.now() - timedelta(days=days_ago)).strftime('%Y%m%d')
+            check_path = _get_snapshot_path(check_date)
+        if not os.path.exists(check_path):
             continue
         try:
-            with open(prev_path, 'r', encoding='utf-8') as f:
+            with open(check_path, 'r', encoding='utf-8') as f:
                 payload = json.load(f)
             snaps = payload.get('snapshots', {})
             snap_15 = snaps.get('15:00')
@@ -327,17 +336,18 @@ def _load_previous_day_snapshots():
                 # 验证 timestamp 确实属于该日期（防止污染数据）
                 snap_ts = snap_15.get('timestamp', '')
                 snap_date = snap_ts[:10].replace('-', '') if snap_ts else ''
-                if snap_date == prev_date:
+                if snap_date == check_date:
                     _prev_day_baseline = snap_15
-                    print(f"[iv_smile] 📂 已加载前一交易日15:00基准 ({prev_date}): "
+                    label = "今日" if days_ago == 0 else "前一交易日"
+                    print(f"[iv_smile] 📂 已加载{label}15:00基准 ({check_date}): "
                           f"smooth={len(snap_15.get('smooth',{}))}档 "
                           f"oi={len(snap_15.get('strike_oi',{}))}档 "
                           f"ts={snap_ts[:19]}")
                     break
                 else:
-                    print(f"[iv_smile] ⚠️ {prev_date} 的15:00快照timestamp不匹配({snap_ts})，跳过")
+                    print(f"[iv_smile] ⚠️ {check_date} 的15:00快照timestamp不匹配({snap_ts})，跳过")
             # 如果该天没有15:00但有其他数据，也用于恢复 _state
-            if not latest_for_restore:
+            if not latest_for_restore and days_ago > 0:
                 valid_keys = [k for k in snaps if snaps[k].get('smooth')]
                 if valid_keys:
                     lk = max(valid_keys, key=lambda k: snaps[k].get('timestamp', ''))
@@ -345,7 +355,7 @@ def _load_previous_day_snapshots():
                     latest_for_restore_key = lk
                     latest_for_restore_ts = snaps[lk].get('timestamp', '')
         except Exception as e:
-            print(f"[iv_smile] ⚠️ 加载历史快照 {prev_date} 失败: {e}")
+            print(f"[iv_smile] ⚠️ 加载历史快照 {check_date} 失败: {e}")
             continue
 
     # === 3. 从最新快照恢复标的价格和微笑曲线 ===
@@ -1242,16 +1252,29 @@ def register_routes(app):
             strike_oi = _state.get('strike_oi', {})
 
             # 前次曲线：15:00 收盘基准快照
-            # 优先 _close_baseline（当天运行时15:00记录的）；兜底 _prev_day_baseline（前一交易日15:00，从磁盘加载）
-            close_baseline = _close_baseline
-            prev_smooth = close_baseline.get('smooth', {}) if close_baseline else {}
-            prev_raw = close_baseline.get('raw', {}) if close_baseline else {}
-            if not prev_smooth and _prev_day_baseline:
-                prev_smooth = _prev_day_baseline.get('smooth', {})
-                prev_raw = _prev_day_baseline.get('raw', {})
+            # 交易日周期：21:00夜盘开盘才切换基准
+            # - 21:00之前：只用 _prev_day_baseline（前一交易日15:00），便于盘后复盘
+            # - 21:00之后：优先 _close_baseline（当天15:00），兜底 _prev_day_baseline
+            now_hour = datetime.now().hour
+            if now_hour >= 21:
+                # 新交易周期开始，使用当天15:00基准
+                close_baseline = _close_baseline
+                prev_smooth = close_baseline.get('smooth', {}) if close_baseline else {}
+                prev_raw = close_baseline.get('raw', {}) if close_baseline else {}
+                if not prev_smooth and _prev_day_baseline:
+                    prev_smooth = _prev_day_baseline.get('smooth', {})
+                    prev_raw = _prev_day_baseline.get('raw', {})
+                    if prev_smooth:
+                        ts = _prev_day_baseline.get('timestamp', '')[:19]
+                        print(f"[iv_smile] 📌 使用前一交易日15:00基准 smooth={len(prev_smooth)}档 ts={ts}")
+            else:
+                # 盘后复盘时段（15:00-21:00）或日盘（09:00-15:00），保持前一交易日基准
+                close_baseline = None
+                prev_smooth = _prev_day_baseline.get('smooth', {}) if _prev_day_baseline else {}
+                prev_raw = _prev_day_baseline.get('raw', {}) if _prev_day_baseline else {}
                 if prev_smooth:
                     ts = _prev_day_baseline.get('timestamp', '')[:19]
-                    print(f"[iv_smile] 📌 使用前一交易日15:00基准 smooth={len(prev_smooth)}档 ts={ts}")
+                    # 仅首次打印，避免刷屏（通过prev_key是否已设来控制）
             prev_key = '15:00收盘' if prev_smooth else None
 
             curve_data = []

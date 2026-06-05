@@ -255,13 +255,7 @@
   <!-- 左：隐含波动率微笑曲线 -->
   <div class="card">
     <div class="card-title">隐含波动率微笑曲线</div>
-    <div class="legend-row">
-      <div class="legend-item"><div class="legend-dot call"></div><span class="legend-text">Call IV</span></div>
-      <div class="legend-item"><div class="legend-dot put"></div><span class="legend-text">Put IV</span></div>
-      <div class="legend-item"><div class="legend-dot current"></div><span class="legend-text">平滑曲线</span></div>
-      <div class="legend-item"><div class="legend-dot prev"></div><span class="legend-text">15:00收盘基准</span></div>
-    </div>
-    <div id="smileChart" style="width:100%;height:260px;"></div>
+    <div id="smileChart" style="width:100%;height:290px;"></div>
   </div>
   <!-- 右：ATM IV 走势图 -->
   <div class="card">
@@ -275,27 +269,27 @@
   <div class="card-title" style="margin-bottom:8px;">分档隐波明细</div>
   <table class="t-table">
     <colgroup>
-      <col class="col-oi">
       <col class="col-oichg">
-      <col class="col-iv">
+      <col class="col-oi">
       <col class="col-ivchg">
+      <col class="col-iv">
       <col class="col-strike">
-      <col class="col-ivchg">
       <col class="col-iv">
-      <col class="col-oichg">
+      <col class="col-ivchg">
       <col class="col-oi">
+      <col class="col-oichg">
     </colgroup>
     <thead>
       <tr>
-        <th class="call-h">Call持仓</th>
         <th class="call-h">持仓变化</th>
-        <th class="call-h">Call IV</th>
+        <th class="call-h">Call持仓</th>
         <th class="call-h">IV变化</th>
+        <th class="call-h">Call IV</th>
         <th class="center-h">行权价</th>
-        <th class="put-h">IV变化</th>
         <th class="put-h">Put IV</th>
-        <th class="put-h">持仓变化</th>
+        <th class="put-h">IV变化</th>
         <th class="put-h">Put持仓</th>
+        <th class="put-h">持仓变化</th>
       </tr>
     </thead>
     <tbody id="tBody">
@@ -328,7 +322,14 @@ function initCharts() {
   chartInstances.smile = smileChart;
   smileChart.setOption({
     ...chartTheme,
-    grid: { top: 15, right: 15, bottom: 25, left: 50 },
+    legend: {
+      show: true,
+      top: 2, right: 10,
+      textStyle: { color: '#888', fontSize: 10 },
+      itemWidth: 16, itemHeight: 8, itemGap: 14,
+      selectedMode: true,
+    },
+    grid: { top: 30, right: 15, bottom: 25, left: 50 },
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'cross', crossStyle: { color: '#555' } },
@@ -620,21 +621,22 @@ function updateMetrics(data) {
     document.getElementById('mAlpha').textContent = sabr.alpha != null ? sabr.alpha.toFixed(4) : '--';
     document.getElementById('mRho').textContent = sabr.rho != null ? sabr.rho.toFixed(4) : '--';
     document.getElementById('mNu').textContent = sabr.nu != null ? sabr.nu.toFixed(4) : '--';
-    // 拟合残差：用拟合曲线 vs 实际散点的均方根误差
-    if (curve.length > 0) {
-      let ssq = 0, n = 0;
-      curve.forEach(d => {
-        if (d.smooth != null) {
-          if (d.raw_C != null && !isNaN(d.raw_C)) { ssq += (d.smooth - d.raw_C) ** 2; n++; }
-          if (d.raw_P != null && !isNaN(d.raw_P)) { ssq += (d.smooth - d.raw_P) ** 2; n++; }
-        }
-      });
-      if (n > 0) {
-        const rmse = Math.sqrt(ssq / n) * 100;
-        const fitEl = document.getElementById('mFitErr');
-        fitEl.textContent = rmse.toFixed(2) + '%';
-        fitEl.style.color = rmse < 1 ? '#00ff88' : rmse < 3 ? '#ffaa00' : '#ff4444';
+  }
+
+  // 拟合残差（独立于SABR参数，只需smooth vs raw散点）
+  if (curve.length > 0) {
+    let ssq = 0, n = 0;
+    curve.forEach(d => {
+      if (d.smooth != null) {
+        if (d.raw_C != null && !isNaN(d.raw_C)) { ssq += (d.smooth - d.raw_C) ** 2; n++; }
+        if (d.raw_P != null && !isNaN(d.raw_P)) { ssq += (d.smooth - d.raw_P) ** 2; n++; }
       }
+    });
+    if (n > 0) {
+      const rmse = Math.sqrt(ssq / n) * 100;
+      const fitEl = document.getElementById('mFitErr');
+      fitEl.textContent = rmse.toFixed(2) + '%';
+      fitEl.style.color = rmse < 1 ? '#00ff88' : rmse < 3 ? '#ffaa00' : '#ff4444';
     }
   }
 }
@@ -671,20 +673,22 @@ function updateTable(alertData, curveData) {
 
   // 格式化持仓变化（百分比）
   const fmtOiChg = (current, prev, level) => {
-    // 如果当前和前次都无数据，显示 --
-    if ((current == null || current === 0) && (prev == null || prev === 0)) {
+    const cur = current || 0;
+    const prv = prev || 0;
+    // 都为0，显示 --
+    if (cur === 0 && prv === 0) {
       return '<span style="color:#333">--</span>';
     }
-    // 如果当前无数据但有基准，显示基准值（非交易时段场景）
-    if ((current == null || current === 0) && prev > 0) {
-      return `<span style="color:#555">基${prev.toLocaleString()}</span>`;
+    // 有基准无当前（非交易时段），变化为0
+    if (cur === 0 && prv > 0) {
+      return '<span style="color:#555">0</span>';
     }
-    // 如果有当前但无基准，不显示变化
-    if (prev == null || prev === 0) {
+    // 有当前无基准，无法计算变化
+    if (prv === 0) {
       return '<span style="color:#333">--</span>';
     }
     // 正常：都有值，计算百分比变化
-    const chg = (current - prev) / prev;
+    const chg = (cur - prv) / prv;
     const pct = (chg * 100).toFixed(1);
     const sign = chg >= 0 ? '+' : '';
     let cls = 'iv-flat';
@@ -698,8 +702,8 @@ function updateTable(alertData, curveData) {
   // 格式化持仓量
   const fmtOi = (oi, prev) => {
     if (oi != null && oi > 0) return oi.toLocaleString();
-    // 非交易时段当前OI=0，显示基准OI（灰色）
-    if (prev != null && prev > 0) return `<span style="color:#555">(${prev.toLocaleString()})</span>`;
+    // 非交易时段当前OI=0，直接显示基准OI
+    if (prev != null && prev > 0) return `<span style="color:#555">${prev.toLocaleString()}</span>`;
     return '<span style="color:#333">--</span>';
   };
 
@@ -716,15 +720,15 @@ function updateTable(alertData, curveData) {
       ? r.iv_put - r.iv_put_prev : null;
 
     return `<tr ${trCls}>
-      <td>${fmtOi(r.oi_call, r.oi_call_prev)}</td>
       <td>${fmtOiChg(r.oi_call, r.oi_call_prev, r.oi_call_level)}</td>
-      <td>${fmtIv(r.iv_call, 'iv-call')}</td>
+      <td>${fmtOi(r.oi_call, r.oi_call_prev)}</td>
       <td>${fmtIvChg(callIvChg, r.iv_level)}</td>
+      <td>${fmtIv(r.iv_call, 'iv-call')}</td>
       <td>${star}${r.strike}</td>
-      <td>${fmtIvChg(putIvChg, r.iv_level)}</td>
       <td>${fmtIv(r.iv_put, 'iv-put')}</td>
-      <td>${fmtOiChg(r.oi_put, r.oi_put_prev, r.oi_put_level)}</td>
+      <td>${fmtIvChg(putIvChg, r.iv_level)}</td>
       <td>${fmtOi(r.oi_put, r.oi_put_prev)}</td>
+      <td>${fmtOiChg(r.oi_put, r.oi_put_prev, r.oi_put_level)}</td>
     </tr>`;
   }).join('');
 
