@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -33,10 +34,10 @@
   .status-value.warn { color: #ffaa00; }
   .status-value.error { color: #ff4444; }
 
-  /* ===== 指标栏（2行4列 = 8格）===== */
+  /* ===== 指标栏（1行5列）===== */
   .metric-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     gap: 8px;
     margin-bottom: 10px;
   }
@@ -188,6 +189,10 @@
         <span class="status-value" id="fPrice">--</span>
       </div>
       <div class="status-item">
+        <span class="status-label">ATM</span>
+        <span class="status-value" id="atmStrikeTop">--</span>
+      </div>
+      <div class="status-item">
         <span class="status-label">最大痛点</span>
         <span class="status-value" id="maxPain">--</span>
       </div>
@@ -204,49 +209,32 @@
   </div>
 </div>
 
-<!-- ===== 指标栏（2行4列 = 8格）===== -->
+<!-- ===== 指标栏（1行4列）===== -->
 <div class="metric-grid">
-  <!-- 第1行 -->
   <div class="metric-box">
     <div class="metric-name">ATM 隐波</div>
     <div class="metric-value" id="mAtmIv" style="color:#ffaa00;">--</div>
-    <div class="metric-sub">当前值</div>
+    <div class="metric-sub" id="mAtmDiffSub">--</div>
   </div>
   <div class="metric-box">
-    <div class="metric-name">ATM IV 变化</div>
-    <div class="metric-value" id="mAtmDiff" style="color:#888;">--</div>
-    <div class="metric-sub" id="mAtmDiffSub">较15:00收盘</div>
-  </div>
-  <div class="metric-box">
-    <div class="metric-name">波动率偏向</div>
-    <div class="metric-value" id="mSkew" style="color:#00d4ff;">--</div>
-    <div class="metric-sub" id="mSkewSub">Call-Put斜度</div>
+    <div class="metric-name">偏斜度 Skew</div>
+    <div class="metric-value" id="mSkewParam" style="color:#ff6b9d;">--</div>
+    <div class="metric-sub" id="mSkewSub">dσ/dk at ATM</div>
   </div>
   <div class="metric-box">
     <div class="metric-name">曲线形态</div>
     <div class="metric-value" id="mShape" style="color:#aaffaa;">--</div>
     <div class="metric-sub" id="mShapeSub">整体平移</div>
   </div>
-  <!-- 第2行 -->
   <div class="metric-box">
-    <div class="metric-name">α (alpha)</div>
-    <div class="metric-value" id="mAlpha" style="color:#00d4ff;">--</div>
-    <div class="metric-sub">波动率水平</div>
+    <div class="metric-name">曲率 Curvature</div>
+    <div class="metric-value" id="mCurvature" style="color:#aaffaa;">--</div>
+    <div class="metric-sub" id="mCurvSub">微笑弯曲程度</div>
   </div>
   <div class="metric-box">
-    <div class="metric-name">ρ (rho)</div>
-    <div class="metric-value" id="mRho" style="color:#ff6b9d;">--</div>
-    <div class="metric-sub">斜度参数</div>
-  </div>
-  <div class="metric-box">
-    <div class="metric-name">ν (nu)</div>
-    <div class="metric-value" id="mNu" style="color:#aaffaa;">--</div>
-    <div class="metric-sub">曲率参数</div>
-  </div>
-  <div class="metric-box">
-    <div class="metric-name">c</div>
+    <div class="metric-name">拟合残差</div>
     <div class="metric-value" id="mFitErr" style="color:#888;">--</div>
-    <div class="metric-sub">拟合残差 RMSE</div>
+    <div class="metric-sub">RMSE</div>
   </div>
 </div>
 
@@ -306,7 +294,6 @@
 // ===================== 全局图表实例 =====================
 const chartInstances = {};
 let _atmHistory = [];
-let _atmHistoryInitDone = false;
 
 // ===================== 通用主题 =====================
 const chartTheme = {
@@ -453,13 +440,12 @@ async function fetchData() {
     const data = await curveResp.json();
     const alertData = await alertResp.json();
 
-    // 初始化 ATM 走势图
-    if (status.atm_history && Object.keys(status.atm_history).length > 0 && !_atmHistoryInitDone) {
+    // ATM IV 走势图：每次 fetch 全量替换（后端已去重，数据量小无性能问题）
+    if (status.atm_history && Object.keys(status.atm_history).length > 0) {
       _atmHistory = Object.entries(status.atm_history)
         .sort((a, b) => a[0].localeCompare(b[0]))
         .filter(([time, value]) => typeof value === 'number' && !isNaN(value))
         .map(([time, value]) => ({ time, value }));
-      _atmHistoryInitDone = true;
     }
 
     updateStatus(status, data);
@@ -477,6 +463,7 @@ async function fetchData() {
 
 function updateStatus(status, data) {
   document.getElementById('fPrice').textContent = status.futures_price ? status.futures_price.toFixed(0) : '--';
+  document.getElementById('atmStrikeTop').textContent = data.atm_strike || '--';
   document.getElementById('maxPain').textContent = data.max_pain || '--';
   document.getElementById('expiry').textContent = status.expiry ? new Date(status.expiry).toLocaleDateString('zh-CN') : '--';
   document.getElementById('prevTime').textContent = data.prev_timestamp || '--';
@@ -547,7 +534,7 @@ function updateAtmChart(data) {
   });
 }
 
-// 更新指标栏（2行4列 = 8格）
+// 更新指标栏（1行4列）
 function updateMetrics(data) {
   const curve = data.curve || [];
   if (curve.length === 0) return;
@@ -555,50 +542,40 @@ function updateMetrics(data) {
   const atmStrike = data.atm_strike;
   const atmItem = curve.find(d => d.strike === atmStrike);
 
-  // ATM 隐波
-  if (atmItem && atmItem.smooth != null) {
+  // ① ATM 隐波（SVI模型值 + 变化badge）
+  const svi = data.svi_params;
+  if (svi && svi.atm_vol != null) {
+    const atmVal = (svi.atm_vol * 100).toFixed(2) + '%';
+    document.getElementById('mAtmIv').textContent = atmVal;
+  } else if (atmItem && atmItem.smooth != null) {
     document.getElementById('mAtmIv').textContent = (atmItem.smooth * 100).toFixed(2) + '%';
   }
-
-  // ATM IV 变化（当前 vs 15:00收盘基准）
-  if (atmItem) {
-    const cur = atmItem.smooth;
-    const prev = atmItem.smooth_prev;
-    if (cur != null) {
-      const diffEl = document.getElementById('mAtmDiff');
-      if (prev != null) {
-        const diff = cur - prev;
-        const badge = diff > 0.001 ? `<span class="badge badge-up">↑</span>`
-          : diff < -0.001 ? `<span class="badge badge-down">↓</span>`
-          : `<span class="badge badge-flat">—</span>`;
-        diffEl.innerHTML = (diff * 100).toFixed(2) + '% ' + badge;
-        diffEl.style.color = diff > 0.001 ? '#ff4444' : diff < -0.001 ? '#00d4ff' : '#888';
-      } else {
-        diffEl.textContent = '无历史';
-        diffEl.style.color = '#888';
-      }
-    }
+  // ATM IV 变化 badge（放在sub行）
+  if (atmItem && atmItem.smooth != null && atmItem.smooth_prev != null) {
+    const diff = atmItem.smooth - atmItem.smooth_prev;
+    const sign = diff >= 0 ? '+' : '';
+    const badge = diff > 0.001 ? '<span class="badge badge-up">↑</span>'
+      : diff < -0.001 ? '<span class="badge badge-down">↓</span>'
+      : '<span class="badge badge-flat">—</span>';
+    const diffEl = document.getElementById('mAtmDiffSub');
+    diffEl.innerHTML = sign + (diff * 100).toFixed(2) + '% ' + badge;
+    diffEl.style.color = diff > 0.001 ? '#ff4444' : diff < -0.001 ? '#00d4ff' : '#888';
+  } else {
+    document.getElementById('mAtmDiffSub').textContent = '无历史';
+    document.getElementById('mAtmDiffSub').style.color = '#555';
   }
 
-  // 波动率偏向（Call-Put斜度）：OTM Call avg IV - OTM Put avg IV
-  if (atmStrike && curve.length > 0) {
-    const otmCalls = curve.filter(d => d.strike > atmStrike && d.raw_C != null && !isNaN(d.raw_C));
-    const otmPuts = curve.filter(d => d.strike < atmStrike && d.raw_P != null && !isNaN(d.raw_P));
-    if (otmCalls.length > 0 && otmPuts.length > 0) {
-      // 取最近的2-3档OTM做对比
-      const nearOtmCalls = otmCalls.slice(0, 3);
-      const nearOtmPuts = otmPuts.slice(-3);
-      const avgCallIv = nearOtmCalls.reduce((s, d) => s + d.raw_C, 0) / nearOtmCalls.length;
-      const avgPutIv = nearOtmPuts.reduce((s, d) => s + d.raw_P, 0) / nearOtmPuts.length;
-      const skew = (avgCallIv - avgPutIv) * 100;
-      const skewEl = document.getElementById('mSkew');
-      skewEl.textContent = (skew >= 0 ? '+' : '') + skew.toFixed(2) + '%';
-      skewEl.style.color = skew > 0 ? '#ff6b9d' : '#00d4ff';
-      document.getElementById('mSkewSub').textContent = skew > 0 ? 'Call > Put' : 'Put > Call';
-    }
+  // ② 偏斜度 Skew（SVI模型参数）
+  if (svi && svi.skew != null) {
+    const skewVal = svi.skew;
+    const skewEl = document.getElementById('mSkewParam');
+    skewEl.textContent = skewVal.toFixed(4);
+    skewEl.style.color = skewVal < -0.1 ? '#00d4ff' : skewVal > 0.1 ? '#ff6b9d' : '#aaa';
+    document.getElementById('mSkewSub').textContent =
+      skewVal < -0.05 ? 'Put偏斜（左倾）' : skewVal > 0.05 ? 'Call偏斜（右倾）' : '基本对称';
   }
 
-  // 曲线形态（整体平移）
+  // ③ 曲线形态（整体平移：升波/降波）
   let totalDiff = 0, count = 0;
   curve.forEach(d => {
     if (d.smooth != null && d.smooth_prev != null) {
@@ -615,15 +592,17 @@ function updateMetrics(data) {
       avgDiff > 0.05 ? '整体升波' : avgDiff < -0.05 ? '整体降波' : '基本持平';
   }
 
-  // SABR 参数
-  const sabr = data.sabr_params;
-  if (sabr) {
-    document.getElementById('mAlpha').textContent = sabr.alpha != null ? sabr.alpha.toFixed(4) : '--';
-    document.getElementById('mRho').textContent = sabr.rho != null ? sabr.rho.toFixed(4) : '--';
-    document.getElementById('mNu').textContent = sabr.nu != null ? sabr.nu.toFixed(4) : '--';
+  // ④ 曲率 Curvature（SVI模型二阶导）
+  if (svi && svi.curvature != null) {
+    const curv = svi.curvature;
+    const curvEl = document.getElementById('mCurvature');
+    curvEl.textContent = curv.toFixed(2);
+    curvEl.style.color = curv > 30 ? '#ff6b9d' : curv > 10 ? '#ffaa00' : '#aaffaa';
+    document.getElementById('mCurvSub').textContent =
+      curv > 30 ? '陡峭（情绪紧张）' : curv > 10 ? '适中' : '平坦（情绪平稳）';
   }
 
-  // 拟合残差（独立于SABR参数，只需smooth vs raw散点）
+  // ⑤ 拟合残差 RMSE
   if (curve.length > 0) {
     let ssq = 0, n = 0;
     curve.forEach(d => {

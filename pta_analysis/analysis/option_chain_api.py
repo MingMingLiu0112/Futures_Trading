@@ -1344,25 +1344,10 @@ class OptionChainAPI:
                 # 只返回最近月合约数据
                 near_strike_rows = [r for r in strike_rows if r.expiry == near_expiry_code]
 
-                # 计算ATM行权价：直接取最大痛点（Max Pain）结果
-                # pain(K) = Σᵢ (call_oiᵢ + put_oiᵢ) × |S - K|，取最小值
+                # ATM行权价：取最接近标的价格的行权价（不是Max Pain）
                 all_available_strikes = sorted(set(r.strike for r in near_strike_rows))
                 if all_available_strikes:
-                    # 按strike合并OI（同类合约多条记录需累加）
-                    strike_oi = {}
-                    for r in near_strike_rows:
-                        k = r.strike
-                        if k not in strike_oi:
-                            strike_oi[k] = {'call_oi': 0, 'put_oi': 0}
-                        strike_oi[k]['call_oi'] += getattr(r, 'call_oi', 0) or 0
-                        strike_oi[k]['put_oi'] += getattr(r, 'put_oi', 0) or 0
-                    # 找痛点最小的行权价
-                    min_pain, mp_strike = None, None
-                    for K in all_available_strikes:
-                        pain = sum((strike_oi[k]['call_oi'] + strike_oi[k]['put_oi']) * abs(S - K) for k in all_available_strikes)
-                        if min_pain is None or pain < min_pain:
-                            min_pain, mp_strike = pain, K
-                    atm_strike = mp_strike
+                    atm_strike = min(all_available_strikes, key=lambda x: abs(x - S))
                 else:
                     # 没有合约数据时，用实际档位的最小最大值保护
                     if all_available_strikes:
