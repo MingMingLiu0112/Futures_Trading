@@ -1,4 +1,6 @@
 
+
+
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -126,11 +128,118 @@
   .iv-down { color: #00d4ff; }
   .iv-flat { color: #555; }
   .iv-smooth { color: #ffaa00; }
-  .iv-major { color: #ff2222; font-weight: 700; }
-  .iv-significant { color: #ff8800; font-weight: 600; }
-  .oi-major { color: #ff2222; font-weight: 700; }
-  .oi-significant { color: #ff8800; font-weight: 600; }
   .star { color: #ffaa00; margin-right: 2px; }
+
+  /* ===== 异动色块标注（背景色 + 统一白色文字） ===== */
+  .alert-significant {
+    background: rgba(255, 136, 0, 0.25);
+    border-radius: 3px;
+    padding: 1px 4px;
+    color: #ffcc66;
+  }
+  .alert-major {
+    background: rgba(255, 34, 34, 0.35);
+    border-radius: 3px;
+    padding: 1px 4px;
+    color: #ff8888;
+  }
+  .alert-reversal {
+    background: rgba(255, 0, 255, 0.3);
+    border-radius: 3px;
+    padding: 1px 4px;
+    color: #ff88ff;
+    animation: pulse-reversal 0.8s ease-in-out infinite;
+  }
+  /* 反转叠加闪烁：保留原色块(major/significant)颜色，加闪烁动画 */
+  .alert-reversal-pulse {
+    animation: pulse-reversal 0.8s ease-in-out infinite;
+  }
+
+  /* 闪烁动画 */
+  @keyframes blink-reversal {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+  @keyframes pulse-reversal {
+    0%, 100% { background: rgba(255, 0, 255, 0.35); box-shadow: 0 0 4px rgba(255, 0, 255, 0.4); }
+    50% { background: rgba(255, 0, 255, 0.12); box-shadow: none; }
+  }
+  @keyframes pulse-major {
+    0%, 100% { background: rgba(255, 34, 34, 0.35); }
+    50% { background: rgba(255, 34, 34, 0.15); }
+  }
+  @keyframes blink-major {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  .blink-major { animation: blink-major 1s ease-in-out 3; }
+
+  /* ===== Toast 弹窗 ===== */
+  .toast-container {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 80vh;
+    overflow-y: auto;
+    pointer-events: none;
+  }
+  .toast {
+    pointer-events: auto;
+    min-width: 280px;
+    max-width: 400px;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.5;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    animation: toast-in 0.3s ease-out;
+    cursor: pointer;
+  }
+  .toast.significant {
+    background: linear-gradient(135deg, #2a1a00, #1a1200);
+    border: 1px solid #ff8800;
+    color: #ffcc66;
+  }
+  .toast.major {
+    background: linear-gradient(135deg, #2a0000, #1a0000);
+    border: 1px solid #ff2222;
+    color: #ff6666;
+    animation: toast-in 0.3s ease-out, blink-major 1s ease-in-out 3;
+  }
+  .toast.reversal {
+    background: linear-gradient(135deg, #2a002a, #1a001a);
+    border: 1px solid #ff00ff;
+    color: #ff88ff;
+    animation: toast-in 0.3s ease-out, pulse-reversal 0.8s ease-in-out 5;
+  }
+  .toast .toast-title {
+    font-weight: 700;
+    font-size: 14px;
+    margin-bottom: 4px;
+  }
+  .toast .toast-detail {
+    font-size: 12px;
+    color: #bbb;
+  }
+  .toast .toast-close {
+    float: right;
+    cursor: pointer;
+    font-size: 16px;
+    color: #888;
+    margin-left: 8px;
+    line-height: 1;
+  }
+  .toast .toast-close:hover {
+    color: #fff;
+  }
+  @keyframes toast-in {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
 
   /* ===== 辅助 ===== */
   .legend-row {
@@ -453,6 +562,7 @@ async function fetchData() {
     updateAtmChart(data);
     updateMetrics(data);
     updateTable(alertData, data);
+    checkAndAlert(alertData);
 
     document.getElementById('lastUpdate').textContent =
       `最后更新: ${data.last_update || '--'} | 前次基准: ${data.prev_timestamp || '--'} | 版本 v2.11.3`;
@@ -638,19 +748,27 @@ function updateTable(alertData, curveData) {
     return `<span class="${cls}">${v.toFixed(2)}%</span>`;
   };
 
-  // 格式化IV变化
-  const fmtIvChg = (chg, level) => {
+  // 格式化IV变化（统一字体颜色，达阈值用背景色块标注）
+  const fmtIvChg = (chg, level, refType) => {
     if (chg == null) return '<span style="color:#333">--</span>';
     const sign = chg >= 0 ? '+' : '';
-    let cls = 'iv-flat';
-    if (level === 'major') cls = 'iv-major';
-    else if (level === 'significant') cls = 'iv-significant';
-    else if (chg > 0.01) cls = 'iv-up';
-    else if (chg < -0.01) cls = 'iv-down';
-    return `<span class="${cls}">${sign}${chg.toFixed(2)}%</span>`;
+    const text = `${sign}${chg.toFixed(2)}%`;
+
+    // 反转类型 → 在正常色块基础上叠加闪烁
+    if (refType === 'reversal') {
+      if (level === 'major') return `<span class="alert-major alert-reversal-pulse">⚡${text}</span>`;
+      if (level === 'significant') return `<span class="alert-significant alert-reversal-pulse">⚡${text}</span>`;
+      return `<span class="alert-reversal">⚡${text}</span>`;
+    }
+    // 达到阈值 → 背景色块
+    if (level === 'major') return `<span class="alert-major">${text}</span>`;
+    if (level === 'significant') return `<span class="alert-significant">${text}</span>`;
+
+    // 普通 → 统一灰白色
+    return `<span style="color:#aaa">${text}</span>`;
   };
 
-  // 格式化持仓变化（百分比）
+  // 格式化持仓变化（百分比，统一字体颜色，达阈值用背景色块）
   const fmtOiChg = (current, prev, level) => {
     const cur = current || 0;
     const prv = prev || 0;
@@ -670,12 +788,14 @@ function updateTable(alertData, curveData) {
     const chg = (cur - prv) / prv;
     const pct = (chg * 100).toFixed(1);
     const sign = chg >= 0 ? '+' : '';
-    let cls = 'iv-flat';
-    if (level === 'major') cls = 'oi-major';
-    else if (level === 'significant') cls = 'oi-significant';
-    else if (chg > 0) cls = 'iv-up';
-    else if (chg < 0) cls = 'iv-down';
-    return `<span class="${cls}">${sign}${pct}%</span>`;
+    const text = `${sign}${pct}%`;
+
+    // 达到阈值 → 背景色块
+    if (level === 'major') return `<span class="alert-major">${text}</span>`;
+    if (level === 'significant') return `<span class="alert-significant">${text}</span>`;
+
+    // 普通 → 统一灰白色
+    return `<span style="color:#aaa">${text}</span>`;
   };
 
   // 格式化持仓量
@@ -701,11 +821,11 @@ function updateTable(alertData, curveData) {
     return `<tr ${trCls}>
       <td>${fmtOiChg(r.oi_call, r.oi_call_prev, r.oi_call_level)}</td>
       <td>${fmtOi(r.oi_call, r.oi_call_prev)}</td>
-      <td>${fmtIvChg(callIvChg, r.iv_level)}</td>
+      <td>${fmtIvChg(callIvChg, r.iv_call_level, r.iv_ref_type)}</td>
       <td>${fmtIv(r.iv_call, 'iv-call')}</td>
       <td>${star}${r.strike}</td>
       <td>${fmtIv(r.iv_put, 'iv-put')}</td>
-      <td>${fmtIvChg(putIvChg, r.iv_level)}</td>
+      <td>${fmtIvChg(putIvChg, r.iv_put_level, r.iv_ref_type)}</td>
       <td>${fmtOi(r.oi_put, r.oi_put_prev)}</td>
       <td>${fmtOiChg(r.oi_put, r.oi_put_prev, r.oi_put_level)}</td>
     </tr>`;
@@ -723,6 +843,145 @@ async function triggerCalc() {
     if (result.success) await fetchData();
     else alert('刷新失败，请检查服务状态');
   } catch (e) { alert('请求失败: ' + e.message); }
+}
+
+// ===================== 声音报警系统（Web Audio API）=====================
+let _audioCtx = null;
+function getAudioCtx() {
+  if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return _audioCtx;
+}
+
+// 显著异动：短促双音 (440Hz + 660Hz)，音量0.5
+function playSoundSignificant() {
+  try {
+    const ctx = getAudioCtx();
+    const t = ctx.currentTime;
+    [440, 660].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.5, t + i * 0.15);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.15 + 0.12);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t + i * 0.15);
+      osc.stop(t + i * 0.15 + 0.15);
+    });
+  } catch (e) { console.warn('Sound failed:', e); }
+}
+
+// 重大异动：急促三连音 (880Hz × 3)，音量0.6
+function playSoundMajor() {
+  try {
+    const ctx = getAudioCtx();
+    const t = ctx.currentTime;
+    for (let i = 0; i < 3; i++) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.6, t + i * 0.12);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.12 + 0.08);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t + i * 0.12);
+      osc.stop(t + i * 0.12 + 0.12);
+    }
+  } catch (e) { console.warn('Sound failed:', e); }
+}
+
+// 盘中反转：下行滑音 (1200→600Hz)，音量0.6
+function playSoundReversal() {
+  try {
+    const ctx = getAudioCtx();
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(1200, t);
+    osc.frequency.exponentialRampToValueAtTime(600, t + 0.4);
+    gain.gain.setValueAtTime(0.6, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(t);
+    osc.stop(t + 0.5);
+  } catch (e) { console.warn('Sound failed:', e); }
+}
+
+// ===================== Toast 弹窗系统 =====================
+let _toastContainer = null;
+function getToastContainer() {
+  if (!_toastContainer) {
+    _toastContainer = document.createElement('div');
+    _toastContainer.className = 'toast-container';
+    document.body.appendChild(_toastContainer);
+  }
+  return _toastContainer;
+}
+
+function showToast(title, detail, level) {
+  const container = getToastContainer();
+  const toast = document.createElement('div');
+  toast.className = 'toast ' + level;  // significant / major / reversal
+  toast.innerHTML = `<div class="toast-title">${title}<span class="toast-close">✕</span></div><div class="toast-detail">${detail}</div>`;
+  toast.querySelector('.toast-close').addEventListener('click', (e) => { e.stopPropagation(); toast.remove(); });
+  container.appendChild(toast);
+  // 不自动消失，需手动点击 ✕ 关闭
+}
+
+// ===================== 异动检测与报警 =====================
+let _lastAlertKeys = null;  // null = 首次加载尚未初始化
+let _alertSoundEnabled = false;  // 页面需要用户交互后才能播放声音
+
+function checkAndAlert(alertData) {
+  const alerts = alertData.iv_alerts || [];
+  const newKeys = new Set();
+
+  alerts.forEach(a => {
+    const key = `${a.strike}_${a.level}_${a.ref_type || 'close'}`;
+    newKeys.add(key);
+  });
+
+  // 首次加载：只记录当前状态，不弹窗不响铃
+  if (_lastAlertKeys === null) {
+    _lastAlertKeys = newKeys;
+    console.log(`[Alert] 初始化完成，记录${newKeys.size}个异动状态`);
+    return;
+  }
+
+  // 后续轮询：只对新出现的key弹窗
+  let alertCount = 0;
+  alerts.forEach(a => {
+    const key = `${a.strike}_${a.level}_${a.ref_type || 'close'}`;
+    if (_lastAlertKeys.has(key)) return;  // 已报过
+
+    alertCount++;
+    // 最多弹5个toast，防止刷屏
+    if (alertCount > 5) return;
+
+    const isReversal = a.ref_type === 'reversal';
+    const levelText = isReversal ? '⚡盘中反转' : a.level === 'major' ? '🔴重大异动' : '🟡显著异动';
+    const title = `${levelText} — K${a.strike}`;
+    const chgText = a.iv_chg != null ? (a.iv_chg >= 0 ? '+' : '') + a.iv_chg.toFixed(2) + '%' : '';
+    const detail = `IV变化: ${chgText}`;
+
+    // Toast
+    const toastLevel = isReversal ? 'reversal' : a.level === 'major' ? 'major' : 'significant';
+    showToast(title, detail, toastLevel);
+
+    // 声音（只响一次，取最高级别）
+    if (alertCount === 1) {
+      if (isReversal) playSoundReversal();
+      else if (a.level === 'major') playSoundMajor();
+      else playSoundSignificant();
+    }
+  });
+
+  if (alertCount > 5) {
+    showToast(`还有 ${alertCount - 5} 个异动`, '查看T型表格了解详情', 'significant');
+  }
+
+  _lastAlertKeys = newKeys;
 }
 
 // ===================== 初始化 =====================
