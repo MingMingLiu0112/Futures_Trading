@@ -352,7 +352,7 @@
                 <option value="1month">月线</option>
             </select>
             <button onclick="loadAllData()">🔄 刷新</button>
-            <button onclick="window.open('/option_chain', '_blank')" style="padding:6px 12px;border-radius:4px;border:1px solid #444;background:#2d2d44;color:#94a3b8;cursor:pointer;font-size:13px;">📊 期权链</button>
+            <!-- 期权链按钮已废弃（v2.11.5）—— 整合到 隐波微笑 -->
             <button onclick="window.open('/iv_smile', '_blank')" style="padding:6px 12px;border-radius:4px;border:1px solid #444;background:#2d2d44;color:#94a3b8;cursor:pointer;font-size:13px;">📈 隐波微笑</button>
             <button onclick="window.open('/chan/', '_blank')" style="padding:6px 12px;border-radius:4px;border:1px solid #444;background:#2d2d44;color:#94a3b8;cursor:pointer;font-size:13px;">📐 缠论</button>
 
@@ -3221,7 +3221,7 @@
             }
         }
 
-        // ==================== TA606实时价格轮询（每分钟） ====================
+        // ==================== 近月期货实时价格轮询（每分钟，自动跟随合约切换） ====================
         let lastTa606Price = null;
 
         // 复用 loadOptionChain 中相同的 Max Pain 计算逻辑
@@ -3251,7 +3251,7 @@
 
         async function pollTa606Price() {
             try {
-                const res = await fetch('/api/pta/ta606_price');
+                const res = await fetch('/api/pta/underlying_price');
                 const data = await res.json();
                 if (!data.success || !data.underlying_price) return;
 
@@ -3653,7 +3653,7 @@
             loadOptionChain();
             loadFundamental();
             loadDailyReport();
-            // TA606价格每分钟轮询（价格变化时重算ATM+重建Smile）
+            // 近月期货价格每分钟轮询（价格变化时重算ATM+重建Smile）
             setInterval(pollTa606Price, 60000);
             // 期权链数据每5分钟自动刷新（保持OI/IV等数据时效性）
             setInterval(loadOptionChain, 5 * 60 * 1000);

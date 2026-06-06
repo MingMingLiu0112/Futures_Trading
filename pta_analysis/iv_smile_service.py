@@ -429,6 +429,21 @@ def _load_previous_day_snapshots():
                 print(f"[iv_smile] ⚠️ 恢复到期日失败: {e}")
 
         print(f"[iv_smile] 📂 已恢复标的价格: S={restored_price}, ATM={restored_atm}, MP={restored_mp} (from {latest_for_restore_key})")
+
+        # === 3.1 用akshare分钟K线校正标的价格（含夜盘） ===
+        # 快照保存的是日盘收盘价，夜盘后价格可能已变化
+        try:
+            from analysis.option_chain_api import _get_akshare_latest_price
+            _contract_code = _state.get('active_contract', 'TA607')
+            _ak_price = _get_akshare_latest_price(_contract_code)
+            if _ak_price > 0 and _ak_price != restored_price:
+                print(f"[iv_smile] 📂 akshare校正价格: {restored_price} → {_ak_price}（含夜盘）")
+                _last_valid['futures_price'] = _ak_price
+                _state['futures_price'] = _ak_price
+                restored_price = _ak_price
+        except Exception as e:
+            print(f"[iv_smile] ⚠️ akshare价格校正失败: {e}")
+
         if restored_smooth:
             print(f"[iv_smile] 📂 已恢复微笑曲线: {len(restored_smooth)}档平滑IV (from {latest_for_restore_key})")
 

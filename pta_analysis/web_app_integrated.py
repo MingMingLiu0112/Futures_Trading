@@ -397,10 +397,11 @@ def api_option_chain():
         return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/pta/ta606_price')
-def api_ta606_price():
-    """TA606实时价格 - 轻量接口，每分钟轮询更新标的价格"""
+@app.route('/api/pta/underlying_price')
+def api_underlying_price():
+    """近月期货实时价格 - 自动切换到最近未到期合约"""
     try:
-        price = oca.get_tq_ta606_price(timeout=5.0)
+        price, expiry_code = oca.get_nearest_underlying_price(timeout=5.0)
         if price <= 0:
             # 回退到akshare主力合约
             try:
@@ -412,7 +413,7 @@ def api_ta606_price():
         return jsonify({
             'success': True,
             'underlying_price': price,
-            'symbol': 'TA606',
+            'symbol': expiry_code,
             'timestamp': dt_datetime.now().isoformat()
         })
     except Exception as e:
@@ -590,16 +591,8 @@ def api_daily_report():
                 pass
         return jsonify({'success': False, 'error': str(e)})
 
-# 注册期权链页面路由
-@app.route('/option_chain')
-def option_chain_page():
-    """期权链分析页面"""
-    try:
-        with open(os.path.join(WORKSPACE, 'option_chain.html'), 'r', encoding='utf-8') as f:
-            content = f.read()
-        return content
-    except Exception as e:
-        return f"Error loading page: {e}", 500
+# 期权链页面（/option_chain）已废弃 —— 整合到 /iv_smile
+# 原 route option_chain_page 已移除 (v2.11.5)
 
 
 # ==================== 科创50ETF期权 隐波微笑 ====================
