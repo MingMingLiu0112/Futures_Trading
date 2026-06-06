@@ -263,10 +263,24 @@ def _save_all_snapshots():
         'snapshots': merged,   # 合并后全量快照 dict
         'atm_iv_history': _atm_iv_history,  # ATM IV 走势历史（分钟级数据点列表）
     }
+    # 原子写入：先写临时文件，再 os.replace() 覆盖目标文件。
+    # os.replace 在同一文件系统上是原子操作，即使进程被 kill -9 也不会
+    # 出现半截文件（要么是旧的完整文件，要么是新的完整文件）。
+    import tempfile
     try:
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
-        print(f"[iv_smile] 📦 全量快照已持久化: {date_str} ({len(_interval_snapshots)}个时间点)")
+        fd, tmp_path = tempfile.mkstemp(dir=_SNAPSHOT_DIR, suffix='.tmp')
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, path)
+            print(f"[iv_smile] 📦 全量快照已持久化: {date_str} ({len(_interval_snapshots)}个时间点)")
+        except BaseException:
+            # 写入失败时清理临时文件
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
     except Exception as e:
         print(f"[iv_smile] ⚠️ 快照持久化失败: {e}")
 
