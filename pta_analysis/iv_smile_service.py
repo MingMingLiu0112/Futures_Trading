@@ -4,6 +4,7 @@
 
 
 
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -1713,10 +1714,13 @@ def register_routes(app):
 
         return jsonify({
             'futures_price': _state['futures_price'],
+            'underlying_price': _state['futures_price'],   # 标的价格（前端指标栏用）
             'ref_strike': _state.get('ref_strike'),
             'max_pain': _state.get('max_pain'),
             'atm_strike': _state['atm_strike'],
             'last_update': _state['last_update'],
+            'expiry': _state['expiry'].isoformat() if _state.get('expiry') else None,
+            'T': _state.get('T'),                          # 剩余年化时间
             'svi_params': svi,
             'curve': curve_data,
             'atm_history': {item['time_key']: item['value'] for item in _atm_iv_history},
@@ -1736,6 +1740,39 @@ def register_routes(app):
         if force and success:
             _save_all_snapshots()
         return jsonify({'success': success, 'forced': force})
+
+    @app.route('/api/iv_smile/inject_oi', methods=['POST'])
+    def iv_api_inject_oi():
+        """手工注入当前持仓数据（不影响基准，仅更新当前OI用于计算变化量）"""
+        from flask import request
+        data = request.get_json() or {}
+        # 格式: {"4450": {"C": 6, "P": 1040}, "6000": {"C": 2749, "P": 37500}, ...}
+        if not data:
+            return jsonify({'success': False, 'error': 'empty data'}), 400
+        with _state['lock']:
+            _state['strike_oi'] = {str(k): v for k, v in data.items()}
+        # 用新OI重算最大痛点
+        S = _state.get('futures_price', 0)
+        if S:
+            oi_int_keys = {int(k): v for k, v in data.items()}
+            new_mp = calc_max_pain(oi_int_keys, S)
+            if new_mp:
+                _state['max_pain'] = new_mp
+                print(f"[iv_smile] 📥 OI注入后重算最大痛点: {new_mp}")
+        # 同时更新到最新快照中（确保持久化，重启不丢失）
+        now = datetime.now()
+        interval_key = get_interval_key(now)
+        oi_dict = {str(k): v for k, v in data.items()}
+        if interval_key and interval_key in _interval_snapshots:
+            _interval_snapshots[interval_key]['strike_oi'] = oi_dict
+        else:
+            # 非交易时段或无当前快照，写入最新的一个快照
+            if _interval_snapshots:
+                latest_key = max(_interval_snapshots.keys())
+                _interval_snapshots[latest_key]['strike_oi'] = oi_dict
+        _save_all_snapshots()
+        print(f"[iv_smile] 📥 手工注入OI: {len(data)}档")
+        return jsonify({'success': True, 'count': len(data)})
 
     @app.route('/api/iv_smile/inject_baseline', methods=['POST'])
     def iv_api_inject_baseline():
