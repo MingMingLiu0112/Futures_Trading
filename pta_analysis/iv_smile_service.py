@@ -78,6 +78,8 @@ _prev_atm_snapshot_minute = -1     # 上次追加时的15分钟窗口编号，�
 # IV变化报警追踪（避免重复报警）
 _iv_alert_sent_today = set()       # 今天已发送的报警记录: {(strike, direction), ...}
 _iv_alert_last_send_time = {}      # 上次发送时间: {f"{strike}_{dir}": timestamp}
+_iv_alert_last_direction = {}      # 上次报警方向: {f"{strike}": 'up'|'down', f"oi_{strike}_{side}": 'up'|'down'}
+_iv_alert_dynamic_baseline = {}    # 动态基准: {strike: iv_value} — 每次IV报警触发后更新，用于捕捉盘中二次变化
 
 # 每日收盘基准快照（15:00 收盘时记录，作为盘中对比基准）
 _close_baseline = {}               # {'smooth': {}, 'raw': {}, 'strike_oi': {}, 'S': float, 'ts': str}
@@ -89,31 +91,31 @@ _IV_ALERT_THRESHOLD = 0.06         # 默认6% IV变化阈值（GET时兜底用�
 
 def _get_iv_thresholds(avg_iv):
     """按平均波动率返回IV变化阈值（与主页期权链一致）
-    低波 IV<20%:  noise<1.5%  显著1.5%~3%  重大>3%
-    中波 20%≤IV<30%: noise<2%  显著2%~4%  重大>4%
-    高波 IV≥30%:   noise<3%  显著3%~6%  重大>6%
+    低波 IV<20%:  noise<1.5%  显著≥1.5%  重大≥3%
+    中波 20%≤IV<30%: noise<2%  显著≥2%   重大≥4%
+    高波 IV≥30%:   noise<3%  显著≥3%    重大≥6%
     """
     if avg_iv >= 0.30:
-        return {'noise': 0.03, 'significant': 0.06, 'extreme': 0.06}
+        return {'noise': 0.03, 'significant': 0.03, 'extreme': 0.06}
     if avg_iv >= 0.20:
-        return {'noise': 0.02, 'significant': 0.04, 'extreme': 0.04}
-    return {'noise': 0.015, 'significant': 0.03, 'extreme': 0.03}
+        return {'noise': 0.02, 'significant': 0.02, 'extreme': 0.04}
+    return {'noise': 0.015, 'significant': 0.015, 'extreme': 0.03}
 
 def _get_oi_thresholds(oi):
     """按持仓量返回持仓变化阈值（与主页期权链一致）
-    < 3000手:    noise<10%   显著10%~25%  重大>25%
-    3000-10000手: noise<7%   显著7%~15%   重大>15%
-    > 10000手:  noise<5%    显著5%~10%   重大>10%
+    < 3000手:    noise<10%   显著≥10%   重大≥25%
+    3000-10000手: noise<7%   显著≥7%    重大≥15%
+    > 10000手:  noise<5%    显著≥5%    重大≥10%
     """
     if oi >= 10000:
-        return {'noise': 0.05, 'sigLow': 0.10, 'extreme': 0.10}
+        return {'noise': 0.05, 'sigLow': 0.05, 'extreme': 0.10}
     if oi >= 3000:
-        return {'noise': 0.07, 'sigLow': 0.15, 'extreme': 0.15}
-    return {'noise': 0.10, 'sigLow': 0.25, 'extreme': 0.25}
+        return {'noise': 0.07, 'sigLow': 0.07, 'extreme': 0.15}
+    return {'noise': 0.10, 'sigLow': 0.10, 'extreme': 0.25}
 
 def _record_close_baseline(smile_smooth, smile_raw, strike_oi, S):
-    """记录每日15:00收盘基准快照"""
-    global _close_baseline
+    """记录每日15:00收盘基准快照，同时重置报警状态"""
+    global _close_baseline, _iv_alert_dynamic_baseline
     _close_baseline = {
         'smooth': {k: float(v) for k, v in smile_smooth.items()},
         'raw': {k: dict(v) for k, v in smile_raw.items()},
@@ -121,12 +123,20 @@ def _record_close_baseline(smile_smooth, smile_raw, strike_oi, S):
         'S': float(S),
         'ts': datetime.now().isoformat(),
     }
+    # 新基准生效，清空所有报警追踪状态
+    _iv_alert_sent_today.clear()
+    _iv_alert_last_send_time.clear()
+    _iv_alert_last_direction.clear()
+    _iv_alert_dynamic_baseline = {}
     print(f"[iv_smile] 📌 收盘基准已记录: {len(smile_smooth)}档 S={S:.0f}")
 
 def _check_iv_alert(smile_smooth, smile_raw, strike_oi, S, max_pain):
     """
     检查IV和持仓变化，触发飞书报警（对比当日15:00基准，同档位方向至少隔15分钟）。
-    返回 (iv_alerts, oi_alerts) 列表，每个元素 (strike, side, level, cur_val, prev_val, change)。
+    返回 (iv_alerts, oi_alerts) 列表。
+    iv_alerts 元素: (strike, side, level, cur_val, ref_val, change, ref_type)
+      ref_type: 'close' = 相对收盘基准, 'reversal' = 盘中反转（相对动态基准）
+    oi_alerts 元素: (strike, side, level, cur_val, prev_val, change)
     level: 'significant' | 'major'
     """
     if not _FEISHU_WEBHOOK:
@@ -139,10 +149,13 @@ def _check_iv_alert(smile_smooth, smile_raw, strike_oi, S, max_pain):
     prev_oi = _close_baseline.get('strike_oi', {})
     prev_raw = _close_baseline.get('raw', {})
 
-    # 计算当前平均IV（用于阈值分档）
-    vals = list(smile_smooth.values())
-    avg_iv = sum(vals) / len(vals) if vals else 0
-    iv_t = _get_iv_thresholds(avg_iv)
+    # 用ATM隐波判断波动环境（比全档位均值更准确）
+    atm = _state.get('atm_strike')
+    atm_iv = smile_smooth.get(atm) or smile_smooth.get(str(atm)) if atm else None
+    if not atm_iv:
+        vals = list(smile_smooth.values())
+        atm_iv = sum(vals) / len(vals) if vals else 0
+    iv_t = _get_iv_thresholds(atm_iv)
 
     iv_alerts = []
     oi_alerts = []
@@ -150,16 +163,35 @@ def _check_iv_alert(smile_smooth, smile_raw, strike_oi, S, max_pain):
     for strike, cur_iv in smile_smooth.items():
         prev_iv = prev_smooth.get(strike)
         if prev_iv and prev_iv > 0:
-            delta = cur_iv - prev_iv
-            abs_d = abs(delta)
+            # 1) 相对收盘基准的变化
+            delta_close = cur_iv - prev_iv
+            abs_d_close = abs(delta_close)
+            # 2) 相对动态基准的变化（捕捉盘中二次变化，如先涨6%再跌8%=14%反转）
+            dyn_iv = _iv_alert_dynamic_baseline.get(strike)
+            delta_dyn = (cur_iv - dyn_iv) if dyn_iv is not None else None
+            abs_d_dyn = abs(delta_dyn) if delta_dyn is not None else 0
+            # 取两者中更大的变化幅度
+            if abs_d_dyn > abs_d_close:
+                delta, abs_d, ref_iv = delta_dyn, abs_d_dyn, dyn_iv
+                ref_type = 'reversal'
+            else:
+                delta, abs_d, ref_iv = delta_close, abs_d_close, prev_iv
+                ref_type = 'close'
             if abs_d >= iv_t['significant']:
                 direction = 'up' if delta > 0 else 'down'
                 key = f"{strike}_{direction}"
+                dir_key = f"{strike}"
                 last_time = _iv_alert_last_send_time.get(key, 0)
-                if now.timestamp() - last_time >= _IV_ALERT_COOLDOWN:
+                last_dir = _iv_alert_last_direction.get(dir_key)
+                # 方向反转时重置冷却（急涨后急跌，或反之）
+                direction_reversed = (last_dir is not None and last_dir != direction)
+                if direction_reversed or (now.timestamp() - last_time >= _IV_ALERT_COOLDOWN):
                     level = 'major' if abs_d >= iv_t['extreme'] else 'significant'
-                    iv_alerts.append((strike, 'both', level, cur_iv, prev_iv, delta))
+                    iv_alerts.append((strike, 'both', level, cur_iv, ref_iv, delta, ref_type))
                     _iv_alert_last_send_time[key] = now.timestamp()
+                    _iv_alert_last_direction[dir_key] = direction
+                    # 触发后更新动态基准 → 下次变化从此刻开始算
+                    _iv_alert_dynamic_baseline[strike] = cur_iv
 
     # 持仓变化检测（Call/Put分别检测）
     for strike, cur_ois in strike_oi.items():
@@ -175,11 +207,15 @@ def _check_iv_alert(smile_smooth, smile_raw, strike_oi, S, max_pain):
             if abs_d >= t['sigLow']:
                 direction = 'up' if delta > 0 else 'down'
                 key = f"oi_{strike}_{side}_{direction}"
+                dir_key = f"oi_{strike}_{side}"
                 last_time = _iv_alert_last_send_time.get(key, 0)
-                if now.timestamp() - last_time >= _IV_ALERT_COOLDOWN:
+                last_dir = _iv_alert_last_direction.get(dir_key)
+                direction_reversed = (last_dir is not None and last_dir != direction)
+                if direction_reversed or (now.timestamp() - last_time >= _IV_ALERT_COOLDOWN):
                     level = 'major' if abs_d >= t['extreme'] else 'significant'
                     oi_alerts.append((strike, side, level, cur_oi, prev_oi_val, delta_ratio))
                     _iv_alert_last_send_time[key] = now.timestamp()
+                    _iv_alert_last_direction[dir_key] = direction
 
     # 发送飞书（仅当有变化时）
     if not iv_alerts and not oi_alerts:
@@ -188,9 +224,14 @@ def _check_iv_alert(smile_smooth, smile_raw, strike_oi, S, max_pain):
     lines = [f"【PTA期权异动监控】{now.strftime('%H:%M')}", f"期货价: {S:.0f}  最大痛点: {max_pain}"]
     if iv_alerts:
         lines.append("━━ IV变化 ━━")
-        for strike, side, level, cur_v, prv_v, chg in iv_alerts:
-            flag = '🔴' if level == 'major' else '🟡'
-            lines.append(f"{flag} {strike}档: {prv_v*100:.1f}%→{cur_v*100:.1f}% ({'+'if chg>0 else ''}{chg*100:.1f}%)")
+        for strike, side, level, cur_v, prv_v, chg, ref_type in iv_alerts:
+            if ref_type == 'reversal':
+                flag = '⚡' if level == 'major' else '🔶'
+                tag = '盘中反转 '
+            else:
+                flag = '🔴' if level == 'major' else '🟡'
+                tag = ''
+            lines.append(f"{flag} {tag}{strike}档: {prv_v*100:.1f}%→{cur_v*100:.1f}% ({'+'if chg>0 else ''}{chg*100:.1f}%)")
     if oi_alerts:
         lines.append("━━ 持仓变化 ━━")
         for strike, side, level, cur_v, prv_v, chg in oi_alerts:
@@ -326,12 +367,22 @@ def _load_previous_day_snapshots():
                         latest_for_restore_ts = ts
             _interval_loaded_from_disk.add(today)
             print(f"[iv_smile] 📂 已加载今日快照 ({today}): {len(_interval_snapshots)}个时间点")
-            # 恢复 ATM IV 走势历史
+            # 恢复 ATM IV 走势历史（过滤非交易时段的脏数据）
             saved_history = payload.get('atm_iv_history', [])
             if saved_history:
                 _atm_iv_history.clear()
-                _atm_iv_history.extend(saved_history)
-                print(f"[iv_smile] 📂 已恢复ATM IV走势: {len(_atm_iv_history)}个数据点")
+                for item in saved_history:
+                    tk = item.get('time_key', '')
+                    # time_key格式: "MM/DD HH:MM"，提取小时判断是否在交易时段
+                    try:
+                        hh = int(tk.split(' ')[1].split(':')[0]) if ' ' in tk else -1
+                    except (ValueError, IndexError):
+                        hh = -1
+                    # 交易时段: 09-15, 21-23, 00-02
+                    if 9 <= hh <= 15 or 21 <= hh <= 23 or 0 <= hh <= 2:
+                        _atm_iv_history.append(item)
+                if _atm_iv_history:
+                    print(f"[iv_smile] 📂 已恢复ATM IV走势: {len(_atm_iv_history)}个数据点")
         except Exception as e:
             print(f"[iv_smile] ⚠️ 加载今日快照失败: {e}")
 
@@ -482,18 +533,15 @@ def _load_previous_day_snapshots():
                     _atm_iv_val = None
 
             if _atm_iv_val:
-                # 用快照时间戳作为初始时间点
-                _init_ts = latest_for_restore.get('timestamp', '')
-                if _init_ts:
-                    try:
-                        _init_dt = datetime.fromisoformat(_init_ts)
-                        _init_time_key = f"{_init_dt.month:02d}/{_init_dt.day:02d} {_init_dt.hour:02d}:{_init_dt.minute:02d}"
-                    except Exception:
-                        _init_time_key = datetime.now().strftime('%m/%d %H:%M')
-                else:
+                # 冷启动初始化：只在交易时段才写入走势起点（盘后不写，避免产生脏数据）
+                _now_h = datetime.now().hour
+                _in_trading = (9 <= _now_h < 15) or (21 <= _now_h <= 23) or (0 <= _now_h < 3)
+                if _in_trading:
                     _init_time_key = datetime.now().strftime('%m/%d %H:%M')
-                _atm_iv_history.append({'time_key': _init_time_key, 'value': float(_atm_iv_val)})
-                print(f"[iv_smile] 📈 已初始化ATM IV走势: {_init_time_key} → {_atm_iv_val*100:.2f}%")
+                    _atm_iv_history.append({'time_key': _init_time_key, 'value': float(_atm_iv_val)})
+                    print(f"[iv_smile] 📈 已初始化ATM IV走势: {_init_time_key} → {_atm_iv_val*100:.2f}%")
+                else:
+                    print(f"[iv_smile] 📈 盘后冷启动，跳过ATM IV走势初始化 (hour={_now_h})")
 
         # === 3.1 如果 svi_params 无效，用 raw 数据重新做 SVI 拟合 ===
         _svi_valid = (restored_sabr and isinstance(restored_sabr, dict)
@@ -1901,10 +1949,13 @@ def register_routes(app):
                     print(f"[iv_smile] 📌 alert_data 从前一交易日基准恢复OI smooth={len(b_smooth)}档")
             has_baseline = bool(b_smooth)
 
-        # 计算平均IV用于阈值分档
-        vals = list(smile_smooth.values())
-        avg_iv = sum(vals) / len(vals) if vals else 0
-        iv_t = _get_iv_thresholds(avg_iv)
+        # 用ATM隐波判断波动环境（比全档位均值更准确）
+        atm = _state.get('atm_strike')
+        atm_iv = smile_smooth.get(atm) or smile_smooth.get(str(atm)) if atm else None
+        if not atm_iv:
+            vals = list(smile_smooth.values())
+            atm_iv = sum(vals) / len(vals) if vals else 0
+        iv_t = _get_iv_thresholds(atm_iv)
 
         # 合并所有行权价（统一为字符串key）
         all_keys = set(str(k) for k in list(strike_oi.keys()) + list(b_oi.keys()))
@@ -1966,15 +2017,32 @@ def register_routes(app):
                 iv_p_b = None
             b_sm = b_smooth.get(strike) or b_smooth.get(int(strike)) or 0
 
-            # IV变化（用平滑IV）
-            iv_chg_c = (sm - b_sm) * 100 if (sm and b_sm) else None
-            iv_chg_p = iv_chg_c  # 平滑IV是同一个值
-            iv_chg = iv_chg_c
+            # IV变化（用平滑IV）— 同时比较收盘基准和动态基准，取较大变化
+            iv_chg_close = (sm - b_sm) * 100 if (sm and b_sm) else None
+            dyn_iv = _iv_alert_dynamic_baseline.get(strike) or _iv_alert_dynamic_baseline.get(int(strike))
+            iv_chg_dyn = (sm - dyn_iv) * 100 if (sm and dyn_iv) else None
+            # 取变化更大的那个
+            iv_ref_type = 'close'
+            if iv_chg_close is not None and iv_chg_dyn is not None and abs(iv_chg_dyn) > abs(iv_chg_close):
+                iv_chg = iv_chg_dyn
+                iv_ref_type = 'reversal'
+            else:
+                iv_chg = iv_chg_close
 
-            # IV颜色级别
-            iv_level = ''
-            if iv_chg is not None and abs(iv_chg) >= iv_t['significant']:
-                iv_level = 'major' if abs(iv_chg) >= iv_t.get('extreme', 999) else 'significant'
+            # IV颜色级别 — Call和Put各自独立判定（基于raw IV变化，与前端显示一致）
+            sig_t = iv_t['significant'] * 100   # 转为百分点
+            ext_t = iv_t.get('extreme', 999) * 100
+            def _iv_level_for(iv_cur, iv_prev):
+                if iv_cur is None or iv_prev is None or iv_prev == 0:
+                    return ''
+                chg = abs(iv_cur - iv_prev)
+                if chg >= ext_t:
+                    return 'major'
+                if chg >= sig_t:
+                    return 'significant'
+                return ''
+            iv_call_level = _iv_level_for(iv_c, iv_c_b)
+            iv_put_level = _iv_level_for(iv_p, iv_p_b)
 
             # OI变化（比率）
             def oi_chg_ratio(cur, prv):
@@ -2010,8 +2078,9 @@ def register_routes(app):
             oi_put_level = oi_level(oi_chg_put, oi_put_b)
 
             # 记录需要弹窗报警的档位
-            if iv_level:
-                iv_alerts.append({'strike': int(strike), 'level': iv_level, 'iv_chg': iv_chg})
+            if iv_call_level or iv_put_level:
+                best_level = 'major' if (iv_call_level == 'major' or iv_put_level == 'major') else 'significant'
+                iv_alerts.append({'strike': int(strike), 'level': best_level, 'iv_chg': iv_chg, 'ref_type': iv_ref_type})
             if oi_call_level:
                 oi_alerts.append({'strike': int(strike), 'side': 'C', 'level': oi_call_level, 'oi_chg': oi_chg_call})
             if oi_put_level:
@@ -2037,7 +2106,9 @@ def register_routes(app):
                 'iv_smooth': round(sm * 100, 2) if sm else None,
                 # IV变化（对比基准）
                 'iv_chg': round(iv_chg, 2) if iv_chg is not None else None,
-                'iv_level': iv_level,
+                'iv_call_level': iv_call_level,
+                'iv_put_level': iv_put_level,
+                'iv_ref_type': iv_ref_type,
             })
 
         return jsonify({
@@ -2047,7 +2118,7 @@ def register_routes(app):
             'max_pain': max_pain,
             'has_baseline': has_baseline,
             'close_ts': close_ts,
-            'avg_iv': round(avg_iv * 100, 2),
+            'avg_iv': round(atm_iv * 100, 2),
             'iv_thresholds': {k: round(v * 100, 1) for k, v in iv_t.items()},
             'iv_alerts': iv_alerts,
             'oi_alerts': oi_alerts,
