@@ -1,6 +1,7 @@
 
 
 
+
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -315,6 +316,7 @@
       </div>
     </div>
     <button class="btn" onclick="triggerCalc()">🔄 刷新</button>
+    <button class="btn" onclick="testAlert()" style="background:#553300;border-color:#ff8800;color:#ffcc66;">🔔 测试报警</button>
   </div>
 </div>
 
@@ -908,6 +910,35 @@ function playSoundReversal() {
   } catch (e) { console.warn('Sound failed:', e); }
 }
 
+// ===================== 测试报警按钮 =====================
+function testAlert() {
+  // 激活音频上下文（浏览器要求用户交互后才能播放声音）
+  getAudioCtx();
+  // 依次弹出不同级别的弹窗 + 声音
+  showToast('🟡 显著异动 — K4800', 'Call IV变化: +2.15%，当前 22.3%', 'significant');
+  playSoundSignificant();
+  setTimeout(function() {
+    showToast('🔴 重大异动 — K5000', 'Call IV变化: +5.83%，当前 31.5%', 'major');
+    playSoundMajor();
+  }, 1500);
+  setTimeout(function() {
+    showToast('📊 持仓显著异动 — K4800 Call', 'OI变化: +12.5%（增仓）', 'significant');
+    playSoundSignificant();
+  }, 2500);
+  setTimeout(function() {
+    showToast('🔴 持仓重大异动 — K5000 Put', 'OI变化: -28.3%（大幅减仓）', 'major');
+    playSoundMajor();
+  }, 3500);
+  setTimeout(function() {
+    showToast('⚡ 持仓盘中反转 — K4600 Call', 'OI变化: +18.7%（方向反转）', 'reversal');
+    playSoundReversal();
+  }, 4500);
+  setTimeout(function() {
+    showToast('⚡ 盘中反转 — K4600', 'Put IV变化: -3.42%（方向反转）', 'reversal');
+    playSoundReversal();
+  }, 5500);
+}
+
 // ===================== Toast 弹窗系统 =====================
 let _toastContainer = null;
 function getToastContainer() {
@@ -935,28 +966,35 @@ let _alertSoundEnabled = false;  // 页面需要用户交互后才能播放声�
 
 function checkAndAlert(alertData) {
   const alerts = alertData.iv_alerts || [];
+  const oiAlerts = alertData.oi_alerts || [];
   const newKeys = new Set();
 
   alerts.forEach(a => {
-    const key = `${a.strike}_${a.level}_${a.ref_type || 'close'}`;
+    const key = `iv_${a.strike}_${a.level}_${a.ref_type || 'close'}`;
+    newKeys.add(key);
+  });
+  oiAlerts.forEach(a => {
+    const key = `oi_${a.strike}_${a.side}_${a.level}_${a.ref_type || 'close'}`;
     newKeys.add(key);
   });
 
   // 首次加载：只记录当前状态，不弹窗不响铃
   if (_lastAlertKeys === null) {
     _lastAlertKeys = newKeys;
-    console.log(`[Alert] 初始化完成，记录${newKeys.size}个异动状态`);
+    console.log(`[Alert] 初始化完成，记录${newKeys.size}个异动状态（IV=${alerts.length} OI=${oiAlerts.length}）`);
     return;
   }
 
   // 后续轮询：只对新出现的key弹窗
   let alertCount = 0;
+  let highestLevel = 'significant';  // 记录最高级别用于声音
+
+  // IV异动
   alerts.forEach(a => {
-    const key = `${a.strike}_${a.level}_${a.ref_type || 'close'}`;
+    const key = `iv_${a.strike}_${a.level}_${a.ref_type || 'close'}`;
     if (_lastAlertKeys.has(key)) return;  // 已报过
 
     alertCount++;
-    // 最多弹5个toast，防止刷屏
     if (alertCount > 5) return;
 
     const isReversal = a.ref_type === 'reversal';
@@ -965,17 +1003,41 @@ function checkAndAlert(alertData) {
     const chgText = a.iv_chg != null ? (a.iv_chg >= 0 ? '+' : '') + a.iv_chg.toFixed(2) + '%' : '';
     const detail = `IV变化: ${chgText}`;
 
-    // Toast
     const toastLevel = isReversal ? 'reversal' : a.level === 'major' ? 'major' : 'significant';
     showToast(title, detail, toastLevel);
 
-    // 声音（只响一次，取最高级别）
-    if (alertCount === 1) {
-      if (isReversal) playSoundReversal();
-      else if (a.level === 'major') playSoundMajor();
-      else playSoundSignificant();
-    }
+    if (isReversal) highestLevel = 'reversal';
+    else if (a.level === 'major' && highestLevel !== 'reversal') highestLevel = 'major';
   });
+
+  // OI异动
+  oiAlerts.forEach(a => {
+    const isReversal = a.ref_type === 'reversal';
+    const key = `oi_${a.strike}_${a.side}_${a.level}_${a.ref_type || 'close'}`;
+    if (_lastAlertKeys.has(key)) return;
+
+    alertCount++;
+    if (alertCount > 5) return;
+
+    const sideName = a.side === 'C' ? 'Call' : 'Put';
+    const levelText = isReversal ? '⚡持仓盘中反转' : a.level === 'major' ? '🔴持仓重大异动' : '📊持仓显著异动';
+    const title = `${levelText} — K${a.strike} ${sideName}`;
+    const chgText = a.oi_chg != null ? (a.oi_chg >= 0 ? '+' : '') + (a.oi_chg * 100).toFixed(1) + '%' : '';
+    const detail = `OI变化: ${chgText}`;
+
+    const toastLevel = isReversal ? 'reversal' : a.level === 'major' ? 'major' : 'significant';
+    showToast(title, detail, toastLevel);
+
+    if (isReversal) highestLevel = 'reversal';
+    else if (a.level === 'major' && highestLevel !== 'reversal') highestLevel = 'major';
+  });
+
+  // 声音（只响一次，取最高级别）
+  if (alertCount > 0) {
+    if (highestLevel === 'reversal') playSoundReversal();
+    else if (highestLevel === 'major') playSoundMajor();
+    else playSoundSignificant();
+  }
 
   if (alertCount > 5) {
     showToast(`还有 ${alertCount - 5} 个异动`, '查看T型表格了解详情', 'significant');

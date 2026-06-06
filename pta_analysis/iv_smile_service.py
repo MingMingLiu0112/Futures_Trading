@@ -80,6 +80,7 @@ _iv_alert_sent_today = set()       # 今天已发送的报警记录: {(strike, d
 _iv_alert_last_send_time = {}      # 上次发送时间: {f"{strike}_{dir}": timestamp}
 _iv_alert_last_direction = {}      # 上次报警方向: {f"{strike}": 'up'|'down', f"oi_{strike}_{side}": 'up'|'down'}
 _iv_alert_dynamic_baseline = {}    # 动态基准: {strike: iv_value} — 每次IV报警触发后更新，用于捕捉盘中二次变化
+_oi_alert_dynamic_baseline = {}    # OI动态基准: {"strike_side": oi_value} — 捕捉持仓盘中反转
 
 # 每日收盘基准快照（15:00 收盘时记录，作为盘中对比基准）
 _close_baseline = {}               # {'smooth': {}, 'raw': {}, 'strike_oi': {}, 'S': float, 'ts': str}
@@ -115,7 +116,7 @@ def _get_oi_thresholds(oi):
 
 def _record_close_baseline(smile_smooth, smile_raw, strike_oi, S):
     """记录每日15:00收盘基准快照，同时重置报警状态"""
-    global _close_baseline, _iv_alert_dynamic_baseline
+    global _close_baseline, _iv_alert_dynamic_baseline, _oi_alert_dynamic_baseline
     _close_baseline = {
         'smooth': {k: float(v) for k, v in smile_smooth.items()},
         'raw': {k: dict(v) for k, v in smile_raw.items()},
@@ -128,6 +129,7 @@ def _record_close_baseline(smile_smooth, smile_raw, strike_oi, S):
     _iv_alert_last_send_time.clear()
     _iv_alert_last_direction.clear()
     _iv_alert_dynamic_baseline = {}
+    _oi_alert_dynamic_baseline = {}
     print(f"[iv_smile] 📌 收盘基准已记录: {len(smile_smooth)}档 S={S:.0f}")
 
 def _check_iv_alert(smile_smooth, smile_raw, strike_oi, S, max_pain):
@@ -193,19 +195,37 @@ def _check_iv_alert(smile_smooth, smile_raw, strike_oi, S, max_pain):
                     # 触发后更新动态基准 → 下次变化从此刻开始算
                     _iv_alert_dynamic_baseline[strike] = cur_iv
 
-    # 持仓变化检测（Call/Put分别检测）
+    # 持仓变化检测（Call/Put分别检测，含盘中反转）
     for strike, cur_ois in strike_oi.items():
         prev_ois = prev_oi.get(strike, {})
         for side, cur_oi in cur_ois.items():
             prev_oi_val = prev_ois.get(side, 0)
             if prev_oi_val <= 0:
                 continue
-            delta = cur_oi - prev_oi_val
-            delta_ratio = delta / prev_oi_val if prev_oi_val else 0
-            abs_d = abs(delta_ratio)
-            t = _get_oi_thresholds(prev_oi_val)
+            # 1) 相对收盘基准
+            delta_close = cur_oi - prev_oi_val
+            ratio_close = delta_close / prev_oi_val
+            abs_r_close = abs(ratio_close)
+            # 2) 相对动态基准（捕捉盘中反转：先增仓30%再减仓20%）
+            dyn_key = f"{strike}_{side}"
+            dyn_oi = _oi_alert_dynamic_baseline.get(dyn_key)
+            if dyn_oi is not None and dyn_oi > 0:
+                delta_dyn = cur_oi - dyn_oi
+                ratio_dyn = delta_dyn / dyn_oi
+                abs_r_dyn = abs(ratio_dyn)
+            else:
+                ratio_dyn = None
+                abs_r_dyn = 0
+            # 取两者中更大的变化
+            if abs_r_dyn > abs_r_close:
+                delta_ratio, abs_d, ref_oi = ratio_dyn, abs_r_dyn, dyn_oi
+                oi_ref_type = 'reversal'
+            else:
+                delta_ratio, abs_d, ref_oi = ratio_close, abs_r_close, prev_oi_val
+                oi_ref_type = 'close'
+            t = _get_oi_thresholds(ref_oi)
             if abs_d >= t['sigLow']:
-                direction = 'up' if delta > 0 else 'down'
+                direction = 'up' if delta_ratio > 0 else 'down'
                 key = f"oi_{strike}_{side}_{direction}"
                 dir_key = f"oi_{strike}_{side}"
                 last_time = _iv_alert_last_send_time.get(key, 0)
@@ -213,9 +233,11 @@ def _check_iv_alert(smile_smooth, smile_raw, strike_oi, S, max_pain):
                 direction_reversed = (last_dir is not None and last_dir != direction)
                 if direction_reversed or (now.timestamp() - last_time >= _IV_ALERT_COOLDOWN):
                     level = 'major' if abs_d >= t['extreme'] else 'significant'
-                    oi_alerts.append((strike, side, level, cur_oi, prev_oi_val, delta_ratio))
+                    oi_alerts.append((strike, side, level, cur_oi, ref_oi, delta_ratio, oi_ref_type))
                     _iv_alert_last_send_time[key] = now.timestamp()
                     _iv_alert_last_direction[dir_key] = direction
+                    # 触发后更新动态基准
+                    _oi_alert_dynamic_baseline[dyn_key] = cur_oi
 
     # 发送飞书（仅当有变化时）
     if not iv_alerts and not oi_alerts:
@@ -234,10 +256,15 @@ def _check_iv_alert(smile_smooth, smile_raw, strike_oi, S, max_pain):
             lines.append(f"{flag} {tag}{strike}档: {prv_v*100:.1f}%→{cur_v*100:.1f}% ({'+'if chg>0 else ''}{chg*100:.1f}%)")
     if oi_alerts:
         lines.append("━━ 持仓变化 ━━")
-        for strike, side, level, cur_v, prv_v, chg in oi_alerts:
-            flag = '🔴' if level == 'major' else '🟡'
+        for strike, side, level, cur_v, prv_v, chg, oi_ref_type in oi_alerts:
+            if oi_ref_type == 'reversal':
+                flag = '⚡' if level == 'major' else '🔶'
+                tag = '盘中反转 '
+            else:
+                flag = '🔴' if level == 'major' else '🟡'
+                tag = ''
             side_label = 'Call' if side == 'C' else 'Put'
-            lines.append(f"{flag} {strike}/{side_label}: {prv_v:,}→{cur_v:,} ({'+'if chg>0 else ''}{chg*100:.1f}%)")
+            lines.append(f"{flag} {tag}{strike}/{side_label}: {prv_v:,}→{cur_v:,} ({'+'if chg>0 else ''}{chg*100:.1f}%)")
 
     text = '\n'.join(lines)
     try:
@@ -2058,6 +2085,19 @@ def register_routes(app):
             oi_chg_call = oi_chg_ratio(oi_call, oi_call_b)
             oi_chg_put = oi_chg_ratio(oi_put, oi_put_b)
 
+            # OI动态基准对比（盘中反转检测）
+            def oi_dyn_chg(strike_key, side, cur, base_chg):
+                dyn_key = f"{strike_key}_{side}"
+                dyn_oi = _oi_alert_dynamic_baseline.get(dyn_key)
+                if dyn_oi is not None and dyn_oi > 0:
+                    dyn_ratio = (cur - dyn_oi) / dyn_oi
+                    if abs(dyn_ratio) > abs(base_chg or 0):
+                        return dyn_ratio, 'reversal'
+                return base_chg, 'close'
+
+            oi_chg_call_final, oi_call_ref_type = oi_dyn_chg(strike, 'C', oi_call, oi_chg_call)
+            oi_chg_put_final, oi_put_ref_type = oi_dyn_chg(strike, 'P', oi_put, oi_chg_put)
+
             # 兜底：如果 baseline 没有 OI 数据但有 raw IV(prev)，用 raw IV(prev) 作为 IV 前值
             # 用于处理：某些档位（如5300/5400）在前收盘时无数据，现在有数据的情况
             # 注意：b_raw_s.get('C') 为 None 时 (None or 0)*100 = 0，需要还原为 None
@@ -2074,17 +2114,17 @@ def register_routes(app):
                     return 'major' if abs_c >= t.get('extreme', 999) else 'significant'
                 return ''
 
-            oi_call_level = oi_level(oi_chg_call, oi_call_b)
-            oi_put_level = oi_level(oi_chg_put, oi_put_b)
+            oi_call_level = oi_level(oi_chg_call_final, oi_call_b)
+            oi_put_level = oi_level(oi_chg_put_final, oi_put_b)
 
             # 记录需要弹窗报警的档位
             if iv_call_level or iv_put_level:
                 best_level = 'major' if (iv_call_level == 'major' or iv_put_level == 'major') else 'significant'
                 iv_alerts.append({'strike': int(strike), 'level': best_level, 'iv_chg': iv_chg, 'ref_type': iv_ref_type})
             if oi_call_level:
-                oi_alerts.append({'strike': int(strike), 'side': 'C', 'level': oi_call_level, 'oi_chg': oi_chg_call})
+                oi_alerts.append({'strike': int(strike), 'side': 'C', 'level': oi_call_level, 'oi_chg': oi_chg_call_final, 'ref_type': oi_call_ref_type})
             if oi_put_level:
-                oi_alerts.append({'strike': int(strike), 'side': 'P', 'level': oi_put_level, 'oi_chg': oi_chg_put})
+                oi_alerts.append({'strike': int(strike), 'side': 'P', 'level': oi_put_level, 'oi_chg': oi_chg_put_final, 'ref_type': oi_put_ref_type})
 
             rows.append({
                 'strike': int(strike),
