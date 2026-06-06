@@ -397,10 +397,11 @@ def api_option_chain():
         return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/pta/ta606_price')
-def api_ta606_price():
-    """TA606实时价格 - 轻量接口，每分钟轮询更新标的价格"""
+@app.route('/api/pta/underlying_price')
+def api_underlying_price():
+    """近月期货实时价格 - 自动切换到最近未到期合约"""
     try:
-        price = oca.get_tq_ta606_price(timeout=5.0)
+        price, expiry_code = oca.get_nearest_underlying_price(timeout=5.0)
         if price <= 0:
             # 回退到akshare主力合约
             try:
@@ -412,7 +413,7 @@ def api_ta606_price():
         return jsonify({
             'success': True,
             'underlying_price': price,
-            'symbol': 'TA606',
+            'symbol': expiry_code,
             'timestamp': dt_datetime.now().isoformat()
         })
     except Exception as e:
@@ -590,16 +591,8 @@ def api_daily_report():
                 pass
         return jsonify({'success': False, 'error': str(e)})
 
-# 注册期权链页面路由
-@app.route('/option_chain')
-def option_chain_page():
-    """期权链分析页面"""
-    try:
-        with open(os.path.join(WORKSPACE, 'option_chain.html'), 'r', encoding='utf-8') as f:
-            content = f.read()
-        return content
-    except Exception as e:
-        return f"Error loading page: {e}", 500
+# 期权链页面（/option_chain）已废弃 —— 整合到 /iv_smile
+# 原 route option_chain_page 已移除 (v2.11.5)
 
 
 # ==================== 科创50ETF期权 隐波微笑 ====================
@@ -1019,6 +1012,16 @@ def _get_yesterday_close_akshare(symbol='TA0'):
         return None
 
 
+## ==================== K线TqSdk缓存 ====================
+# 避免每次请求都创建TqApi连接，与iv_smile的长连接竞争
+# 休盘时数据不变，取一次缓存即可；盘中适当刷新
+import time as _time_mod
+_kline_tqsdk_cache = {}       # key: f"{symbol}_{period}" -> {'data': ..., 'ts': time.time(), 'yesterday_close': ...}
+_KLINE_CACHE_TTL = 300        # 缓存5分钟（休盘时数据不变，盘中5分钟也足够）
+_kline_tqsdk_lock = threading.Lock()
+_kline_tqsdk_failed = True    # 默认禁用TqSdk，全部走akshare，避免与iv_smile长连接竞争
+                              # 盘中如需启用可通过 /api/kline/enable_tqsdk 打开
+
 @app.route('/api/kline/data')
 def api_kline_data():
     """K线图数据API
@@ -1027,6 +1030,7 @@ def api_kline_data():
     - 涨跌（change/change_pct）: 较昨日收盘价
     - volume_change / open_interest_change: 较前一根K线
     """
+    global _kline_tqsdk_failed
     import re
     
     period = request.args.get('period', '1min')
@@ -1057,46 +1061,73 @@ def api_kline_data():
     else:
         return jsonify({'error': f'unsupported period: {period}', 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0})
     
-    # ==================== TqSdk 分支 ====================
-    try:
-        # TqKq() 是免费行情连接，不需要账号密码
-        api = TqApi(TqKq(), auth=TqAuth('test', 'test'))
-        klines = api.get_kline_serial(tqsdk_symbol, period_sec, data_length=count)
-        
-        # 获取昨日收盘价（用于计算涨跌）
-        yesterday_close = _get_yesterday_close_tqsdk(tqsdk_symbol)
-        
-        data = []
-        for _, row in klines.iterrows():
-            close = float(row['close']) if math.isfinite(row['close']) else None
-            if close is None or close == 0:
-                continue
-            data.append(_build_kline_bar(row, close, use_tqsdk=True))
-        
-        api.close()
-        data.sort(key=lambda x: x['time'])
-        
-        # 计算涨跌（较昨日收盘价）
-        last = data[-1] if data else {}
-        current_price = _safe_val(last.get('close', 0), 0)
-        if yesterday_close and yesterday_close > 0:
-            change = round(current_price - yesterday_close, 2)
-            change_pct = round((change / yesterday_close) * 100, 2)
-        else:
-            change, change_pct = 0, 0
-        
-        # 添加增减值（较前一根K线）
-        _add_kline_changes(data)
-        
-        return jsonify({
-            'symbol': 'TA', 'period': period, 'data': data,
-            'current_price': round(current_price, 2),
-            'change': change, 'change_pct': change_pct,
-            'yesterday_close': yesterday_close,
-            'source': 'tqsdk'
-        })
-    except Exception as e:
-        app.logger.error(f'[K线API] TqSdk获取失败，降级到akshare symbol={symbol} period={period} error={type(e).__name__}:{e}')
+    # ==================== TqSdk 分支（带缓存，避免频繁创建连接） ====================
+    cache_key = f"{tqsdk_symbol}_{period}_{count}"
+    
+    # 检查缓存是否有效
+    if not _kline_tqsdk_failed:
+        with _kline_tqsdk_lock:
+            cached = _kline_tqsdk_cache.get(cache_key)
+            if cached and (_time_mod.time() - cached['ts']) < _KLINE_CACHE_TTL:
+                # 缓存命中，直接返回
+                return jsonify(cached['result'])
+    
+    # 缓存未命中或已过期，尝试TqSdk（但如果之前失败过就跳过）
+    if not _kline_tqsdk_failed:
+        try:
+            # TqKq() 是免费行情连接，不需要账号密码
+            api = TqApi(TqKq(), auth=TqAuth('test', 'test'))
+            klines = api.get_kline_serial(tqsdk_symbol, period_sec, data_length=count)
+            
+            # 获取昨日收盘价（用于计算涨跌）——从同一个api实例获取，不再创建新连接
+            yesterday_close = None
+            try:
+                daily_klines = api.get_kline_serial(tqsdk_symbol, 86400, data_length=10)
+                if len(daily_klines) >= 2:
+                    prev_close = float(daily_klines.iloc[-2]['close'])
+                    if math.isfinite(prev_close) and prev_close > 0:
+                        yesterday_close = prev_close
+            except:
+                pass
+            
+            data = []
+            for _, row in klines.iterrows():
+                close = float(row['close']) if math.isfinite(row['close']) else None
+                if close is None or close == 0:
+                    continue
+                data.append(_build_kline_bar(row, close, use_tqsdk=True))
+            
+            api.close()
+            data.sort(key=lambda x: x['time'])
+            
+            # 计算涨跌（较昨日收盘价）
+            last = data[-1] if data else {}
+            current_price = _safe_val(last.get('close', 0), 0)
+            if yesterday_close and yesterday_close > 0:
+                change = round(current_price - yesterday_close, 2)
+                change_pct = round((change / yesterday_close) * 100, 2)
+            else:
+                change, change_pct = 0, 0
+            
+            # 添加增减值（较前一根K线）
+            _add_kline_changes(data)
+            
+            result = {
+                'symbol': 'TA', 'period': period, 'data': data,
+                'current_price': round(current_price, 2),
+                'change': change, 'change_pct': change_pct,
+                'yesterday_close': yesterday_close,
+                'source': 'tqsdk'
+            }
+            
+            # 写入缓存
+            with _kline_tqsdk_lock:
+                _kline_tqsdk_cache[cache_key] = {'result': result, 'ts': _time_mod.time()}
+            
+            return jsonify(result)
+        except Exception as e:
+            app.logger.error(f'[K线API] TqSdk获取失败，降级到akshare symbol={symbol} period={period} error={type(e).__name__}:{e}')
+            _kline_tqsdk_failed = True   # 标记失败，后续直接走akshare不再尝试TqSdk
 
     # ==================== Akshare Fallback 分支 ====================
     try:

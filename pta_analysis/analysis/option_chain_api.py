@@ -199,6 +199,25 @@ def get_all_current_expiry_codes() -> List[str]:
         result[code] = calculate_expiry_date(code)
     return sorted(result.keys(), key=lambda x: result[x])
 
+
+def get_nearest_active_expiry() -> str:
+    """
+    获取最近的未到期期权合约代码。
+    规则: 到期日 > 今天 的最近月合约。到期日当天视为已到期（期权到期日收盘后结算）。
+    返回: 合约代码如 'TA607'，失败时兜底 'TA607'
+    """
+    today_str = datetime.now().strftime('%Y%m%d')
+    expiry_map = refresh_expiry_map_from_akshare()
+    if expiry_map:
+        # 找到期日 > 今天 的合约，按到期日排序取最近的
+        active = {k: v for k, v in expiry_map.items() if v > today_str}
+        if active:
+            return sorted(active.items(), key=lambda x: x[1])[0][0]
+        # 所有合约都已到期：取最晚到期的
+        return sorted(expiry_map.items(), key=lambda x: x[1])[-1][0]
+    # 兜底
+    return 'TA607'
+
 # 期权合约到标的期货的映射（akshare的symbol命名）
 OPTION_TO_FUTURES_SYMBOL = {
     'TA606': 'TA606', 'TA607': 'TA607', 'TA608': 'TA608',
@@ -548,10 +567,54 @@ def get_tq_futures_price_by_expiry(expiry_code: str, timeout: float = 5.0) -> tu
         return 0, 0
 
 
+def _get_akshare_latest_price(expiry_code: str) -> float:
+    """从akshare分钟K线获取含夜盘的最新收盘价（fallback数据源）
+    
+    TqSdk休盘时只返回日盘收盘价，不含夜盘。
+    akshare的60分钟K线包含夜盘数据，取最后一根K线的close即可。
+    
+    Args:
+        expiry_code: 合约代码如 'TA607'
+    Returns:
+        最新价格，失败返回0
+    """
+    try:
+        import akshare as ak
+        # TA607 -> TA2607
+        sina_symbol = f"TA2{expiry_code[2:]}"
+        df = ak.futures_zh_minute_sina(symbol=sina_symbol, period='60')
+        if df is not None and len(df) > 0:
+            price = float(df.iloc[-1]['close'])
+            print(f"[akshare] {sina_symbol} latest 60min close: {price}")
+            return price
+    except Exception as e:
+        print(f"[akshare] fallback price error: {e}")
+    return 0
+
+
 def get_tq_ta606_price(timeout: float = 5.0) -> float:
-    """从TqSdk获取TA606（PTA 6月期货）实时价格（兼容旧调用）"""
-    price, _ = get_tq_futures_price_by_expiry('TA606', timeout)
+    """从TqSdk获取近月期货实时价格（自动切换到最近未到期合约）
+    
+    优先TqSdk实时价格，若为0（休盘）则用akshare分钟K线fallback（含夜盘）。
+    """
+    expiry_code = get_nearest_active_expiry()
+    price, _ = get_tq_futures_price_by_expiry(expiry_code, timeout)
+    if price <= 0:
+        price = _get_akshare_latest_price(expiry_code)
     return price
+
+
+def get_nearest_underlying_price(timeout: float = 5.0) -> tuple:
+    """获取近月期货实时价格，返回 (price, expiry_code)
+    
+    自动选取最近未到期合约，返回价格和实际使用的合约代码。
+    优先TqSdk实时价格，若为0（休盘）则用akshare分钟K线fallback（含夜盘）。
+    """
+    expiry_code = get_nearest_active_expiry()
+    price, _ = get_tq_futures_price_by_expiry(expiry_code, timeout)
+    if price <= 0:
+        price = _get_akshare_latest_price(expiry_code)
+    return price, expiry_code
 
 def get_tq_option_prices(symbols: List[str]) -> Dict[str, Dict]:
     """从TqSdk获取期权实时价格（暂时禁用，因TqSdk连接阻塞）
@@ -1344,25 +1407,10 @@ class OptionChainAPI:
                 # 只返回最近月合约数据
                 near_strike_rows = [r for r in strike_rows if r.expiry == near_expiry_code]
 
-                # 计算ATM行权价：直接取最大痛点（Max Pain）结果
-                # pain(K) = Σᵢ (call_oiᵢ + put_oiᵢ) × |S - K|，取最小值
+                # ATM行权价：取最接近标的价格的行权价（不是Max Pain）
                 all_available_strikes = sorted(set(r.strike for r in near_strike_rows))
                 if all_available_strikes:
-                    # 按strike合并OI（同类合约多条记录需累加）
-                    strike_oi = {}
-                    for r in near_strike_rows:
-                        k = r.strike
-                        if k not in strike_oi:
-                            strike_oi[k] = {'call_oi': 0, 'put_oi': 0}
-                        strike_oi[k]['call_oi'] += getattr(r, 'call_oi', 0) or 0
-                        strike_oi[k]['put_oi'] += getattr(r, 'put_oi', 0) or 0
-                    # 找痛点最小的行权价
-                    min_pain, mp_strike = None, None
-                    for K in all_available_strikes:
-                        pain = sum((strike_oi[k]['call_oi'] + strike_oi[k]['put_oi']) * abs(S - K) for k in all_available_strikes)
-                        if min_pain is None or pain < min_pain:
-                            min_pain, mp_strike = pain, K
-                    atm_strike = mp_strike
+                    atm_strike = min(all_available_strikes, key=lambda x: abs(x - S))
                 else:
                     # 没有合约数据时，用实际档位的最小最大值保护
                     if all_available_strikes:

@@ -96,7 +96,8 @@
         }
         #main-chart { height: 500px; width: 100%; min-width: 600px; }
         #macd-chart { height: 130px; }
-        #kdj-chart { height: 100px; }
+        #kdj-chart-wrapper { position: relative; height: 130px; }
+        #kdj-chart { height: 110px; }
         
         .indicator-toggles {
             display: flex;
@@ -351,7 +352,7 @@
                 <option value="1month">月线</option>
             </select>
             <button onclick="loadAllData()">🔄 刷新</button>
-            <button onclick="window.open('/option_chain', '_blank')" style="padding:6px 12px;border-radius:4px;border:1px solid #444;background:#2d2d44;color:#94a3b8;cursor:pointer;font-size:13px;">📊 期权链</button>
+            <!-- 期权链按钮已废弃（v2.11.5）—— 整合到 隐波微笑 -->
             <button onclick="window.open('/iv_smile', '_blank')" style="padding:6px 12px;border-radius:4px;border:1px solid #444;background:#2d2d44;color:#94a3b8;cursor:pointer;font-size:13px;">📈 隐波微笑</button>
             <button onclick="window.open('/chan/', '_blank')" style="padding:6px 12px;border-radius:4px;border:1px solid #444;background:#2d2d44;color:#94a3b8;cursor:pointer;font-size:13px;">📐 缠论</button>
 
@@ -430,8 +431,9 @@
                 <div id="macd-chart" class="chart-container" style="height:110px;"></div>
                 <div id="macd-wave-labels" style="position:absolute;top:20px;left:0;width:100%;height:110px;pointer-events:none;overflow:hidden;z-index:5;"></div>
             </div>
-            <div id="kdj-chart" class="chart-container" style="height:100px;">
+            <div id="kdj-chart-wrapper">
                 <div class="section-title" style="font-size:11px;background:#1a1a2e;border:none;padding:2px 5px;"><span>KDJ指标</span><span id="kdjValueDisplay" style="font-size:11px;color:#888;margin-left:10px;">K: -- | D: -- | J: --</span></div>
+                <div id="kdj-chart" class="chart-container" style="height:110px;"></div>
             </div>
             <!-- 十字光标纵向延伸线 -->
             <div id="crosshair-line" style="position:absolute;top:0;width:1px;height:100%;background:#555;pointer-events:none;z-index:10;display:none;"></div>
@@ -664,7 +666,7 @@
                     timeVisible: true,
                     secondsVisible: false,
                 },
-                rightPriceScale: { borderColor: '#333' },
+                rightPriceScale: { borderColor: '#333', minimumWidth: 80 },
             });
 
             candleSeries = mainChart.addCandlestickSeries({
@@ -698,7 +700,7 @@
                     horzLine: { visible: false },
                 },
                 timeScale: { visible: false },
-                rightPriceScale: { borderColor: '#333' },
+                rightPriceScale: { borderColor: '#333', minimumWidth: 80 },
             });
             macdLineSeries = macdChart.addLineSeries({ color: C.macd, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
             signalLineSeries = macdChart.addLineSeries({ color: C.signal, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
@@ -708,7 +710,7 @@
             const kdjContainer = document.getElementById('kdj-chart');
             kdjContainer.style.display = 'block';
             kdjChart = LightweightCharts.createChart(kdjContainer, {
-                width: container.clientWidth, height: 100,
+                width: container.clientWidth, height: kdjContainer.clientHeight || 110,
                 layout: { background: { type: 'solid', color: '#1a1a2e' }, textColor: '#aaa' },
                 grid: { vertLines: { color: '#2a2a3e' }, horzLines: { color: '#2a2a3e' } },
                 crosshair: {
@@ -717,7 +719,7 @@
                     horzLine: { visible: false },
                 },
                 timeScale: { visible: false },
-                rightPriceScale: { borderColor: '#333' },
+                rightPriceScale: { borderColor: '#333', minimumWidth: 80 },
             });
             kdjKSeries = kdjChart.addLineSeries({ color: C.kdjK, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
             kdjDSeries = kdjChart.addLineSeries({ color: C.kdjD, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
@@ -758,8 +760,12 @@
                 if (_syncingMain) return;
                 _syncingSub = true;
                 if (range) {
-                    if (macdChart) macdChart.timeScale().setVisibleLogicalRange(range);
-                    if (kdjChart) kdjChart.timeScale().setVisibleLogicalRange(range);
+                    // 用时间范围同步，避免因数据量不同（MACD过滤前25根）导致逻辑索引偏移
+                    const timeRange = mainChart.timeScale().getVisibleRange();
+                    if (timeRange) {
+                        if (macdChart) macdChart.timeScale().setVisibleRange(timeRange);
+                        if (kdjChart) kdjChart.timeScale().setVisibleRange(timeRange);
+                    }
                 }
                 _syncingSub = false;
             });
@@ -771,13 +777,16 @@
                     if (_syncingSub || _syncingMain) return;
                     _syncingMain = true;
                     if (range) {
-                        mainChart.timeScale().setVisibleLogicalRange(range);
-                        // 其他副图也要跟随
-                        [macdChart, kdjChart].forEach(other => {
-                            if (other && other !== subChart) {
-                                other.timeScale().setVisibleLogicalRange(range);
-                            }
-                        });
+                        const timeRange = subChart.timeScale().getVisibleRange();
+                        if (timeRange) {
+                            mainChart.timeScale().setVisibleRange(timeRange);
+                            // 其他副图也要跟随
+                            [macdChart, kdjChart].forEach(other => {
+                                if (other && other !== subChart) {
+                                    other.timeScale().setVisibleRange(timeRange);
+                                }
+                            });
+                        }
                     }
                     _syncingMain = false;
                 });
@@ -867,8 +876,11 @@
             mainChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
                 if (range && !_syncingMain && !_syncingSub) {
                     _syncingSub = true;
-                    if (macdChart) macdChart.timeScale().setVisibleLogicalRange(range);
-                    if (kdjChart) kdjChart.timeScale().setVisibleLogicalRange(range);
+                    const timeRange = mainChart.timeScale().getVisibleRange();
+                    if (timeRange) {
+                        if (macdChart) macdChart.timeScale().setVisibleRange(timeRange);
+                        if (kdjChart) kdjChart.timeScale().setVisibleRange(timeRange);
+                    }
                     _syncingSub = false;
                 }
                 // 滚动后重绘MACD标注
@@ -1845,13 +1857,13 @@
                     _completingSwitch = false;
                 }, 50);
 
-                // 同步可见范围
+                // 同步可见范围（用时间范围而非逻辑索引，确保对齐）
                 setTimeout(() => {
                     try {
-                        const mainRange = mainChart.timeScale().getVisibleLogicalRange();
+                        const mainRange = mainChart.timeScale().getVisibleRange();
                         if (mainRange) {
-                            if (macdChart) { try { macdChart.timeScale().setVisibleLogicalRange(mainRange); } catch(e) {} }
-                            if (kdjChart) { try { kdjChart.timeScale().setVisibleLogicalRange(mainRange); } catch(e) {} }
+                            if (macdChart) { try { macdChart.timeScale().setVisibleRange(mainRange); } catch(e) {} }
+                            if (kdjChart) { try { kdjChart.timeScale().setVisibleRange(mainRange); } catch(e) {} }
                         }
                     } catch(e) {}
                 }, 100);
@@ -3209,7 +3221,7 @@
             }
         }
 
-        // ==================== TA606实时价格轮询（每分钟） ====================
+        // ==================== 近月期货实时价格轮询（每分钟，自动跟随合约切换） ====================
         let lastTa606Price = null;
 
         // 复用 loadOptionChain 中相同的 Max Pain 计算逻辑
@@ -3239,7 +3251,7 @@
 
         async function pollTa606Price() {
             try {
-                const res = await fetch('/api/pta/ta606_price');
+                const res = await fetch('/api/pta/underlying_price');
                 const data = await res.json();
                 if (!data.success || !data.underlying_price) return;
 
@@ -3641,7 +3653,7 @@
             loadOptionChain();
             loadFundamental();
             loadDailyReport();
-            // TA606价格每分钟轮询（价格变化时重算ATM+重建Smile）
+            // 近月期货价格每分钟轮询（价格变化时重算ATM+重建Smile）
             setInterval(pollTa606Price, 60000);
             // 期权链数据每5分钟自动刷新（保持OI/IV等数据时效性）
             setInterval(loadOptionChain, 5 * 60 * 1000);
