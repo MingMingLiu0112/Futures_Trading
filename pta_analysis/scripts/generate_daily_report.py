@@ -544,14 +544,16 @@ def get_iv_curve_data() -> Dict:
 
 
 def get_iv_table_data() -> Dict:
-    """从本地iv_smile服务获取T型报价表数据（与iv_smile页面T表一致）"""
+    """从本地iv_smile服务获取T型报价表数据（与iv_smile页面T表完全一致）
+    数据源：/api/iv_smile/alert_data — 包含iv_call/iv_put/iv_call_prev/iv_put_prev等
+    """
     data = {'available': False, 'rows': []}
     try:
-        resp = requests.get('http://127.0.0.1:8424/api/iv_smile/oi', timeout=30)
+        resp = requests.get('http://127.0.0.1:8424/api/iv_smile/alert_data', timeout=30)
         if resp.status_code == 200:
             raw = resp.json()
             data['rows'] = raw.get('rows', [])
-            data['futures_price'] = raw.get('futures_price')
+            data['atm_strike'] = raw.get('atm_strike')
             data['available'] = bool(data['rows'])
     except Exception as e:
         print(f"  T表数据获取失败: {e}")
