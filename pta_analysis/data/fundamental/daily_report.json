@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-06-07 22:01:59",
+  "timestamp": "2026-06-07 22:13:39",
   "section1": {
     "title": "一、 期权数据解读",
     "subtitle": "GEX正Gamma·压制波动",
@@ -77,7 +77,7 @@
       }
     ],
     "conclusions": [
-      "🛡️ 净GEX为正(+47.0M)，做市商正Gamma → 反向对冲压制波动，倾向区间震荡",
+      "🛡️ 净GEX为正(+47.1M)，做市商正Gamma → 反向对冲压制波动，倾向区间震荡",
       "🎯 痛点收敛(中): 剩余3.1天，偏差180点(2.8%)，有收敛倾向但需关注方向性驱动，价格偏高于痛点→下行引力",
       "📍 GEX翻转6414，当前价在上方66点 → 正Gamma区间，波动受抑",
       "📉 PCR=1.271>1.2，看跌持仓偏重，空头力量偏强",
@@ -93,7 +93,7 @@
       "pcr_hold": "1.2710"
     },
     "gex_summary": {
-      "net_gex": 47037032.0,
+      "net_gex": 47137670.0,
       "gex_direction": "positive",
       "gex_flip": 6414,
       "max_pain": 6300,
@@ -214,14 +214,21 @@
         "name": "PTA现货",
         "price": 6347.66,
         "unit": "CNY/吨",
-        "change": "—",
-        "signal": "中性"
+        "change": "基差+312(强)",
+        "signal": "利多"
       },
       {
         "name": "TA609",
         "price": 6246.0,
         "unit": "CNY/吨",
         "change": "+0.58%",
+        "signal": "中性"
+      },
+      {
+        "name": "国内汽油批发",
+        "price": 9640.0,
+        "unit": "CNY/吨",
+        "change": "(2026-06-05)",
         "signal": "中性"
       }
     ],
@@ -236,16 +243,71 @@
     },
     "inventory": [
       {
-        "name": "MEG乙二醇库存",
-        "stock": 9913.0,
+        "name": "PTA社会库存",
+        "stock": 146385,
         "unit": "吨",
-        "change": -130.0,
-        "change_str": "-130.0",
+        "change": -4088,
+        "change_str": "-4088",
+        "level": "偏低",
+        "date": "2026-06-05"
+      },
+      {
+        "name": "MEG乙二醇库存",
+        "stock": 9913,
+        "unit": "吨",
+        "change": -130,
+        "change_str": "-130",
+        "level": "中性",
+        "date": "2026-06-05"
+      },
+      {
+        "name": "SM苯乙烯库存",
+        "stock": 80062,
+        "unit": "吨",
+        "change": -341,
+        "change_str": "-341",
         "level": "中性",
         "date": "2026-06-05"
       }
     ],
-    "downstream": [],
+    "downstream": [
+      {
+        "name": "乙二醇",
+        "price": 4656.67,
+        "unit": "CNY/吨",
+        "dom_contract": "eg2609",
+        "dom_price": 4505.0,
+        "basis": -151.67000000000007,
+        "basis_str": "基差-152"
+      },
+      {
+        "name": "涤纶短纤",
+        "price": 24700.0,
+        "unit": "CNY/吨",
+        "dom_contract": "CY609",
+        "dom_price": 22360.0,
+        "basis": -2340.0,
+        "basis_str": "基差-2340"
+      },
+      {
+        "name": "甲醇MA",
+        "price": 3213.33,
+        "unit": "CNY/吨",
+        "dom_contract": "MA609",
+        "dom_price": 2906.0,
+        "basis": -307.3299999999999,
+        "basis_str": "基差-307"
+      },
+      {
+        "name": "苯乙烯",
+        "price": 8790.0,
+        "unit": "CNY/吨",
+        "dom_contract": "eb2607",
+        "dom_price": 8686.0,
+        "basis": -104.0,
+        "basis_str": "基差-104"
+      }
+    ],
     "news": {
       "geo": [
         "【快讯】SHMET06月07日讯，以色列军方广播称，军方已要求以色列北部居民做好准备，以应对真主党在未来几小时内的轰炸。",
@@ -260,22 +322,70 @@
         "【欧佩克+七国7月起将产量目标提高18.8万桶/日】SHMET06月07日讯，根据欧佩克周日会议后发布的公报，欧佩克+框架内七国（俄罗斯、沙特阿拉伯、伊拉克、哈萨克斯坦、科威特、阿尔及利亚和阿曼）决定"
       ]
     },
-    "narrative": "原油高位运行($92.8,-2.4%)，成本支撑坚挺；PTA盈利453元(+7.7%)。",
-    "ai_rating": null
+    "narrative": "原油高位运行($92.8,-2.4%)，成本支撑坚挺；现货升水312元(偏紧)；PTA盈利453元(+7.7%)；PTA库存14.6万吨(去库4088)。",
+    "ai_rating": {
+      "rating": "震荡",
+      "score": -0.0,
+      "outlook": "多空因素交织，区间震荡思路",
+      "dimensions": {
+        "下游需求": {
+          "label": "利空",
+          "reasons": [
+            "下游整体偏弱",
+            "涤纶短纤贴水-2295，需求偏弱",
+            "乙二醇贴水-102，需求偏弱"
+          ],
+          "score": -1.0,
+          "weight": 0.2
+        },
+        "供需平衡": {
+          "label": "利多",
+          "reasons": [
+            "PTA库存14.6万吨，偏低",
+            "强升水312元，现货紧张"
+          ],
+          "score": 1.5,
+          "weight": 0.3
+        },
+        "利润弹性": {
+          "label": "利空",
+          "reasons": [
+            "利润较好663元(+11.2%)，供应倾向增加"
+          ],
+          "score": -0.5,
+          "weight": 0.2
+        },
+        "成本驱动": {
+          "label": "利空",
+          "reasons": [
+            "原油走弱-2.4%",
+            "PX贴水-224，上游宽松"
+          ],
+          "score": -0.5,
+          "weight": 0.3
+        }
+      },
+      "text": "【🛢️成本驱动】[-] 利空(-0.5)：原油走弱-2.4%；PX贴水-224，上游宽松\n【📦供需平衡】[+++] 利多(+1.5)：PTA库存14.6万吨，偏低；强升水312元，现货紧张\n【💰利润弹性】[-] 利空(-0.5)：利润较好663元(+11.2%)，供应倾向增加\n【🏭下游需求】[--] 利空(-1.0)：下游整体偏弱；涤纶短纤贴水-2295，需求偏弱；乙二醇贴水-102，需求偏弱\n\n【📊综合评级】震荡（-0.00）\n【🔮展望】多空因素交织，区间震荡思路"
+    }
   },
   "section3": {
     "title": "三、 策略建议",
-    "subtitle": "三维研判·震荡",
+    "subtitle": "三维研判·偏多",
     "strategies": [
       {
         "action": "🛡️ 正Gamma环境",
-        "detail": "净GEX=+47.0M，做市商反向对冲压制波动",
+        "detail": "净GEX=+47.1M，做市商反向对冲压制波动",
         "suggestion": "利于卖方策略（卖跨/卖宽跨），预期区间震荡；买入波动率策略需谨慎"
       },
       {
         "action": "🎯 到期前痛点引力",
         "detail": "距到期3.1天，价格6480 vs 痛点6300，偏差+180",
         "suggestion": "临近到期价格倾向向痛点6300回归，上方Call卖方受益，Theta加速衰减利好卖方"
+      },
+      {
+        "action": "📈 强基差升水",
+        "detail": "现货升水312元，现货偏紧",
+        "suggestion": "强基差支撑近月合约，正套(买近卖远)机会；若基差回落是做空信号"
       },
       {
         "action": "💰 高利润供应压力",
@@ -288,25 +398,30 @@
         "suggestion": "区间【6000,7000】内震荡概率高"
       }
     ],
-    "core_idea": "综合研判：三维综合评分-0.09，方向【震荡】；宏观·成本(中性): 利润453元，开工积极性高；期权·微观(中性): 正Gamma(净GEX+47.0M)，波动受压；价格6480在【6000,7000】区间偏下；仅剩3.1天到期，Theta加速衰减。",
-    "direction": "震荡",
-    "total_score": -0.09,
+    "core_idea": "综合研判：三维综合评分+0.70，方向【偏多】；宏观·成本(利多): 原油$93高位，成本支撑坚挺；产业·供需(利多): 现货升水312(强)，现货偏紧；期权·微观(中性): 正Gamma(净GEX+47.1M)，波动受压；AI产业评级: 震荡(-0.00)；价格6480在【6000,7000】区间偏下；仅剩3.1天到期，Theta加速衰减。",
+    "direction": "偏多",
+    "total_score": 0.7,
     "dimensions": {
       "macro": {
         "name": "宏观·成本",
-        "score": -0.2,
+        "score": 0.6,
         "weight": 0.25,
-        "label": "中性",
+        "label": "利多",
         "reasons": [
+          "原油$93高位，成本支撑坚挺",
           "利润453元，开工积极性高"
         ]
       },
       "industry": {
         "name": "产业·供需",
-        "score": 0,
+        "score": 1.7,
         "weight": 0.35,
-        "label": "中性",
-        "reasons": []
+        "label": "利多",
+        "reasons": [
+          "现货升水312(强)，现货偏紧",
+          "PTA库存14.6万吨(偏低)",
+          "去库加速(-4088吨/周)"
+        ]
       },
       "option": {
         "name": "期权·微观",
@@ -314,7 +429,7 @@
         "weight": 0.4,
         "label": "中性",
         "reasons": [
-          "正Gamma(净GEX+47.0M)，波动受压",
+          "正Gamma(净GEX+47.1M)，波动受压",
           "PCR=1.271(偏空)，有保护性看跌",
           "临近到期(3天)，价格6480高于痛点6300达+180，有回落压力",
           "价格在翻转点6414上方(正Gamma区)"
@@ -582,7 +697,7 @@
   },
   "gex": {
     "summary": {
-      "T": 0.008435,
+      "T": 0.008416,
       "days_left": 3.1,
       "expiry": "2026-06-11T00:00:00",
       "futures_price": 6480,
@@ -590,136 +705,136 @@
       "gex_flip": 6414,
       "last_update": "2026-06-05T23:00:00",
       "max_pain": 6300,
-      "net_gex": 47037032.0,
+      "net_gex": 47137670.0,
       "pcr": 1.271,
       "total_call_oi": 110353,
       "total_put_oi": 140246
     },
     "gex_bars": [
       {
-        "call_gex": 201.0,
-        "net_gex": -98718.0,
-        "put_gex": -98919.0,
+        "call_gex": 198.0,
+        "net_gex": -97679.0,
+        "put_gex": -97877.0,
         "strike": 5500
       },
       {
-        "call_gex": 716.0,
-        "net_gex": -81721.0,
-        "put_gex": -82437.0,
+        "call_gex": 709.0,
+        "net_gex": -80960.0,
+        "put_gex": -81670.0,
         "strike": 5600
       },
       {
-        "call_gex": 10097.0,
-        "net_gex": -238161.0,
-        "put_gex": -248257.0,
+        "call_gex": 10015.0,
+        "net_gex": -236234.0,
+        "put_gex": -246249.0,
         "strike": 5700
       },
       {
-        "call_gex": 30627.0,
-        "net_gex": -1156846.0,
-        "put_gex": -1187473.0,
+        "call_gex": 30416.0,
+        "net_gex": -1148888.0,
+        "put_gex": -1179305.0,
         "strike": 5800
       },
       {
-        "call_gex": 62728.0,
-        "net_gex": -1169374.0,
-        "put_gex": -1232102.0,
+        "call_gex": 62373.0,
+        "net_gex": -1162758.0,
+        "put_gex": -1225131.0,
         "strike": 5900
       },
       {
-        "call_gex": 850069.0,
-        "net_gex": -10749707.0,
-        "put_gex": -11599776.0,
+        "call_gex": 846319.0,
+        "net_gex": -10702286.0,
+        "put_gex": -11548605.0,
         "strike": 6000
       },
       {
-        "call_gex": 894161.0,
-        "net_gex": -5078635.0,
-        "put_gex": -5972795.0,
+        "call_gex": 891378.0,
+        "net_gex": -5062830.0,
+        "put_gex": -5954209.0,
         "strike": 6100
       },
       {
-        "call_gex": 2626597.0,
-        "net_gex": -22573803.0,
-        "put_gex": -25200400.0,
+        "call_gex": 2622055.0,
+        "net_gex": -22534772.0,
+        "put_gex": -25156827.0,
         "strike": 6200
       },
       {
-        "call_gex": 29259830.0,
-        "net_gex": -20987106.0,
-        "put_gex": -50246937.0,
+        "call_gex": 29250908.0,
+        "net_gex": -20980707.0,
+        "put_gex": -50231614.0,
         "strike": 6300
       },
       {
-        "call_gex": 37670341.0,
-        "net_gex": -7513264.0,
-        "put_gex": -45183605.0,
+        "call_gex": 37701299.0,
+        "net_gex": -7519438.0,
+        "put_gex": -45220738.0,
         "strike": 6400
       },
       {
-        "call_gex": 63308043.0,
-        "net_gex": 45008644.0,
-        "put_gex": -18299399.0,
+        "call_gex": 63378713.0,
+        "net_gex": 45058887.0,
+        "put_gex": -18319826.0,
         "strike": 6500
       },
       {
-        "call_gex": 32215642.0,
-        "net_gex": 26754167.0,
-        "put_gex": -5461475.0,
+        "call_gex": 32233728.0,
+        "net_gex": 26769187.0,
+        "put_gex": -5464541.0,
         "strike": 6600
       },
       {
-        "call_gex": 19231335.0,
-        "net_gex": 17050676.0,
-        "put_gex": -2180659.0,
+        "call_gex": 19222276.0,
+        "net_gex": 17042645.0,
+        "put_gex": -2179632.0,
         "strike": 6700
       },
       {
-        "call_gex": 16757837.0,
-        "net_gex": 15967654.0,
-        "put_gex": -790183.0,
+        "call_gex": 16729239.0,
+        "net_gex": 15940405.0,
+        "put_gex": -788834.0,
         "strike": 6800
       },
       {
-        "call_gex": 3716254.0,
-        "net_gex": 3495505.0,
-        "put_gex": -220748.0,
+        "call_gex": 3705042.0,
+        "net_gex": 3484959.0,
+        "put_gex": -220082.0,
         "strike": 6900
       },
       {
-        "call_gex": 7249103.0,
-        "net_gex": 7066965.0,
-        "put_gex": -182138.0,
+        "call_gex": 7217580.0,
+        "net_gex": 7036233.0,
+        "put_gex": -181346.0,
         "strike": 7000
       },
       {
-        "call_gex": 797929.0,
-        "net_gex": 781619.0,
-        "put_gex": -16310.0,
+        "call_gex": 793398.0,
+        "net_gex": 777181.0,
+        "put_gex": -16217.0,
         "strike": 7100
       },
       {
-        "call_gex": 311102.0,
-        "net_gex": 302712.0,
-        "put_gex": -8390.0,
+        "call_gex": 308925.0,
+        "net_gex": 300594.0,
+        "put_gex": -8331.0,
         "strike": 7200
       },
       {
-        "call_gex": 166065.0,
-        "net_gex": 164270.0,
-        "put_gex": -1796.0,
+        "call_gex": 164687.0,
+        "net_gex": 162906.0,
+        "put_gex": -1781.0,
         "strike": 7300
       },
       {
-        "call_gex": 54257.0,
-        "net_gex": 54145.0,
-        "put_gex": -112.0,
+        "call_gex": 53737.0,
+        "net_gex": 53627.0,
+        "put_gex": -111.0,
         "strike": 7400
       },
       {
-        "call_gex": 38103.0,
-        "net_gex": 38010.0,
-        "put_gex": -92.0,
+        "call_gex": 37689.0,
+        "net_gex": 37598.0,
+        "put_gex": -91.0,
         "strike": 7500
       }
     ],
@@ -920,12 +1035,8 @@
   },
   "iv_curve": {
     "available": true,
-    "T": 0.008434707977792989,
-    "atm_history": {
-      "22:00": 0.4002312260326621,
-      "22:01": 0.40028550126902807,
-      "22:03": 0.4003401245459195
-    },
+    "T": 0.008415616491431542,
+    "atm_history": {},
     "atm_strike": 6500,
     "current_interval_key": null,
     "curve": [
@@ -966,8 +1077,10 @@
         "strike": 5400
       },
       {
+        "call_oi": 15,
         "iv_change": 0.0057,
         "prev_avg": 0.561384,
+        "put_oi": 7399,
         "raw_C": null,
         "raw_C_prev": null,
         "raw_P": 0.5417,
@@ -978,8 +1091,10 @@
         "strike": 5500
       },
       {
+        "call_oi": 29,
         "iv_change": 0.001,
         "prev_avg": 0.52196,
+        "put_oi": 3339,
         "raw_C": null,
         "raw_C_prev": null,
         "raw_P": 0.5141,
@@ -990,8 +1105,10 @@
         "strike": 5600
       },
       {
+        "call_oi": 221,
         "iv_change": 0.0039,
         "prev_avg": 0.484999,
+        "put_oi": 5434,
         "raw_C": null,
         "raw_C_prev": null,
         "raw_P": 0.4776,
@@ -1002,8 +1119,10 @@
         "strike": 5700
       },
       {
+        "call_oi": 360,
         "iv_change": 0.0028,
         "prev_avg": 0.450839,
+        "put_oi": 13958,
         "raw_C": null,
         "raw_C_prev": null,
         "raw_P": 0.4478,
@@ -1014,8 +1133,10 @@
         "strike": 5800
       },
       {
+        "call_oi": 391,
         "iv_change": 0.003,
         "prev_avg": 0.419884,
+        "put_oi": 7680,
         "raw_C": null,
         "raw_C_prev": 0.80725,
         "raw_P": 0.408,
@@ -1026,8 +1147,10 @@
         "strike": 5900
       },
       {
+        "call_oi": 2749,
         "iv_change": 0.0138,
         "prev_avg": 0.392605,
+        "put_oi": 37512,
         "raw_C": 0.3488,
         "raw_C_prev": 0.420069,
         "raw_P": 0.3866,
@@ -1038,8 +1161,10 @@
         "strike": 6000
       },
       {
+        "call_oi": 1449,
         "iv_change": 0.0295,
         "prev_avg": 0.369517,
+        "put_oi": 9679,
         "raw_C": 0.2535,
         "raw_C_prev": 0.318516,
         "raw_P": 0.3383,
@@ -1050,8 +1175,10 @@
         "strike": 6100
       },
       {
+        "call_oi": 2041,
         "iv_change": 0.0484,
         "prev_avg": 0.351145,
+        "put_oi": 19582,
         "raw_C": 0.302,
         "raw_C_prev": 0.336082,
         "raw_P": 0.3197,
@@ -1062,8 +1189,10 @@
         "strike": 6200
       },
       {
+        "call_oi": 10830,
         "iv_change": 0.0656,
         "prev_avg": 0.337956,
+        "put_oi": 18598,
         "raw_C": 0.2998,
         "raw_C_prev": 0.313256,
         "raw_P": 0.2912,
@@ -1074,8 +1203,10 @@
         "strike": 6300
       },
       {
+        "call_oi": 7967,
         "iv_change": 0.0726,
         "prev_avg": 0.330269,
+        "put_oi": 9556,
         "raw_C": 0.2794,
         "raw_C_prev": 0.2973,
         "raw_P": 0.2726,
@@ -1086,8 +1217,10 @@
         "strike": 6400
       },
       {
+        "call_oi": 11894,
         "iv_change": 0.0656,
         "prev_avg": 0.328181,
+        "put_oi": 3438,
         "raw_C": 0.2781,
         "raw_C_prev": 0.28975,
         "raw_P": 0.2656,
@@ -1098,8 +1231,10 @@
         "strike": 6500
       },
       {
+        "call_oi": 8211,
         "iv_change": 0.0503,
         "prev_avg": 0.331519,
+        "put_oi": 1392,
         "raw_C": 0.279,
         "raw_C_prev": 0.305848,
         "raw_P": 0.2914,
@@ -1110,8 +1245,10 @@
         "strike": 6600
       },
       {
+        "call_oi": 8334,
         "iv_change": 0.0342,
         "prev_avg": 0.339863,
+        "put_oi": 945,
         "raw_C": 0.2999,
         "raw_C_prev": 0.319766,
         "raw_P": 0.3092,
@@ -1122,8 +1259,10 @@
         "strike": 6700
       },
       {
+        "call_oi": 13488,
         "iv_change": 0.021,
         "prev_avg": 0.352616,
+        "put_oi": 636,
         "raw_C": 0.31,
         "raw_C_prev": 0.340291,
         "raw_P": 0.3581,
@@ -1134,8 +1273,10 @@
         "strike": 6800
       },
       {
+        "call_oi": 5707,
         "iv_change": 0.0118,
         "prev_avg": 0.369101,
+        "put_oi": 339,
         "raw_C": 0.3343,
         "raw_C_prev": 0.367865,
         "raw_P": null,
@@ -1146,8 +1287,10 @@
         "strike": 6900
       },
       {
+        "call_oi": 21293,
         "iv_change": 0.0066,
         "prev_avg": 0.388639,
+        "put_oi": 535,
         "raw_C": 0.3568,
         "raw_C_prev": 0.407302,
         "raw_P": null,
@@ -1158,8 +1301,10 @@
         "strike": 7000
       },
       {
+        "call_oi": 4452,
         "iv_change": 0.005,
         "prev_avg": 0.410613,
+        "put_oi": 91,
         "raw_C": 0.3746,
         "raw_C_prev": 0.412654,
         "raw_P": null,
@@ -1170,8 +1315,10 @@
         "strike": 7100
       },
       {
+        "call_oi": 3263,
         "iv_change": 0.0065,
         "prev_avg": 0.434485,
+        "put_oi": 88,
         "raw_C": 0.3968,
         "raw_C_prev": 0.441704,
         "raw_P": null,
@@ -1182,8 +1329,10 @@
         "strike": 7200
       },
       {
+        "call_oi": 3237,
         "iv_change": 0.0106,
         "prev_avg": 0.459811,
+        "put_oi": 35,
         "raw_C": 0.4406,
         "raw_C_prev": 0.475455,
         "raw_P": null,
@@ -1194,8 +1343,10 @@
         "strike": 7300
       },
       {
+        "call_oi": 1943,
         "iv_change": 0.0169,
         "prev_avg": 0.486227,
+        "put_oi": 4,
         "raw_C": 0.4419,
         "raw_C_prev": 0.485185,
         "raw_P": null,
@@ -1206,8 +1357,10 @@
         "strike": 7400
       },
       {
+        "call_oi": 2479,
         "iv_change": 0.0248,
         "prev_avg": 0.51344,
+        "put_oi": 6,
         "raw_C": 0.4807,
         "raw_C_prev": 0.526462,
         "raw_P": null,
@@ -1259,6 +1412,7 @@
     "is_cold_start_fallback": true,
     "last_update": "2026-06-05T23:00:00",
     "max_pain": 6300,
+    "prev_atm_strike": null,
     "prev_interval_key": "15:00收盘",
     "prev_timestamp": "06/05 15:00",
     "ref_strike": 6300,
@@ -1275,5 +1429,317 @@
     "underlying_price": 6480,
     "using_night_fallback": false
   },
-  "industry_analysis": {}
+  "industry_analysis": {
+    "_data_sources": {
+      "has": {
+        "MEG/SM库存": "futures_inventory_em 隆众资讯 MEG乙二醇/SM苯乙烯库存",
+        "PTA及下游现货": "futures_spot_price 郑商所每日现货参考价",
+        "PTA库存": "futures_inventory_em 隆众资讯 PTA社会库存",
+        "PTA期货": "get_czce_daily 郑商所日行情（结算价/成交量/持仓量）",
+        "PX现货": "futures_spot_price 郑商所每日现货参考价",
+        "原油布伦特/美油": "futures_global_spot_em（新浪财经，布伦特主力 USD/桶）",
+        "国内汽柴油批发价": "energy_oil_hist CNY/吨"
+      },
+      "missing_akshare": {
+        "PX/PTA/下游产销数据": "需隆众资讯、卓创资讯、期货公司研报",
+        "PX/PTA/下游开工率": "需隆众资讯、卓创资讯、CCF中国化纤信息网订阅",
+        "布伦特/WTI期货连续日频": "需新浪财经期货、CME官网、东方财富期货"
+      }
+    },
+    "ai_commentary": {
+      "data": {
+        "dimensions": {
+          "下游需求": {
+            "label": "利空",
+            "reasons": [
+              "下游整体偏弱",
+              "涤纶短纤贴水-2295，需求偏弱",
+              "乙二醇贴水-102，需求偏弱"
+            ],
+            "score": -1.0,
+            "weight": 0.2
+          },
+          "供需平衡": {
+            "label": "利多",
+            "reasons": [
+              "PTA库存14.6万吨，偏低",
+              "强升水312元，现货紧张"
+            ],
+            "score": 1.5,
+            "weight": 0.3
+          },
+          "利润弹性": {
+            "label": "利空",
+            "reasons": [
+              "利润较好663元(+11.2%)，供应倾向增加"
+            ],
+            "score": -0.5,
+            "weight": 0.2
+          },
+          "成本驱动": {
+            "label": "利空",
+            "reasons": [
+              "原油走弱-2.4%",
+              "PX贴水-224，上游宽松"
+            ],
+            "score": -0.5,
+            "weight": 0.3
+          }
+        },
+        "outlook": "多空因素交织，区间震荡思路",
+        "rating": "震荡",
+        "total_score": -0.0
+      },
+      "text": "【🛢️成本驱动】[-] 利空(-0.5)：原油走弱-2.4%；PX贴水-224，上游宽松\n【📦供需平衡】[+++] 利多(+1.5)：PTA库存14.6万吨，偏低；强升水312元，现货紧张\n【💰利润弹性】[-] 利空(-0.5)：利润较好663元(+11.2%)，供应倾向增加\n【🏭下游需求】[--] 利空(-1.0)：下游整体偏弱；涤纶短纤贴水-2295，需求偏弱；乙二醇贴水-102，需求偏弱\n\n【📊综合评级】震荡（-0.00）\n【🔮展望】多空因素交织，区间震荡思路"
+    },
+    "cost": {
+      "profit": {
+        "level": "盈利良好",
+        "profit": 663.0,
+        "profit_pct": 11.2,
+        "pta_price": 6557.67
+      },
+      "pta_cost": {
+        "formula": "PX现货 × 0.655",
+        "pta_cost": 5895.0,
+        "px_price": 9000.0
+      }
+    },
+    "downstream": {
+      "乙二醇": {
+        "code": "EG",
+        "date": "20260605",
+        "dom_basis": -151.67000000000007,
+        "dominant_contract": "eg2609",
+        "dominant_price": 4505.0,
+        "near_basis": -101.67000000000007,
+        "near_contract": "eg2606",
+        "near_price": 4555.0,
+        "price": 4656.67,
+        "source": "郑商所/大商所每日现货"
+      },
+      "涤纶短纤": {
+        "code": "CY",
+        "date": "20260605",
+        "dom_basis": -2340.0,
+        "dominant_contract": "CY609",
+        "dominant_price": 22360.0,
+        "near_basis": -2295.0,
+        "near_contract": "CY606",
+        "near_price": 22405.0,
+        "price": 24700.0,
+        "source": "郑商所/大商所每日现货"
+      },
+      "甲醇MA": {
+        "code": "MA",
+        "date": "20260605",
+        "dom_basis": -307.3299999999999,
+        "dominant_contract": "MA609",
+        "dominant_price": 2906.0,
+        "near_basis": -163.32999999999993,
+        "near_contract": "MA606",
+        "near_price": 3050.0,
+        "price": 3213.33,
+        "source": "郑商所/大商所每日现货"
+      },
+      "苯乙烯": {
+        "code": "EB",
+        "date": "20260605",
+        "dom_basis": -104.0,
+        "dominant_contract": "eb2607",
+        "dominant_price": 8686.0,
+        "near_basis": -38.0,
+        "near_contract": "eb2606",
+        "near_price": 8752.0,
+        "price": 8790.0,
+        "source": "郑商所/大商所每日现货"
+      }
+    },
+    "pta": {
+      "basis": {
+        "level": "强",
+        "note": "现货参考价¥6557.67 - TA609结算¥6246.0",
+        "premium": "现货升水",
+        "value": 311.7
+      },
+      "future": {
+        "change_pct": -0.13,
+        "close": 6290.0,
+        "open_interest": 1088013,
+        "pre_settle": 6254.0,
+        "settle": 6246.0,
+        "symbol": "TA609",
+        "volume": 847898
+      },
+      "meg_inventory": {
+        "change": -130,
+        "date": "2026-06-05",
+        "stock": 9913
+      },
+      "sm_inventory": {
+        "change": -341,
+        "date": "2026-06-05",
+        "stock": 80062
+      },
+      "social_inventory": {
+        "change": -4088,
+        "date": "2026-06-05",
+        "stock": 146385
+      },
+      "spot": {
+        "date": "20260605",
+        "dom_basis": -267.6700000000001,
+        "dominant_contract": "TA609",
+        "dominant_price": 6290.0,
+        "near_basis": -107.67000000000007,
+        "near_contract": "TA606",
+        "near_price": 6450.0,
+        "price": 6557.67,
+        "source": "郑商所每日现货参考价格表"
+      }
+    },
+    "upstream": {
+      "brent": {
+        "change_pct": -2.37,
+        "contract": "布伦特原油当月连续",
+        "note": "B00Y 当月连续，USD/桶",
+        "price": 92.78,
+        "volume": 270929
+      },
+      "cn_gasoline_wholesale": {
+        "date": "2026-06-05",
+        "note": "中国汽油批发价，CNY/吨；USD/桶≈CNY/吨÷7.2÷8.4",
+        "price_cny_ton": 9640.0,
+        "price_usd_bbl_estimate": 159.39
+      },
+      "downstream": {
+        "items": {
+          "PTA": {
+            "change_pct": 31.98,
+            "date": "2026-06-05",
+            "price": 6703.34
+          },
+          "棉纱32S": {
+            "change_pct": 5.78,
+            "date": "2026-06-05",
+            "price": 24700.0
+          },
+          "涤纶DTY": {
+            "change_pct": 23.6,
+            "date": "2026-06-05",
+            "price": 9787.5
+          },
+          "涤纶FDY": {
+            "change_pct": 30.49,
+            "date": "2026-06-05",
+            "price": 9036.67
+          },
+          "涤纶POY": {
+            "change_pct": 28.42,
+            "date": "2026-06-05",
+            "price": 8612.5
+          },
+          "涤纶短纤": {
+            "change_pct": 25.48,
+            "date": "2026-06-05",
+            "price": 8165.24
+          },
+          "皮棉": {
+            "change_pct": 13.91,
+            "date": "2026-06-05",
+            "price": 17711.83
+          },
+          "粘胶短纤": {
+            "change_pct": 8.37,
+            "date": "2026-06-05",
+            "price": 13980.0
+          },
+          "锦纶FDY": {
+            "change_pct": 24.52,
+            "date": "2026-06-05",
+            "price": 17775.0
+          }
+        },
+        "note": "数据有延迟，精确值请参考专业平台",
+        "segment": "纺织",
+        "source": "东方财富现货与股票(纺织)滞后约5日"
+      },
+      "downstream_pet": {
+        "change_pct": 48.4,
+        "date": "2026-06-05",
+        "price": 9022.5,
+        "segment": "塑料",
+        "source": "东方财富现货与股票(塑料)滞后约5日"
+      },
+      "naphtha": {
+        "naphtha_cfr_estimate": 715.85,
+        "note": "石脑油CFR亚洲≈布伦特×7.5+20；布伦特原值为USD/桶",
+        "price_usd_bbl": 92.78,
+        "unit": "USD/吨（CFR亚洲估算）"
+      },
+      "priceseek": {
+        "PTA基准价": {
+          "article_date": "20260604",
+          "cid": "677203704",
+          "spot_price_shengyishe": 6435.75
+        },
+        "PTA市场基差": {
+          "article_date": "20260605",
+          "basis_pta": 267.67,
+          "cid": "677255386"
+        },
+        "note": "数据来自生意社，经同花顺期货通汇聚发布",
+        "source": "同花顺/生意社 PriceSeek提醒",
+        "产业链指数": {
+          "article_date": "20260607",
+          "chain_index": 83.83,
+          "cid": "677273016"
+        },
+        "逸盛": {
+          "article_date": "20260603",
+          "cid": "677178228"
+        }
+      },
+      "pta_chain_ths": {
+        "basis_shengyishe": 267.67,
+        "chain_index": 83.836,
+        "downstream_trend": "上涨的商品共2种，下跌的商品共3种，涨跌为0的商品共1种。上涨的主要商品有：PTA(1.39%)、涤纶短纤(0.63%)；下跌的主要商品有：涤纶DTY( ... 6月3日PTA产业链情报 06月04日 10:52 1.6月3日生意社PTA产业链指数为83.856月3日生意社PTA产业链指数为83.85，较昨日上升了0.37点，较周期内最高点115.90点(2018-09-12)下降了27.65%，",
+        "index_high": 115.9,
+        "index_high_date": "2018-09-12",
+        "note": "产业链指数、基准价、基差来自生意社，下游涨跌榜实时更新",
+        "source": "同花顺 goodsfu.10jqka.com.cn / 生意社",
+        "spot_price_shengyishe": 6435.75
+      },
+      "px": {
+        "date": "20260605",
+        "dom_basis": -224.0,
+        "dominant_contract": "PX609",
+        "dominant_price": 8776.0,
+        "near_contract": "PX606",
+        "near_price": 8700.0,
+        "source": "郑商所每日现货参考价格表",
+        "spot_price": 9000.0
+      },
+      "px_em": {
+        "change_pct": 32.0,
+        "date": "2026-06-05",
+        "source": "东方财富现货与股票(化工)",
+        "spot_price": 9900.0
+      },
+      "pxn": {
+        "level": "高",
+        "naphtha_usd": 715.85,
+        "note": "石脑油为CFR估算值，PXN仅供参考",
+        "px_usd": 1250.0,
+        "spread_usd": 534.15
+      },
+      "wti": {
+        "change_pct": -3.0,
+        "contract": "NYMEX原油",
+        "note": "CL00Y 当月连续，USD/桶",
+        "price": 90.25,
+        "volume": 215733
+      }
+    }
+  }
 }

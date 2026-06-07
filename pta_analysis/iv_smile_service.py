@@ -2053,6 +2053,20 @@ def register_routes(app):
                     # 仅首次打印，避免刷屏（通过prev_key是否已设来控制）
             prev_key = '15:00收盘' if prev_smooth else None
 
+            # 前次ATM：优先取baseline的atm_strike，其次从futures_price/S计算
+            prev_atm_strike = None
+            if now_hour >= 21:
+                bl = close_baseline if close_baseline and (close_baseline.get('atm_strike') or close_baseline.get('S')) else _prev_day_baseline
+            else:
+                bl = _prev_day_baseline
+            if bl:
+                if bl.get('atm_strike'):
+                    prev_atm_strike = int(bl['atm_strike'])
+                elif bl.get('futures_price'):
+                    prev_atm_strike = round(float(bl['futures_price']) / 100) * 100
+                elif bl.get('S'):
+                    prev_atm_strike = round(bl['S'] / 100) * 100
+
             curve_data = []
             for k in strikes:
                 entry = {'strike': int(k)}
@@ -2175,6 +2189,7 @@ def register_routes(app):
             'ref_strike': _state.get('ref_strike'),
             'max_pain': realtime_max_pain,
             'atm_strike': _state['atm_strike'],
+            'prev_atm_strike': prev_atm_strike,
             'last_update': _state['last_update'],
             'expiry': _state['expiry'].isoformat() if _state.get('expiry') else None,
             'T': (((_state['expiry'] - datetime.now()).total_seconds() / (365.25 * 24 * 3600))

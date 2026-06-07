@@ -699,7 +699,7 @@ async function fetchData() {
     if (gexData && !gexData.error) updateGexCharts(gexData);
 
     document.getElementById('lastUpdate').textContent =
-      `最后更新: ${data.last_update || '--'} | 前次基准: ${data.prev_timestamp || '--'} | 版本 v2.11.18`;
+      `最后更新: ${data.last_update || '--'} | 前次基准: ${data.prev_timestamp || '--'} | 版本 v2.11.19`;
   } catch (err) {
     showError('数据加载失败: ' + err.message);
   }
@@ -745,13 +745,24 @@ function updateSmileChart(data) {
   yMin = Math.max(0, yMin - padding);
   yMax = yMax + padding;
 
+  // ATM markLine数据
+  const atmStrike = data.atm_strike;
+  const prevAtm = data.prev_atm_strike;
+  const atmLines = [];
+  if (atmStrike) {
+    atmLines.push({ xAxis: String(atmStrike), label: { formatter: 'ATM=' + atmStrike, color: '#00ff88', fontSize: 9, position: 'insideEndTop' }, lineStyle: { color: '#00ff88', type: 'solid', width: 1.5 } });
+  }
+  if (prevAtm && prevAtm !== atmStrike) {
+    atmLines.push({ xAxis: String(prevAtm), label: { formatter: '前ATM=' + prevAtm, color: '#ff8800', fontSize: 8, position: 'insideStartTop' }, lineStyle: { color: '#ff8800', type: 'dotted', width: 1, opacity: 0.6 } });
+  }
+
   chart.setOption({
     xAxis: { data: strikes },
     yAxis: { min: parseFloat(yMin.toFixed(3)), max: parseFloat(yMax.toFixed(3)) },
     series: [
       { data: callData },
       { data: putData },
-      { data: smoothData },
+      { data: smoothData, markLine: atmLines.length > 0 ? { silent: true, symbol: 'none', data: atmLines } : undefined },
       { data: prevData },
     ],
   });
@@ -955,6 +966,18 @@ function updateGexCharts(gexData) {
         } : undefined,
       }, {
         name: '前次疼痛曲线', data: prevPainData,
+        markPoint: prevSummary.max_pain && prevSummary.max_pain !== summary.max_pain ? {
+          data: [{
+            coord: [String(prevSummary.max_pain), prevPainMap[String(prevSummary.max_pain)] || 0],
+            symbol: 'pin', symbolSize: 30,
+            itemStyle: { color: 'rgba(255,136,0,0.7)' },
+            label: { formatter: '前次MP\n' + prevSummary.max_pain, fontSize: 8, color: '#fff' },
+          }],
+        } : undefined,
+        markLine: prevSummary.max_pain && prevSummary.max_pain !== summary.max_pain ? {
+          silent: true, symbol: 'none',
+          data: [{ xAxis: String(prevSummary.max_pain), label: { formatter: '前MP=' + prevSummary.max_pain, color: '#ff8800', fontSize: 8, position: 'insideStartTop' }, lineStyle: { color: '#ff8800', type: 'dotted', width: 1, opacity: 0.6 } }],
+        } : undefined,
       }],
     });
   }
