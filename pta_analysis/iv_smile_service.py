@@ -415,6 +415,33 @@ def _load_close_state():
             if val is not None:
                 _last_valid[key] = val
 
+        # === 补齐 svi_params 中缺少的 skew/curvature ===
+        cur_svi = _state.get('svi_params')
+        if isinstance(cur_svi, dict) and cur_svi.get('a') is not None:
+            if cur_svi.get('skew') is None or cur_svi.get('curvature') is None:
+                # 优先从 last_valid 补充
+                lv_svi = _last_valid.get('svi_params', {})
+                if isinstance(lv_svi, dict) and lv_svi.get('skew') is not None:
+                    cur_svi['skew'] = lv_svi['skew']
+                    cur_svi['curvature'] = lv_svi.get('curvature')
+                    print(f"[iv_smile] 🔧 从last_valid补齐skew={lv_svi['skew']:.4f}, "
+                          f"curvature={lv_svi.get('curvature', 'N/A')}")
+                else:
+                    # 用 svi_jw_params 重算
+                    try:
+                        _T_for_jw = 30 / 365  # 默认值
+                        if _state.get('expiry'):
+                            _T_for_jw = (_state['expiry'] - datetime.now()).total_seconds() / (365.25 * 24 * 3600)
+                            if _T_for_jw <= 0:
+                                _T_for_jw = 1 / 365
+                        jw = svi_jw_params(cur_svi['a'], cur_svi['b'], cur_svi['rho'],
+                                          cur_svi['m'], cur_svi['sigma'], _T_for_jw)
+                        cur_svi['skew'] = jw['skew']
+                        cur_svi['curvature'] = jw['curvature']
+                        print(f"[iv_smile] 🔧 补算skew={jw['skew']:.4f}, curvature={jw['curvature']:.2f}")
+                    except Exception as e:
+                        print(f"[iv_smile] ⚠️ 补算skew/curvature失败: {e}")
+
         smooth_count = len(saved_state.get('smile_smooth', {}))
         print(f"[iv_smile] 💾 收盘快照已恢复: S={saved_state.get('futures_price')} "
               f"MP={saved_state.get('max_pain')} 档={smooth_count} "
@@ -758,7 +785,19 @@ def _load_previous_day_snapshots():
         if restored_sabr and isinstance(restored_sabr, dict) and (restored_sabr.get('a') is not None or restored_sabr.get('alpha') is not None):
             # SVI参数有效性检查
             if restored_sabr.get('a') is not None:
-                # 新SVI格式
+                # 新SVI格式 — 如果缺少 skew/curvature 则补算
+                if restored_sabr.get('skew') is None or restored_sabr.get('curvature') is None:
+                    _T = _state.get('T') or 30/365
+                    try:
+                        jw = svi_jw_params(restored_sabr['a'], restored_sabr['b'],
+                                           restored_sabr['rho'], restored_sabr['m'],
+                                           restored_sabr['sigma'], _T)
+                        restored_sabr['skew'] = jw['skew']
+                        restored_sabr['curvature'] = jw['curvature']
+                        restored_sabr['atm_vol'] = jw['atm_vol']
+                        print(f"[iv_smile] 🔧 补算SVI派生参数: skew={jw['skew']:.4f}, curvature={jw['curvature']:.2f}")
+                    except Exception as e:
+                        print(f"[iv_smile] ⚠️ 补算SVI派生参数失败: {e}")
                 _last_valid['svi_params'] = restored_sabr
                 _state['svi_params'] = restored_sabr
             else:
@@ -833,7 +872,7 @@ def _load_previous_day_snapshots():
                     IV_list.append(iv_val)
 
             if len(K_list) >= 4:
-                # 计算 T（到期时间）
+                # 计算 T（到期时间）— 始终用 datetime.now()（时间持续流动）
                 _expiry = _state.get('expiry')
                 if _expiry:
                     T = (_expiry - datetime.now()).total_seconds() / (365.25 * 24 * 3600)
@@ -861,17 +900,64 @@ def _load_previous_day_snapshots():
             else:
                 print(f"[iv_smile] ⚠️ raw数据点不足({len(K_list)})，无法重新拟合SVI")
 
+    # === 3.5 close_state 恢复成功但 svi_params 为空时，用已有 smile_raw 重新拟合 SVI ===
+    _svi_ok = (_state.get('svi_params') and isinstance(_state['svi_params'], dict)
+               and _state['svi_params'].get('a') is not None)
+    if not _svi_ok and _state.get('smile_raw') and _state.get('futures_price'):
+        print(f"[iv_smile] 🔧 svi_params 缺失，用 smile_raw 重新拟合SVI（close_state恢复路径）...")
+        _refit_F = _state['futures_price']
+        _refit_raw = _state['smile_raw']
+        _refit_atm = _state.get('atm_strike') or round(_refit_F / 100) * 100
+        _K_list, _IV_list = [], []
+        for k_str, iv_dict in _refit_raw.items():
+            k = int(k_str) if isinstance(k_str, str) and k_str.isdigit() else float(k_str)
+            if isinstance(iv_dict, dict):
+                if k > _refit_atm:
+                    iv_val = iv_dict.get('C') or iv_dict.get('raw_C')
+                elif k < _refit_atm:
+                    iv_val = iv_dict.get('P') or iv_dict.get('raw_P')
+                else:
+                    c_iv = iv_dict.get('C') or iv_dict.get('raw_C')
+                    p_iv = iv_dict.get('P') or iv_dict.get('raw_P')
+                    iv_val = (c_iv + p_iv) / 2 if c_iv and p_iv else (c_iv or p_iv)
+            elif isinstance(iv_dict, (int, float)):
+                iv_val = iv_dict
+            else:
+                iv_val = None
+            if iv_val and iv_val > 0:
+                _K_list.append(k)
+                _IV_list.append(iv_val)
+        if len(_K_list) >= 4:
+            _expiry = _state.get('expiry')
+            if _expiry:
+                _refit_T = (_expiry - datetime.now()).total_seconds() / (365.25 * 24 * 3600)
+                if _refit_T <= 0:
+                    _refit_T = 1 / 365
+            else:
+                _refit_T = 30 / 365
+            _refit_smooth, _refit_svi = smooth_smile(_K_list, _IV_list, _refit_F, _refit_T)
+            if _refit_svi:
+                _state['svi_params'] = _refit_svi
+                _last_valid['svi_params'] = _refit_svi
+                print(f"[iv_smile] ✅ SVI补拟合成功: a={_refit_svi['a']:.4f}, b={_refit_svi['b']:.4f}, "
+                      f"skew={_refit_svi.get('skew', 'N/A')}, curvature={_refit_svi.get('curvature', 'N/A')}")
+            else:
+                print(f"[iv_smile] ⚠️ SVI补拟合失败（{len(_K_list)}个数据点）")
+        else:
+            print(f"[iv_smile] ⚠️ raw数据点不足({len(_K_list)})，无法补拟合SVI")
+
     # === 4. 通用：恢复 expiry/T 和 akshare 价格校正（不论哪条路径） ===
     if not _state.get('expiry'):
         try:
             _contract, _exp = get_active_ta_contract()
             _state['expiry'] = _exp
             _state['active_contract'] = _contract
+            # 用 datetime.now() 计算T（时间持续流动）
             _T = (_exp - datetime.now()).total_seconds() / (365.25 * 24 * 3600)
             if _T <= 0:
                 _T = 1 / 365
             _state['T'] = _T
-            print(f"[iv_smile] 📂 已恢复到期日: {_contract} expiry={_exp.date()} T={_T:.6f}yr")
+            print(f"[iv_smile] 📂 已恢复到期日: {_contract} expiry={_exp.date()} T={_T:.6f}yr (ref=now)")
         except Exception as e:
             print(f"[iv_smile] ⚠️ 恢复到期日失败: {e}")
     if _state.get('futures_price'):
@@ -1612,7 +1698,7 @@ def compute_once(force=False):
     # 参考行权价 = 最大痛点
     ref_strike = max_pain
 
-    # 3. 剩余期限（年）
+    # 3. 剩余期限（年）— 始终用 datetime.now()（时间持续流动，T随真实时间衰减）
     expiry = _state.get('expiry')
     if not expiry:
         print("[iv_smile] 到期日未设置")
@@ -1723,6 +1809,7 @@ def compute_once(force=False):
         # 更新状态
         _state['strike_oi'] = {k: dict(v) for k, v in strike_oi.items()}
         _state['futures_price'] = S
+        _state['T'] = T                     # 保持T与数据同步（GEX API依赖此值）
         _state['ref_strike'] = ref_strike   # 最大痛点（参考行权价）
         _state['max_pain'] = max_pain        # 最大痛点
         _state['atm_strike'] = atm_strike      # ATM = 最接近标的价的行权价
@@ -1771,16 +1858,42 @@ def compute_once(force=False):
 # 调度器
 _last_snapshot_minute = -1  # 上次持久化的时间（分钟），避免重复
 
+def _refresh_t_offhours():
+    """休盘时段刷新T和依赖T的指标（GEX等），不写快照、不更新smile"""
+    expiry = _state.get('expiry')
+    if not expiry:
+        return
+    T = (expiry - datetime.now()).total_seconds() / (365.25 * 24 * 3600)
+    if T <= 0:
+        T = 1 / 365
+    with _state['lock']:
+        old_T = _state.get('T')
+        _state['T'] = T
+    days_left = round(T * 365.25, 1)
+    print(f"[iv_smile] 🕐 休盘T刷新: T={T:.6f}yr ({days_left}天) (前值={old_T:.6f})" if old_T else
+          f"[iv_smile] 🕐 休盘T刷新: T={T:.6f}yr ({days_left}天)")
+
+
 def start_scheduler(interval_minutes=1):
     def loop():
         global _last_snapshot_minute
         print(f"[iv_smile] 调度器启动，间隔={interval_minutes}分钟")
         counter = 0
+        offhours_t_counter = 0  # 休盘T刷新计数器
         while _state['running']:
             # compute_once() 内部有 data_ready 守卫和非交易时段空跑逻辑，
             # 09:00 后数据到达即自动触发，15:00 后空跑不影响
             compute_once()
             counter += 1
+
+            # 休盘时段：每60次循环（≈1小时）刷新一次T
+            if not _is_trading_hours():
+                offhours_t_counter += 1
+                if offhours_t_counter >= 60:  # 60 × 1分钟 = 1小时
+                    _refresh_t_offhours()
+                    offhours_t_counter = 0
+            else:
+                offhours_t_counter = 0  # 开盘重置（开盘时T在compute_once里更新）
 
             # 每15分钟持久化一次快照（每刻钟整点：0,15,30,45分钟）
             now = datetime.now()
@@ -2064,7 +2177,8 @@ def register_routes(app):
             'atm_strike': _state['atm_strike'],
             'last_update': _state['last_update'],
             'expiry': _state['expiry'].isoformat() if _state.get('expiry') else None,
-            'T': _state.get('T'),                          # 剩余年化时间
+            'T': (((_state['expiry'] - datetime.now()).total_seconds() / (365.25 * 24 * 3600))
+                  if _state.get('expiry') else _state.get('T')),  # 实时T
             'svi_params': svi,
             'curve': curve_data,
             'atm_history': {item['time_key']: item['value'] for item in _atm_iv_history},
@@ -2330,6 +2444,10 @@ def register_routes(app):
             ext_t = iv_t.get('extreme', 999) * 100
             def _iv_level_for(iv_cur, iv_prev):
                 if iv_cur is None or iv_prev is None or iv_prev == 0:
+                    return ''
+                # 脏基准过滤：
+                # PTA期权正常IV在20-40%（深度OTM除外），baseline偏离当前值1.5倍以上视为脏
+                if iv_prev > 60 and iv_cur > 0 and iv_prev > iv_cur * 1.5:
                     return ''
                 chg = abs(iv_cur - iv_prev)
                 if chg >= ext_t:
@@ -2630,11 +2748,18 @@ def register_routes(app):
             smile_raw = _state.get('smile_raw', {})
             smile_smooth = _state.get('smile_smooth', {})
             futures_price = _state.get('futures_price')
-            T = _state.get('T')
             r = _state.get('rate', 0.02)
             max_pain_val = _state.get('max_pain')
             expiry = _state.get('expiry')
             last_update = _state.get('last_update', '')
+
+        # T 实时计算（不依赖 _state['T']，确保每次API调用都是最新值）
+        if expiry:
+            T = (expiry - datetime.now()).total_seconds() / (365.25 * 24 * 3600)
+            if T <= 0:
+                T = 1 / 365
+        else:
+            T = _state.get('T')
 
         if not futures_price or not T or T <= 0:
             return jsonify({'error': 'data not ready', 'gex_bars': [], 'pain_curve': [],
