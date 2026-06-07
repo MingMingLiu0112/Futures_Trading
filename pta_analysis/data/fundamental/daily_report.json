@@ -1,9 +1,9 @@
 {
-  "timestamp": "2026-06-07 15:37:38",
+  "timestamp": "2026-06-07 17:43:04",
   "section1": {
     "title": "一、 期权数据解读",
-    "subtitle": "防线动态调整，6300成新'铁底'",
-    "summary": "最新期权数据显示，交易重心已从前期的低位上移。底部防线已系统性前移至6300元，6300元已成为新的铁底。PCR持仓为1.28，多空相对均衡，核心区间【6300，6300】已成为产业资金的新战场。",
+    "subtitle": "GEX正Gamma·压制波动",
+    "summary": "期权全景：期货价6480，最大痛点6300，GEX翻转6414，净GEX +44.5M(正Gamma)，PCR=1.271，剩余3.3天。做市商正Gamma主导，波动受压；价格向痛点6300回归的引力较强。",
     "highlights": [
       {
         "type": "P",
@@ -77,32 +77,78 @@
       }
     ],
     "conclusions": [
-      "⚠️ 底部仍在6300元，需警惕进一步下移风险",
-      "📉 PCR持仓=1.28>1.2，空头力量偏强，下行风险需警惕",
-      "📌 核心震荡区间确立为【6300，6300】元，产业资金已用真金白银画出新战场。"
+      "🛡️ 净GEX为正(+44.5M)，做市商正Gamma → 反向对冲压制波动，倾向区间震荡",
+      "🎯 最大痛点6300，当前价6480偏离+180点(+2.9%)，到期前有回归引力",
+      "📍 GEX翻转点6414，当前价在翻转点上方 → 正Gamma区间，波动受抑",
+      "📉 PCR=1.271>1.2，看跌持仓偏重，空头力量偏强",
+      "📌 Put支撑位6000(37,512手) ↔ Call压力位7000(21,293手)，核心区间【6000,7000】",
+      "⏰ 距到期仅3.3天(2026-06-11)，Theta加速衰减，Gamma在ATM附近极度集中"
     ],
     "key_levels": {
-      "bottom": "6300",
-      "top": "6300",
+      "bottom": "6000",
+      "top": "7000",
       "pcr_spot": "0.8648",
-      "pcr_hold": "1.2791"
-    }
+      "pcr_hold": "1.2710"
+    },
+    "gex_summary": {
+      "net_gex": 44503754.0,
+      "gex_direction": "positive",
+      "gex_flip": 6414,
+      "max_pain": 6300,
+      "futures_price": 6480,
+      "days_left": 3.3,
+      "expiry": "2026-06-11",
+      "total_call_oi": 110353,
+      "total_put_oi": 140246,
+      "pcr": 1.271,
+      "max_call_strike": 7000,
+      "max_call_oi": 21293,
+      "max_put_strike": 6000,
+      "max_put_oi": 37512
+    },
+    "pain_highlights": [
+      {
+        "strike": 6300,
+        "pain": 26766000.0,
+        "is_min": true
+      },
+      {
+        "strike": 6400,
+        "pain": 27276000.0,
+        "is_min": false
+      },
+      {
+        "strike": 6500,
+        "pain": 36547500.0,
+        "is_min": false
+      },
+      {
+        "strike": 6200,
+        "pain": 40970000.0,
+        "is_min": false
+      },
+      {
+        "strike": 6600,
+        "pain": 53485000.0,
+        "is_min": false
+      }
+    ]
   },
   "section2": {
     "title": "二、 宏观与基本面",
     "subtitle": "成本支撑与供需博弈",
     "geo": {
       "title": "🌍 地缘政治",
-      "content": "【伊朗第一副总统：伊朗官员在谈判方案上立场一致】SHMET06月07日讯，据伊朗伊斯兰共和国通讯社（IRNA），伊朗第一",
-      "detail": "【伊朗第一副总统：伊朗官员在谈判方案上立场一致】SHMET06月07日讯，据伊朗伊斯兰共和国通讯社（IRNA），伊朗第一副总统阿雷夫表示，所有高级官员在伊朗的谈判策略上完全一致，并驳斥了任何关于谈判文；【快讯】SHMET06月07日讯，据以色列时报：以色列军方表示，以军于周二击毙了萨克尔·阿布·卡里姆（Sakr Abu Karim）。他是哈马斯精锐部队“努赫巴”（Nukhba）某作战小组的指挥官，也",
+      "content": "【快讯】SHMET06月07日讯，据伊朗塔斯尼姆通讯社：德黑兰股市综合指数逼近历史新高。",
+      "detail": "【快讯】SHMET06月07日讯，据伊朗塔斯尼姆通讯社：德黑兰股市综合指数逼近历史新高。；【伊朗称已起草《霍尔木兹海峡环境服务收费条例》】SHMET06月07日讯，据伊朗方面7日消息，伊朗副总统兼环境署署长希娜·安萨里表示，伊方已启动《霍尔木兹海峡环境服务收费条例》制定工作，初步草案近日完",
       "status": "⚠️ 需关注"
     },
     "macro": {
       "title": "📊 宏观经济",
       "items": [
         "【快讯】SHMET06月07日讯，韩国财长：将调查任何进口商和出口商的非法交易。",
-        "马斯克，重磅来袭！欧洲央行要率先加息？",
-        "中国银河宏观：非农走强并不意味着美联储年内加息"
+        "【快讯】SHMET06月07日讯，以色列央行：以色列外汇储备在5月份为2386.81亿美元，4月份为2357.28亿美元。",
+        "【快讯】SHMET06月07日讯，以色列央行：在5月份购买了8.01亿美元的外汇，以维持市场有序运作。"
       ]
     },
     "industry": {
@@ -147,26 +193,36 @@
     "rates_note": "⚠️ 开工率数据需订阅隆众资讯/卓创资讯/CCF，可辅助判断供需格局"
   },
   "section3": {
-    "title": "三、 市场日报及策略建议",
-    "subtitle": "跟随产业资金，动态调整持仓",
+    "title": "三、 策略建议",
+    "subtitle": "期权Greeks+基本面联合研判",
     "strategies": [
       {
-        "action": "⚠️ 价格突破区间上沿",
-        "detail": "当前价格6348已突破区间上沿6300，突破有效性待确认",
-        "suggestion": "卖方注意止损保护，关注是否有效突破（3日确认原则）；可考虑在更高行权价建立新头寸"
+        "action": "🛡️ 正Gamma环境",
+        "detail": "净GEX=+44.5M，做市商反向对冲压制波动",
+        "suggestion": "利于卖方策略（卖跨/卖宽跨），预期区间震荡；买入波动率策略需谨慎"
       },
       {
-        "action": "💰 PTA利润偏高",
-        "detail": "当前利润约453元/吨，高利润刺激供应释放",
-        "suggestion": "关注装置重启/提负动态，高利润下供应压力将在1-2周后显现"
+        "action": "🎯 到期前痛点引力",
+        "detail": "距到期3.3天，价格6480 vs 痛点6300，偏差+180",
+        "suggestion": "临近到期价格倾向向痛点6300回归，上方Call卖方受益，Theta加速衰减利好卖方"
       },
       {
-        "action": "📉 PCR持仓偏高警示",
-        "detail": "持仓量PCR=1.28>1.2，空头力量偏强",
-        "suggestion": "注意下行风险，底部区域做好对冲保护；卖方底部头寸可适度加仓"
+        "action": "📍 翻转点上方运行",
+        "detail": "价格6480在GEX翻转点6414上方，正Gamma区间",
+        "suggestion": "做市商阻力偏上方，价格下跌时有对冲买盘托底"
+      },
+      {
+        "action": "💰 PTA高利润",
+        "detail": "利润约453元/吨(+7.7%)，供应释放压力",
+        "suggestion": "高利润→装置提负/重启→供应增加→利空；关注1-2周后供应端变化"
+      },
+      {
+        "action": "📊 OI支撑/压力",
+        "detail": "Put支撑6000(37,512手) ↔ Call压力7000(21,293手)",
+        "suggestion": "区间【6000,7000】内运行概率高，突破需要对应方向OI显著变化"
       }
     ],
-    "core_idea": "核心思路：价格已突破区间上沿，区间上沿防线已由产业资金重新布防。注意价格回踩确认，警惕突破失败后的快速回调风险。建议卖方仓位严格控制在总资金30%以下，继续在更高新平台上执行'收租'策略，跟随产业资金完成从'被动防守'到'主动布局'的切换。"
+    "core_idea": "综合研判：价格6480在【6000,7000】区间偏下运行；正Gamma环境压制波动；价格偏离痛点6300达180点，到期前有回归动力；高利润(453元)下供应释放压力偏空；仅剩3.3天到期，Theta快速衰减利好卖方。"
   },
   "industry_rates": {
     "note": "akshare暂无自动获取接口，需专业订阅或人工录入。数据来源：隆众资讯/卓创资讯/CCF中国化纤信息网",
@@ -216,14 +272,14 @@
   },
   "macro_news": {
     "geo": [
-      "【伊朗第一副总统：伊朗官员在谈判方案上立场一致】SHMET06月07日讯，据伊朗伊斯兰共和国通讯社（IRNA），伊朗第一副总统阿雷夫表示，所有高级官员在伊朗的谈判策略上完全一致，并驳斥了任何关于谈判文",
-      "【快讯】SHMET06月07日讯，据以色列时报：以色列军方表示，以军于周二击毙了萨克尔·阿布·卡里姆（Sakr Abu Karim）。他是哈马斯精锐部队“努赫巴”（Nukhba）某作战小组的指挥官，也",
+      "【快讯】SHMET06月07日讯，据伊朗塔斯尼姆通讯社：德黑兰股市综合指数逼近历史新高。",
+      "【伊朗称已起草《霍尔木兹海峡环境服务收费条例》】SHMET06月07日讯，据伊朗方面7日消息，伊朗副总统兼环境署署长希娜·安萨里表示，伊方已启动《霍尔木兹海峡环境服务收费条例》制定工作，初步草案近日完",
       "美国拟动用伊朗被冻结资产赔偿海湾国家损失，或成停火谈判新刺激"
     ],
     "fed": [
-      "马斯克，重磅来袭！欧洲央行要率先加息？",
-      "中国银河宏观：非农走强并不意味着美联储年内加息",
-      "美联储今年还会降息吗？整个华尔街只有1家投行还“坚持”：花旗06-06 14:170评"
+      "【快讯】SHMET06月07日讯，以色列央行：以色列外汇储备在5月份为2386.81亿美元，4月份为2357.28亿美元。",
+      "【快讯】SHMET06月07日讯，以色列央行：在5月份购买了8.01亿美元的外汇，以维持市场有序运作。",
+      "马斯克，重磅来袭！欧洲央行要率先加息？"
     ],
     "industry": [],
     "macro": [
@@ -409,9 +465,703 @@
     "pcr_spot": 0.8648,
     "pcr_hold": 1.2791,
     "key_levels": {
-      "bottom": 6300,
-      "top": 6300
+      "bottom": 6000,
+      "top": 7000
     },
     "trade_date": "20260605"
+  },
+  "gex": {
+    "summary": {
+      "T": 0.00893,
+      "days_left": 3.3,
+      "expiry": "2026-06-11T00:00:00",
+      "futures_price": 6480,
+      "gex_direction": "positive",
+      "gex_flip": 6414,
+      "last_update": "2026-06-05T23:00:00",
+      "max_pain": 6300,
+      "net_gex": 44503754.0,
+      "pcr": 1.271,
+      "total_call_oi": 110353,
+      "total_put_oi": 140246
+    },
+    "gex_bars": [
+      {
+        "call_gex": 259.0,
+        "net_gex": -127715.0,
+        "put_gex": -127974.0,
+        "strike": 5500
+      },
+      {
+        "call_gex": 899.0,
+        "net_gex": -102587.0,
+        "put_gex": -103486.0,
+        "strike": 5600
+      },
+      {
+        "call_gex": 12301.0,
+        "net_gex": -290168.0,
+        "put_gex": -302469.0,
+        "strike": 5700
+      },
+      {
+        "call_gex": 36219.0,
+        "net_gex": -1368063.0,
+        "put_gex": -1404282.0,
+        "strike": 5800
+      },
+      {
+        "call_gex": 71989.0,
+        "net_gex": -1342017.0,
+        "put_gex": -1414006.0,
+        "strike": 5900
+      },
+      {
+        "call_gex": 946182.0,
+        "net_gex": -11965118.0,
+        "put_gex": -12911299.0,
+        "strike": 6000
+      },
+      {
+        "call_gex": 964062.0,
+        "net_gex": -5475659.0,
+        "put_gex": -6439720.0,
+        "strike": 6100
+      },
+      {
+        "call_gex": 2737684.0,
+        "net_gex": -23528524.0,
+        "put_gex": -26266208.0,
+        "strike": 6200
+      },
+      {
+        "call_gex": 29454080.0,
+        "net_gex": -21126435.0,
+        "put_gex": -50580516.0,
+        "strike": 6300
+      },
+      {
+        "call_gex": 36891683.0,
+        "net_gex": -7357962.0,
+        "put_gex": -44249645.0,
+        "strike": 6400
+      },
+      {
+        "call_gex": 61555682.0,
+        "net_gex": 43762809.0,
+        "put_gex": -17792873.0,
+        "strike": 6500
+      },
+      {
+        "call_gex": 31750834.0,
+        "net_gex": 26368157.0,
+        "put_gex": -5382677.0,
+        "strike": 6600
+      },
+      {
+        "call_gex": 19437708.0,
+        "net_gex": 17233649.0,
+        "put_gex": -2204060.0,
+        "strike": 6700
+      },
+      {
+        "call_gex": 17456955.0,
+        "net_gex": 16633807.0,
+        "put_gex": -823148.0,
+        "strike": 6800
+      },
+      {
+        "call_gex": 3997467.0,
+        "net_gex": 3760014.0,
+        "put_gex": -237452.0,
+        "strike": 6900
+      },
+      {
+        "call_gex": 8056308.0,
+        "net_gex": 7853888.0,
+        "put_gex": -202420.0,
+        "strike": 7000
+      },
+      {
+        "call_gex": 916198.0,
+        "net_gex": 897471.0,
+        "put_gex": -18727.0,
+        "strike": 7100
+      },
+      {
+        "call_gex": 368974.0,
+        "net_gex": 359024.0,
+        "put_gex": -9951.0,
+        "strike": 7200
+      },
+      {
+        "call_gex": 203371.0,
+        "net_gex": 201172.0,
+        "put_gex": -2199.0,
+        "strike": 7300
+      },
+      {
+        "call_gex": 68582.0,
+        "net_gex": 68441.0,
+        "put_gex": -141.0,
+        "strike": 7400
+      },
+      {
+        "call_gex": 49691.0,
+        "net_gex": 49570.0,
+        "put_gex": -120.0,
+        "strike": 7500
+      }
+    ],
+    "pain_curve": [
+      {
+        "pain": 395073000.0,
+        "strike": 5500
+      },
+      {
+        "pain": 328657000.0,
+        "strike": 5600
+      },
+      {
+        "pain": 263925000.0,
+        "strike": 5700
+      },
+      {
+        "pain": 202020500.0,
+        "strike": 5800
+      },
+      {
+        "pain": 147275000.0,
+        "strike": 5900
+      },
+      {
+        "pain": 96565000.0,
+        "strike": 6000
+      },
+      {
+        "pain": 65985500.0,
+        "strike": 6100
+      },
+      {
+        "pain": 40970000.0,
+        "strike": 6200
+      },
+      {
+        "pain": 26766000.0,
+        "strike": 6300
+      },
+      {
+        "pain": 27276000.0,
+        "strike": 6400
+      },
+      {
+        "pain": 36547500.0,
+        "strike": 6500
+      },
+      {
+        "pain": 53485000.0,
+        "strike": 6600
+      },
+      {
+        "pain": 75224000.0,
+        "strike": 6700
+      },
+      {
+        "pain": 101602500.0,
+        "strike": 6800
+      },
+      {
+        "pain": 135043000.0,
+        "strike": 6900
+      },
+      {
+        "pain": 171506500.0,
+        "strike": 7000
+      },
+      {
+        "pain": 218884000.0,
+        "strike": 7100
+      },
+      {
+        "pain": 268533000.0,
+        "strike": 7200
+      },
+      {
+        "pain": 319857500.0,
+        "strike": 7300
+      },
+      {
+        "pain": 372818000.0,
+        "strike": 7400
+      },
+      {
+        "pain": 426752000.0,
+        "strike": 7500
+      }
+    ],
+    "oi_dist": [
+      {
+        "call_oi": 15,
+        "put_oi": 7399,
+        "strike": 5500
+      },
+      {
+        "call_oi": 29,
+        "put_oi": 3339,
+        "strike": 5600
+      },
+      {
+        "call_oi": 221,
+        "put_oi": 5434,
+        "strike": 5700
+      },
+      {
+        "call_oi": 360,
+        "put_oi": 13958,
+        "strike": 5800
+      },
+      {
+        "call_oi": 391,
+        "put_oi": 7680,
+        "strike": 5900
+      },
+      {
+        "call_oi": 2749,
+        "put_oi": 37512,
+        "strike": 6000
+      },
+      {
+        "call_oi": 1449,
+        "put_oi": 9679,
+        "strike": 6100
+      },
+      {
+        "call_oi": 2041,
+        "put_oi": 19582,
+        "strike": 6200
+      },
+      {
+        "call_oi": 10830,
+        "put_oi": 18598,
+        "strike": 6300
+      },
+      {
+        "call_oi": 7967,
+        "put_oi": 9556,
+        "strike": 6400
+      },
+      {
+        "call_oi": 11894,
+        "put_oi": 3438,
+        "strike": 6500
+      },
+      {
+        "call_oi": 8211,
+        "put_oi": 1392,
+        "strike": 6600
+      },
+      {
+        "call_oi": 8334,
+        "put_oi": 945,
+        "strike": 6700
+      },
+      {
+        "call_oi": 13488,
+        "put_oi": 636,
+        "strike": 6800
+      },
+      {
+        "call_oi": 5707,
+        "put_oi": 339,
+        "strike": 6900
+      },
+      {
+        "call_oi": 21293,
+        "put_oi": 535,
+        "strike": 7000
+      },
+      {
+        "call_oi": 4452,
+        "put_oi": 91,
+        "strike": 7100
+      },
+      {
+        "call_oi": 3263,
+        "put_oi": 88,
+        "strike": 7200
+      },
+      {
+        "call_oi": 3237,
+        "put_oi": 35,
+        "strike": 7300
+      },
+      {
+        "call_oi": 1943,
+        "put_oi": 4,
+        "strike": 7400
+      },
+      {
+        "call_oi": 2479,
+        "put_oi": 6,
+        "strike": 7500
+      }
+    ],
+    "available": true
+  },
+  "iv_curve": {
+    "available": true,
+    "T": 0.008929611191028468,
+    "atm_history": {
+      "17:41": 0.3890336925245289,
+      "17:42": 0.38908030708698915
+    },
+    "atm_strike": 6500,
+    "current_interval_key": null,
+    "curve": [
+      {
+        "iv_change": 0.0815,
+        "prev_avg": 0.787465,
+        "raw_C": null,
+        "raw_C_prev": null,
+        "raw_P": 0.7597,
+        "raw_P_prev": 0.773451,
+        "raw_avg": 0.7597,
+        "smooth": 0.706015,
+        "smooth_prev": 0.787465,
+        "strike": 5000
+      },
+      {
+        "iv_change": 0.0284,
+        "prev_avg": 0.646572,
+        "raw_C": null,
+        "raw_C_prev": null,
+        "raw_P": 0.6026,
+        "raw_P_prev": 0.660093,
+        "raw_avg": 0.6026,
+        "smooth": 0.618145,
+        "smooth_prev": 0.646572,
+        "strike": 5300
+      },
+      {
+        "iv_change": 0.0156,
+        "prev_avg": 0.602996,
+        "raw_C": null,
+        "raw_C_prev": null,
+        "raw_P": 0.5955,
+        "raw_P_prev": 0.604218,
+        "raw_avg": 0.5955,
+        "smooth": 0.587378,
+        "smooth_prev": 0.602996,
+        "strike": 5400
+      },
+      {
+        "iv_change": 0.0057,
+        "prev_avg": 0.561384,
+        "raw_C": null,
+        "raw_C_prev": null,
+        "raw_P": 0.5417,
+        "raw_P_prev": 0.548937,
+        "raw_avg": 0.5417,
+        "smooth": 0.555683,
+        "smooth_prev": 0.561384,
+        "strike": 5500
+      },
+      {
+        "iv_change": 0.001,
+        "prev_avg": 0.52196,
+        "raw_C": null,
+        "raw_C_prev": null,
+        "raw_P": 0.5141,
+        "raw_P_prev": 0.540817,
+        "raw_avg": 0.5141,
+        "smooth": 0.522922,
+        "smooth_prev": 0.52196,
+        "strike": 5600
+      },
+      {
+        "iv_change": 0.0039,
+        "prev_avg": 0.484999,
+        "raw_C": null,
+        "raw_C_prev": null,
+        "raw_P": 0.4776,
+        "raw_P_prev": 0.498286,
+        "raw_avg": 0.4776,
+        "smooth": 0.488948,
+        "smooth_prev": 0.484999,
+        "strike": 5700
+      },
+      {
+        "iv_change": 0.0028,
+        "prev_avg": 0.450839,
+        "raw_C": null,
+        "raw_C_prev": null,
+        "raw_P": 0.4478,
+        "raw_P_prev": 0.462675,
+        "raw_avg": 0.4478,
+        "smooth": 0.453621,
+        "smooth_prev": 0.450839,
+        "strike": 5800
+      },
+      {
+        "iv_change": 0.003,
+        "prev_avg": 0.419884,
+        "raw_C": null,
+        "raw_C_prev": 0.80725,
+        "raw_P": 0.408,
+        "raw_P_prev": 0.426794,
+        "raw_avg": 0.408,
+        "smooth": 0.416856,
+        "smooth_prev": 0.419884,
+        "strike": 5900
+      },
+      {
+        "iv_change": 0.0138,
+        "prev_avg": 0.392605,
+        "raw_C": 0.3488,
+        "raw_C_prev": 0.420069,
+        "raw_P": 0.3866,
+        "raw_P_prev": 0.418745,
+        "raw_avg": 0.3677,
+        "smooth": 0.378757,
+        "smooth_prev": 0.392605,
+        "strike": 6000
+      },
+      {
+        "iv_change": 0.0295,
+        "prev_avg": 0.369517,
+        "raw_C": 0.2535,
+        "raw_C_prev": 0.318516,
+        "raw_P": 0.3383,
+        "raw_P_prev": 0.376979,
+        "raw_avg": 0.2959,
+        "smooth": 0.33999,
+        "smooth_prev": 0.369517,
+        "strike": 6100
+      },
+      {
+        "iv_change": 0.0484,
+        "prev_avg": 0.351145,
+        "raw_C": 0.302,
+        "raw_C_prev": 0.336082,
+        "raw_P": 0.3197,
+        "raw_P_prev": 0.349168,
+        "raw_avg": 0.31084999999999996,
+        "smooth": 0.302722,
+        "smooth_prev": 0.351145,
+        "strike": 6200
+      },
+      {
+        "iv_change": 0.0656,
+        "prev_avg": 0.337956,
+        "raw_C": 0.2998,
+        "raw_C_prev": 0.313256,
+        "raw_P": 0.2912,
+        "raw_P_prev": 0.31712,
+        "raw_avg": 0.2955,
+        "smooth": 0.27239,
+        "smooth_prev": 0.337956,
+        "strike": 6300
+      },
+      {
+        "iv_change": 0.0726,
+        "prev_avg": 0.330269,
+        "raw_C": 0.2794,
+        "raw_C_prev": 0.2973,
+        "raw_P": 0.2726,
+        "raw_P_prev": 0.300574,
+        "raw_avg": 0.276,
+        "smooth": 0.25768,
+        "smooth_prev": 0.330269,
+        "strike": 6400
+      },
+      {
+        "iv_change": 0.0656,
+        "prev_avg": 0.328181,
+        "raw_C": 0.2781,
+        "raw_C_prev": 0.28975,
+        "raw_P": 0.2656,
+        "raw_P_prev": 0.297855,
+        "raw_avg": 0.27185000000000004,
+        "smooth": 0.262608,
+        "smooth_prev": 0.328181,
+        "strike": 6500
+      },
+      {
+        "iv_change": 0.0503,
+        "prev_avg": 0.331519,
+        "raw_C": 0.279,
+        "raw_C_prev": 0.305848,
+        "raw_P": 0.2914,
+        "raw_P_prev": 0.311537,
+        "raw_avg": 0.2852,
+        "smooth": 0.281187,
+        "smooth_prev": 0.331519,
+        "strike": 6600
+      },
+      {
+        "iv_change": 0.0342,
+        "prev_avg": 0.339863,
+        "raw_C": 0.2999,
+        "raw_C_prev": 0.319766,
+        "raw_P": 0.3092,
+        "raw_P_prev": 0.3201,
+        "raw_avg": 0.30455,
+        "smooth": 0.305658,
+        "smooth_prev": 0.339863,
+        "strike": 6700
+      },
+      {
+        "iv_change": 0.021,
+        "prev_avg": 0.352616,
+        "raw_C": 0.31,
+        "raw_C_prev": 0.340291,
+        "raw_P": 0.3581,
+        "raw_P_prev": 0.337618,
+        "raw_avg": 0.33404999999999996,
+        "smooth": 0.331654,
+        "smooth_prev": 0.352616,
+        "strike": 6800
+      },
+      {
+        "iv_change": 0.0118,
+        "prev_avg": 0.369101,
+        "raw_C": 0.3343,
+        "raw_C_prev": 0.367865,
+        "raw_P": null,
+        "raw_P_prev": null,
+        "raw_avg": 0.3343,
+        "smooth": 0.357343,
+        "smooth_prev": 0.369101,
+        "strike": 6900
+      },
+      {
+        "iv_change": 0.0066,
+        "prev_avg": 0.388639,
+        "raw_C": 0.3568,
+        "raw_C_prev": 0.407302,
+        "raw_P": null,
+        "raw_P_prev": null,
+        "raw_avg": 0.3568,
+        "smooth": 0.382056,
+        "smooth_prev": 0.388639,
+        "strike": 7000
+      },
+      {
+        "iv_change": 0.005,
+        "prev_avg": 0.410613,
+        "raw_C": 0.3746,
+        "raw_C_prev": 0.412654,
+        "raw_P": null,
+        "raw_P_prev": null,
+        "raw_avg": 0.3746,
+        "smooth": 0.405595,
+        "smooth_prev": 0.410613,
+        "strike": 7100
+      },
+      {
+        "iv_change": 0.0065,
+        "prev_avg": 0.434485,
+        "raw_C": 0.3968,
+        "raw_C_prev": 0.441704,
+        "raw_P": null,
+        "raw_P_prev": null,
+        "raw_avg": 0.3968,
+        "smooth": 0.42795,
+        "smooth_prev": 0.434485,
+        "strike": 7200
+      },
+      {
+        "iv_change": 0.0106,
+        "prev_avg": 0.459811,
+        "raw_C": 0.4406,
+        "raw_C_prev": 0.475455,
+        "raw_P": null,
+        "raw_P_prev": null,
+        "raw_avg": 0.4406,
+        "smooth": 0.449182,
+        "smooth_prev": 0.459811,
+        "strike": 7300
+      },
+      {
+        "iv_change": 0.0169,
+        "prev_avg": 0.486227,
+        "raw_C": 0.4419,
+        "raw_C_prev": 0.485185,
+        "raw_P": null,
+        "raw_P_prev": null,
+        "raw_avg": 0.4419,
+        "smooth": 0.469374,
+        "smooth_prev": 0.486227,
+        "strike": 7400
+      },
+      {
+        "iv_change": 0.0248,
+        "prev_avg": 0.51344,
+        "raw_C": 0.4807,
+        "raw_C_prev": 0.526462,
+        "raw_P": null,
+        "raw_P_prev": null,
+        "raw_avg": 0.4807,
+        "smooth": 0.488612,
+        "smooth_prev": 0.51344,
+        "strike": 7500
+      },
+      {
+        "iv_change": 0.0342,
+        "prev_avg": 0.54122,
+        "raw_C": 0.5185,
+        "raw_C_prev": 0.539745,
+        "raw_P": null,
+        "raw_P_prev": null,
+        "raw_avg": 0.5185,
+        "smooth": 0.50698,
+        "smooth_prev": 0.54122,
+        "strike": 7600
+      },
+      {
+        "iv_change": 0.0448,
+        "prev_avg": 0.569381,
+        "raw_C": 0.5555,
+        "raw_C_prev": 0.57769,
+        "raw_P": null,
+        "raw_P_prev": null,
+        "raw_avg": 0.5555,
+        "smooth": 0.524552,
+        "smooth_prev": 0.569381,
+        "strike": 7700
+      },
+      {
+        "iv_change": 0.0952,
+        "prev_avg": 0.683327,
+        "raw_C": 0.648,
+        "raw_C_prev": 0.67203,
+        "raw_P": null,
+        "raw_P_prev": null,
+        "raw_avg": 0.648,
+        "smooth": 0.58812,
+        "smooth_prev": 0.683327,
+        "strike": 8100
+      }
+    ],
+    "expiry": "2026-06-11T00:00:00",
+    "futures_price": 6480,
+    "is_cold_start_fallback": true,
+    "last_update": "2026-06-05T23:00:00",
+    "max_pain": 6300,
+    "prev_interval_key": "15:00收盘",
+    "prev_timestamp": "06/05 15:00",
+    "ref_strike": 6300,
+    "svi_params": {
+      "a": 0.0,
+      "atm_vol": 0.26260785031313955,
+      "b": 0.026762845463861998,
+      "curvature": 22.575288677575767,
+      "m": -0.01577794484972562,
+      "rho": -0.1739581493227054,
+      "sigma": 0.03893114296839455,
+      "skew": -0.08219137886024327
+    },
+    "underlying_price": 6480,
+    "using_night_fallback": false
   }
 }

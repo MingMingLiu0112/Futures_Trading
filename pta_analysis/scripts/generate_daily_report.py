@@ -501,8 +501,45 @@ def get_macro_news() -> Dict:
     return news
 
 
+def get_gex_data() -> Dict:
+    """从本地iv_smile服务获取GEX/Pain/OI数据"""
+    data = {
+        'summary': {}, 'gex_bars': [], 'pain_curve': [], 'oi_dist': [],
+        'available': False
+    }
+    try:
+        resp = requests.get('http://127.0.0.1:8424/api/iv_smile/gex', timeout=30)
+        if resp.status_code == 200:
+            raw = resp.json()
+            data['summary'] = raw.get('summary', {})
+            data['gex_bars'] = raw.get('gex_bars', [])
+            data['pain_curve'] = raw.get('pain_curve', [])
+            data['oi_dist'] = raw.get('oi_dist', [])
+            data['available'] = bool(data['summary'])
+            print(f"  GEX数据OK: net_gex={data['summary'].get('net_gex')}, "
+                  f"max_pain={data['summary'].get('max_pain')}, "
+                  f"gex_flip={data['summary'].get('gex_flip')}")
+    except Exception as e:
+        print(f"  GEX数据获取失败: {e}")
+    return data
+
+
+def get_iv_curve_data() -> Dict:
+    """从本地iv_smile服务获取IV曲线/偏度数据"""
+    data = {'available': False}
+    try:
+        resp = requests.get('http://127.0.0.1:8424/api/iv_smile/curve', timeout=30)
+        if resp.status_code == 200:
+            raw = resp.json()
+            data.update(raw)
+            data['available'] = True
+    except Exception as e:
+        print(f"  IV曲线数据获取失败: {e}")
+    return data
+
+
 def get_option_data() -> Dict:
-    """获取期权数据"""
+    """获取期权数据（郑商所历史数据）"""
     data = {
         'highlights': [],
         'pcr_spot': None,
@@ -568,19 +605,15 @@ def get_option_data() -> Dict:
 
             data['trade_date'] = td
 
-            # 估算核心区间：基于持仓量Top5的PUT/CALL
-            # 底部 = top5 PUT中的最高行权价，压制 = top5 CALL中的最低行权价
+            # 核心区间：Put最大持仓的行权价=底部，Call最大持仓的行权价=顶部
+            # 修复bug：不能用top5的max/min，应取持仓量最大的单个行权价
             if not puts.empty:
-                top5_puts = puts.nlargest(5, '持仓量')
-                valid = top5_puts.dropna(subset=['行权价'])
-                if len(valid) > 0:
-                    data['key_levels']['bottom'] = int(valid['行权价'].max())
+                max_put = puts.nlargest(1, '持仓量').iloc[0]
+                data['key_levels']['bottom'] = int(max_put['行权价'])
 
             if not calls.empty:
-                top5_calls = calls.nlargest(5, '持仓量')
-                valid = top5_calls.dropna(subset=['行权价'])
-                if len(valid) > 0:
-                    data['key_levels']['top'] = int(valid['行权价'].min())
+                max_call = calls.nlargest(1, '持仓量').iloc[0]
+                data['key_levels']['top'] = int(max_call['行权价'])
 
     except Exception as e:
         print(f"期权数据错误: {e}")
@@ -645,94 +678,190 @@ def generate_report() -> Dict:
     report['cost'] = cost_data
     report['cost_range'] = {'low': cost_low, 'high': cost_high}
 
-    # 期权数据
+    # 期权数据（郑商所历史）
     print("  获取期权数据...")
     opt = get_option_data()
     report['option'] = opt
 
-    # 生成结构化分析
-    report['section1'] = generate_option_analysis(opt)
+    # GEX/Pain/OI数据（本地iv_smile服务）
+    print("[8/9] 获取GEX/Pain数据...")
+    gex = get_gex_data()
+    report['gex'] = gex
+
+    # IV曲线数据
+    print("[9/9] 获取IV曲线数据...")
+    iv_curve = get_iv_curve_data()
+    report['iv_curve'] = iv_curve
+
+    # 生成结构化分析（整合GEX数据）
+    report['section1'] = generate_option_analysis(opt, gex, iv_curve)
     report['section2'] = generate_macro_analysis(crude, px, pta, rates, inventory, macro_news, cost_data, cost_low, cost_high)
-    report['section3'] = generate_strategy_suggestions(opt, pta, cost_data, cost_low, cost_high)
+    report['section3'] = generate_strategy_suggestions(opt, pta, cost_data, cost_low, cost_high, gex)
 
     return report
 
 
-def generate_option_analysis(opt: Dict) -> Dict:
-    """生成期权数据分析（按用户模板格式）"""
+def generate_option_analysis(opt: Dict, gex: Dict = None, iv_curve: Dict = None) -> Dict:
+    """生成期权数据分析（整合GEX/Pain/IV曲线）"""
+    gex = gex or {}
+    iv_curve = iv_curve or {}
     highlights = opt.get('highlights', [])
     bottom = opt.get('key_levels', {}).get('bottom')
     top = opt.get('key_levels', {}).get('top')
     pcr_spot = opt.get('pcr_spot')
     pcr_hold = opt.get('pcr_hold')
-    trade_date = opt.get('trade_date', '')
 
-    # 筛选关键PUT（底部防线）和CALL（上行压制）
+    # GEX数据
+    gs = gex.get('summary', {})
+    net_gex = gs.get('net_gex')
+    gex_flip = gs.get('gex_flip')
+    max_pain = gs.get('max_pain')
+    futures_price = gs.get('futures_price')
+    days_left = gs.get('days_left')
+    gex_direction = gs.get('gex_direction')
+    total_call_oi = gs.get('total_call_oi')
+    total_put_oi = gs.get('total_put_oi')
+    expiry = gs.get('expiry', '')[:10] if gs.get('expiry') else ''
+
+    # OI分布——找最大Call压力位和Put支撑位
+    oi_dist = gex.get('oi_dist', [])
+    max_call_strike = max_put_strike = None
+    max_call_oi = max_put_oi = 0
+    for o in oi_dist:
+        co = o.get('call_oi', 0) or 0
+        po = o.get('put_oi', 0) or 0
+        if co > max_call_oi:
+            max_call_oi = co
+            max_call_strike = o['strike']
+        if po > max_put_oi:
+            max_put_oi = po
+            max_put_strike = o['strike']
+
+    # 用GEX数据优化区间判断（优先于郑商所历史数据）
+    if max_put_strike:
+        bottom = max_put_strike
+    if max_call_strike:
+        top = max_call_strike
+
+    # 构建持仓表
     all_puts = [h for h in highlights if h['type'] == 'P']
     all_calls = [h for h in highlights if h['type'] == 'C']
-
-    # 按持仓量排序，取Top6构建表格
     all_puts.sort(key=lambda x: int(x.get('change', '0').replace(',','').replace('+','').replace('手','')) if x.get('change') else 0, reverse=True)
     all_calls.sort(key=lambda x: int(x.get('change', '0').replace(',','').replace('+','').replace('手','')) if x.get('change') else 0, reverse=True)
-
-    # 取前6个PUT和6个CALL用于表格
-    table_puts = all_puts[:6]
-    table_calls = all_calls[:6]
-    table_items = table_puts + table_calls
+    table_items = (all_puts[:5] + all_calls[:5])
     table_items.sort(key=lambda x: x['strike'])
 
-    # 生成结论（4条）
+    # ===== 结论 =====
     conclusions = []
 
-    # 底部判断
-    if bottom and top:
-        if bottom >= 6500:
-            conclusions.append(f"✅ 底部防线系统性上移至{bottom}元，底部区间已明确上移，市场对底部区间的认知已升级。")
-        elif bottom >= 6000:
-            conclusions.append(f"⚠️ 底部仍在{bottom}元，需警惕进一步下移风险")
+    # GEX方向
+    if net_gex is not None:
+        if gex_direction == 'positive':
+            conclusions.append(
+                f"🛡️ 净GEX为正(+{net_gex/1e6:.1f}M)，做市商正Gamma → 反向对冲压制波动，倾向区间震荡")
         else:
-            conclusions.append(f"⚠️ 底部区间下移至{bottom}元，市场信心不足")
+            conclusions.append(
+                f"⚡ 净GEX为负({net_gex/1e6:.1f}M)，做市商负Gamma → 顺向对冲放大波动，警惕趋势加速")
 
-    # PCR判断
-    if pcr_hold:
-        if pcr_hold > 1.2:
-            conclusions.append(f"📉 PCR持仓={pcr_hold:.2f}>1.2，空头力量偏强，下行风险需警惕")
-        elif pcr_hold < 0.8:
-            conclusions.append(f"📈 PCR持仓={pcr_hold:.2f}<0.8，多头力量偏强，上行动能充足")
+    # Max Pain vs 当前价
+    if max_pain and futures_price:
+        diff = futures_price - max_pain
+        pct = diff / max_pain * 100
+        if abs(diff) > 100:
+            conclusions.append(
+                f"🎯 最大痛点{max_pain}，当前价{futures_price}偏离{diff:+.0f}点({pct:+.1f}%)，到期前有回归引力")
         else:
-            conclusions.append(f"⚖️ PCR持仓={pcr_hold:.2f}，多空相对均衡，区间震荡格局")
+            conclusions.append(
+                f"🎯 最大痛点{max_pain}，当前价{futures_price}接近痛点（偏差{diff:+.0f}），价格锚定效应强")
 
-    if pcr_spot:
-        if pcr_spot > 1.0:
-            conclusions.append(f"📊 成交PCR={pcr_spot:.2f}>1.0，当日成交偏空，短线情绪偏弱")
-        elif pcr_spot < 0.7:
-            conclusions.append(f"📊 成交PCR={pcr_spot:.2f}<0.7，当日成交偏多，短线情绪偏强")
-
-    # 核心区间
-    if bottom and top:
-        conclusions.append(f"📌 核心震荡区间确立为【{bottom}，{top}】元，产业资金已用真金白银画出新战场。")
-
-    # 生成叙述文本
-    if bottom and top and pcr_hold:
-        if pcr_hold >= 1.0:
-            narrative = (
-                f"最新期权数据显示，交易重心已从前期的低位上移。"
-                f"底部防线已系统性前移至{bottom}元，{bottom}元已成为新的铁底。"
-                f"PCR持仓为{pcr_hold:.2f}，多空相对均衡，"
-                f"核心区间【{bottom}，{top}】已成为产业资金的新战场。"
-            )
+    # GEX翻转点
+    if gex_flip and futures_price:
+        if futures_price > gex_flip:
+            conclusions.append(f"📍 GEX翻转点{gex_flip}，当前价在翻转点上方 → 正Gamma区间，波动受抑")
         else:
-            narrative = (
-                f"最新期权数据显示市场情绪偏多，成交PCR为{pcr_spot:.2f}。"
-                f"底部防线在{bottom}元，上方压制在{top}元，"
-                f"核心区间【{bottom}，{top}】内运行。"
-            )
+            conclusions.append(f"📍 GEX翻转点{gex_flip}，当前价在翻转点下方 → 负Gamma区间，波动可能放大")
+
+    # PCR
+    pcr_val = gs.get('pcr') or pcr_hold
+    if pcr_val:
+        if pcr_val > 1.2:
+            conclusions.append(f"📉 PCR={pcr_val:.3f}>1.2，看跌持仓偏重，空头力量偏强")
+        elif pcr_val < 0.8:
+            conclusions.append(f"📈 PCR={pcr_val:.3f}<0.8，看涨持仓偏重，多头力量偏强")
+        else:
+            conclusions.append(f"⚖️ PCR={pcr_val:.3f}，多空相对均衡")
+
+    # 压力/支撑
+    if max_put_strike and max_call_strike:
+        conclusions.append(
+            f"📌 Put支撑位{max_put_strike}({max_put_oi:,}手) ↔ Call压力位{max_call_strike}({max_call_oi:,}手)，"
+            f"核心区间【{max_put_strike},{max_call_strike}】")
+
+    # 到期倒计时
+    if days_left:
+        conclusions.append(f"⏰ 距到期仅{days_left:.1f}天({expiry})，Theta加速衰减，Gamma在ATM附近极度集中")
+
+    # ===== 叙述文本 =====
+    parts = []
+    if futures_price:
+        parts.append(f"期货价{futures_price}")
+    if max_pain:
+        parts.append(f"最大痛点{max_pain}")
+    if gex_flip:
+        parts.append(f"GEX翻转{gex_flip}")
+    if net_gex is not None:
+        gex_str = f"净GEX {'+'if net_gex>0 else ''}{net_gex/1e6:.1f}M({'正Gamma' if gex_direction == 'positive' else '负Gamma'})"
+        parts.append(gex_str)
+    if pcr_val:
+        parts.append(f"PCR={pcr_val:.3f}")
+    if days_left:
+        parts.append(f"剩余{days_left:.1f}天")
+
+    if parts:
+        narrative = "期权全景：" + "，".join(parts) + "。"
+        if gex_direction == 'positive' and max_pain and futures_price:
+            narrative += f"做市商正Gamma主导，波动受压；价格向痛点{max_pain}回归的引力{'较强' if abs(futures_price-max_pain)>100 else '在释放中'}。"
+        elif gex_direction == 'negative':
+            narrative += "做市商负Gamma主导，波动可能加剧，注意方向性突破。"
     else:
         narrative = "期权数据获取中，具体分析待更新。"
 
+    # ===== GEX数据概要（供前端渲染） =====
+    gex_summary = None
+    if gex.get('available'):
+        gex_summary = {
+            'net_gex': net_gex,
+            'gex_direction': gex_direction,
+            'gex_flip': gex_flip,
+            'max_pain': max_pain,
+            'futures_price': futures_price,
+            'days_left': days_left,
+            'expiry': expiry,
+            'total_call_oi': total_call_oi,
+            'total_put_oi': total_put_oi,
+            'pcr': pcr_val,
+            'max_call_strike': max_call_strike,
+            'max_call_oi': max_call_oi,
+            'max_put_strike': max_put_strike,
+            'max_put_oi': max_put_oi,
+        }
+
+    # Pain curve top5
+    pain_highlights = []
+    pain_curve = gex.get('pain_curve', [])
+    if pain_curve:
+        sorted_pain = sorted(pain_curve, key=lambda x: x.get('pain', 0))
+        min_pain_strike = sorted_pain[0]['strike'] if sorted_pain else None
+        for p in sorted_pain[:5]:
+            pain_highlights.append({
+                'strike': p['strike'],
+                'pain': p.get('pain', 0),
+                'is_min': p['strike'] == min_pain_strike
+            })
+
     return {
         'title': '一、 期权数据解读',
-        'subtitle': f"防线{'系统性上移' if bottom and bottom >= 6500 else '动态调整'}，{bottom or '待确认'}成新'铁底'" if bottom else '期权结构分析',
+        'subtitle': f"GEX{'正Gamma·压制波动' if gex_direction == 'positive' else '负Gamma·放大波动'}" if gex_direction else '期权结构分析',
         'summary': narrative,
         'highlights': table_items if table_items else highlights[:8],
         'conclusions': conclusions if conclusions else ['数据获取中，具体分析待更新'],
@@ -740,8 +869,10 @@ def generate_option_analysis(opt: Dict) -> Dict:
             'bottom': str(bottom) if bottom else '—',
             'top': str(top) if top else '—',
             'pcr_spot': f"{pcr_spot:.4f}" if pcr_spot else '—',
-            'pcr_hold': f"{pcr_hold:.4f}" if pcr_hold else '—'
-        }
+            'pcr_hold': f"{pcr_val:.4f}" if pcr_val else '—'
+        },
+        'gex_summary': gex_summary,
+        'pain_highlights': pain_highlights,
     }
 
 
@@ -843,132 +974,160 @@ def generate_macro_analysis(crude, px, pta, rates, inventory, macro_news, cost_d
     }
 
 
-def generate_strategy_suggestions(opt: Dict, pta: Dict, cost_data: Dict, cost_low, cost_high) -> Dict:
-    """生成策略建议（详细解读版）"""
+def generate_strategy_suggestions(opt: Dict, pta: Dict, cost_data: Dict, cost_low, cost_high, gex: Dict = None) -> Dict:
+    """生成策略建议（整合期权Greeks+基本面）"""
+    gex = gex or {}
+    gs = gex.get('summary', {})
     strategies = []
-    bottom = opt.get('key_levels', {}).get('bottom') or 6000
-    top = opt.get('key_levels', {}).get('top') or 7000
-    pta_price = pta.get('spot_price') or pta.get('future', {}).get('close', 0)
-    pta_spot = pta.get('spot_price')
-    
-    profit = cost_data.get('profit', 0)
-    pcr_hold = opt.get('pcr_hold')
 
-    # ---- 区间位置判断 ----
-    if pta_price > 0:
-        position = ''
-        if pta_price > top:
+    # 从GEX获取更精确的区间
+    oi_dist = gex.get('oi_dist', [])
+    max_call_strike = max_put_strike = None
+    max_call_oi = max_put_oi = 0
+    for o in oi_dist:
+        co = o.get('call_oi', 0) or 0
+        po = o.get('put_oi', 0) or 0
+        if co > max_call_oi:
+            max_call_oi = co
+            max_call_strike = o['strike']
+        if po > max_put_oi:
+            max_put_oi = po
+            max_put_strike = o['strike']
+
+    bottom = max_put_strike or opt.get('key_levels', {}).get('bottom') or 6000
+    top = max_call_strike or opt.get('key_levels', {}).get('top') or 7000
+    pta_price = gs.get('futures_price') or pta.get('spot_price') or pta.get('future', {}).get('close', 0)
+    pta_spot = pta.get('spot_price')
+    profit = cost_data.get('profit', 0)
+    net_gex = gs.get('net_gex')
+    gex_flip = gs.get('gex_flip')
+    max_pain = gs.get('max_pain')
+    days_left = gs.get('days_left')
+    gex_direction = gs.get('gex_direction')
+
+    # ---- 1. GEX环境判断 ----
+    if net_gex is not None and gex_direction:
+        if gex_direction == 'positive':
             strategies.append({
-                'action': '⚠️ 价格突破区间上沿',
-                'detail': f'当前价格{pta_price:.0f}已突破区间上沿{top}，突破有效性待确认',
-                'suggestion': '卖方注意止损保护，关注是否有效突破（3日确认原则）；可考虑在更高行权价建立新头寸'
-            })
-        elif pta_price < bottom:
-            strategies.append({
-                'action': '🔍 价格接近区间下沿',
-                'detail': f'当前价格{pta_price:.0f}接近区间下沿{bottom}，关注支撑强度',
-                'suggestion': '卖方注意风控，底部区域不宜过度追空；可关注底部防线6500P的防守情况'
+                'action': '🛡️ 正Gamma环境',
+                'detail': f'净GEX=+{net_gex/1e6:.1f}M，做市商反向对冲压制波动',
+                'suggestion': '利于卖方策略（卖跨/卖宽跨），预期区间震荡；买入波动率策略需谨慎'
             })
         else:
-            mid = (bottom + top) / 2
-            if pta_price > mid:
+            strategies.append({
+                'action': '⚡ 负Gamma环境',
+                'detail': f'净GEX={net_gex/1e6:.1f}M，做市商顺向对冲放大波动',
+                'suggestion': '波动率可能扩大，卖方注意止损保护；适合买入波动率或方向性策略'
+            })
+
+    # ---- 2. 价格 vs Max Pain / 区间位置 ----
+    if pta_price > 0:
+        if max_pain and days_left and days_left <= 5:
+            diff = pta_price - max_pain
+            strategies.append({
+                'action': '🎯 到期前痛点引力',
+                'detail': f'距到期{days_left:.1f}天，价格{pta_price:.0f} vs 痛点{max_pain}，偏差{diff:+.0f}',
+                'suggestion': f'临近到期价格倾向向痛点{max_pain}回归，'
+                              f'{"上方Call卖方受益" if diff > 0 else "下方Put卖方受益"}，'
+                              f'Theta加速衰减利好卖方'
+            })
+        elif max_pain:
+            diff = pta_price - max_pain
+            strategies.append({
+                'action': '🎯 痛点参考',
+                'detail': f'价格{pta_price:.0f} vs 痛点{max_pain}，偏差{diff:+.0f}',
+                'suggestion': f'关注价格向痛点{max_pain}的回归倾向'
+            })
+
+        # GEX翻转点位置
+        if gex_flip:
+            if pta_price > gex_flip:
                 strategies.append({
-                    'action': '📍 价格处于区间上半部',
-                    'detail': f'价格{pta_price:.0f}在【{bottom}，{top}】区间中部偏上运行',
-                    'suggestion': '卖方可在区间上沿附近布空单，注意严格止损；关注6900C附近压制'
+                    'action': '📍 翻转点上方运行',
+                    'detail': f'价格{pta_price:.0f}在GEX翻转点{gex_flip}上方，正Gamma区间',
+                    'suggestion': '做市商阻力偏上方，价格下跌时有对冲买盘托底'
                 })
             else:
                 strategies.append({
-                    'action': '📍 价格处于区间下半部',
-                    'detail': f'价格{pta_price:.0f}在【{bottom}，{top}】区间中部偏下运行',
-                    'suggestion': '卖方可在区间内高抛低吸，关注底部防线6500P的防守情况'
+                    'action': '📍 翻转点下方运行',
+                    'detail': f'价格{pta_price:.0f}在GEX翻转点{gex_flip}下方，负Gamma区间',
+                    'suggestion': '做市商可能加剧下行，注意下方支撑位防守'
                 })
 
-    # ---- 成本利润分析 ----
+    # ---- 3. 成本利润 ----
     if profit > 300:
         strategies.append({
-            'action': '💰 PTA利润偏高',
-            'detail': f'当前利润约{profit:.0f}元/吨，高利润刺激供应释放',
-            'suggestion': '关注装置重启/提负动态，高利润下供应压力将在1-2周后显现'
+            'action': '💰 PTA高利润',
+            'detail': f'利润约{profit:.0f}元/吨(+{cost_data.get("profit_pct",0):.1f}%)，供应释放压力',
+            'suggestion': '高利润→装置提负/重启→供应增加→利空；关注1-2周后供应端变化'
         })
     elif profit > 0:
         strategies.append({
-            'action': '✅ PTA利润正常',
-            'detail': f'当前利润约{profit:.0f}元/吨，产业运行平稳',
-            'suggestion': '产业链利润分配均衡，关注下游需求变化'
+            'action': '✅ PTA正常利润',
+            'detail': f'利润约{profit:.0f}元/吨，产业运行平稳',
+            'suggestion': '供需矛盾不突出，关注下游需求和库存变化'
         })
-    elif profit > -300:
+    elif profit is not None and profit <= 0:
         strategies.append({
-            'action': '⚠️ PTA小幅亏损',
-            'detail': f'当前亏损约{abs(profit):.0f}元/吨，供应端有收缩压力',
-            'suggestion': '关注PTA装置检修计划，亏损扩大可能触发更多停车'
-        })
-    else:
-        strategies.append({
-            'action': '🚨 PTA深度亏损',
-            'detail': f'当前亏损约{abs(profit):.0f}元/吨，产业亏损严重',
-            'suggestion': '停车检修预期增强，供应端有望主动收缩，底部支撑逻辑强化'
+            'action': '⚠️ PTA亏损',
+            'detail': f'亏损约{abs(profit):.0f}元/吨，供应收缩压力',
+            'suggestion': '亏损→停车/检修→供应收缩→利多底部；关注装置检修计划'
         })
 
-    # ---- PCR信号 ----
-    if pcr_hold:
-        if pcr_hold > 1.2:
-            strategies.append({
-                'action': '📉 PCR持仓偏高警示',
-                'detail': f'持仓量PCR={pcr_hold:.2f}>1.2，空头力量偏强',
-                'suggestion': '注意下行风险，底部区域做好对冲保护；卖方底部头寸可适度加仓'
-            })
-        elif pcr_hold < 0.8:
-            strategies.append({
-                'action': '📈 PCR持仓偏低警示',
-                'detail': f'持仓量PCR={pcr_hold:.2f}<0.8，多头力量偏强',
-                'suggestion': '注意上行风险，上方空间或打开；卖方注意止损保护'
-            })
-        else:
-            strategies.append({
-                'action': '⚖️ PCR处于中性区间',
-                'detail': f'持仓量PCR={pcr_hold:.2f}，多空力量均衡',
-                'suggestion': '市场进入相持阶段，区间震荡为主，适宜卖方收租策略'
-            })
+    # ---- 4. OI结构 ----
+    if max_put_strike and max_call_strike:
+        strategies.append({
+            'action': '📊 OI支撑/压力',
+            'detail': f'Put支撑{max_put_strike}({max_put_oi:,}手) ↔ Call压力{max_call_strike}({max_call_oi:,}手)',
+            'suggestion': f'区间【{max_put_strike},{max_call_strike}】内运行概率高，'
+                          f'突破需要对应方向OI显著变化'
+        })
 
     if not strategies:
         strategies.append({
             'action': '⏳ 等待数据更新',
-            'detail': '期权数据获取中，策略建议待更新',
+            'detail': '数据获取中，策略建议待更新',
             'suggestion': '请稍后刷新页面获取最新分析'
         })
 
-    # ---- 核心思路 ----
+    # ---- 核心思路（融合多维度） ----
+    core_parts = []
     if pta_price and bottom and top:
         mid = (bottom + top) / 2
         if pta_price > top:
-            position_desc = '价格已突破区间上沿，区间上沿防线已由产业资金重新布防'
-            risk_desc = '注意价格回踩确认，警惕突破失败后的快速回调风险'
-        elif pta_price > mid:
-            position_desc = f'价格{pta_price:.0f}处于区间【{bottom}，{top}】上半部'
-            risk_desc = '卖方可依托区间上沿布空，注意严格止损'
-        elif pta_price > bottom:
-            position_desc = f'价格{pta_price:.0f}处于区间【{bottom}，{top}】下半部'
-            risk_desc = '底部区域卖方注意风控，不宜过度追空'
+            core_parts.append(f'价格{pta_price:.0f}已突破区间上沿{top}')
+        elif pta_price < bottom:
+            core_parts.append(f'价格{pta_price:.0f}触及区间下沿{bottom}')
         else:
-            position_desc = f'价格{pta_price:.0f}已触及区间下沿附近'
-            risk_desc = '底部防线区域，关注6500P防线是否有效'
-    else:
-        position_desc = '核心区间已确立'
-        risk_desc = '建议轻仓操作'
+            pos = '偏上' if pta_price > mid else '偏下'
+            core_parts.append(f'价格{pta_price:.0f}在【{bottom},{top}】区间{pos}运行')
 
-    core_idea = (
-        f"核心思路：{position_desc}。"
-        f"{risk_desc}。"
-        f"建议卖方仓位严格控制在总资金30%以下，"
-        f"继续在更高新平台上执行'收租'策略，"
-        f"跟随产业资金完成从'被动防守'到'主动布局'的切换。"
-    )
+    if gex_direction == 'positive':
+        core_parts.append('正Gamma环境压制波动')
+    elif gex_direction == 'negative':
+        core_parts.append('负Gamma环境放大波动')
+
+    if max_pain and pta_price:
+        diff = abs(pta_price - max_pain)
+        if diff > 100:
+            core_parts.append(f'价格偏离痛点{max_pain}达{diff:.0f}点，到期前有回归动力')
+        else:
+            core_parts.append(f'接近痛点{max_pain}，锚定效应较强')
+
+    if profit > 300:
+        core_parts.append(f'高利润({profit:.0f}元)下供应释放压力偏空')
+    elif profit is not None and profit < -100:
+        core_parts.append(f'亏损({profit:.0f}元)下供应收缩预期偏多')
+
+    if days_left and days_left <= 5:
+        core_parts.append(f'仅剩{days_left:.1f}天到期，Theta快速衰减利好卖方')
+
+    core_idea = "综合研判：" + "；".join(core_parts) + "。" if core_parts else "数据汇总中。"
 
     return {
-        'title': '三、 市场日报及策略建议',
-        'subtitle': '跟随产业资金，动态调整持仓',
-        'strategies': strategies[:5],  # 最多5条
+        'title': '三、 策略建议',
+        'subtitle': '期权Greeks+基本面联合研判',
+        'strategies': strategies[:6],
         'core_idea': core_idea
     }
 
