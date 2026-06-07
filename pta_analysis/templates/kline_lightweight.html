@@ -2955,11 +2955,20 @@ async function loadDailyReport() {
                         <div style="color:#888;font-size:10px;margin-bottom:3px;">⚡ IV变动 Top3</div>
                         <div style="display:flex;gap:4px;flex-wrap:wrap;">`;
                     ivChg.forEach(ic => {
-                        const chgColor = ic.change > 0 ? '#ef5350' : '#26a69a';
-                        const chgSign = ic.change > 0 ? '+' : '';
+                        const cChg = ic.call_change;
+                        const pChg = ic.put_change;
+                        let parts = [];
+                        if (cChg != null) {
+                            const cColor = cChg > 0 ? '#ef5350' : '#26a69a';
+                            parts.push(`<span style="color:${cColor};">C${cChg > 0 ? '+' : ''}${cChg.toFixed(2)}%</span>`);
+                        }
+                        if (pChg != null) {
+                            const pColor = pChg > 0 ? '#ef5350' : '#26a69a';
+                            parts.push(`<span style="color:${pColor};">P${pChg > 0 ? '+' : ''}${pChg.toFixed(2)}%</span>`);
+                        }
                         html += `<span style="background:${ic.is_atm?'#2a2a3e':'#333'};padding:1px 6px;border-radius:3px;font-size:10px;">
                             <span style="color:#ccc;">${ic.strike}${ic.is_atm?' ATM':''}</span>
-                            <span style="color:${chgColor};">${chgSign}${ic.change.toFixed(1)}%</span>
+                            ${parts.join(' ')}
                         </span>`;
                     });
                     html += `</div></div>`;
@@ -4061,6 +4070,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div id="klFooterVersion" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.16</div>
+<div id="klFooterVersion" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.17</div>
 </body>
 </html>

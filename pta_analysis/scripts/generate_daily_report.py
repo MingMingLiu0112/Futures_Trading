@@ -543,6 +543,21 @@ def get_iv_curve_data() -> Dict:
     return data
 
 
+def get_iv_table_data() -> Dict:
+    """从本地iv_smile服务获取T型报价表数据（与iv_smile页面T表一致）"""
+    data = {'available': False, 'rows': []}
+    try:
+        resp = requests.get('http://127.0.0.1:8424/api/iv_smile/oi', timeout=30)
+        if resp.status_code == 200:
+            raw = resp.json()
+            data['rows'] = raw.get('rows', [])
+            data['futures_price'] = raw.get('futures_price')
+            data['available'] = bool(data['rows'])
+    except Exception as e:
+        print(f"  T表数据获取失败: {e}")
+    return data
+
+
 def get_option_data() -> Dict:
     """获取期权数据（郑商所历史数据）"""
     data = {
@@ -711,20 +726,24 @@ def generate_report() -> Dict:
     iv_curve = get_iv_curve_data()
     report['iv_curve'] = iv_curve
 
+    # T表数据（与iv_smile页面T表一致的IV变动）
+    print("[9.5/10] 获取T表IV数据...")
+    iv_table = get_iv_table_data()
+
     # 产业链综合数据（含AI四维评分）
     print("[10/10] 获取产业链综合分析...")
     industry = get_industry_analysis_data()
     report['industry_analysis'] = industry
 
     # 生成结构化分析（整合GEX数据）
-    report['section1'] = generate_option_analysis(opt, gex, iv_curve)
+    report['section1'] = generate_option_analysis(opt, gex, iv_curve, iv_table)
     report['section2'] = generate_macro_analysis(crude, px, pta, rates, inventory, macro_news, cost_data, cost_low, cost_high, industry)
     report['section3'] = generate_strategy_suggestions(opt, pta, cost_data, cost_low, cost_high, gex, industry)
 
     return report
 
 
-def generate_option_analysis(opt: Dict, gex: Dict = None, iv_curve: Dict = None) -> Dict:
+def generate_option_analysis(opt: Dict, gex: Dict = None, iv_curve: Dict = None, iv_table: Dict = None) -> Dict:
     """生成期权数据分析（整合GEX/Pain/IV曲线/Skew/Curvature）"""
     gex = gex or {}
     iv_curve = iv_curve or {}
@@ -906,19 +925,38 @@ def generate_option_analysis(opt: Dict, gex: Dict = None, iv_curve: Dict = None)
                 iv_analysis['vol_level'] = '极低波动率(压缩态)'
                 iv_analysis['vol_regime'] = 'compressed'
 
-    # IV曲线变化 — ATM附近的隐波变化
+    # IV变动 — 直接取T表数据（与iv_smile页面T表完全一致）
     iv_changes = []
-    if iv_curve_data and atm_strike:
-        for c in iv_curve_data:
-            if abs(c.get('strike', 0) - atm_strike) <= 300:
-                chg = c.get('iv_change', 0)
-                if chg:
+    iv_table = iv_table or {}
+    t_rows = iv_table.get('rows', [])
+    if t_rows and atm_strike:
+        for r in t_rows:
+            k = r.get('strike', 0)
+            if abs(k - atm_strike) <= 300:
+                iv_c = r.get('iv_call')
+                iv_c_prev = r.get('iv_call_prev')
+                iv_p = r.get('iv_put')
+                iv_p_prev = r.get('iv_put_prev')
+                # Call IV变动
+                c_chg = round(iv_c - iv_c_prev, 2) if (iv_c is not None and iv_c_prev is not None) else None
+                # Put IV变动
+                p_chg = round(iv_p - iv_p_prev, 2) if (iv_p is not None and iv_p_prev is not None) else None
+                # 取变动绝对值较大的一边作为代表
+                if c_chg is not None or p_chg is not None:
                     iv_changes.append({
-                        'strike': c['strike'],
-                        'raw_avg': round((c.get('raw_C') or c.get('raw_P', 0)) * 100, 1),
-                        'change': round(chg * 100, 2),
-                        'is_atm': c['strike'] == atm_strike
+                        'strike': k,
+                        'call_iv': round(iv_c, 1) if iv_c is not None else None,
+                        'put_iv': round(iv_p, 1) if iv_p is not None else None,
+                        'call_change': c_chg,
+                        'put_change': p_chg,
+                        'change': c_chg if c_chg is not None else p_chg,  # 兼容前端
+                        'is_atm': k == atm_strike
                     })
+
+    # 排序：取call/put变动绝对值的最大值，降序，Top3
+    if iv_changes:
+        iv_changes.sort(key=lambda x: max(abs(x.get('call_change') or 0), abs(x.get('put_change') or 0)), reverse=True)
+        iv_changes = iv_changes[:3]
 
     # 构建持仓表
     all_puts = [h for h in highlights if h['type'] == 'P']
