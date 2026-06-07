@@ -543,7 +543,7 @@
     <!-- 日报与策略（含产业链、期权、宏观、策略） -->
     <div class="option-section" id="daily-report-section">
         <div class="section-title">
-            <span>📰 日报与策略 <span id="reportTime" style="color:#888;font-size:11px;"></span></span>
+            <span>📋 研报与策略 <span id="reportTime" style="color:#888;font-size:11px;"></span></span>
             <button onclick="loadDailyReport()" style="background:#e65100;color:#fff;border:none;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px;">刷新</button>
         </div>
         <div id="dailyReportContent" style="padding:10px;background:#252538;border-radius:0 0 8px 8px;max-height:700px;overflow-y:auto;">
@@ -2897,6 +2897,75 @@ async function loadDailyReport() {
                     html += `</div></div>`;
                 }
 
+                // 核心区间（effective support/resistance 优先于 max_put/call）
+                const effSup = gx.effective_support || gx.max_put_strike;
+                const effRes = gx.effective_resistance || gx.max_call_strike;
+                if (effSup && effRes && (effSup !== gx.max_put_strike || effRes !== gx.max_call_strike)) {
+                    html += `<div style="display:flex;gap:6px;margin-bottom:6px;font-size:12px;">
+                        <span style="background:#1b2a1b;padding:2px 6px;border-radius:3px;color:#26a69a;">核心支撑 ${effSup}</span>
+                        <span style="color:#555;">↔</span>
+                        <span style="background:#2a1b1b;padding:2px 6px;border-radius:3px;color:#ef5350;">核心压力 ${effRes}</span>
+                        <span style="color:#666;font-size:10px;align-self:center;">（收窄后）</span>
+                    </div>`;
+                }
+
+                // OI集中度
+                const oiConc = gx.oi_concentration;
+                if (oiConc) {
+                    const concPct = oiConc.toFixed(1);
+                    const concColor = oiConc > 60 ? '#ffd700' : oiConc > 40 ? '#ff9800' : '#888';
+                    html += `<div style="font-size:11px;color:#888;margin-bottom:4px;">持仓集中度 <b style="color:${concColor};">${concPct}%</b> <span style="font-size:10px;">（ATM±500点内OI占比）</span></div>`;
+                }
+
+                // Max Pain 收敛分析（在 s1 顶层，不在 gex_summary 里）
+                const painConv = s1.pain_convergence;
+                if (painConv) {
+                    const probColor = painConv.probability === '高' ? '#ef5350' : painConv.probability === '中' ? '#ff9800' : '#888';
+                    const devDir = painConv.deviation_pct > 0 ? '▲' : '▼';
+                    html += `<div style="font-size:11px;margin-bottom:6px;color:#aaa;">
+                        🎯 Max Pain收敛: 概率<b style="color:${probColor};"> ${painConv.probability}</b>
+                        · 偏离<b style="color:#ccc;"> ${devDir}${Math.abs(painConv.deviation_pct).toFixed(1)}%</b>
+                        · 剩余<b style="color:#ccc;"> ${painConv.days_left.toFixed(1)}天</b>
+                    </div>`;
+                }
+
+                // IV曲线解读（在 s1 顶层）
+                const iva = s1.iv_analysis;
+                if (iva) {
+                    const regimeColor = {'extreme':'#ef5350','high':'#ef5350','mid':'#ffd700','low':'#26a69a','compressed':'#4fc3f7'};
+                    html += `<div style="background:#1a1a2e;padding:6px 8px;border-radius:4px;margin-bottom:6px;">
+                        <div style="color:#ab47bc;font-size:11px;font-weight:bold;margin-bottom:4px;">📈 IV曲线解读</div>
+                        <div style="display:flex;flex-wrap:wrap;gap:3px 12px;font-size:12px;line-height:1.8;">
+                            <span style="color:#aaa;">ATM IV <b style="color:#ffd700;">${iva.atm_vol||'--'}%</b></span>
+                            <span style="color:#aaa;">环境 <b style="color:${regimeColor[iva.vol_regime]||'#888'};">${iva.vol_level||'--'}</b></span>`;
+                    if (iva.skew_desc) {
+                        const skColor = iva.skew_level?.includes('left') ? '#26a69a' : iva.skew_level?.includes('right') ? '#ef5350' : '#888';
+                        html += `<span style="color:#aaa;">Skew <b style="color:${skColor};">${iva.skew>0?'+':''}${iva.skew}</b> <span style="font-size:10px;color:#888;">${iva.skew_desc.split('，')[0]}</span></span>`;
+                    }
+                    if (iva.curv_desc) {
+                        html += `<span style="color:#aaa;">Curvature <b style="color:#ab47bc;">${iva.curvature}</b> <span style="font-size:10px;color:#888;">${iva.curv_desc.split('，')[0]}</span></span>`;
+                    }
+                    html += `</div></div>`;
+                }
+
+                // IV变动 Top3（在 s1 顶层）
+                const ivChg = s1.iv_changes || [];
+                if (ivChg.length > 0) {
+                    html += `<div style="margin-bottom:6px;">
+                        <div style="color:#888;font-size:10px;margin-bottom:3px;">⚡ IV变动 Top3</div>
+                        <div style="display:flex;gap:4px;flex-wrap:wrap;">`;
+                    ivChg.forEach(ic => {
+                        const chgColor = ic.change > 0 ? '#ef5350' : '#26a69a';
+                        const chgSign = ic.change > 0 ? '+' : '';
+                        html += `<span style="background:${ic.is_atm?'#2a2a3e':'#333'};padding:1px 6px;border-radius:3px;font-size:10px;">
+                            <span style="color:#ccc;">${ic.strike}${ic.is_atm?' ATM':''}</span>
+                            <span style="color:${chgColor};">${chgSign}${ic.change.toFixed(1)}%</span>
+                        </span>`;
+                    });
+                    html += `</div></div>`;
+                }
+
+                // 结论观点
                 if (s1.summary) html += `<div style="color:#999;font-size:11px;line-height:1.6;margin-bottom:6px;">${s1.summary}</div>`;
                 const concl = s1.conclusions || [];
                 if (concl.length > 0) {
@@ -3641,6 +3710,14 @@ async function loadDailyReport() {
             });
             loadOptionChain();
             loadDailyReport();
+            // 研报与策略：交易时段(9:00-23:00)每15分钟自动刷新
+            setInterval(() => {
+                const h = new Date().getHours();
+                if ((h >= 9 && h < 15) || (h >= 21 && h < 23)) {
+                    console.log('[研报] 交易时段自动刷新');
+                    loadDailyReport();
+                }
+            }, 15 * 60 * 1000);
             // 近月期货价格每分钟轮询（价格变化时重算ATM+重建Smile）
             setInterval(pollTa606Price, 60000);
             // 期权链数据每5分钟自动刷新（保持OI/IV等数据时效性）
@@ -3984,6 +4061,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div id="klFooterVersion" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.15</div>
+<div id="klFooterVersion" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.16</div>
 </body>
 </html>

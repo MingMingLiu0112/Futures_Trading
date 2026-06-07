@@ -690,7 +690,7 @@ async function fetchData() {
     if (gexData && !gexData.error) updateGexCharts(gexData);
 
     document.getElementById('lastUpdate').textContent =
-      `最后更新: ${data.last_update || '--'} | 前次基准: ${data.prev_timestamp || '--'} | 版本 v2.11.15`;
+      `最后更新: ${data.last_update || '--'} | 前次基准: ${data.prev_timestamp || '--'} | 版本 v2.11.16`;
   } catch (err) {
     showError('数据加载失败: ' + err.message);
   }

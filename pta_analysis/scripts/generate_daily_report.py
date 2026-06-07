@@ -725,7 +725,7 @@ def generate_report() -> Dict:
 
 
 def generate_option_analysis(opt: Dict, gex: Dict = None, iv_curve: Dict = None) -> Dict:
-    """生成期权数据分析（整合GEX/Pain/IV曲线）"""
+    """生成期权数据分析（整合GEX/Pain/IV曲线/Skew/Curvature）"""
     gex = gex or {}
     iv_curve = iv_curve or {}
     highlights = opt.get('highlights', [])
@@ -746,13 +746,19 @@ def generate_option_analysis(opt: Dict, gex: Dict = None, iv_curve: Dict = None)
     total_put_oi = gs.get('total_put_oi')
     expiry = gs.get('expiry', '')[:10] if gs.get('expiry') else ''
 
-    # OI分布——找最大Call压力位和Put支撑位
+    # OI分布——找最大Call压力位和Put支撑位 + 次大持仓位
     oi_dist = gex.get('oi_dist', [])
     max_call_strike = max_put_strike = None
     max_call_oi = max_put_oi = 0
+    call_oi_list = []  # (strike, oi)
+    put_oi_list = []
     for o in oi_dist:
         co = o.get('call_oi', 0) or 0
         po = o.get('put_oi', 0) or 0
+        if co > 0:
+            call_oi_list.append((o['strike'], co))
+        if po > 0:
+            put_oi_list.append((o['strike'], po))
         if co > max_call_oi:
             max_call_oi = co
             max_call_strike = o['strike']
@@ -760,11 +766,159 @@ def generate_option_analysis(opt: Dict, gex: Dict = None, iv_curve: Dict = None)
             max_put_oi = po
             max_put_strike = o['strike']
 
+    call_oi_list.sort(key=lambda x: x[1], reverse=True)
+    put_oi_list.sort(key=lambda x: x[1], reverse=True)
+
     # 用GEX数据优化区间判断（优先于郑商所历史数据）
     if max_put_strike:
         bottom = max_put_strike
     if max_call_strike:
         top = max_call_strike
+
+    # ===== 精细核心区间分析 =====
+    # 找OI加权的有效区间（不是简单max put/call，而是OI集中区间）
+    effective_support = bottom
+    effective_resistance = top
+    oi_concentration = None
+    if futures_price and oi_dist:
+        # 计算以期货价为中心±500点范围内OI集中度
+        near_call = sum(o.get('call_oi', 0) or 0 for o in oi_dist
+                        if abs(o['strike'] - futures_price) <= 500)
+        near_put = sum(o.get('put_oi', 0) or 0 for o in oi_dist
+                       if abs(o['strike'] - futures_price) <= 500)
+        total_oi = (total_call_oi or 0) + (total_put_oi or 0)
+        if total_oi > 0:
+            oi_concentration = round((near_call + near_put) / total_oi * 100, 1)
+
+        # 如果max_put和max_call区间太宽(>600点)，尝试用次大持仓收窄
+        if bottom and top and (top - bottom) > 600:
+            # 找更靠近当前价的次大持仓
+            inner_puts = [(s, oi) for s, oi in put_oi_list if s > bottom and s <= futures_price]
+            inner_calls = [(s, oi) for s, oi in call_oi_list if s < top and s >= futures_price]
+            if inner_puts:
+                effective_support = inner_puts[0][0]
+            if inner_calls:
+                effective_resistance = inner_calls[0][0]
+            # 如果收窄后反而没意义（比如support>resistance），回退
+            if effective_support and effective_resistance and effective_support >= effective_resistance:
+                effective_support = bottom
+                effective_resistance = top
+
+    # ===== Max Pain 收敛分析 =====
+    pain_convergence = None
+    if max_pain and futures_price and days_left:
+        diff = abs(futures_price - max_pain)
+        diff_pct = diff / futures_price * 100
+        deviation_dir = 1 if futures_price > max_pain else -1
+        # 基于剩余天数和偏离幅度判断收敛概率
+        if days_left <= 2:
+            if diff_pct <= 1.5:
+                pain_convergence = {'probability': '高', 'desc': f'仅剩{days_left:.1f}天，偏差{diff:.0f}点({diff_pct:.1f}%)较小，收敛概率高'}
+            elif diff_pct <= 3:
+                pain_convergence = {'probability': '中', 'desc': f'仅剩{days_left:.1f}天，偏差{diff:.0f}点({diff_pct:.1f}%)，有收敛动力但时间紧迫'}
+            else:
+                pain_convergence = {'probability': '低', 'desc': f'仅剩{days_left:.1f}天但偏差{diff:.0f}点({diff_pct:.1f}%)过大，完全收敛困难'}
+        elif days_left <= 5:
+            if diff_pct <= 2:
+                pain_convergence = {'probability': '高', 'desc': f'剩余{days_left:.1f}天，偏差{diff:.0f}点({diff_pct:.1f}%)，正Gamma环境下收敛概率较高' if gex_direction == 'positive' else f'剩余{days_left:.1f}天，偏差{diff:.0f}点({diff_pct:.1f}%)适中'}
+            elif diff_pct <= 4:
+                pain_convergence = {'probability': '中', 'desc': f'剩余{days_left:.1f}天，偏差{diff:.0f}点({diff_pct:.1f}%)，有收敛倾向但需关注方向性驱动'}
+            else:
+                pain_convergence = {'probability': '低', 'desc': f'偏差{diff:.0f}点({diff_pct:.1f}%)显著，距到期{days_left:.1f}天，收敛需要强催化'}
+        else:
+            if diff_pct <= 3:
+                pain_convergence = {'probability': '中高', 'desc': f'距到期{days_left:.1f}天时间充裕，偏差{diff:.0f}点({diff_pct:.1f}%)，大概率区间震荡回归'}
+            else:
+                pain_convergence = {'probability': '中低', 'desc': f'距到期{days_left:.1f}天，偏差{diff:.0f}点({diff_pct:.1f}%)，收敛存在不确定性'}
+        # 补充前端需要的字段
+        if pain_convergence:
+            pain_convergence['deviation_pct'] = round(diff_pct * deviation_dir, 1)
+            pain_convergence['days_left'] = round(days_left, 1)
+
+    # ===== IV曲线解读（Skew/Curvature） =====
+    iv_analysis = None
+    svi_params = iv_curve.get('svi_params', {})
+    iv_curve_data = iv_curve.get('curve', [])
+    atm_strike = iv_curve.get('atm_strike')
+    if svi_params:
+        skew = svi_params.get('skew', 0)
+        curvature = svi_params.get('curvature', 0)
+        atm_vol = svi_params.get('atm_vol', 0)
+
+        iv_analysis = {
+            'atm_vol': round(atm_vol * 100, 1) if atm_vol else None,
+            'skew': round(skew, 4) if skew else None,
+            'curvature': round(curvature, 2) if curvature else None,
+        }
+
+        # Skew解读
+        if skew:
+            if skew < -0.15:
+                iv_analysis['skew_desc'] = '深度左偏(看跌保护溢价极高)，市场恐慌情绪浓厚'
+                iv_analysis['skew_level'] = 'extreme_left'
+            elif skew < -0.08:
+                iv_analysis['skew_desc'] = '左偏(看跌溢价偏高)，下行保护需求偏强'
+                iv_analysis['skew_level'] = 'left'
+            elif skew < -0.03:
+                iv_analysis['skew_desc'] = '轻微左偏，正常的看跌保护溢价'
+                iv_analysis['skew_level'] = 'slight_left'
+            elif skew <= 0.03:
+                iv_analysis['skew_desc'] = '对称，多空对隐波定价相对均衡'
+                iv_analysis['skew_level'] = 'neutral'
+            elif skew <= 0.08:
+                iv_analysis['skew_desc'] = '轻微右偏，看涨端溢价略高'
+                iv_analysis['skew_level'] = 'slight_right'
+            else:
+                iv_analysis['skew_desc'] = '右偏(看涨溢价偏高)，上行博弈需求旺盛'
+                iv_analysis['skew_level'] = 'right'
+
+        # Curvature解读
+        if curvature:
+            if curvature > 30:
+                iv_analysis['curv_desc'] = '极高曲率(尾部风险定价极高)，市场预期可能出现剧烈波动'
+                iv_analysis['curv_level'] = 'extreme'
+            elif curvature > 15:
+                iv_analysis['curv_desc'] = '高曲率(尾部风险溢价较高)，深虚值期权隐波偏高'
+                iv_analysis['curv_level'] = 'high'
+            elif curvature > 5:
+                iv_analysis['curv_desc'] = '中等曲率，隐波曲线形态正常'
+                iv_analysis['curv_level'] = 'normal'
+            else:
+                iv_analysis['curv_desc'] = '低曲率(曲线扁平)，市场对尾部风险定价不足'
+                iv_analysis['curv_level'] = 'low'
+
+        # ATM IV水平判断
+        if atm_vol:
+            atm_pct = atm_vol * 100
+            if atm_pct > 40:
+                iv_analysis['vol_level'] = '极高波动率环境'
+                iv_analysis['vol_regime'] = 'extreme'
+            elif atm_pct > 30:
+                iv_analysis['vol_level'] = '高波动率'
+                iv_analysis['vol_regime'] = 'high'
+            elif atm_pct > 20:
+                iv_analysis['vol_level'] = '中等波动率'
+                iv_analysis['vol_regime'] = 'mid'
+            elif atm_pct > 12:
+                iv_analysis['vol_level'] = '低波动率'
+                iv_analysis['vol_regime'] = 'low'
+            else:
+                iv_analysis['vol_level'] = '极低波动率(压缩态)'
+                iv_analysis['vol_regime'] = 'compressed'
+
+    # IV曲线变化 — ATM附近的隐波变化
+    iv_changes = []
+    if iv_curve_data and atm_strike:
+        for c in iv_curve_data:
+            if abs(c.get('strike', 0) - atm_strike) <= 300:
+                chg = c.get('iv_change', 0)
+                if chg:
+                    iv_changes.append({
+                        'strike': c['strike'],
+                        'raw_avg': round((c.get('raw_C') or c.get('raw_P', 0)) * 100, 1),
+                        'change': round(chg * 100, 2),
+                        'is_atm': c['strike'] == atm_strike
+                    })
 
     # 构建持仓表
     all_puts = [h for h in highlights if h['type'] == 'P']
@@ -786,23 +940,23 @@ def generate_option_analysis(opt: Dict, gex: Dict = None, iv_curve: Dict = None)
             conclusions.append(
                 f"⚡ 净GEX为负({net_gex/1e6:.1f}M)，做市商负Gamma → 顺向对冲放大波动，警惕趋势加速")
 
-    # Max Pain vs 当前价
-    if max_pain and futures_price:
-        diff = futures_price - max_pain
-        pct = diff / max_pain * 100
-        if abs(diff) > 100:
-            conclusions.append(
-                f"🎯 最大痛点{max_pain}，当前价{futures_price}偏离{diff:+.0f}点({pct:+.1f}%)，到期前有回归引力")
-        else:
-            conclusions.append(
-                f"🎯 最大痛点{max_pain}，当前价{futures_price}接近痛点（偏差{diff:+.0f}），价格锚定效应强")
+    # Max Pain 收敛
+    if pain_convergence:
+        direction_hint = ''
+        if max_pain and futures_price:
+            if futures_price > max_pain:
+                direction_hint = '，价格偏高于痛点→下行引力'
+            else:
+                direction_hint = '，价格偏低于痛点→上行引力'
+        conclusions.append(f"🎯 痛点收敛({pain_convergence['probability']}): {pain_convergence['desc']}{direction_hint}")
 
     # GEX翻转点
     if gex_flip and futures_price:
-        if futures_price > gex_flip:
-            conclusions.append(f"📍 GEX翻转点{gex_flip}，当前价在翻转点上方 → 正Gamma区间，波动受抑")
+        dist = futures_price - gex_flip
+        if dist > 0:
+            conclusions.append(f"📍 GEX翻转{gex_flip}，当前价在上方{dist:.0f}点 → 正Gamma区间，波动受抑")
         else:
-            conclusions.append(f"📍 GEX翻转点{gex_flip}，当前价在翻转点下方 → 负Gamma区间，波动可能放大")
+            conclusions.append(f"📍 GEX翻转{gex_flip}，当前价在下方{abs(dist):.0f}点 → 负Gamma区间，波动放大")
 
     # PCR
     pcr_val = gs.get('pcr') or pcr_hold
@@ -814,40 +968,38 @@ def generate_option_analysis(opt: Dict, gex: Dict = None, iv_curve: Dict = None)
         else:
             conclusions.append(f"⚖️ PCR={pcr_val:.3f}，多空相对均衡")
 
-    # 压力/支撑
-    if max_put_strike and max_call_strike:
-        conclusions.append(
-            f"📌 Put支撑位{max_put_strike}({max_put_oi:,}手) ↔ Call压力位{max_call_strike}({max_call_oi:,}手)，"
-            f"核心区间【{max_put_strike},{max_call_strike}】")
+    # 精细区间
+    if effective_support and effective_resistance:
+        range_width = effective_resistance - effective_support
+        if bottom != effective_support or top != effective_resistance:
+            conclusions.append(
+                f"📌 有效博弈区间【{effective_support},{effective_resistance}】(宽度{range_width}点)，"
+                f"外沿支撑{bottom}({max_put_oi:,}手) / 压力{top}({max_call_oi:,}手)")
+        else:
+            conclusions.append(
+                f"📌 核心区间【{bottom},{top}】(宽度{range_width}点)，"
+                f"支撑{bottom}({max_put_oi:,}手) / 压力{top}({max_call_oi:,}手)")
+
+    # IV曲线结论
+    if iv_analysis:
+        iv_parts = []
+        if iv_analysis.get('atm_vol'):
+            iv_parts.append(f"ATM IV {iv_analysis['atm_vol']}%({iv_analysis.get('vol_level','')})")
+        if iv_analysis.get('skew_desc'):
+            iv_parts.append(f"Skew {iv_analysis['skew']:.4f} {iv_analysis['skew_desc']}")
+        if iv_parts:
+            conclusions.append(f"📈 隐波: {'，'.join(iv_parts)}")
+        if iv_analysis.get('curv_desc'):
+            conclusions.append(f"🌊 曲率={iv_analysis['curvature']:.1f}: {iv_analysis['curv_desc']}")
 
     # 到期倒计时
     if days_left:
-        conclusions.append(f"⏰ 距到期仅{days_left:.1f}天({expiry})，Theta加速衰减，Gamma在ATM附近极度集中")
-
-    # ===== 叙述文本 =====
-    parts = []
-    if futures_price:
-        parts.append(f"期货价{futures_price}")
-    if max_pain:
-        parts.append(f"最大痛点{max_pain}")
-    if gex_flip:
-        parts.append(f"GEX翻转{gex_flip}")
-    if net_gex is not None:
-        gex_str = f"净GEX {'+'if net_gex>0 else ''}{net_gex/1e6:.1f}M({'正Gamma' if gex_direction == 'positive' else '负Gamma'})"
-        parts.append(gex_str)
-    if pcr_val:
-        parts.append(f"PCR={pcr_val:.3f}")
-    if days_left:
-        parts.append(f"剩余{days_left:.1f}天")
-
-    if parts:
-        narrative = "期权全景：" + "，".join(parts) + "。"
-        if gex_direction == 'positive' and max_pain and futures_price:
-            narrative += f"做市商正Gamma主导，波动受压；价格向痛点{max_pain}回归的引力{'较强' if abs(futures_price-max_pain)>100 else '在释放中'}。"
-        elif gex_direction == 'negative':
-            narrative += "做市商负Gamma主导，波动可能加剧，注意方向性突破。"
-    else:
-        narrative = "期权数据获取中，具体分析待更新。"
+        theta_note = ''
+        if days_left <= 3:
+            theta_note = '，Theta加速衰减，ATM Gamma极度集中'
+        elif days_left <= 7:
+            theta_note = '，时间价值侵蚀加快'
+        conclusions.append(f"⏰ 距到期{days_left:.1f}天({expiry}){theta_note}")
 
     # ===== GEX数据概要（供前端渲染） =====
     gex_summary = None
@@ -867,6 +1019,9 @@ def generate_option_analysis(opt: Dict, gex: Dict = None, iv_curve: Dict = None)
             'max_call_oi': max_call_oi,
             'max_put_strike': max_put_strike,
             'max_put_oi': max_put_oi,
+            'effective_support': effective_support,
+            'effective_resistance': effective_resistance,
+            'oi_concentration': oi_concentration,
         }
 
     # Pain curve top5
@@ -885,7 +1040,7 @@ def generate_option_analysis(opt: Dict, gex: Dict = None, iv_curve: Dict = None)
     return {
         'title': '一、 期权数据解读',
         'subtitle': f"GEX{'正Gamma·压制波动' if gex_direction == 'positive' else '负Gamma·放大波动'}" if gex_direction else '期权结构分析',
-        'summary': narrative,
+        'summary': '',  # narrative 移除，用结构化conclusions代替
         'highlights': table_items if table_items else highlights[:8],
         'conclusions': conclusions if conclusions else ['数据获取中，具体分析待更新'],
         'key_levels': {
@@ -896,6 +1051,9 @@ def generate_option_analysis(opt: Dict, gex: Dict = None, iv_curve: Dict = None)
         },
         'gex_summary': gex_summary,
         'pain_highlights': pain_highlights,
+        'pain_convergence': pain_convergence,
+        'iv_analysis': iv_analysis,
+        'iv_changes': iv_changes,
     }
 
 
