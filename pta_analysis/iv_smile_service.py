@@ -2737,10 +2737,9 @@ def register_routes(app):
         """
         GEX (Gamma Exposure) + 疼痛曲线 + OI分布 + 综合摘要。
         返回:
-          - gex_bars: 每个行权价的 call_gex / put_gex / net_gex
-          - pain_curve: 每个行权价的 pain 值（买方总收益）
-          - oi_dist: 每个行权价的 call_oi / put_oi
-          - summary: PCR, net_gex, gex_flip, max_pain, T, days_left, futures_price
+          - gex_bars / pain_curve / oi_dist / summary: 当前实时数据
+          - prev_gex_bars / prev_pain_curve / prev_oi_dist / prev_summary: 前次基准
+          - baseline_label: 基准时间标签 (e.g. "15:00收盘")
         """
         from scipy.stats import norm as sp_norm
         with _state['lock']:
@@ -2763,15 +2762,13 @@ def register_routes(app):
 
         if not futures_price or not T or T <= 0:
             return jsonify({'error': 'data not ready', 'gex_bars': [], 'pain_curve': [],
-                            'oi_dist': [], 'summary': {}})
+                            'oi_dist': [], 'summary': {},
+                            'prev_gex_bars': [], 'prev_pain_curve': [],
+                            'prev_oi_dist': [], 'prev_summary': {}, 'baseline_label': None})
 
         F = futures_price
         sqrtT = np.sqrt(T) if T > 0 else 1e-6
 
-        # GEX/OI只取有持仓的真实行权价（strike_oi），不含SVI插值点
-        all_strikes = sorted(set(float(k) for k in strike_oi.keys()))
-
-        # ---- 1. GEX 计算 ----
         # 辅助函数：兼容字典key类型（可能是str/int/float）
         def _get(d, k, default=None):
             for key in [k, int(k), str(int(k))]:
@@ -2779,124 +2776,126 @@ def register_routes(app):
                     return d[key]
             return default
 
-        gex_bars = []
-        for K in all_strikes:
-            oi_data = _get(strike_oi, K, {'C': 0, 'P': 0})
-            c_oi = oi_data.get('C', 0) or 0
-            p_oi = oi_data.get('P', 0) or 0
-
-            # 取IV: 优先用平滑值，次选raw平均
-            raw = _get(smile_raw, K, {})
-            sm = _get(smile_smooth, K)
-            if sm and sm > 0:
-                sigma = sm
-            else:
-                iv_c = raw.get('C')
-                iv_p = raw.get('P')
-                vals = [v for v in [iv_c, iv_p] if v and v > 0]
-                sigma = sum(vals) / len(vals) if vals else None
-
-            if not sigma or sigma <= 0 or K <= 0:
-                gex_bars.append({
-                    'strike': int(K), 'call_gex': 0, 'put_gex': 0, 'net_gex': 0
-                })
-                continue
-
-            # Black76 gamma: e^(-rT) * N'(d1) / (F * sigma * sqrt(T))
-            d1 = (np.log(F / K) + 0.5 * sigma ** 2 * T) / (sigma * sqrtT)
-            gamma = np.exp(-r * T) * sp_norm.pdf(d1) / (F * sigma * sqrtT)
-
-            # GEX = OI * gamma * F^2 * 0.01 * 合约乘数 (1% move, PTA=5吨/手)
-            # 正gamma: 做市商持有long gamma => call为正, put为负(做市商卖put=short gamma)
-            CONTRACT_MULT = 5  # PTA合约乘数 5吨/手
-            call_gex = c_oi * gamma * F * F * 0.01 * CONTRACT_MULT
-            put_gex = -p_oi * gamma * F * F * 0.01 * CONTRACT_MULT  # put GEX 取反（做市商通常short put）
-            net_gex = call_gex + put_gex
-
-            gex_bars.append({
-                'strike': int(K),
-                'call_gex': round(call_gex, 0),
-                'put_gex': round(put_gex, 0),
-                'net_gex': round(net_gex, 0),
-            })
-
-        # ---- 2. 疼痛曲线 (Pain Curve) ----
-        pain_curve = []
-        # 统一key为float
-        oi_strikes_map = {}
-        for k, v in strike_oi.items():
-            oi_strikes_map[float(k)] = v
-        oi_strikes = sorted(oi_strikes_map.keys())
-        if oi_strikes:
+        # ---- 通用计算函数 ----
+        def _calc_gex_pain_oi(oi_dict):
+            """根据给定的 strike_oi 字典，计算 gex_bars, pain_curve, oi_dist 及摘要"""
+            oi_strikes = sorted(set(float(k) for k in oi_dict.keys()))
+            # 1. GEX
+            gex_list = []
             for K in oi_strikes:
+                oi_data = _get(oi_dict, K, {'C': 0, 'P': 0})
+                c_oi = oi_data.get('C', 0) or 0
+                p_oi = oi_data.get('P', 0) or 0
+                raw = _get(smile_raw, K, {})
+                sm = _get(smile_smooth, K)
+                if sm and sm > 0:
+                    sigma = sm
+                else:
+                    iv_c = raw.get('C') if isinstance(raw, dict) else None
+                    iv_p = raw.get('P') if isinstance(raw, dict) else None
+                    vals = [v for v in [iv_c, iv_p] if v and v > 0]
+                    sigma = sum(vals) / len(vals) if vals else None
+                if not sigma or sigma <= 0 or K <= 0:
+                    gex_list.append({'strike': int(K), 'call_gex': 0, 'put_gex': 0, 'net_gex': 0})
+                    continue
+                d1 = (np.log(F / K) + 0.5 * sigma ** 2 * T) / (sigma * sqrtT)
+                gamma = np.exp(-r * T) * sp_norm.pdf(d1) / (F * sigma * sqrtT)
+                CONTRACT_MULT = 5
+                call_gex = c_oi * gamma * F * F * 0.01 * CONTRACT_MULT
+                put_gex = -p_oi * gamma * F * F * 0.01 * CONTRACT_MULT
+                net_gex = call_gex + put_gex
+                gex_list.append({'strike': int(K), 'call_gex': round(call_gex, 0),
+                                 'put_gex': round(put_gex, 0), 'net_gex': round(net_gex, 0)})
+            # 2. Pain Curve
+            oi_map = {float(k): v for k, v in oi_dict.items()}
+            sorted_ks = sorted(oi_map.keys())
+            pain_list = []
+            for K in sorted_ks:
                 pain = 0
-                for Ki in oi_strikes:
-                    c_oi = oi_strikes_map[Ki].get('C', 0) or 0
-                    p_oi = oi_strikes_map[Ki].get('P', 0) or 0
-                    pain += (c_oi * max(K - Ki, 0) + p_oi * max(Ki - K, 0)) * 5  # ×合约乘数
-                pain_curve.append({'strike': int(K), 'pain': round(pain, 0)})
+                for Ki in sorted_ks:
+                    c_oi = oi_map[Ki].get('C', 0) or 0
+                    p_oi = oi_map[Ki].get('P', 0) or 0
+                    pain += (c_oi * max(K - Ki, 0) + p_oi * max(Ki - K, 0)) * 5
+                pain_list.append({'strike': int(K), 'pain': round(pain, 0)})
+            mp = None
+            if pain_list:
+                mp = min(pain_list, key=lambda x: x['pain'])['strike']
+            # 3. OI Dist
+            oi_list = []
+            tc, tp = 0, 0
+            for K in oi_strikes:
+                oi_data = _get(oi_dict, K, {'C': 0, 'P': 0})
+                c_oi = oi_data.get('C', 0) or 0
+                p_oi = oi_data.get('P', 0) or 0
+                tc += c_oi; tp += p_oi
+                oi_list.append({'strike': int(K), 'call_oi': int(c_oi), 'put_oi': int(p_oi)})
+            # 4. 摘要
+            pcr = round(tp / tc, 3) if tc > 0 else None
+            net_gex_total = sum(item['net_gex'] for item in gex_list)
+            gex_flip = None
+            nonzero = [b for b in sorted(gex_list, key=lambda x: x['strike']) if b['net_gex'] != 0]
+            for i in range(1, len(nonzero)):
+                pn = nonzero[i - 1]['net_gex']; cn = nonzero[i]['net_gex']
+                if pn * cn < 0:
+                    k1, k2 = nonzero[i-1]['strike'], nonzero[i]['strike']
+                    ratio = abs(pn) / (abs(pn) + abs(cn)) if (abs(pn) + abs(cn)) > 0 else 0.5
+                    gex_flip = round((k1 + ratio * (k2 - k1)) / 2) * 2
+                    break
+            days_left = round(T * 365.25, 1) if T else None
+            summ = {
+                'futures_price': futures_price, 'max_pain': mp, 'pcr': pcr,
+                'net_gex': round(net_gex_total, 0),
+                'gex_direction': 'positive' if net_gex_total > 0 else 'negative',
+                'gex_flip': gex_flip,
+                'T': round(T, 6) if T else None, 'days_left': days_left,
+                'expiry': expiry.isoformat() if expiry else None,
+                'total_call_oi': int(tc), 'total_put_oi': int(tp),
+                'last_update': last_update,
+            }
+            return gex_list, pain_list, oi_list, summ
 
-        # 从 pain_curve 实时确定 max_pain（覆盖 _state 中可能过时的值）
+        # ---- 当前实时数据 ----
+        gex_bars, pain_curve, oi_dist, summary = _calc_gex_pain_oi(strike_oi)
+        # 覆盖max_pain: 实时计算优先
         if pain_curve:
-            min_pain_entry = min(pain_curve, key=lambda x: x['pain'])
-            max_pain_val = min_pain_entry['strike']
+            max_pain_val = min(pain_curve, key=lambda x: x['pain'])['strike']
+            summary['max_pain'] = max_pain_val
 
-        # ---- 3. OI 分布 ----
-        oi_dist = []
-        total_call_oi = 0
-        total_put_oi = 0
-        for K in all_strikes:
-            oi_data = _get(strike_oi, K, {'C': 0, 'P': 0})
-            c_oi = oi_data.get('C', 0) or 0
-            p_oi = oi_data.get('P', 0) or 0
-            total_call_oi += c_oi
-            total_put_oi += p_oi
-            oi_dist.append({
-                'strike': int(K),
-                'call_oi': int(c_oi),
-                'put_oi': int(p_oi),
-            })
+        # ---- 前次基准数据（逻辑与IV Smile曲线完全一致）----
+        # 21:00之后（新交易日开盘）：优先 _close_baseline（当天15:00），兜底 _prev_day_baseline
+        # 21:00之前（盘后/日盘）：只用 _prev_day_baseline（前一交易日15:00）
+        prev_gex_bars, prev_pain_curve, prev_oi_dist, prev_summary = [], [], [], {}
+        baseline_label = None
+        now_hour = datetime.now().hour
+        prev_oi = None
+        if now_hour >= 21:
+            cb = _close_baseline
+            if cb and cb.get('strike_oi'):
+                prev_oi = cb['strike_oi']
+                baseline_label = '15:00收盘'
+            elif _prev_day_baseline and _prev_day_baseline.get('strike_oi'):
+                prev_oi = _prev_day_baseline['strike_oi']
+                ts = _prev_day_baseline.get('timestamp', '')[:19]
+                baseline_label = f'前日15:00 ({ts[5:10]})'
+        else:
+            if _prev_day_baseline and _prev_day_baseline.get('strike_oi'):
+                prev_oi = _prev_day_baseline['strike_oi']
+                ts = _prev_day_baseline.get('timestamp', '')[:19]
+                baseline_label = f'前日15:00 ({ts[5:10]})'
 
-        # ---- 4. 摘要指标 ----
-        pcr = round(total_put_oi / total_call_oi, 3) if total_call_oi > 0 else None
-        net_gex_total = sum(item['net_gex'] for item in gex_bars)
-
-        # GEX flip: net_gex从正变负（或反过来）的行权价（跳过OI=0的空行权价）
-        gex_flip = None
-        nonzero_gex = [b for b in sorted(gex_bars, key=lambda x: x['strike']) if b['net_gex'] != 0]
-        for i in range(1, len(nonzero_gex)):
-            prev_net = nonzero_gex[i - 1]['net_gex']
-            curr_net = nonzero_gex[i]['net_gex']
-            if prev_net * curr_net < 0:  # 符号反转
-                # 线性插值
-                k1 = nonzero_gex[i - 1]['strike']
-                k2 = nonzero_gex[i]['strike']
-                ratio = abs(prev_net) / (abs(prev_net) + abs(curr_net)) if (abs(prev_net) + abs(curr_net)) > 0 else 0.5
-                gex_flip = round((k1 + ratio * (k2 - k1)) / 2) * 2  # PTA tick=2
-                break
-
-        days_left = round(T * 365.25, 1) if T else None
-
-        summary = {
-            'futures_price': futures_price,
-            'max_pain': max_pain_val,
-            'pcr': pcr,
-            'net_gex': round(net_gex_total, 0),
-            'gex_direction': 'positive' if net_gex_total > 0 else 'negative',
-            'gex_flip': gex_flip,
-            'T': round(T, 6) if T else None,
-            'days_left': days_left,
-            'expiry': expiry.isoformat() if expiry else None,
-            'total_call_oi': int(total_call_oi),
-            'total_put_oi': int(total_put_oi),
-            'last_update': last_update,
-        }
+        if prev_oi and len(prev_oi) > 0:
+            prev_gex_bars, prev_pain_curve, prev_oi_dist, prev_summary = _calc_gex_pain_oi(prev_oi)
 
         return jsonify({
             'gex_bars': gex_bars,
             'pain_curve': pain_curve,
             'oi_dist': oi_dist,
             'summary': summary,
+            'prev_gex_bars': prev_gex_bars,
+            'prev_pain_curve': prev_pain_curve,
+            'prev_oi_dist': prev_oi_dist,
+            'prev_summary': prev_summary,
+            'baseline_label': baseline_label,
         })
 
 

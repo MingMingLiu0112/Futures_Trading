@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-06-07 21:48:27",
+  "timestamp": "2026-06-07 21:50:04",
   "section1": {
     "title": "一、 期权数据解读",
     "subtitle": "GEX正Gamma·压制波动",
@@ -93,7 +93,7 @@
       "pcr_hold": "1.2710"
     },
     "gex_summary": {
-      "net_gex": 46885879.0,
+      "net_gex": 46902135.0,
       "gex_direction": "positive",
       "gex_flip": 6414,
       "max_pain": 6300,
@@ -697,7 +697,7 @@
   },
   "gex": {
     "summary": {
-      "T": 0.008463,
+      "T": 0.00846,
       "days_left": 3.1,
       "expiry": "2026-06-11T00:00:00",
       "futures_price": 6480,
@@ -705,135 +705,135 @@
       "gex_flip": 6414,
       "last_update": "2026-06-05T23:00:00",
       "max_pain": 6300,
-      "net_gex": 46885879.0,
+      "net_gex": 46902135.0,
       "pcr": 1.271,
       "total_call_oi": 110353,
       "total_put_oi": 140246
     },
     "gex_bars": [
       {
-        "call_gex": 204.0,
-        "net_gex": -100294.0,
-        "put_gex": -100498.0,
+        "call_gex": 203.0,
+        "net_gex": -100124.0,
+        "put_gex": -100327.0,
         "strike": 5500
       },
       {
-        "call_gex": 726.0,
-        "net_gex": -82872.0,
-        "put_gex": -83599.0,
+        "call_gex": 725.0,
+        "net_gex": -82748.0,
+        "put_gex": -83473.0,
         "strike": 5600
       },
       {
-        "call_gex": 10220.0,
-        "net_gex": -241074.0,
-        "put_gex": -251295.0,
+        "call_gex": 10207.0,
+        "net_gex": -240760.0,
+        "put_gex": -250967.0,
         "strike": 5700
       },
       {
-        "call_gex": 30945.0,
-        "net_gex": -1168860.0,
-        "put_gex": -1199805.0,
+        "call_gex": 30911.0,
+        "net_gex": -1167564.0,
+        "put_gex": -1198475.0,
         "strike": 5800
       },
       {
-        "call_gex": 63263.0,
-        "net_gex": -1179347.0,
-        "put_gex": -1242610.0,
+        "call_gex": 63205.0,
+        "net_gex": -1178272.0,
+        "put_gex": -1241478.0,
         "strike": 5900
       },
       {
-        "call_gex": 855712.0,
-        "net_gex": -10821064.0,
-        "put_gex": -11676775.0,
+        "call_gex": 855104.0,
+        "net_gex": -10813381.0,
+        "put_gex": -11668486.0,
         "strike": 6000
       },
       {
-        "call_gex": 898340.0,
-        "net_gex": -5102371.0,
-        "put_gex": -6000710.0,
+        "call_gex": 897890.0,
+        "net_gex": -5099818.0,
+        "put_gex": -5997708.0,
         "strike": 6100
       },
       {
-        "call_gex": 2633400.0,
-        "net_gex": -22632272.0,
-        "put_gex": -25265672.0,
+        "call_gex": 2632669.0,
+        "net_gex": -22625992.0,
+        "put_gex": -25258662.0,
         "strike": 6200
       },
       {
-        "call_gex": 29273056.0,
-        "net_gex": -20996593.0,
-        "put_gex": -50269649.0,
+        "call_gex": 29271644.0,
+        "net_gex": -20995580.0,
+        "put_gex": -50267223.0,
         "strike": 6300
       },
       {
-        "call_gex": 37623846.0,
-        "net_gex": -7503990.0,
-        "put_gex": -45127836.0,
+        "call_gex": 37628847.0,
+        "net_gex": -7504988.0,
+        "put_gex": -45133834.0,
         "strike": 6400
       },
       {
-        "call_gex": 63202051.0,
-        "net_gex": 44933290.0,
-        "put_gex": -18268762.0,
+        "call_gex": 63213442.0,
+        "net_gex": 44941388.0,
+        "put_gex": -18272054.0,
         "strike": 6500
       },
       {
-        "call_gex": 32188421.0,
-        "net_gex": 26731561.0,
-        "put_gex": -5456861.0,
+        "call_gex": 32191352.0,
+        "net_gex": 26733995.0,
+        "put_gex": -5457357.0,
         "strike": 6600
       },
       {
-        "call_gex": 19244816.0,
-        "net_gex": 17062629.0,
-        "put_gex": -2182188.0,
+        "call_gex": 19243373.0,
+        "net_gex": 17061349.0,
+        "put_gex": -2182024.0,
         "strike": 6700
       },
       {
-        "call_gex": 16800673.0,
-        "net_gex": 16008471.0,
-        "put_gex": -792203.0,
+        "call_gex": 16796073.0,
+        "net_gex": 16004087.0,
+        "put_gex": -791986.0,
         "strike": 6800
       },
       {
-        "call_gex": 3733090.0,
-        "net_gex": 3511341.0,
-        "put_gex": -221748.0,
+        "call_gex": 3731279.0,
+        "net_gex": 3509638.0,
+        "put_gex": -221641.0,
         "strike": 6900
       },
       {
-        "call_gex": 7296534.0,
-        "net_gex": 7113204.0,
-        "put_gex": -183330.0,
+        "call_gex": 7291428.0,
+        "net_gex": 7108226.0,
+        "put_gex": -183202.0,
         "strike": 7000
       },
       {
-        "call_gex": 804759.0,
-        "net_gex": 788310.0,
-        "put_gex": -16449.0,
+        "call_gex": 804023.0,
+        "net_gex": 787589.0,
+        "put_gex": -16434.0,
         "strike": 7100
       },
       {
-        "call_gex": 314389.0,
-        "net_gex": 305910.0,
-        "put_gex": -8479.0,
+        "call_gex": 314034.0,
+        "net_gex": 305565.0,
+        "put_gex": -8469.0,
         "strike": 7200
       },
       {
-        "call_gex": 168150.0,
-        "net_gex": 166332.0,
-        "put_gex": -1818.0,
+        "call_gex": 167925.0,
+        "net_gex": 166109.0,
+        "put_gex": -1816.0,
         "strike": 7300
       },
       {
-        "call_gex": 55045.0,
-        "net_gex": 54932.0,
+        "call_gex": 54960.0,
+        "net_gex": 54847.0,
         "put_gex": -113.0,
         "strike": 7400
       },
       {
-        "call_gex": 38730.0,
-        "net_gex": 38636.0,
+        "call_gex": 38662.0,
+        "net_gex": 38569.0,
         "put_gex": -94.0,
         "strike": 7500
       }
@@ -1035,7 +1035,7 @@
   },
   "iv_curve": {
     "available": true,
-    "T": 0.008463489054173955,
+    "T": 0.008460390162179634,
     "atm_history": {},
     "atm_strike": 6500,
     "current_interval_key": null,
@@ -1614,9 +1614,9 @@
       "downstream": {
         "items": {
           "PTA": {
-            "change_pct": 3.53,
+            "change_pct": 4.14,
             "date": "2026-06-05",
-            "price": 5064.09
+            "price": 5093.58
           },
           "棉纱32S": {
             "change_pct": 0.32,
@@ -1639,14 +1639,14 @@
             "price": 6762.5
           },
           "涤纶短纤": {
-            "change_pct": -0.65,
+            "change_pct": -0.19,
             "date": "2026-06-05",
-            "price": 6494.35
+            "price": 6524.0
           },
           "皮棉": {
-            "change_pct": 4.2,
+            "change_pct": 4.22,
             "date": "2026-06-05",
-            "price": 15970.67
+            "price": 15973.83
           },
           "粘胶短纤": {
             "change_pct": -1.84,

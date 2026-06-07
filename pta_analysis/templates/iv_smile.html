@@ -573,6 +573,7 @@ function initCharts() {
       { name: 'Call GEX', type: 'bar', stack: 'gex', itemStyle: { color: '#00d4ff', opacity: 0.8 }, data: [] },
       { name: 'Put GEX', type: 'bar', stack: 'gex', itemStyle: { color: '#ff6b9d', opacity: 0.8 }, data: [] },
       { name: 'Net GEX', type: 'line', symbol: 'circle', symbolSize: 5, lineStyle: { color: '#ffaa00', width: 2 }, itemStyle: { color: '#ffaa00' }, data: [], z: 5 },
+      { name: '前次Net GEX', type: 'line', symbol: 'none', lineStyle: { color: '#ffaa00', width: 1.5, type: 'dashed', opacity: 0.5 }, itemStyle: { color: '#ffaa00', opacity: 0.5 }, data: [], z: 4 },
     ],
   });
 
@@ -618,6 +619,11 @@ function initCharts() {
         ])
       },
       symbol: 'none', data: [],
+    }, {
+      name: '前次疼痛曲线', type: 'line', smooth: 0.3, lineWidth: 1.5,
+      itemStyle: { color: '#ff6b9d', opacity: 0.5 },
+      lineStyle: { type: 'dashed', opacity: 0.5 },
+      symbol: 'none', data: [],
     }],
   });
 
@@ -660,6 +666,8 @@ function initCharts() {
     series: [
       { name: 'Call OI', type: 'bar', itemStyle: { color: '#00d4ff', opacity: 0.8 }, data: [] },
       { name: 'Put OI', type: 'bar', itemStyle: { color: '#ff6b9d', opacity: 0.8 }, data: [] },
+      { name: '前次Call OI', type: 'bar', itemStyle: { color: '#00d4ff', opacity: 0.25 }, barGap: '-100%', data: [] },
+      { name: '前次Put OI', type: 'bar', itemStyle: { color: '#ff6b9d', opacity: 0.25 }, barGap: '-100%', data: [] },
     ],
   });
 }
@@ -690,7 +698,7 @@ async function fetchData() {
     if (gexData && !gexData.error) updateGexCharts(gexData);
 
     document.getElementById('lastUpdate').textContent =
-      `最后更新: ${data.last_update || '--'} | 前次基准: ${data.prev_timestamp || '--'} | 版本 v2.11.17`;
+      `最后更新: ${data.last_update || '--'} | 前次基准: ${data.prev_timestamp || '--'} | 版本 v2.11.18`;
   } catch (err) {
     showError('数据加载失败: ' + err.message);
   }
@@ -840,6 +848,12 @@ function updateGexCharts(gexData) {
   const gexBars = gexData.gex_bars || [];
   const painCurve = gexData.pain_curve || [];
   const oiDist = gexData.oi_dist || [];
+  const prevGexBars = gexData.prev_gex_bars || [];
+  const prevPainCurve = gexData.prev_pain_curve || [];
+  const prevOiDist = gexData.prev_oi_dist || [];
+  const prevSummary = gexData.prev_summary || {};
+  const baselineLabel = gexData.baseline_label || '前次基准';
+  const hasPrev = prevGexBars.length > 0 || prevPainCurve.length > 0 || prevOiDist.length > 0;
 
   // ---- 指标栏 ----
   // PCR
@@ -891,12 +905,17 @@ function updateGexCharts(gexData) {
     // 过滤掉 OI 为 0 的行权价（无意义的空行）
     const filtered = gexBars.filter(d => d.call_gex !== 0 || d.put_gex !== 0);
     const strikes = filtered.map(d => String(d.strike));
+    // 前次Net GEX: 对齐到当前strikes轴
+    const prevGexMap = {};
+    prevGexBars.forEach(d => { prevGexMap[String(d.strike)] = d.net_gex; });
+    const prevNetData = strikes.map(s => prevGexMap[s] != null ? prevGexMap[s] : null);
     gexChart.setOption({
       xAxis: { data: strikes },
       series: [
         { data: filtered.map(d => d.call_gex) },
         { data: filtered.map(d => d.put_gex) },
         { data: filtered.map(d => d.net_gex) },
+        { name: '前次Net GEX', data: prevNetData },
       ],
     });
     // 在图表上标注期货价格线和Max Pain线
@@ -913,6 +932,10 @@ function updateGexCharts(gexData) {
   if (painChart && painCurve.length > 0) {
     const strikes = painCurve.map(d => String(d.strike));
     const pains = painCurve.map(d => d.pain);
+    // 前次Pain: 对齐到当前strikes轴
+    const prevPainMap = {};
+    prevPainCurve.forEach(d => { prevPainMap[String(d.strike)] = d.pain; });
+    const prevPainData = strikes.map(s => prevPainMap[s] != null ? prevPainMap[s] : null);
     painChart.setOption({
       xAxis: { data: strikes },
       series: [{
@@ -929,6 +952,8 @@ function updateGexCharts(gexData) {
           silent: true, symbol: 'none',
           data: [{ xAxis: String(summary.futures_price), label: { formatter: 'F=' + summary.futures_price, color: '#00ff88', fontSize: 9 }, lineStyle: { color: '#00ff88', type: 'dashed' } }],
         } : undefined,
+      }, {
+        name: '前次疼痛曲线', data: prevPainData,
       }],
     });
   }
@@ -938,11 +963,18 @@ function updateGexCharts(gexData) {
   if (oiChart && oiDist.length > 0) {
     const filtered = oiDist.filter(d => d.call_oi > 0 || d.put_oi > 0);
     const strikes = filtered.map(d => String(d.strike));
+    // 前次OI: 对齐到当前strikes轴
+    const prevOiMap = {};
+    prevOiDist.forEach(d => { prevOiMap[String(d.strike)] = d; });
+    const prevCallData = strikes.map(s => prevOiMap[s] ? prevOiMap[s].call_oi : null);
+    const prevPutData = strikes.map(s => prevOiMap[s] ? -prevOiMap[s].put_oi : null);
     oiChart.setOption({
       xAxis: { data: strikes },
       series: [
         { data: filtered.map(d => d.call_oi) },
         { data: filtered.map(d => -d.put_oi) },  // Put OI 向下（镜像）
+        { name: '前次Call OI', data: prevCallData },
+        { name: '前次Put OI', data: prevPutData },
       ],
     });
     // 标注期货价格
