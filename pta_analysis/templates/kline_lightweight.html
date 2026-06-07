@@ -2786,18 +2786,38 @@
                     </div>`;
                 }
 
-                const commentary = d.ai_commentary || '';
-                if (commentary) {
-                    // 解析评级
-                    let dispText = commentary;
-                    const ratingMatch = commentary.match(/\*\*([^*]+)\*\*/);
-                    if (ratingMatch) {
-                        const rating = ratingMatch[1];
-                        const rColor = rating.includes('多') ? '#26a69a' : rating.includes('空') ? '#ef5350' : '#ffd700';
-                        dispText = commentary.replace(/\*\*([^*]+)\*\*/, `<span style="color:${rColor};font-weight:bold;">【${rating}】</span>`);
+                const rawComm = d.ai_commentary || '';
+                const commObj = typeof rawComm === 'object' ? rawComm : null;
+                const commText = commObj ? commObj.text : (typeof rawComm === 'string' ? rawComm : '');
+                const commData = commObj ? commObj.data : null;
+                if (commData) {
+                    // 结构化四维评分渲染
+                    const rColor = commData.rating.includes('多') ? '#26a69a' : commData.rating.includes('空') ? '#ef5350' : '#ffd700';
+                    html += `<div style="margin-top:6px;padding:8px;background:#1e1e30;border-left:3px solid ${rColor};border-radius:4px;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                            <span style="color:#ffd700;font-size:10px;">🤖 AI产业点评</span>
+                            <span style="color:${rColor};font-weight:bold;font-size:12px;">${commData.rating}(${commData.total_score>=0?'+':''}${commData.total_score.toFixed(2)})</span>
+                        </div>`;
+                    const dimIcons = {'成本驱动':'🛢️','供需平衡':'📦','利润弹性':'💰','下游需求':'🏭'};
+                    for (const [dim, info] of Object.entries(commData.dimensions || {})) {
+                        const s = info.score;
+                        const sColor = s > 0.3 ? '#26a69a' : s < -0.3 ? '#ef5350' : '#888';
+                        const barW = Math.abs(s) / 2 * 100;
+                        const barDir = s >= 0 ? 'right' : 'left';
+                        html += `<div style="display:flex;align-items:center;gap:4px;margin:2px 0;font-size:10px;">
+                            <span style="width:70px;color:#aaa;flex-shrink:0;">${dimIcons[dim]||''}${dim}</span>
+                            <div style="flex:1;height:8px;background:#111;border-radius:4px;position:relative;overflow:hidden;">
+                                <div style="position:absolute;${barDir}:50%;width:${barW}%;height:100%;background:${sColor};border-radius:4px;"></div>
+                                <div style="position:absolute;left:50%;width:1px;height:100%;background:#555;"></div>
+                            </div>
+                            <span style="color:${sColor};width:32px;text-align:right;">${s>=0?'+':''}${s.toFixed(1)}</span>
+                        </div>`;
                     }
-                    // 分行显示
-                    const lines = dispText.split('\n').filter(l => l.trim());
+                    html += `<div style="color:#bbb;font-size:9px;margin-top:4px;">${commData.outlook}</div>`;
+                    html += `</div>`;
+                } else if (commText) {
+                    // 纯文本回退
+                    const lines = commText.split('\n').filter(l => l.trim());
                     html += `<div style="margin-top:6px;padding:8px;background:#1e1e30;border-left:3px solid #ffd700;border-radius:4px;">
                         <div style="color:#ffd700;font-size:10px;margin-bottom:4px;">🤖 AI产业点评</div>`;
                     lines.forEach(line => {
@@ -2916,40 +2936,115 @@
                 }
                 html += `</div>`;
 
-                // ===== 二、宏观与基本面 =====
+                // ===== 二、宏观与基本面（产业链矩阵） =====
                 const s2 = d.section2 || {};
                 html += `<div style="margin-bottom:14px;">
                     <div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:6px;">🌍 ${s2.title || '宏观与基本面'}</div>`;
 
-                const oil = s2.oil || d.crude || {};
-                if (oil.brent || oil.wti) {
-                    html += `<div style="margin-bottom:6px;font-size:10px;color:#ccc;">`;
-                    if (oil.brent) html += `布伦特 <span style="color:${(oil.brent.change||0)>=0?'#26a69a':'#ef5350'}">$${oil.brent.price||'--'} ${oil.brent.change||''}</span> `;
-                    if (oil.wti) html += `WTI <span style="color:${(oil.wti.change||0)>=0?'#26a69a':'#ef5350'}">$${oil.wti.price||'--'} ${oil.wti.change||''}</span> `;
-                    if (oil.signal) html += `<span style="color:#ffd700;">${oil.signal}</span>`;
+                // 产业链价格矩阵
+                const chainPrices = s2.chain_prices || [];
+                if (chainPrices.length > 0) {
+                    html += `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;">`;
+                    chainPrices.forEach(cp => {
+                        const sigColor = cp.signal==='利多'?'#26a69a':(cp.signal==='利空'?'#ef5350':'#888');
+                        html += `<div style="flex:1;min-width:80px;background:#1a1a28;border-radius:4px;padding:4px 6px;border-left:2px solid ${sigColor};">
+                            <div style="color:#888;font-size:8px;">${cp.name}</div>
+                            <div style="color:#eee;font-size:11px;font-weight:bold;">${typeof cp.price==='number'?cp.price.toLocaleString():cp.price}</div>
+                            <div style="color:${sigColor};font-size:8px;">${cp.change||''} ${cp.unit||''}</div>
+                        </div>`;
+                    });
                     html += `</div>`;
                 }
 
-                // 新闻
-                const mn = d.macro_news || {};
-                const news = [...(mn.geo||[]).slice(0,2), ...(mn.industry||[]).slice(0,1), ...(mn.macro||[]).slice(0,1)].filter(n=>n&&n.length>10);
-                if (news.length > 0) {
-                    news.forEach(n => {
-                        html += `<div style="color:#888;font-size:9px;line-height:1.4;margin-bottom:2px;">· ${n.length>100?n.substring(0,100)+'...':n}</div>`;
-                    });
+                // 成本利润
+                const costP = s2.cost_profit || {};
+                if (costP.profit !== undefined) {
+                    const profitColor = costP.profit > 300 ? '#ef5350' : (costP.profit > 0 ? '#26a69a' : '#ff9800');
+                    html += `<div style="background:#1a1a28;border-radius:4px;padding:5px 8px;margin-bottom:6px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;">
+                            <span style="color:#888;font-size:9px;">成本利润</span>
+                            <span style="color:${profitColor};font-size:10px;font-weight:bold;">${costP.signal||''}</span>
+                        </div>
+                        <div style="display:flex;gap:12px;margin-top:3px;">
+                            <span style="color:#ccc;font-size:9px;">成本 ¥${(costP.pta_cost||0).toLocaleString()}</span>
+                            <span style="color:${profitColor};font-size:9px;">利润 ¥${(costP.profit||0).toFixed(0)} (${(costP.profit_pct||0)>0?'+':''}${(costP.profit_pct||0).toFixed(1)}%)</span>
+                        </div>
+                        ${costP.detail ? `<div style="color:#999;font-size:8px;margin-top:2px;">${costP.detail}</div>` : ''}
+                    </div>`;
                 }
 
-                // PTA产业
-                const ptaS2 = s2.pta || {};
-                if (ptaS2.assessment) {
-                    html += `<div style="color:#aaa;font-size:10px;line-height:1.5;margin-top:4px;">${ptaS2.assessment}</div>`;
+                // 库存
+                const invItems = s2.inventory || [];
+                if (invItems.length > 0) {
+                    html += `<div style="display:flex;gap:4px;margin-bottom:6px;">`;
+                    invItems.forEach(inv => {
+                        const chgColor = inv.change < 0 ? '#26a69a' : (inv.change > 0 ? '#ef5350' : '#888');
+                        html += `<div style="flex:1;background:#1a1a28;border-radius:4px;padding:4px 6px;">
+                            <div style="color:#888;font-size:8px;">${inv.name}</div>
+                            <div style="color:#eee;font-size:10px;">${(inv.stock/10000).toFixed(1)}万${inv.unit}</div>
+                            <div style="color:${chgColor};font-size:8px;">${inv.change<0?'去库':'累库'} ${inv.change_str}</div>
+                        </div>`;
+                    });
+                    html += `</div>`;
+                }
+
+                // 新闻快讯（合并显示）
+                const s2news = s2.news || {};
+                const allNews = [...(s2news.geo||[]), ...(s2news.macro||[]), ...(s2news.industry||[])].filter(n=>n&&n.length>10).slice(0,4);
+                if (allNews.length > 0) {
+                    html += `<div style="margin-bottom:4px;">`;
+                    allNews.forEach(n => {
+                        html += `<div style="color:#888;font-size:8px;line-height:1.4;margin-bottom:1px;">· ${n.length>90?n.substring(0,90)+'…':n}</div>`;
+                    });
+                    html += `</div>`;
+                }
+
+                // 综合叙述
+                if (s2.narrative) {
+                    html += `<div style="color:#aaa;font-size:9px;line-height:1.5;padding:4px 6px;background:#1e1e30;border-radius:4px;">${s2.narrative}</div>`;
+                }
+
+                // AI四维评分（如果有）
+                const aiR = s2.ai_rating;
+                if (aiR && aiR.rating) {
+                    const ratingColor = aiR.score > 0.3 ? '#26a69a' : (aiR.score < -0.3 ? '#ef5350' : '#ffd700');
+                    html += `<div style="margin-top:4px;padding:4px 6px;background:#1a1a28;border-radius:4px;border-left:2px solid ${ratingColor};">
+                        <span style="color:${ratingColor};font-size:10px;font-weight:bold;">AI评级: ${aiR.rating}</span>
+                        <span style="color:#888;font-size:9px;">(${aiR.score>0?'+':''}${aiR.score.toFixed(2)})</span>
+                    </div>`;
                 }
                 html += `</div>`;
 
-                // ===== 三、策略建议 =====
+                // ===== 三、策略建议（三维研判） =====
                 const s3 = d.section3 || {};
+                const direction = s3.direction || '';
+                const dirColor = direction.includes('多')?'#26a69a':(direction.includes('空')?'#ef5350':'#ffd700');
                 html += `<div style="margin-bottom:10px;">
-                    <div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:6px;">🎯 ${s3.title || '策略建议'}</div>`;
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                        <span style="color:#ffd700;font-size:12px;font-weight:bold;">🎯 ${s3.title || '策略建议'}</span>
+                        ${direction ? `<span style="background:${dirColor};color:#000;font-size:10px;font-weight:bold;padding:1px 8px;border-radius:10px;">${direction}</span>` : ''}
+                    </div>`;
+
+                // 三维度评分条
+                const dims = s3.dimensions || {};
+                if (Object.keys(dims).length > 0) {
+                    html += `<div style="display:flex;gap:4px;margin-bottom:6px;">`;
+                    for (const [key, dim] of Object.entries(dims)) {
+                        const dColor = dim.label==='利多'?'#26a69a':(dim.label==='利空'?'#ef5350':'#888');
+                        const barPct = Math.min(100, Math.max(0, (dim.score + 2) / 4 * 100));
+                        html += `<div style="flex:1;background:#1a1a28;border-radius:4px;padding:4px 6px;">
+                            <div style="display:flex;justify-content:space-between;">
+                                <span style="color:#888;font-size:8px;">${dim.name}</span>
+                                <span style="color:${dColor};font-size:8px;font-weight:bold;">${dim.label}</span>
+                            </div>
+                            <div style="height:3px;background:#333;border-radius:2px;margin-top:2px;">
+                                <div style="height:100%;width:${barPct}%;background:${dColor};border-radius:2px;"></div>
+                            </div>
+                            <div style="color:#666;font-size:7px;margin-top:1px;">${(dim.score>0?'+':'')+(dim.score||0).toFixed(1)} × ${((dim.weight||0)*100).toFixed(0)}%</div>
+                        </div>`;
+                    }
+                    html += `</div>`;
+                }
 
                 const strats = s3.strategies || [];
                 strats.forEach(s => {
@@ -2961,8 +3056,8 @@
                 });
 
                 if (s3.core_idea) {
-                    html += `<div style="padding:6px 8px;background:#1e1e30;border-left:3px solid #ffd700;border-radius:4px;margin-top:6px;">
-                        <span style="color:#ffd700;font-size:10px;font-weight:bold;">💡 综合研判：</span>
+                    html += `<div style="padding:6px 8px;background:#1e1e30;border-left:3px solid ${dirColor};border-radius:4px;margin-top:6px;">
+                        <span style="color:#ffd700;font-size:10px;font-weight:bold;">💡 </span>
                         <span style="color:#ccc;font-size:10px;line-height:1.5;">${s3.core_idea}</span>
                     </div>`;
                 }

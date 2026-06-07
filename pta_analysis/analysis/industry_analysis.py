@@ -841,10 +841,12 @@ def _calc_cost_profit(upstream_data, pta_data, cost_data):
 
 
 def _generate_ai_commentary(upstream, pta, downstream, cost):
-    parts = []
-    signals = []
-    bullish = bearish = neutral = 0
+    """多维量化评分产业点评
 
+    四个维度各打分 -2~+2，加权汇总：
+      成本驱动(30%) + 供需平衡(30%) + 利润弹性(20%) + 下游需求(20%)
+    最终得分 → 评级：强多/偏多/震荡/偏空/强空
+    """
     brent = upstream.get("brent", {})
     px = upstream.get("px", {})
     pxn_info = upstream.get("pxn", {})
@@ -854,149 +856,225 @@ def _generate_ai_commentary(upstream, pta, downstream, cost):
     inv = pta.get("social_inventory", {})
     meg_inv = pta.get("meg_inventory", {})
     sm_inv = pta.get("sm_inventory", {})
-    pta_cost = cost.get("pta_cost", {})
-    profit = cost.get("profit", {})
+    profit_info = cost.get("profit", {})
     us_gas = upstream.get("cn_gasoline_wholesale", {})
     dxFiber = downstream.get("涤纶短纤", {})
     eb = downstream.get("苯乙烯", {})
     meg = downstream.get("乙二醇", {})
-    meoh = downstream.get("甲醇MA", {})
 
-    # ===== 【原油/成本端】 =====
-    cost_parts = []
+    # ===== 四维评分 =====
+    scores = {}  # dimension -> (score, weight, reasoning)
+
+    # ── 维度1: 成本驱动 (30%) ──
+    cost_score = 0
+    cost_reasons = []
     if brent:
-        chg = brent["change_pct"]
-        arrow = "▲" if chg > 0 else "▼" if chg < 0 else "─"
-        lvl = "强势上涨" if chg > 3 else "大幅下跌" if chg < -3 else "小幅波动"
-        cost_parts.append(f"布伦特{lvl}({arrow}${brent['price']:.2f},{chg:+.2f}%)")
+        chg = brent.get("change_pct", 0)
+        price = brent.get("price", 0)
         if chg > 3:
-            signals.append(("利多", "原油大涨，成本支撑增强"))
-            bullish += 1
+            cost_score += 1.5
+            cost_reasons.append(f"原油大涨{chg:+.1f}%，成本支撑增强")
+        elif chg > 1:
+            cost_score += 0.5
+            cost_reasons.append(f"原油偏强{chg:+.1f}%")
         elif chg < -3:
-            signals.append(("利空", "原油大跌，成本支撑减弱"))
-            bearish += 1
+            cost_score -= 1.5
+            cost_reasons.append(f"原油大跌{chg:+.1f}%，成本塌陷")
+        elif chg < -1:
+            cost_score -= 0.5
+            cost_reasons.append(f"原油走弱{chg:+.1f}%")
         else:
-            neutral += 1
-    if us_gas:
-        cost_parts.append(f"国内汽油批发¥{us_gas.get('price_cny_ton',0):.0f}/吨({us_gas.get('date','')})")
+            cost_reasons.append(f"原油平稳(${price:.1f},{chg:+.1f}%)")
+        # 绝对价位影响
+        if price > 95:
+            cost_score += 0.5
+            cost_reasons.append(f"油价高位${price:.0f}，成本底部抬升")
+        elif price < 65:
+            cost_score -= 0.5
+            cost_reasons.append(f"油价低位${price:.0f}，成本支撑弱")
     if px:
-        chg_px = (px.get("spot_price", 0) - px.get("dominant_price", 0)) / px.get("dominant_price", 1) * 100
-        px_lv = "偏高" if px['spot_price'] > 10500 else "偏低" if px['spot_price'] < 8500 else "中性"
-        cost_parts.append(f"PX({px_lv}¥{px['spot_price']:.0f},基差{px.get('dom_basis',0):+.0f})")
-    cost_str = "，".join(cost_parts) if cost_parts else "数据缺失"
-    parts.append(f"【成本】{cost_str}。")
+        px_price = px.get("spot_price", 0)
+        px_basis = px.get("dom_basis", 0)
+        if px_price > 10000:
+            cost_score += 0.5
+            cost_reasons.append(f"PX高位¥{px_price:.0f}，对PTA成本推升")
+        elif px_price < 8000:
+            cost_score -= 0.5
+            cost_reasons.append(f"PX偏低¥{px_price:.0f}，成本端松动")
+        if px_basis > 200:
+            cost_reasons.append(f"PX升水{px_basis:+.0f}，上游偏紧")
+        elif px_basis < -200:
+            cost_reasons.append(f"PX贴水{px_basis:+.0f}，上游宽松")
+    cost_score = max(-2, min(2, cost_score))
+    scores["成本驱动"] = (cost_score, 0.30, cost_reasons)
 
-    # ===== 【PTA基差】 =====
-    if basis:
-        bv = basis["value"]
-        level = basis.get("level", "")
-        prem = basis.get("premium", "")
-        if abs(bv) > 150:
-            if bv > 0:
-                parts.append(f"【基差】{prem}¥{bv:.0f}({level})，现货偏紧，支撑近月。")
-                signals.append(("利多", "强基差升水"))
-                bullish += 1
-            else:
-                parts.append(f"【基差】{prem}¥{abs(bv):.0f}({level})，终端需求偏弱。")
-                signals.append(("利空", "深贴水，现货压力偏大"))
-                bearish += 1
-        else:
-            parts.append(f"【基差】{prem}¥{bv:.0f}({level})，基本正常。")
-    else:
-        parts.append("【基差】暂无数据。")
-
-    # ===== 【利润】 =====
-    profit_parts = []
-    if profit:
-        pv = profit["profit"]
-        pct = profit.get("profit_pct", 0)
-        profit_parts.append(f"PTA{'亏损' if pv < 0 else '盈利'}¥{abs(pv):.0f}({pct:+.1f}%)")
-        if pv < -200:
-            signals.append(("利多", f"PTA深度亏损({pv:.0f}元)，存在减产预期"))
-            bullish += 1
-        elif pv < 0:
-            neutral += 1
-        elif pv > 500:
-            signals.append(("利空", f"PTA利润良好({pv:.0f}元)，工厂提负积极性高"))
-            bearish += 1
-        else:
-            neutral += 1
-    profit_str = "，".join(profit_parts) if profit_parts else "暂无数据"
-    parts.append(f"【利润】{profit_str}。")
-
-    # ===== 【库存】 =====
-    inv_parts = []
+    # ── 维度2: 供需平衡 (30%) ──
+    snd_score = 0
+    snd_reasons = []
+    # 库存绝对水位 + 变化方向
     if inv:
         stock = inv.get("stock", 0)
         chg = inv.get("change", 0)
-        chg_str = f"+{chg}" if chg > 0 else str(chg)
-        inv_lv = "偏高" if stock > 250000 else "偏低" if stock < 150000 else "中性"
-        inv_parts.append(f"PTA{int(stock/10000):.0f}万吨({chg_str}，{inv_lv})")
-        if chg > 10000:
-            signals.append(("利空", f"PTA库存大增{chg_str}吨"))
-            bearish += 1
-        elif chg < -10000:
-            signals.append(("利多", f"PTA库存大降{abs(chg):.0d}吨"))
-            bullish += 1
-    if meg_inv:
-        meg_stock = meg_inv.get("stock", 0)
+        if stock > 0:
+            if stock > 250000:
+                snd_score -= 1.0
+                snd_reasons.append(f"PTA库存{stock/10000:.1f}万吨，高位压力")
+            elif stock < 120000:
+                snd_score += 1.0
+                snd_reasons.append(f"PTA库存{stock/10000:.1f}万吨，低位支撑")
+            elif stock < 160000:
+                snd_score += 0.5
+                snd_reasons.append(f"PTA库存{stock/10000:.1f}万吨，偏低")
+            else:
+                snd_reasons.append(f"PTA库存{stock/10000:.1f}万吨")
+            # 变化趋势
+            if chg < -5000:
+                snd_score += 0.5
+                snd_reasons.append(f"连续去库{chg:+d}吨")
+            elif chg > 5000:
+                snd_score -= 0.5
+                snd_reasons.append(f"累库{chg:+d}吨")
+    # 基差反映现货松紧
+    if basis:
+        bv = basis.get("value", 0)
+        if bv > 200:
+            snd_score += 1.0
+            snd_reasons.append(f"强升水{bv:.0f}元，现货紧张")
+        elif bv > 100:
+            snd_score += 0.5
+            snd_reasons.append(f"升水{bv:.0f}元，现货偏紧")
+        elif bv < -200:
+            snd_score -= 1.0
+            snd_reasons.append(f"深贴水{bv:.0f}元，现货过剩")
+        elif bv < -100:
+            snd_score -= 0.5
+            snd_reasons.append(f"贴水{bv:.0f}元，需求偏弱")
+        else:
+            snd_reasons.append(f"基差{bv:.0f}元，供需平衡")
+    # 关联品库存辅助判断
+    if meg_inv and meg_inv.get("stock", 0) > 0:
         meg_chg = meg_inv.get("change", 0)
-        inv_parts.append(f"MEG{meg_stock:,}吨({meg_chg:+d})")
-    if sm_inv:
-        sm_stock = sm_inv.get("stock", 0)
-        sm_chg = sm_inv.get("change", 0)
-        inv_parts.append(f"SM苯乙烯{sm_stock:,}吨({sm_chg:+d})")
-    inv_str = "，".join(inv_parts) if inv_parts else "暂无库存数据"
-    parts.append(f"【库存】{inv_str}。")
+        if meg_chg < -500:
+            snd_reasons.append(f"MEG去库{meg_chg:+d}吨，下游消耗偏强")
+        elif meg_chg > 500:
+            snd_reasons.append(f"MEG累库{meg_chg:+d}吨，终端偏弱")
+    snd_score = max(-2, min(2, snd_score))
+    scores["供需平衡"] = (snd_score, 0.30, snd_reasons)
 
-    # ===== 【下游】 =====
-    dsparts = []
-    if dxFiber:
-        dsparts.append(f"涤纶短纤¥{dxFiber.get('price',0):.0f}(近月{dxFiber.get('near_basis',0):+.0f})")
-    if eb:
-        dsparts.append(f"苯乙烯¥{eb.get('price',0):.0f}(近月{eb.get('near_basis',0):+.0f})")
-    if meg:
-        dsparts.append(f"乙二醇¥{meg.get('price',0):.0f}(近月{meg.get('near_basis',0):+.0f})")
-    ds_str = "，".join(dsparts) if dsparts else "暂无下游数据"
-    parts.append(f"【下游】{ds_str}。")
+    # ── 维度3: 利润弹性 (20%) ──
+    profit_score = 0
+    profit_reasons = []
+    if profit_info:
+        pv = profit_info.get("profit", 0)
+        pct = profit_info.get("profit_pct", 0)
+        if pv < -300:
+            profit_score = 1.5  # 深度亏损→减产预期→利多
+            profit_reasons.append(f"深度亏损{pv:.0f}元({pct:+.1f}%)，减产压力大")
+        elif pv < 0:
+            profit_score = 0.5
+            profit_reasons.append(f"微亏{pv:.0f}元，部分装置边际")
+        elif pv > 800:
+            profit_score = -1.5  # 暴利→提负扩产→利空
+            profit_reasons.append(f"暴利{pv:.0f}元({pct:+.1f}%)，装置开足马力")
+        elif pv > 400:
+            profit_score = -0.5
+            profit_reasons.append(f"利润较好{pv:.0f}元({pct:+.1f}%)，供应倾向增加")
+        else:
+            profit_reasons.append(f"利润{pv:.0f}元({pct:+.1f}%)，产业正常")
+    profit_score = max(-2, min(2, profit_score))
+    scores["利润弹性"] = (profit_score, 0.20, profit_reasons)
 
-    # ===== 【PXN】 =====
-    if pxn_info:
-        pxn_val = pxn_info.get("spread_usd", 0)
-        level = pxn_info.get("level", "")
-        parts.append(f"【裂解】PXN约${pxn_val:.0f}/吨({level})，{pxn_info.get('note','')}。")
-
-    # ===== 【期货】 =====
+    # ── 维度4: 下游需求 (20%) ──
+    demand_score = 0
+    demand_reasons = []
+    ds_count = 0
+    ds_positive = 0
+    for name, ds_data in [("涤纶短纤", dxFiber), ("苯乙烯", eb), ("乙二醇", meg)]:
+        if ds_data and ds_data.get("price", 0) > 0:
+            ds_count += 1
+            nb = ds_data.get("near_basis", 0)
+            if nb > 50:
+                ds_positive += 1
+                demand_reasons.append(f"{name}升水{nb:+.0f}，需求偏强")
+            elif nb < -50:
+                demand_reasons.append(f"{name}贴水{nb:+.0f}，需求偏弱")
+    if ds_count > 0:
+        ratio = ds_positive / ds_count
+        if ratio >= 0.6:
+            demand_score = 1.0
+            demand_reasons.insert(0, "下游整体偏强")
+        elif ratio <= 0.2 and ds_count >= 2:
+            demand_score = -1.0
+            demand_reasons.insert(0, "下游整体偏弱")
+    # 期货涨跌也反映市场预期
     if pta_fut:
-        sym = pta_fut.get("symbol", "TA")
-        chg = pta_fut.get("change_pct", 0)
-        lvl = "强势" if chg > 1.5 else "走弱" if chg < -1.5 else "平稳"
-        parts.append(f"【期货】TA{sym[-3:]}({lvl}{chg:+.2f}%)。")
+        fut_chg = pta_fut.get("change_pct", 0)
+        if fut_chg > 2:
+            demand_score += 0.5
+            demand_reasons.append(f"期货强势{fut_chg:+.2f}%，市场做多情绪")
+        elif fut_chg < -2:
+            demand_score -= 0.5
+            demand_reasons.append(f"期货走弱{fut_chg:+.2f}%，市场偏悲观")
+    demand_score = max(-2, min(2, demand_score))
+    scores["下游需求"] = (demand_score, 0.20, demand_reasons)
 
-    # ===== 【综合评级】 =====
-    if bullish > bearish + 1:
+    # ===== 加权汇总 =====
+    total_score = sum(s * w for s, w, _ in scores.values())
+    # 评级划分
+    if total_score >= 1.2:
+        rating = "强多"
+        outlook = "产业多头共振，强势偏多操作"
+    elif total_score >= 0.5:
         rating = "偏多"
-    elif bearish > bullish + 1:
+        outlook = "产业重心偏上，逢低做多为主"
+    elif total_score <= -1.2:
+        rating = "强空"
+        outlook = "产业利空共振，偏空操作为主"
+    elif total_score <= -0.5:
         rating = "偏空"
+        outlook = "产业压力偏大，反弹做空为主"
     else:
         rating = "震荡"
+        outlook = "多空因素交织，区间震荡思路"
 
-    outlook_parts = []
-    if rating == "偏多":
-        outlook_parts.append("产业支撑偏强，短期偏多对待")
-    elif rating == "偏空":
-        outlook_parts.append("供需压力较大，短期偏空对待")
-    else:
-        outlook_parts.append("多空因素交织，震荡思路对待")
+    # ===== 生成结构化文本 =====
+    parts = []
+    # 各维度详述
+    dim_icons = {"成本驱动": "🛢️", "供需平衡": "📦", "利润弹性": "💰", "下游需求": "🏭"}
+    for dim_name in ["成本驱动", "供需平衡", "利润弹性", "下游需求"]:
+        score, weight, reasons = scores[dim_name]
+        icon = dim_icons[dim_name]
+        score_label = "利多" if score > 0.3 else "利空" if score < -0.3 else "中性"
+        bar = "+" * max(0, int(score * 2)) + "-" * max(0, int(-score * 2)) or "○"
+        detail = "；".join(reasons) if reasons else "数据不足"
+        parts.append(f"【{icon}{dim_name}】[{bar}] {score_label}({score:+.1f})：{detail}")
 
-    if signals:
-        top = [s[1] for s in signals[:3]]
-        outlook_parts.extend(top)
+    # 综合评级
+    parts.append("")
+    score_bar = "█" * max(0, int((total_score + 2) * 2.5))
+    parts.append(f"【📊综合评级】{rating}（{total_score:+.2f}）")
+    parts.append(f"【🔮展望】{outlook}")
 
-    parts.append(f"【展望】{'；'.join(outlook_parts)}。")
-    parts.append(f"【评级】整体：**{rating}**（利多{bullish}个，利空{bearish}个）。")
+    # 数据化摘要（供前端使用）
+    summary_data = {
+        "rating": rating,
+        "total_score": round(total_score, 2),
+        "outlook": outlook,
+        "dimensions": {}
+    }
+    for dim_name in ["成本驱动", "供需平衡", "利润弹性", "下游需求"]:
+        s, w, r = scores[dim_name]
+        summary_data["dimensions"][dim_name] = {
+            "score": round(s, 1),
+            "weight": w,
+            "label": "利多" if s > 0.3 else "利空" if s < -0.3 else "中性",
+            "reasons": r
+        }
 
-    return "\n".join(parts)
+    return {
+        "text": "\n".join(parts),
+        "data": summary_data
+    }
 
 
 def test_industry_analysis():
@@ -1060,7 +1138,14 @@ def test_industry_analysis():
 
         print("\n🤖 AI产业点评")
         print("-" * 40)
-        print(d.get("ai_commentary", ""))
+        commentary = d.get("ai_commentary", {})
+        if isinstance(commentary, dict):
+            print(commentary.get("text", ""))
+            cd = commentary.get("data", {})
+            if cd:
+                print(f"\n评级: {cd.get('rating')} ({cd.get('total_score',0):+.2f})")
+        else:
+            print(commentary)
     else:
         print(f"❌ 失败: {data.get('error', '未知错误')}")
     return data

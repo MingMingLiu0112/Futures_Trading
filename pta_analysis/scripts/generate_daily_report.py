@@ -621,6 +621,19 @@ def get_option_data() -> Dict:
     return data
 
 
+def get_industry_analysis_data() -> Dict:
+    """从 industry_analysis 获取产业链综合数据（含AI四维评分）"""
+    try:
+        resp = requests.get('http://127.0.0.1:8424/api/fundamental', timeout=30)
+        if resp.status_code == 200:
+            result = resp.json()
+            data = result.get('data', result)
+            return data
+    except Exception as e:
+        print(f"  ⚠️ industry_analysis数据获取失败: {e}")
+    return {}
+
+
 def generate_report() -> Dict:
     """生成完整日报数据"""
     report = {
@@ -684,19 +697,24 @@ def generate_report() -> Dict:
     report['option'] = opt
 
     # GEX/Pain/OI数据（本地iv_smile服务）
-    print("[8/9] 获取GEX/Pain数据...")
+    print("[8/10] 获取GEX/Pain数据...")
     gex = get_gex_data()
     report['gex'] = gex
 
     # IV曲线数据
-    print("[9/9] 获取IV曲线数据...")
+    print("[9/10] 获取IV曲线数据...")
     iv_curve = get_iv_curve_data()
     report['iv_curve'] = iv_curve
 
+    # 产业链综合数据（含AI四维评分）
+    print("[10/10] 获取产业链综合分析...")
+    industry = get_industry_analysis_data()
+    report['industry_analysis'] = industry
+
     # 生成结构化分析（整合GEX数据）
     report['section1'] = generate_option_analysis(opt, gex, iv_curve)
-    report['section2'] = generate_macro_analysis(crude, px, pta, rates, inventory, macro_news, cost_data, cost_low, cost_high)
-    report['section3'] = generate_strategy_suggestions(opt, pta, cost_data, cost_low, cost_high, gex)
+    report['section2'] = generate_macro_analysis(crude, px, pta, rates, inventory, macro_news, cost_data, cost_low, cost_high, industry)
+    report['section3'] = generate_strategy_suggestions(opt, pta, cost_data, cost_low, cost_high, gex, industry)
 
     return report
 
@@ -876,136 +894,431 @@ def generate_option_analysis(opt: Dict, gex: Dict = None, iv_curve: Dict = None)
     }
 
 
-def generate_macro_analysis(crude, px, pta, rates, inventory, macro_news, cost_data, cost_low, cost_high) -> Dict:
-    """生成宏观与基本面分析（详细解读版）"""
+def generate_macro_analysis(crude, px, pta, rates, inventory, macro_news, cost_data, cost_low, cost_high, industry: Dict = None) -> Dict:
+    """生成宏观与基本面分析（整合产业链四维评分）"""
+    industry = industry or {}
     brent_price = crude.get('brent', {}).get('price')
     wti_price = crude.get('wti', {}).get('price')
+    brent_chg = crude.get('brent', {}).get('change_pct', 0)
+    wti_chg = crude.get('wti', {}).get('change_pct', 0)
     pta_spot = pta.get('spot_price')
     pta_future = pta.get('future', {})
+    profit = cost_data.get('profit', 0)
+    profit_pct = cost_data.get('profit_pct', 0)
+    pta_cost = cost_data.get('pta_cost', 0)
 
+    # 从 industry_analysis 获取增强数据
+    ind_upstream = industry.get('upstream', {})
+    ind_pta = industry.get('pta', {})
+    ind_downstream = industry.get('downstream', {})
+    ind_cost = industry.get('cost', {})
+
+    # AI四维评分数据
+    ai_comm = industry.get('ai_commentary', {})
+    ai_data = ai_comm.get('data', {}) if isinstance(ai_comm, dict) else {}
+    ai_rating = ai_data.get('rating', '')
+    ai_score = ai_data.get('total_score', 0)
+    ai_outlook = ai_data.get('outlook', '')
+    ai_dims = ai_data.get('dimensions', {})
+    ai_text = ai_comm.get('text', ai_comm) if isinstance(ai_comm, dict) else str(ai_comm)
+
+    # ===== 1. 产业链价格矩阵 =====
+    chain_prices = []
+
+    # 原油
+    if brent_price:
+        chain_prices.append({
+            'name': '布伦特原油', 'price': brent_price, 'unit': 'USD/桶',
+            'change': f"{brent_chg:+.2f}%",
+            'signal': '利多' if brent_chg > 1 else ('利空' if brent_chg < -1 else '中性')
+        })
+    if wti_price:
+        chain_prices.append({
+            'name': 'WTI原油', 'price': wti_price, 'unit': 'USD/桶',
+            'change': f"{wti_chg:+.2f}%",
+            'signal': '利多' if wti_chg > 1 else ('利空' if wti_chg < -1 else '中性')
+        })
+
+    # PX
+    px_price = px.get('spot_price')
+    if px_price:
+        px_basis = ind_upstream.get('px', {}).get('basis')
+        chain_prices.append({
+            'name': 'PX现货', 'price': px_price, 'unit': 'CNY/吨',
+            'change': f"基差{px_basis:+.0f}" if px_basis else '—',
+            'signal': '中性'
+        })
+
+    # 石脑油/PXN
+    naphtha = ind_upstream.get('naphtha', {})
+    pxn = ind_upstream.get('pxn', {})
+    if pxn.get('spread'):
+        chain_prices.append({
+            'name': 'PXN价差', 'price': pxn['spread'], 'unit': 'USD/吨',
+            'change': '偏高' if pxn['spread'] > 400 else ('偏低' if pxn['spread'] < 200 else '正常'),
+            'signal': '利多' if pxn['spread'] > 400 else '中性'
+        })
+
+    # PTA现货/期货
+    if pta_spot:
+        basis = ind_pta.get('basis', {})
+        basis_val = basis.get('value', 0)
+        chain_prices.append({
+            'name': 'PTA现货', 'price': pta_spot, 'unit': 'CNY/吨',
+            'change': f"基差{basis_val:+.0f}({basis.get('level', '')})" if basis_val else '—',
+            'signal': '利多' if basis_val > 200 else ('利空' if basis_val < -100 else '中性')
+        })
+
+    if pta_future.get('settle'):
+        chain_prices.append({
+            'name': f"{pta_future.get('symbol', 'TA主力')}", 'price': pta_future['settle'], 'unit': 'CNY/吨',
+            'change': f"{pta_future.get('change_pct', 0):+.2f}%",
+            'signal': '中性'
+        })
+
+    # 汽油批发价
+    gasoline = ind_upstream.get('cn_gasoline_wholesale', {})
+    if gasoline.get('price_cny_ton'):
+        chain_prices.append({
+            'name': '国内汽油批发', 'price': gasoline['price_cny_ton'], 'unit': 'CNY/吨',
+            'change': f"({gasoline.get('date', '')})",
+            'signal': '中性'
+        })
+
+    # ===== 2. 成本利润结构 =====
+    cost_profit = {
+        'pta_cost': pta_cost,
+        'profit': profit,
+        'profit_pct': profit_pct,
+        'cost_low': cost_low,
+        'cost_high': cost_high,
+        'signal': '⚠️ 高利润供应压力' if profit > 300 else ('✅ 利润正常' if profit > 0 else '🔴 亏损收缩预期'),
+        'detail': ''
+    }
+    if profit > 500:
+        cost_profit['detail'] = f'利润{profit:.0f}元(+{profit_pct:.1f}%)，处于高位，装置提负/重启概率大，供应端偏空'
+    elif profit > 200:
+        cost_profit['detail'] = f'利润{profit:.0f}元(+{profit_pct:.1f}%)，工厂维持高开工积极性'
+    elif profit > 0:
+        cost_profit['detail'] = f'利润{profit:.0f}元(+{profit_pct:.1f}%)，产业运行平稳'
+    elif profit is not None and profit <= 0:
+        cost_profit['detail'] = f'亏损{abs(profit):.0f}元，部分装置面临停车压力'
+
+    # ===== 3. 库存数据 =====
+    inv_items = []
+    # PTA社会库存（从industry或akshare）
+    pta_inv = ind_pta.get('social_inventory', {}) or inventory.get('pta', {})
+    if pta_inv.get('stock'):
+        chg = pta_inv.get('change', 0)
+        stock = pta_inv['stock']
+        level = '偏低' if stock < 200000 else ('偏高' if stock > 400000 else '中性')
+        inv_items.append({
+            'name': 'PTA社会库存', 'stock': stock, 'unit': '吨',
+            'change': chg, 'change_str': f"{'+'if chg>0 else ''}{chg}",
+            'level': level, 'date': pta_inv.get('date', '')
+        })
+
+    # MEG库存
+    meg_inv = ind_pta.get('meg_inventory', {}) or inventory.get('meg', {})
+    if meg_inv.get('stock'):
+        chg = meg_inv.get('change', 0)
+        inv_items.append({
+            'name': 'MEG乙二醇库存', 'stock': meg_inv['stock'], 'unit': '吨',
+            'change': chg, 'change_str': f"{'+'if chg>0 else ''}{chg}",
+            'level': '中性', 'date': meg_inv.get('date', '')
+        })
+
+    # SM苯乙烯库存
+    sm_inv = ind_pta.get('sm_inventory', {}) or inventory.get('sm', {})
+    if sm_inv.get('stock'):
+        chg = sm_inv.get('change', 0)
+        inv_items.append({
+            'name': 'SM苯乙烯库存', 'stock': sm_inv['stock'], 'unit': '吨',
+            'change': chg, 'change_str': f"{'+'if chg>0 else ''}{chg}",
+            'level': '中性', 'date': sm_inv.get('date', '')
+        })
+
+    # ===== 4. 下游需求 =====
+    downstream_items = []
+    for name, info in ind_downstream.items():
+        if isinstance(info, dict) and info.get('price'):
+            dom_basis = info.get('dom_basis', 0)
+            downstream_items.append({
+                'name': name, 'price': info['price'], 'unit': 'CNY/吨',
+                'dom_contract': info.get('dominant_contract', ''),
+                'dom_price': info.get('dominant_price', 0),
+                'basis': dom_basis,
+                'basis_str': f"基差{dom_basis:+.0f}" if dom_basis else '—'
+            })
+
+    # ===== 5. 宏观快讯 =====
     geo_items = macro_news.get('geo', [])[:2]
-    industry_items = macro_news.get('industry', [])[:4]
     macro_items = macro_news.get('macro', [])[:2]
     fed_items = macro_news.get('fed', [])[:2]
+    industry_items = macro_news.get('industry', [])[:4]
 
-    # 综合评估
-    assessment = []
-    oil_signal = ''
-    if brent_price and brent_price > 90:
-        oil_signal = '🛢️ 原油高位运行，成本支撑坚挺'
-        assessment.append('原油高位，成本支撑强')
-    elif brent_price and brent_price > 80:
-        oil_signal = '🛢️ 原油中高位，成本支撑尚可'
-        assessment.append('原油中高位，成本支撑尚可')
-    else:
-        oil_signal = '🛢️ 原油偏弱，成本支撑减弱'
-        assessment.append('原油偏弱，成本支撑有限')
+    # ===== 6. 综合评估叙述 =====
+    narrative_parts = []
+    # 成本端
+    if brent_price:
+        narrative_parts.append(f"原油{'高位运行' if brent_price > 90 else ('中位震荡' if brent_price > 75 else '偏弱运行')}(${brent_price:.1f},{brent_chg:+.1f}%)，成本支撑{'坚挺' if brent_price > 90 else ('尚可' if brent_price > 75 else '减弱')}")
+    # 基差
+    basis_val = ind_pta.get('basis', {}).get('value', 0)
+    if basis_val:
+        narrative_parts.append(f"现货{'升水' if basis_val > 0 else '贴水'}{abs(basis_val):.0f}元({'偏紧' if basis_val > 200 else '正常'})")
+    # 利润
+    if profit:
+        narrative_parts.append(f"PTA{'盈利' if profit > 0 else '亏损'}{abs(profit):.0f}元({profit_pct:+.1f}%)")
+    # 库存
+    if pta_inv.get('stock'):
+        inv_chg = pta_inv.get('change', 0)
+        narrative_parts.append(f"PTA库存{pta_inv['stock']/10000:.1f}万吨({'去库' if inv_chg < 0 else '累库'}{abs(inv_chg)})")
 
-    if cost_low and pta_spot:
-        if pta_spot < cost_low:
-            assessment.append('PTA深度亏损，供应端有收缩预期')
-        elif pta_spot > cost_high:
-            assessment.append('PTA高估，上游利润偏高')
-        else:
-            assessment.append('PTA利润正常，产业链运行平稳')
-
-    # 库存评估
-    inv_summary = ''
-    if inventory.get('sm', {}).get('stock'):
-        sm_change = inventory['sm'].get('change', 0)
-        inv_summary += f"苯乙烯库存{inventory['sm']['stock']:.0f}吨({'增' if sm_change > 0 else '降'}{abs(sm_change):.0f})；"
-    if inventory.get('meg', {}).get('stock'):
-        meg_change = inventory['meg'].get('change', 0)
-        inv_summary += f"MEG库存{inventory['meg']['stock']:.0f}吨({'增' if meg_change > 0 else '降'}{abs(meg_change):.0f})"
+    narrative = '；'.join(narrative_parts) + '。' if narrative_parts else '基本面数据获取中。'
 
     return {
         'title': '二、 宏观与基本面',
-        'subtitle': '成本支撑与供需博弈',
-        'geo': {
-            'title': '🌍 地缘政治',
-            'content': geo_items[0][:60] if geo_items else '地缘局势总体平稳',
-            'detail': '；'.join(geo_items[:2]) if geo_items else '暂无重大地缘事件',
-            'status': '⚠️ 需关注' if geo_items else '✅ 平稳'
+        'subtitle': '产业链价格·成本利润·库存供需',
+        'chain_prices': chain_prices,
+        'cost_profit': cost_profit,
+        'inventory': inv_items,
+        'downstream': downstream_items,
+        'news': {
+            'geo': geo_items,
+            'macro': macro_items + fed_items,
+            'industry': industry_items,
         },
-        'macro': {
-            'title': '📊 宏观经济',
-            'items': macro_items + fed_items,
-        },
-        'industry': {
-            'title': '🏭 产业快讯',
-            'items': industry_items,
-        },
-        'oil': {
-            'title': '🛢️ 原油市场',
-            'wti': {
-                'price': str(wti_price) if wti_price else '—',
-                'change': f"+{crude.get('wti', {}).get('change_pct', 0):.2f}" if crude.get('wti') else '—',
-                'unit': 'USD/桶'
-            },
-            'brent': {
-                'price': str(brent_price) if brent_price else '—',
-                'change': f"+{crude.get('brent', {}).get('change_pct', 0):.2f}" if crude.get('brent') else '—',
-                'unit': 'USD/桶'
-            },
-            'signal': oil_signal,
-            'outlook': '；'.join(assessment) if assessment else '原油价格波动，关注成本变化'
-        },
-        'pta': {
-            'title': '📦 PTA产业',
-            'supply_rate': rates.get('data', {}).get('pta', {}).get('value') or '需订阅',
-            'px_price': str(px.get('spot_price', '—')),
-            'px_unit': 'CNY/吨' if px.get('spot_price') else '',
-            'polyester_rate': rates.get('data', {}).get('polyester', {}).get('value') or '需订阅',
-            'weaving_rate': rates.get('data', {}).get('weaving', {}).get('value') or '需订阅',
-            'assessment': '；'.join(assessment) if assessment else '成本支撑逻辑主导'
-        },
-        'inventory': {
-            'pta': inventory.get('pta', {}).get('stock'),
-            'meg': inventory.get('meg', {}).get('stock'),
-            'sm': inventory.get('sm', {}).get('stock'),
-            'summary': inv_summary or '库存数据获取中'
-        },
-        'cost_range': {
-            'low': cost_low,
-            'high': cost_high
-        },
-        'inventory_note': '⚠️ 库存数据需订阅隆众/卓创资讯，PTA社会库存暂无免费数据源',
-        'rates_note': '⚠️ 开工率数据需订阅隆众资讯/卓创资讯/CCF，可辅助判断供需格局'
+        'narrative': narrative,
+        # AI四维评分（来自industry_analysis）
+        'ai_rating': {
+            'rating': ai_rating,
+            'score': ai_score,
+            'outlook': ai_outlook,
+            'dimensions': ai_dims,
+            'text': ai_text,
+        } if ai_data else None,
     }
 
 
-def generate_strategy_suggestions(opt: Dict, pta: Dict, cost_data: Dict, cost_low, cost_high, gex: Dict = None) -> Dict:
-    """生成策略建议（整合期权Greeks+基本面）"""
+def generate_strategy_suggestions(opt: Dict, pta: Dict, cost_data: Dict, cost_low, cost_high, gex: Dict = None, industry: Dict = None) -> Dict:
+    """生成策略建议（宏观+产业+期权三维度综合研判）"""
     gex = gex or {}
+    industry = industry or {}
     gs = gex.get('summary', {})
     strategies = []
 
     # 从GEX获取更精确的区间
     oi_dist = gex.get('oi_dist', [])
-    max_call_strike = max_put_strike = None
-    max_call_oi = max_put_oi = 0
-    for o in oi_dist:
-        co = o.get('call_oi', 0) or 0
-        po = o.get('put_oi', 0) or 0
-        if co > max_call_oi:
-            max_call_oi = co
-            max_call_strike = o['strike']
-        if po > max_put_oi:
-            max_put_oi = po
-            max_put_strike = o['strike']
+    max_call_strike = gs.get('max_call_strike')
+    max_put_strike = gs.get('max_put_strike')
+    max_call_oi = gs.get('max_call_oi', 0) or 0
+    max_put_oi = gs.get('max_put_oi', 0) or 0
+    if not max_call_strike or not max_put_strike:
+        for o in oi_dist:
+            co = o.get('call_oi', 0) or 0
+            po = o.get('put_oi', 0) or 0
+            if co > max_call_oi:
+                max_call_oi = co
+                max_call_strike = o['strike']
+            if po > max_put_oi:
+                max_put_oi = po
+                max_put_strike = o['strike']
 
     bottom = max_put_strike or opt.get('key_levels', {}).get('bottom') or 6000
     top = max_call_strike or opt.get('key_levels', {}).get('top') or 7000
     pta_price = gs.get('futures_price') or pta.get('spot_price') or pta.get('future', {}).get('close', 0)
     pta_spot = pta.get('spot_price')
     profit = cost_data.get('profit', 0)
+    profit_pct = cost_data.get('profit_pct', 0)
     net_gex = gs.get('net_gex')
     gex_flip = gs.get('gex_flip')
     max_pain = gs.get('max_pain')
     days_left = gs.get('days_left')
     gex_direction = gs.get('gex_direction')
+    pcr = gs.get('pcr')
 
-    # ---- 1. GEX环境判断 ----
+    # AI四维评分
+    ai_comm = industry.get('ai_commentary', {})
+    ai_data = ai_comm.get('data', {}) if isinstance(ai_comm, dict) else {}
+    ai_rating = ai_data.get('rating', '')
+    ai_score = ai_data.get('total_score', 0)
+    ai_dims = ai_data.get('dimensions', {})
+
+    # 产业链数据
+    ind_pta = industry.get('pta', {})
+    basis_val = ind_pta.get('basis', {}).get('value', 0)
+    pta_inv = ind_pta.get('social_inventory', {})
+    inv_change = pta_inv.get('change', 0) if pta_inv else 0
+
+    brent = industry.get('upstream', {}).get('brent', {})
+    brent_price = brent.get('price', 0)
+    brent_chg = brent.get('change_pct', 0)
+
+    # ===== 三维度评分 =====
+    # 每个维度: score [-2, +2], 正=利多, 负=利空
+    dim_scores = {}
+
+    # ---- 维度1: 宏观·成本驱动 ----
+    macro_score = 0
+    macro_reasons = []
+    if brent_price:
+        if brent_price > 90:
+            macro_score += 0.8
+            macro_reasons.append(f'原油${brent_price:.0f}高位，成本支撑坚挺')
+        elif brent_price > 80:
+            macro_score += 0.3
+            macro_reasons.append(f'原油${brent_price:.0f}中位，成本有支撑')
+        elif brent_price > 65:
+            macro_reasons.append(f'原油${brent_price:.0f}，成本中性')
+        else:
+            macro_score -= 0.5
+            macro_reasons.append(f'原油${brent_price:.0f}低位，成本坍塌')
+
+        if brent_chg > 3:
+            macro_score += 0.5
+            macro_reasons.append(f'原油大涨{brent_chg:+.1f}%')
+        elif brent_chg < -3:
+            macro_score -= 0.5
+            macro_reasons.append(f'原油大跌{brent_chg:+.1f}%')
+
+    if profit is not None:
+        if profit > 500:
+            macro_score -= 0.6
+            macro_reasons.append(f'高利润{profit:.0f}元，供应释放压力大')
+        elif profit > 200:
+            macro_score -= 0.2
+            macro_reasons.append(f'利润{profit:.0f}元，开工积极性高')
+        elif profit < -100:
+            macro_score += 0.6
+            macro_reasons.append(f'亏损{profit:.0f}元，供应收缩预期')
+        elif profit < 0:
+            macro_score += 0.3
+            macro_reasons.append(f'微亏{profit:.0f}元，供应压力边际减轻')
+
+    macro_score = max(-2, min(2, macro_score))
+    dim_scores['macro'] = {
+        'name': '宏观·成本', 'score': round(macro_score, 2), 'weight': 0.25,
+        'label': '利多' if macro_score > 0.3 else ('利空' if macro_score < -0.3 else '中性'),
+        'reasons': macro_reasons
+    }
+
+    # ---- 维度2: 产业·供需 ----
+    industry_score = 0
+    industry_reasons = []
+
+    # 基差
+    if basis_val:
+        if basis_val > 200:
+            industry_score += 0.8
+            industry_reasons.append(f'现货升水{basis_val:.0f}(强)，现货偏紧')
+        elif basis_val > 50:
+            industry_score += 0.3
+            industry_reasons.append(f'现货升水{basis_val:.0f}，正常')
+        elif basis_val < -100:
+            industry_score -= 0.6
+            industry_reasons.append(f'现货贴水{basis_val:.0f}(弱)，需求偏弱')
+        elif basis_val < 0:
+            industry_score -= 0.2
+            industry_reasons.append(f'现货小幅贴水{basis_val:.0f}')
+
+    # 库存
+    if pta_inv and pta_inv.get('stock'):
+        stock = pta_inv['stock']
+        if stock < 150000:
+            industry_score += 0.5
+            industry_reasons.append(f'PTA库存{stock/10000:.1f}万吨(偏低)')
+        elif stock > 350000:
+            industry_score -= 0.5
+            industry_reasons.append(f'PTA库存{stock/10000:.1f}万吨(偏高)')
+
+        if inv_change < -3000:
+            industry_score += 0.4
+            industry_reasons.append(f'去库加速({inv_change}吨/周)')
+        elif inv_change > 3000:
+            industry_score -= 0.4
+            industry_reasons.append(f'累库加速(+{inv_change}吨/周)')
+        elif inv_change < 0:
+            industry_score += 0.1
+            industry_reasons.append(f'小幅去库({inv_change}吨)')
+
+    industry_score = max(-2, min(2, industry_score))
+    dim_scores['industry'] = {
+        'name': '产业·供需', 'score': round(industry_score, 2), 'weight': 0.35,
+        'label': '利多' if industry_score > 0.3 else ('利空' if industry_score < -0.3 else '中性'),
+        'reasons': industry_reasons
+    }
+
+    # ---- 维度3: 期权·微观 ----
+    option_score = 0
+    option_reasons = []
+
+    # GEX方向
+    if gex_direction == 'positive':
+        option_reasons.append(f'正Gamma(净GEX+{net_gex/1e6:.1f}M)，波动受压')
+    elif gex_direction == 'negative':
+        option_reasons.append(f'负Gamma(净GEX{net_gex/1e6:.1f}M)，波动放大')
+
+    # PCR
+    if pcr:
+        if pcr > 1.5:
+            option_score += 0.5
+            option_reasons.append(f'PCR={pcr:.3f}(极度看跌)，反转利多信号')
+        elif pcr > 1.2:
+            option_score += 0.2
+            option_reasons.append(f'PCR={pcr:.3f}(偏空)，有保护性看跌')
+        elif pcr < 0.7:
+            option_score -= 0.3
+            option_reasons.append(f'PCR={pcr:.3f}(偏多)，Call偏乐观')
+
+    # 价格 vs Max Pain
+    if max_pain and pta_price and pta_price > 0:
+        diff = pta_price - max_pain
+        if days_left and days_left <= 5:
+            if diff > 100:
+                option_score -= 0.5
+                option_reasons.append(f'临近到期({days_left:.0f}天)，价格{pta_price:.0f}高于痛点{max_pain}达{diff:+.0f}，有回落压力')
+            elif diff < -100:
+                option_score += 0.5
+                option_reasons.append(f'临近到期({days_left:.0f}天)，价格{pta_price:.0f}低于痛点{max_pain}达{diff:+.0f}，有反弹动力')
+            else:
+                option_reasons.append(f'临近到期，接近痛点{max_pain}，锚定较强')
+        else:
+            if abs(diff) > 150:
+                score_adj = -0.3 if diff > 0 else 0.3
+                option_score += score_adj
+                option_reasons.append(f'价格偏离痛点{max_pain}达{diff:+.0f}')
+
+    # GEX翻转点
+    if gex_flip and pta_price and pta_price > 0:
+        if pta_price > gex_flip:
+            option_score += 0.2
+            option_reasons.append(f'价格在翻转点{gex_flip}上方(正Gamma区)')
+        else:
+            option_score -= 0.2
+            option_reasons.append(f'价格在翻转点{gex_flip}下方(负Gamma区)')
+
+    option_score = max(-2, min(2, option_score))
+    dim_scores['option'] = {
+        'name': '期权·微观', 'score': round(option_score, 2), 'weight': 0.40,
+        'label': '利多' if option_score > 0.3 else ('利空' if option_score < -0.3 else '中性'),
+        'reasons': option_reasons
+    }
+
+    # ===== 三维加权合成 =====
+    total_score = sum(d['score'] * d['weight'] for d in dim_scores.values())
+    if total_score > 0.6:
+        overall_direction = '偏多'
+    elif total_score > 0.2:
+        overall_direction = '震荡偏多'
+    elif total_score > -0.2:
+        overall_direction = '震荡'
+    elif total_score > -0.6:
+        overall_direction = '震荡偏空'
+    else:
+        overall_direction = '偏空'
+
+    # ===== 策略条目生成（保留原有的详细策略） =====
+    # GEX环境
     if net_gex is not None and gex_direction:
         if gex_direction == 'positive':
             strategies.append({
@@ -1020,7 +1333,7 @@ def generate_strategy_suggestions(opt: Dict, pta: Dict, cost_data: Dict, cost_lo
                 'suggestion': '波动率可能扩大，卖方注意止损保护；适合买入波动率或方向性策略'
             })
 
-    # ---- 2. 价格 vs Max Pain / 区间位置 ----
+    # Max Pain / 到期
     if pta_price > 0:
         if max_pain and days_left and days_left <= 5:
             diff = pta_price - max_pain
@@ -1039,48 +1352,40 @@ def generate_strategy_suggestions(opt: Dict, pta: Dict, cost_data: Dict, cost_lo
                 'suggestion': f'关注价格向痛点{max_pain}的回归倾向'
             })
 
-        # GEX翻转点位置
-        if gex_flip:
-            if pta_price > gex_flip:
-                strategies.append({
-                    'action': '📍 翻转点上方运行',
-                    'detail': f'价格{pta_price:.0f}在GEX翻转点{gex_flip}上方，正Gamma区间',
-                    'suggestion': '做市商阻力偏上方，价格下跌时有对冲买盘托底'
-                })
-            else:
-                strategies.append({
-                    'action': '📍 翻转点下方运行',
-                    'detail': f'价格{pta_price:.0f}在GEX翻转点{gex_flip}下方，负Gamma区间',
-                    'suggestion': '做市商可能加剧下行，注意下方支撑位防守'
-                })
+    # 产业基本面策略
+    if basis_val > 200:
+        strategies.append({
+            'action': '📈 强基差升水',
+            'detail': f'现货升水{basis_val:.0f}元，现货偏紧',
+            'suggestion': '强基差支撑近月合约，正套(买近卖远)机会；若基差回落是做空信号'
+        })
+    elif basis_val < -100:
+        strategies.append({
+            'action': '📉 深贴水',
+            'detail': f'现货贴水{abs(basis_val):.0f}元，需求偏弱',
+            'suggestion': '贴水反映弱需求，反套(卖近买远)或做空偏多'
+        })
 
-    # ---- 3. 成本利润 ----
+    # 成本利润
     if profit > 300:
         strategies.append({
-            'action': '💰 PTA高利润',
-            'detail': f'利润约{profit:.0f}元/吨(+{cost_data.get("profit_pct",0):.1f}%)，供应释放压力',
-            'suggestion': '高利润→装置提负/重启→供应增加→利空；关注1-2周后供应端变化'
-        })
-    elif profit > 0:
-        strategies.append({
-            'action': '✅ PTA正常利润',
-            'detail': f'利润约{profit:.0f}元/吨，产业运行平稳',
-            'suggestion': '供需矛盾不突出，关注下游需求和库存变化'
+            'action': '💰 高利润供应压力',
+            'detail': f'利润{profit:.0f}元/吨(+{profit_pct:.1f}%)，上游供给释放',
+            'suggestion': '高利润→装置提负/重启→供应增加→中期偏空'
         })
     elif profit is not None and profit <= 0:
         strategies.append({
-            'action': '⚠️ PTA亏损',
-            'detail': f'亏损约{abs(profit):.0f}元/吨，供应收缩压力',
-            'suggestion': '亏损→停车/检修→供应收缩→利多底部；关注装置检修计划'
+            'action': '⚠️ 亏损成本支撑',
+            'detail': f'亏损{abs(profit):.0f}元/吨，供应收缩',
+            'suggestion': '亏损→停车/检修→供应缩减→中期利多'
         })
 
-    # ---- 4. OI结构 ----
+    # OI支撑/压力
     if max_put_strike and max_call_strike:
         strategies.append({
-            'action': '📊 OI支撑/压力',
+            'action': '📊 OI支撑压力区间',
             'detail': f'Put支撑{max_put_strike}({max_put_oi:,}手) ↔ Call压力{max_call_strike}({max_call_oi:,}手)',
-            'suggestion': f'区间【{max_put_strike},{max_call_strike}】内运行概率高，'
-                          f'突破需要对应方向OI显著变化'
+            'suggestion': f'区间【{max_put_strike},{max_call_strike}】内震荡概率高'
         })
 
     if not strategies:
@@ -1090,45 +1395,45 @@ def generate_strategy_suggestions(opt: Dict, pta: Dict, cost_data: Dict, cost_lo
             'suggestion': '请稍后刷新页面获取最新分析'
         })
 
-    # ---- 核心思路（融合多维度） ----
+    # ===== 核心研判（三维融合叙述） =====
     core_parts = []
-    if pta_price and bottom and top:
+    # 方向判断
+    core_parts.append(f'三维综合评分{total_score:+.2f}，方向【{overall_direction}】')
+
+    # 各维度概要
+    for key in ['macro', 'industry', 'option']:
+        d = dim_scores[key]
+        if d['reasons']:
+            core_parts.append(f"{d['name']}({d['label']}): {d['reasons'][0]}")
+
+    # AI评级参考
+    if ai_rating:
+        core_parts.append(f'AI产业评级: {ai_rating}({ai_score:+.2f})')
+
+    # 区间位置
+    if pta_price and bottom and top and pta_price > 0:
         mid = (bottom + top) / 2
         if pta_price > top:
-            core_parts.append(f'价格{pta_price:.0f}已突破区间上沿{top}')
+            core_parts.append(f'价格{pta_price:.0f}已突破压力位{top}')
         elif pta_price < bottom:
-            core_parts.append(f'价格{pta_price:.0f}触及区间下沿{bottom}')
+            core_parts.append(f'价格{pta_price:.0f}跌破支撑位{bottom}')
         else:
             pos = '偏上' if pta_price > mid else '偏下'
-            core_parts.append(f'价格{pta_price:.0f}在【{bottom},{top}】区间{pos}运行')
-
-    if gex_direction == 'positive':
-        core_parts.append('正Gamma环境压制波动')
-    elif gex_direction == 'negative':
-        core_parts.append('负Gamma环境放大波动')
-
-    if max_pain and pta_price:
-        diff = abs(pta_price - max_pain)
-        if diff > 100:
-            core_parts.append(f'价格偏离痛点{max_pain}达{diff:.0f}点，到期前有回归动力')
-        else:
-            core_parts.append(f'接近痛点{max_pain}，锚定效应较强')
-
-    if profit > 300:
-        core_parts.append(f'高利润({profit:.0f}元)下供应释放压力偏空')
-    elif profit is not None and profit < -100:
-        core_parts.append(f'亏损({profit:.0f}元)下供应收缩预期偏多')
+            core_parts.append(f'价格{pta_price:.0f}在【{bottom},{top}】区间{pos}')
 
     if days_left and days_left <= 5:
-        core_parts.append(f'仅剩{days_left:.1f}天到期，Theta快速衰减利好卖方')
+        core_parts.append(f'仅剩{days_left:.1f}天到期，Theta加速衰减')
 
     core_idea = "综合研判：" + "；".join(core_parts) + "。" if core_parts else "数据汇总中。"
 
     return {
         'title': '三、 策略建议',
-        'subtitle': '期权Greeks+基本面联合研判',
+        'subtitle': f'三维研判·{overall_direction}',
         'strategies': strategies[:6],
-        'core_idea': core_idea
+        'core_idea': core_idea,
+        'direction': overall_direction,
+        'total_score': round(total_score, 2),
+        'dimensions': dim_scores,
     }
 
 

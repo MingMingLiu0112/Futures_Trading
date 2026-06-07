@@ -788,18 +788,36 @@ function renderData(d) {
 
     // ===== AI点评 =====
     const aiEl = document.getElementById('ai-commentary');
-    const commentary = d.ai_commentary || '';
-    if (commentary) {
-        // 高亮评级行
-        const lines = commentary.split('\n');
+    const rawComm = d.ai_commentary || '';
+    const commObj = typeof rawComm === 'object' ? rawComm : null;
+    const commText = commObj ? commObj.text : (typeof rawComm === 'string' ? rawComm : '');
+    const commData = commObj ? commObj.data : null;
+    if (commData) {
+        const rColor = commData.rating.includes('多') ? '#26a69a' : commData.rating.includes('空') ? '#ef5350' : '#ffd700';
+        let html = `<div class="commentary-box">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                <span style="font-weight:bold;color:${rColor};font-size:16px;">${commData.rating}</span>
+                <span style="color:#888;font-size:12px;">评分: ${commData.total_score>=0?'+':''}${commData.total_score.toFixed(2)}</span>
+            </div>`;
+        const dimIcons = {'成本驱动':'🛢️','供需平衡':'📦','利润弹性':'💰','下游需求':'🏭'};
+        for (const [dim, info] of Object.entries(commData.dimensions || {})) {
+            const s = info.score;
+            const sColor = s > 0.3 ? '#26a69a' : s < -0.3 ? '#ef5350' : '#888';
+            html += `<div style="margin:4px 0;"><span>${dimIcons[dim]||''}${dim}: </span><span style="color:${sColor};font-weight:bold;">${info.label}(${s>=0?'+':''}${s.toFixed(1)})</span>
+                <span style="color:#888;font-size:11px;"> — ${(info.reasons||[]).join('；')}</span></div>`;
+        }
+        html += `<div style="margin-top:8px;color:${rColor};font-weight:bold;">${commData.outlook}</div>`;
+        html += `</div>`;
+        aiEl.innerHTML = html;
+    } else if (commText) {
+        const lines = commText.split('\n');
         const html = lines.map(line => {
-            if (line.includes('【评级】')) {
-                const ratingMatch = line.match(/整体：\*\*(\S+)\*\*/);
-                const rating = ratingMatch ? ratingMatch[1] : '';
+            if (line.includes('【📊综合评级】')) {
+                const rating = line.replace('【📊综合评级】','').trim();
                 let cls = 'rating-mixed';
                 if (rating.includes('多')) cls = 'rating-bull';
                 else if (rating.includes('空')) cls = 'rating-bear';
-                return `<div class="rating ${cls}">${rating}</div> ${line}`;
+                return `<div class="rating ${cls}">${rating}</div>`;
             }
             return line;
         }).join('\n');
