@@ -595,7 +595,8 @@ function initCharts() {
         return `<b>结算价 ${p.axisValue}</b><br/>买方总收益: <b style="color:#ff6b9d">${Math.round(p.value).toLocaleString()}</b>`;
       }
     },
-    grid: { top: 15, right: 15, bottom: 25, left: 55 },
+    legend: { show: true, top: 2, right: 10, textStyle: { color: '#888', fontSize: 10 }, itemWidth: 12, itemHeight: 8 },
+    grid: { top: 25, right: 15, bottom: 25, left: 55 },
     xAxis: {
       type: 'category', data: [],
       axisLine: { lineStyle: { color: '#2a2a4a' } },
@@ -664,10 +665,10 @@ function initCharts() {
       splitLine: { lineStyle: { color: '#1a1a2a', type: 'dashed' } },
     },
     series: [
-      { name: 'Call OI', type: 'bar', itemStyle: { color: '#00d4ff', opacity: 0.8 }, data: [] },
-      { name: 'Put OI', type: 'bar', itemStyle: { color: '#ff6b9d', opacity: 0.8 }, data: [] },
-      { name: '前次Call OI', type: 'bar', itemStyle: { color: '#00d4ff', opacity: 0.25 }, barGap: '-100%', data: [] },
-      { name: '前次Put OI', type: 'bar', itemStyle: { color: '#ff6b9d', opacity: 0.25 }, barGap: '-100%', data: [] },
+      { name: 'Call OI', type: 'bar', itemStyle: { color: '#00d4ff', opacity: 0.85 }, barWidth: '60%', z: 3, data: [] },
+      { name: 'Put OI', type: 'bar', itemStyle: { color: '#ff6b9d', opacity: 0.85 }, barWidth: '60%', z: 3, data: [] },
+      { name: '前次Call OI', type: 'bar', itemStyle: { color: '#00d4ff', opacity: 0.3, borderColor: '#00d4ff', borderWidth: 1, borderType: 'dashed' }, barWidth: '80%', barGap: '-100%', z: 1, data: [] },
+      { name: '前次Put OI', type: 'bar', itemStyle: { color: '#ff6b9d', opacity: 0.3, borderColor: '#ff6b9d', borderWidth: 1, borderType: 'dashed' }, barWidth: '80%', barGap: '-100%', z: 1, data: [] },
     ],
   });
 }
