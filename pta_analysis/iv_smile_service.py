@@ -202,6 +202,9 @@ def _check_iv_alert(smile_smooth, smile_raw, strike_oi, S, max_pain):
             prev_oi_val = prev_ois.get(side, 0)
             if prev_oi_val <= 0:
                 continue
+            # 当前OI归零 = 到期清零/深虚值无人持仓，不是异动，跳过
+            if cur_oi <= 0:
+                continue
             # 1) 相对收盘基准
             delta_close = cur_oi - prev_oi_val
             ratio_close = delta_close / prev_oi_val
@@ -295,6 +298,11 @@ _dummy_lock = type('DummyLock', (), {'__enter__': lambda s: s, '__exit__': lambd
 _SNAPSHOT_DIR = os.path.join(WORKSPACE, 'data', 'iv_snapshots')
 _SAVED_DATES = set()   # 记录已写入磁盘的日期，避免重复保存
 
+# PTA 收盘时间点（小盘、午盘、日盘收盘、夜盘收盘）
+_PTA_CLOSE_TIMES = [(10, 15), (11, 30), (15, 0), (23, 0)]
+_CLOSE_STATE_FILE = os.path.join(_SNAPSHOT_DIR, 'close_state.json')
+_close_state_saved_slots = set()  # 记录本次进程已保存的收盘时间槽，避免重复
+
 def _get_snapshot_path(date_str):
     """返回指定日期的日盘快照文件路径（包含全天所有15分钟时间点）。"""
     return os.path.join(_SNAPSHOT_DIR, f'iv_snapshots_{date_str}.json')
@@ -303,13 +311,131 @@ def _ensure_snapshot_dir():
     """确保快照目录存在"""
     os.makedirs(_SNAPSHOT_DIR, exist_ok=True)
 
+def _save_close_state():
+    """
+    收盘快照：将当前 _state + _last_valid 完整写入 close_state.json。
+    在 PTA 四个收盘时间点自动调用，重启后可立即恢复全部数据，无需等 TqSdk。
+    """
+    _ensure_snapshot_dir()
+    # 只保存可序列化的字段
+    payload = {
+        'timestamp': datetime.now().isoformat(),
+        'state': {
+            'futures_price': _state.get('futures_price'),
+            'atm_strike': _state.get('atm_strike'),
+            'max_pain': _state.get('max_pain'),
+            'ref_strike': _state.get('ref_strike'),
+            'smile_raw': _state.get('smile_raw', {}),
+            'smile_smooth': _state.get('smile_smooth', {}),
+            'svi_params': _state.get('svi_params'),
+            'last_update': _state.get('last_update'),
+            'strike_oi': _state.get('strike_oi', {}),
+        },
+        'last_valid': {
+            'futures_price': _last_valid.get('futures_price'),
+            'atm_strike': _last_valid.get('atm_strike'),
+            'max_pain': _last_valid.get('max_pain'),
+            'ref_strike': _last_valid.get('ref_strike'),
+            'smile_raw': _last_valid.get('smile_raw', {}),
+            'smile_smooth': _last_valid.get('smile_smooth', {}),
+            'svi_params': _last_valid.get('svi_params'),
+            'strike_oi': _last_valid.get('strike_oi', {}),
+        },
+    }
+    import tempfile
+    try:
+        fd, tmp_path = tempfile.mkstemp(dir=_SNAPSHOT_DIR, suffix='.tmp')
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, _CLOSE_STATE_FILE)
+            print(f"[iv_smile] 💾 收盘快照已保存: S={_state.get('futures_price')} "
+                  f"MP={_state.get('max_pain')} 档={len(_state.get('smile_smooth', {}))} "
+                  f"ts={payload['timestamp'][:19]}")
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+    except Exception as e:
+        print(f"[iv_smile] ⚠️ 收盘快照保存失败: {e}")
+
+
+def _check_and_save_close_state():
+    """
+    检查当前是否为 PTA 收盘时间点（±2分钟窗口），是则保存收盘快照。
+    每个时间槽在本进程生命周期内只保存一次。
+    """
+    now = datetime.now()
+    for hh, mm in _PTA_CLOSE_TIMES:
+        slot_key = f"{now.strftime('%Y%m%d')}_{hh:02d}{mm:02d}"
+        if slot_key in _close_state_saved_slots:
+            continue
+        # ±2分钟窗口
+        target_min = hh * 60 + mm
+        now_min = now.hour * 60 + now.minute
+        if abs(now_min - target_min) <= 2:
+            _close_state_saved_slots.add(slot_key)
+            _save_close_state()
+            break
+
+
+def _load_close_state():
+    """
+    启动时加载收盘快照恢复 _state 和 _last_valid。
+    返回 True 表示成功恢复，False 表示无可用数据。
+    """
+    global _state, _last_valid
+    if not os.path.exists(_CLOSE_STATE_FILE):
+        return False
+    try:
+        with open(_CLOSE_STATE_FILE, 'r', encoding='utf-8') as f:
+            payload = json.load(f)
+        saved_state = payload.get('state', {})
+        saved_valid = payload.get('last_valid', {})
+        ts = payload.get('timestamp', '')
+
+        # 检查数据有效性
+        if not saved_state.get('smile_smooth') or not saved_state.get('futures_price'):
+            print(f"[iv_smile] ⚠️ 收盘快照数据不完整，跳过")
+            return False
+
+        # 恢复 _state
+        for key in ('futures_price', 'atm_strike', 'max_pain', 'ref_strike',
+                     'smile_raw', 'smile_smooth', 'svi_params', 'last_update', 'strike_oi'):
+            val = saved_state.get(key)
+            if val is not None:
+                _state[key] = val
+
+        # 恢复 _last_valid
+        for key in ('futures_price', 'atm_strike', 'max_pain', 'ref_strike',
+                     'smile_raw', 'smile_smooth', 'svi_params', 'strike_oi'):
+            val = saved_valid.get(key)
+            if val is not None:
+                _last_valid[key] = val
+
+        smooth_count = len(saved_state.get('smile_smooth', {}))
+        print(f"[iv_smile] 💾 收盘快照已恢复: S={saved_state.get('futures_price')} "
+              f"MP={saved_state.get('max_pain')} 档={smooth_count} "
+              f"ts={ts[:19]}")
+        return True
+    except Exception as e:
+        print(f"[iv_smile] ⚠️ 收盘快照加载失败: {e}")
+        return False
+
+
 def _save_all_snapshots():
     """
     每15分钟调用一次：将 _interval_snapshots 完整写入磁盘（覆盖）。
     文件为 iv_snapshots_YYYYMMDD.json，包含当天所有 HH:MM 时间点的完整快照。
     日期从快照的实际 timestamp 推导（避免跨日运行时数据归错文件）。
+    非交易日不写入（防止脏数据）。
     """
     if not _interval_snapshots:
+        return
+    # 非交易日不写入快照
+    if not _is_trading_day():
         return
     _ensure_snapshot_dir()
     # 文件名用当前进程时间（session date）而非快照内的 timestamp，
@@ -353,9 +479,113 @@ def _save_all_snapshots():
     except Exception as e:
         print(f"[iv_smile] ⚠️ 快照持久化失败: {e}")
 
+
+# 中国法定节假日表（期货休市日），含调休后的实际休市区间
+# 格式：(月, 日) 元组集合，按年份区分
+_CN_HOLIDAYS = {
+    2025: {
+        (1,1),                                              # 元旦
+        (1,28),(1,29),(1,30),(1,31),(2,1),(2,2),(2,3),(2,4), # 春节 1/28-2/4
+        (4,4),(4,5),(4,6),                                  # 清明
+        (5,1),(5,2),(5,3),(5,4),(5,5),                      # 劳动节
+        (5,31),(6,1),(6,2),                                 # 端午
+        (10,1),(10,2),(10,3),(10,4),(10,5),(10,6),(10,7),(10,8), # 国庆+中秋
+    },
+    2026: {
+        (1,1),(1,2),                                        # 元旦
+        (2,16),(2,17),(2,18),(2,19),(2,20),(2,21),(2,22),(2,23), # 春节 2/16-2/23（除夕2/16）
+        (4,4),(4,5),(4,6),                                  # 清明
+        (5,1),(5,2),(5,3),                                  # 劳动节
+        (6,19),(6,20),(6,21),                               # 端午
+        (9,25),(9,26),(9,27),                               # 中秋
+        (10,1),(10,2),(10,3),(10,4),(10,5),(10,6),(10,7),(10,8), # 国庆
+    },
+    2027: {
+        (1,1),                                              # 元旦
+        (2,5),(2,6),(2,7),(2,8),(2,9),(2,10),(2,11),(2,12),  # 春节
+        (4,4),(4,5),(4,6),                                  # 清明
+        (5,1),(5,2),(5,3),                                  # 劳动节
+        (6,8),(6,9),(6,10),                                 # 端午
+        (9,15),(9,16),(9,17),                               # 中秋
+        (10,1),(10,2),(10,3),(10,4),(10,5),(10,6),(10,7),    # 国庆
+    },
+}
+
+def _is_cn_holiday(dt):
+    """判断日期是否是法定节假日（期货休市日）"""
+    year_holidays = _CN_HOLIDAYS.get(dt.year)
+    if not year_holidays:
+        return False  # 无数据年份保守返回False
+    return (dt.month, dt.day) in year_holidays
+
+def _is_trading_day(dt=None):
+    """
+    判断指定日期/时间是否是交易日（排除周末 + 法定节假日）。
+    注意夜盘跨日：周五21:00开盘的夜盘延续到周六02:30，这仍属于周五交易日。
+    节假日前一天没有夜盘（如周三是节假日，则周二没有夜盘）。
+    判断逻辑：
+    - 周一~周五且非节假日 → 交易日
+    - 周六00:00-02:30 → 检查周五是否有夜盘（周五非节假日 且 周六非节假日的首日时才有）
+    - 法定节假日 → 非交易日
+    - 节假日前一天的夜盘也不交易（通过检查"次日是否休市"实现）
+    """
+    if dt is None:
+        dt = datetime.now()
+    wd = dt.weekday()  # 0=周一 ... 6=周日
+    h, m = dt.hour, dt.minute
+    total_min = h * 60 + m
+
+    if wd == 6:  # 周日：永远不交易
+        return False
+
+    if wd == 5:  # 周六
+        if total_min <= 150:  # 00:00-02:30 可能是周五夜盘延续
+            # 检查周五是否是交易日（非节假日）
+            friday = dt.date() - timedelta(days=1)
+            return not _is_cn_holiday(friday)
+        return False  # 周六02:30之后不交易
+
+    # 周一~周五
+    if _is_cn_holiday(dt):
+        return False
+
+    return True
+
+
+def _is_trading_hours():
+    """
+    判断当前是否在交易时段（允许SVI校准）。
+    CZCE日盘: 09:00-15:00
+    夜盘:     21:00-02:30（次日）
+    其余时段跳过校准，避免休盘期间虚假波动。
+    同时检查交易日——周末/节假日不交易。
+    节假日前一天没有夜盘（次日休市则当晚不开夜盘）。
+    """
+    now = datetime.now()
+    if not _is_trading_day(now):
+        return False
+    h, m = now.hour, now.minute
+    total = h * 60 + m
+    # 日盘: 09:00-15:00 (540-900)
+    day_start, day_end = 9 * 60, 15 * 60
+    # 夜盘: 21:00-02:30 (1260-150), 跨零点处理
+    night_start, night_end = 21 * 60, 2 * 60 + 30  # 1260, 150
+    if night_start <= total < 24 * 60:  # 21:00-23:59 — 检查次日是否休市
+        tomorrow = now.date() + timedelta(days=1)
+        if _is_cn_holiday(tomorrow) or tomorrow.weekday() >= 5:
+            return False  # 次日休市，今晚没有夜盘
+        return True
+    if 0 <= total <= night_end:  # 00:00-02:30（前一天夜盘延续，已由_is_trading_day过滤）
+        return True
+    if day_start <= total < day_end:  # 09:00-15:00
+        return True
+    return False
+
+
 def _load_previous_day_snapshots():
     """
     启动时加载快照：
+    0. 优先从收盘快照 close_state.json 恢复（最快路径）
     1. 今日快照 → _interval_snapshots（服务中途重启恢复当天数据）
     2. 前一交易日的15:00快照 → _prev_day_baseline（收盘基准对比）
     3. 从最新快照恢复标的价格和微笑曲线到 _state
@@ -366,6 +596,23 @@ def _load_previous_day_snapshots():
 
     _interval_snapshots = {}
     _prev_day_baseline = {}
+
+    # === 清理残留的 .tmp 文件（kill -9 后原子写入的临时文件无法自动清理） ===
+    try:
+        import glob
+        tmp_files = glob.glob(os.path.join(_SNAPSHOT_DIR, '*.tmp'))
+        if tmp_files:
+            for tf in tmp_files:
+                try:
+                    os.unlink(tf)
+                except OSError:
+                    pass
+            print(f"[iv_smile] 🧹 清理残留临时文件: {len(tmp_files)}个")
+    except Exception:
+        pass
+
+    # === 0. 优先从收盘快照恢复 _state（重启后立即有数据） ===
+    close_restored = _load_close_state()
 
     today = datetime.now().strftime('%Y%m%d')
 
@@ -418,16 +665,30 @@ def _load_previous_day_snapshots():
     # - 21:00之前（盘后复盘时段）：基准 = 前一交易日15:00（方便复盘对比当天日盘变化）
     # - 21:00之后（新交易日开盘）：基准 = 当天15:00（切换到新周期）
     # 这样15:00-21:00之间仍可对比"今天vs昨天"的变化
-    start_days_ago = 0 if datetime.now().hour >= 21 else 1
+    # 非交易日（周末/节假日）：始终找上一个交易日的15:00基准
+    now = datetime.now()
+    if _is_trading_day(now) and now.hour >= 21:
+        start_days_ago = 0  # 交易日21:00后，可以用当天15:00
+    else:
+        start_days_ago = 1  # 其他情况（含非交易日），从昨天开始找
     for days_ago in range(start_days_ago, 8):
         if days_ago == 0:
             check_date = today
             check_path = today_path
         else:
-            check_date = (datetime.now() - timedelta(days=days_ago)).strftime('%Y%m%d')
+            check_date = (now - timedelta(days=days_ago)).strftime('%Y%m%d')
             check_path = _get_snapshot_path(check_date)
         if not os.path.exists(check_path):
             continue
+        # 跳过非交易日的快照（周末/节假日写入的脏数据）
+        try:
+            check_dt = datetime.strptime(check_date, '%Y%m%d')
+            if check_dt.weekday() >= 5 or _is_cn_holiday(check_dt):
+                reason = f"weekday={check_dt.weekday()}" if check_dt.weekday() >= 5 else "法定节假日"
+                print(f"[iv_smile] ⏭ 跳过非交易日快照: {check_date} ({reason})")
+                continue
+        except ValueError:
+            pass
         try:
             with open(check_path, 'r', encoding='utf-8') as f:
                 payload = json.load(f)
@@ -465,7 +726,9 @@ def _load_previous_day_snapshots():
             continue
 
     # === 3. 从最新快照恢复标的价格和微笑曲线 ===
-    if latest_for_restore:
+    # 如果收盘快照已恢复 _state，跳过从15分钟快照恢复（避免被更旧数据覆盖）
+    # 但仍需恢复 expiry/T 和 akshare 校正（不论哪种恢复路径都需要）
+    if not close_restored and latest_for_restore:
         restored_price = latest_for_restore.get('futures_price')
         restored_atm = latest_for_restore.get('atm_strike')
         restored_mp = latest_for_restore.get('max_pain')
@@ -507,35 +770,7 @@ def _load_previous_day_snapshots():
             _last_valid['strike_oi'] = restored_oi
             _state['strike_oi'] = restored_oi
 
-        # 恢复 expiry 和 T（快照不存储，需动态计算）
-        if not _state.get('expiry'):
-            try:
-                _contract, _exp = get_active_ta_contract()
-                _state['expiry'] = _exp
-                _state['active_contract'] = _contract
-                _T = (_exp - datetime.now()).total_seconds() / (365.25 * 24 * 3600)
-                if _T <= 0:
-                    _T = 1 / 365
-                _state['T'] = _T
-                print(f"[iv_smile] 📂 已恢复到期日: {_contract} expiry={_exp.date()} T={_T:.6f}yr")
-            except Exception as e:
-                print(f"[iv_smile] ⚠️ 恢复到期日失败: {e}")
-
         print(f"[iv_smile] 📂 已恢复标的价格: S={restored_price}, ATM={restored_atm}, MP={restored_mp} (from {latest_for_restore_key})")
-
-        # === 3.1 用akshare分钟K线校正标的价格（含夜盘） ===
-        # 快照保存的是日盘收盘价，夜盘后价格可能已变化
-        try:
-            from analysis.option_chain_api import _get_akshare_latest_price
-            _contract_code = _state.get('active_contract', 'TA607')
-            _ak_price = _get_akshare_latest_price(_contract_code)
-            if _ak_price > 0 and _ak_price != restored_price:
-                print(f"[iv_smile] 📂 akshare校正价格: {restored_price} → {_ak_price}（含夜盘）")
-                _last_valid['futures_price'] = _ak_price
-                _state['futures_price'] = _ak_price
-                restored_price = _ak_price
-        except Exception as e:
-            print(f"[iv_smile] ⚠️ akshare价格校正失败: {e}")
 
         if restored_smooth:
             print(f"[iv_smile] 📂 已恢复微笑曲线: {len(restored_smooth)}档平滑IV (from {latest_for_restore_key})")
@@ -625,6 +860,31 @@ def _load_previous_day_snapshots():
                     print(f"[iv_smile] ⚠️ SVI重新拟合失败（{len(K_list)}个数据点）")
             else:
                 print(f"[iv_smile] ⚠️ raw数据点不足({len(K_list)})，无法重新拟合SVI")
+
+    # === 4. 通用：恢复 expiry/T 和 akshare 价格校正（不论哪条路径） ===
+    if not _state.get('expiry'):
+        try:
+            _contract, _exp = get_active_ta_contract()
+            _state['expiry'] = _exp
+            _state['active_contract'] = _contract
+            _T = (_exp - datetime.now()).total_seconds() / (365.25 * 24 * 3600)
+            if _T <= 0:
+                _T = 1 / 365
+            _state['T'] = _T
+            print(f"[iv_smile] 📂 已恢复到期日: {_contract} expiry={_exp.date()} T={_T:.6f}yr")
+        except Exception as e:
+            print(f"[iv_smile] ⚠️ 恢复到期日失败: {e}")
+    if _state.get('futures_price'):
+        try:
+            from analysis.option_chain_api import _get_akshare_latest_price
+            _contract_code = _state.get('active_contract', 'TA607')
+            _ak_price = _get_akshare_latest_price(_contract_code)
+            if _ak_price > 0 and _ak_price != _state.get('futures_price'):
+                print(f"[iv_smile] 📂 akshare校正价格: {_state.get('futures_price')} → {_ak_price}（含夜盘）")
+                _last_valid['futures_price'] = _ak_price
+                _state['futures_price'] = _ak_price
+        except Exception as e:
+            print(f"[iv_smile] ⚠️ akshare价格校正失败: {e}")
 
     if not _interval_snapshots:
         print("[iv_smile] ⚠️ 未找到历史快照（正常，服务初次启动）")
@@ -1258,7 +1518,15 @@ def calc_max_pain(opt_snap, S):
     if not opt_snap:
         return None
 
-    strikes = sorted(opt_snap.keys())
+    # key可能是str/int/float，统一转float再计算
+    unified = {}
+    for k, v in opt_snap.items():
+        try:
+            unified[float(k)] = v
+        except (ValueError, TypeError):
+            continue
+
+    strikes = sorted(unified.keys())
     if len(strikes) < 2:
         return None
 
@@ -1267,8 +1535,8 @@ def calc_max_pain(opt_snap, S):
     for K in strikes:
         pain = 0
         for Ki in strikes:
-            c_oi = opt_snap[Ki].get('C') or 0
-            p_oi = opt_snap[Ki].get('P') or 0
+            c_oi = unified[Ki].get('C') or 0
+            p_oi = unified[Ki].get('P') or 0
             pain += c_oi * max(K - Ki, 0) + p_oi * max(Ki - K, 0)
         mp[K] = pain
 
@@ -1284,17 +1552,14 @@ def calc_max_pain(opt_snap, S):
 def compute_once(force=False):
     """执行一次IV计算（每分钟实时触发）
     
+    只要TqSdk有数据就计算更新_state（GEX/MaxPain/IV等指标始终基于最新数据）。
+    快照写入仅在交易时段进行，避免非交易时段产生脏快照。
+    baseline(前次基准)由独立逻辑控制，每交易日21:00切换。
+    
     Args:
-        force: True时跳过盘后guard，用于手动生成收盘快照
+        force: True时强制写入快照（手动触发场景）
     """
     global _state
-
-    # 非交易时段：跳过实时计算，冻结在最后一次有效快照
-    # 避免盘后TqSdk推送的不稳定期货价格导致指标跳动
-    if not force and not _is_trading_hours():
-        if not _state.get('smile_smooth'):
-            _restore_from_latest_snapshot()
-        return False
 
     if 'snap' not in _tqsdk_quotes:
         # 即使 data_ready=False，也要尝试从快照恢复数据（保持微笑曲线活跃）
@@ -1410,42 +1675,50 @@ def compute_once(force=False):
         return False
 
     with _state['lock']:
-        # 按固定15分钟时间点存储快照
-        # ⛔ 同一15分钟块内不覆盖：避免同一槽内多次计算导致数据被冲掉
         now = datetime.now()
-        interval_key = get_interval_key(now)
-        if interval_key in _interval_snapshots:
-            # 该槽已存在，本次计算跳过（同一15分钟内只保留最早的那次）
-            print(f"[iv_smile] ⏭ 跳过重复写入: {interval_key}（该槽已存在）")
+        
+        # 快照写入：仅在交易时段 或 force 模式下写入，避免非交易时段脏快照
+        is_trading = _is_trading_hours()
+        if is_trading or force:
+            # 按固定15分钟时间点存储快照
+            # ⛔ 同一15分钟块内不覆盖：避免同一槽内多次计算导致数据被冲掉
+            interval_key = get_interval_key(now)
+            if interval_key in _interval_snapshots:
+                print(f"[iv_smile] ⏭ 跳过重复写入: {interval_key}（该槽已存在）")
+            else:
+                _interval_snapshots[interval_key] = {
+                    'smooth': {k: float(v) for k, v in smooth_iv.items()},
+                    'raw': {k: dict(v) for k, v in raw_iv.items()},
+                    'timestamp': now.isoformat(),
+                    'svi_params': svi,
+                    'futures_price': S,
+                    'ref_strike': ref_strike,
+                    'max_pain': max_pain,
+                    'atm_strike': atm_strike,
+                    'strike_oi': {k: dict(v) for k, v in strike_oi.items()},
+                }
+                print(f"[iv_smile] 📦 快照已存: {interval_key} ({len(_interval_snapshots)}个时间点)")
         else:
-            _interval_snapshots[interval_key] = {
-                'smooth': {k: float(v) for k, v in smooth_iv.items()},
-                'raw': {k: dict(v) for k, v in raw_iv.items()},  # 包含C和P的原始IV
-                'timestamp': now.isoformat(),
-                'svi_params': svi,
-                'futures_price': S,
-                'ref_strike': ref_strike,
-                'max_pain': max_pain,
-                'atm_strike': atm_strike,
-                'strike_oi': {k: dict(v) for k, v in strike_oi.items()},  # {strike: {C: oi, P: oi}}
-            }
-            print(f"[iv_smile] 📦 快照已存: {interval_key} ({len(_interval_snapshots)}个时间点)")
-        # 只保留当天9:00-15:00的快照（开盘时间段）
-        # 清理旧快照（可选：按时间过滤）
-        current_hour = now.hour
-        if not (current_hour >= 9 and current_hour <= 15):
-            # 盘后不清除快照——需要保留用于次日对比
-            pass
+            print(f"[iv_smile] 📊 非交易时段，_state已更新（不写快照）")
 
-        # 更新缓存
+        # 非交易时段保护：如果已有更完整的smile数据（如close_state恢复的），
+        # 不用不完整的计算结果覆盖。仅在交易时段 或 新数据更完整时才更新smile。
+        existing_smooth_count = len(_state.get('smile_smooth') or {})
+        new_smooth_count = len(smooth_iv or {})
+        should_update_smile = is_trading or force
+        # 非交易时段且非force：不用实时计算的smile覆盖close_state恢复的数据
+        # （因为非交易时段T用datetime.now()算会偏小，导致IV虚高）
+
+        # 更新缓存（价格/OI始终更新，smile视情况）
         _last_valid['futures_price'] = S
         _last_valid['ref_strike'] = ref_strike
         _last_valid['max_pain'] = max_pain
         _last_valid['atm_strike'] = atm_strike
-        _last_valid['smile_raw'] = {k: v for k, v in raw_iv.items()}
-        _last_valid['smile_smooth'] = smooth_iv
-        _last_valid['svi_params'] = svi
         _last_valid['strike_oi'] = {k: dict(v) for k, v in strike_oi.items()}
+        if should_update_smile:
+            _last_valid['smile_raw'] = {k: v for k, v in raw_iv.items()}
+            _last_valid['smile_smooth'] = smooth_iv
+            _last_valid['svi_params'] = svi
 
         # 更新状态
         _state['strike_oi'] = {k: dict(v) for k, v in strike_oi.items()}
@@ -1453,10 +1726,14 @@ def compute_once(force=False):
         _state['ref_strike'] = ref_strike   # 最大痛点（参考行权价）
         _state['max_pain'] = max_pain        # 最大痛点
         _state['atm_strike'] = atm_strike      # ATM = 最接近标的价的行权价
-        _state['smile_raw'] = {k: v for k, v in raw_iv.items()}
-        _state['smile_smooth'] = smooth_iv
-        _state['svi_params'] = svi
-        _state['last_update'] = now.isoformat()
+        if should_update_smile:
+            _state['smile_raw'] = {k: v for k, v in raw_iv.items()}
+            _state['smile_smooth'] = smooth_iv
+            _state['svi_params'] = svi
+        else:
+            print(f"[iv_smile] 📊 保留已有smile数据({existing_smooth_count}档)，不用不完整数据({new_smooth_count}档)覆盖")
+        if should_update_smile:
+            _state['last_update'] = now.isoformat()
 
         # 记录ATM IV到历史（每1分钟追加一点，连续曲线）
         global _prev_atm_snapshot_minute, _atm_iv_history
@@ -1484,34 +1761,15 @@ def compute_once(force=False):
     if now.hour == 15 and now.minute == 0 and not _close_baseline:
         _record_close_baseline(smooth_iv, raw_iv, strike_oi, S)
 
+    # PTA 四个收盘时间点（10:15/11:30/15:00/23:00）自动保存收盘快照
+    _check_and_save_close_state()
+
     return True
 
 # ===================== 定时调度 =====================
 
 # 调度器
 _last_snapshot_minute = -1  # 上次持久化的时间（分钟），避免重复
-
-def _is_trading_hours():
-    """
-    判断当前是否在交易时段（允许SVI校准）。
-    CZCE日盘: 09:00-15:00
-    夜盘:     21:00-02:30（次日）
-    其余时段跳过SABR校准，避免休盘期间虚假波动。
-    """
-    now = datetime.now()
-    h, m = now.hour, now.minute
-    total = h * 60 + m
-    # 日盘: 09:00-15:00 (540-900)
-    day_start, day_end = 9 * 60, 15 * 60
-    # 夜盘: 21:00-02:30 (1260-150), 跨零点处理
-    night_start, night_end = 21 * 60, 2 * 60 + 30  # 1260, 150
-    if night_start <= total < 24 * 60:  # 21:00-23:59
-        return True
-    if 0 <= total <= night_end:  # 00:00-02:30
-        return True
-    if day_start <= total < day_end:  # 09:00-15:00
-        return True
-    return False
 
 def start_scheduler(interval_minutes=1):
     def loop():
@@ -1787,11 +2045,22 @@ def register_routes(app):
         # SVI 参数（从全局状态获取，即使冷启动也有快照中恢复的值）
         svi = _state.get('svi_params', {})
 
+        # 实时计算 max_pain（与 GEX API 一致，避免用 _state 中过时的缓存值）
+        realtime_max_pain = _state.get('max_pain')
+        try:
+            oi_data = _state.get('strike_oi', {})
+            if oi_data:
+                realtime_max_pain = calc_max_pain(oi_data, _state.get('futures_price', 0))
+                if realtime_max_pain is None:
+                    realtime_max_pain = _state.get('max_pain')
+        except Exception:
+            pass
+
         return jsonify({
             'futures_price': _state['futures_price'],
             'underlying_price': _state['futures_price'],   # 标的价格（前端指标栏用）
             'ref_strike': _state.get('ref_strike'),
-            'max_pain': _state.get('max_pain'),
+            'max_pain': realtime_max_pain,
             'atm_strike': _state['atm_strike'],
             'last_update': _state['last_update'],
             'expiry': _state['expiry'].isoformat() if _state.get('expiry') else None,
@@ -2104,23 +2373,32 @@ def register_routes(app):
             iv_c_b = float(iv_c_b) if iv_c_b is not None else None
             iv_p_b = float(iv_p_b) if iv_p_b is not None else None
 
-            # OI颜色级别
-            def oi_level(chg, base_oi):
+            # OI颜色级别（当前OI归零的排除——到期清零不是异动）
+            def oi_level(chg, base_oi, cur_oi):
                 if chg is None or base_oi <= 0:
                     return ''
+                if cur_oi <= 0:
+                    return ''  # 持仓归零不报警
                 t = _get_oi_thresholds(base_oi)
                 abs_c = abs(chg)
                 if abs_c >= t['sigLow']:
                     return 'major' if abs_c >= t.get('extreme', 999) else 'significant'
                 return ''
 
-            oi_call_level = oi_level(oi_chg_call_final, oi_call_b)
-            oi_put_level = oi_level(oi_chg_put_final, oi_put_b)
+            oi_call_level = oi_level(oi_chg_call_final, oi_call_b, oi_call)
+            oi_put_level = oi_level(oi_chg_put_final, oi_put_b, oi_put)
 
             # 记录需要弹窗报警的档位
             if iv_call_level or iv_put_level:
                 best_level = 'major' if (iv_call_level == 'major' or iv_put_level == 'major') else 'significant'
-                iv_alerts.append({'strike': int(strike), 'level': best_level, 'iv_chg': iv_chg, 'ref_type': iv_ref_type})
+                # 弹窗文案：带上触发报警的具体维度（Call/Put raw IV变化），不只是smooth
+                iv_call_chg = round(iv_c - iv_c_b, 2) if (iv_c is not None and iv_c_b is not None and iv_c_b != 0) else None
+                iv_put_chg = round(iv_p - iv_p_b, 2) if (iv_p is not None and iv_p_b is not None and iv_p_b != 0) else None
+                iv_alerts.append({
+                    'strike': int(strike), 'level': best_level, 'iv_chg': iv_chg, 'ref_type': iv_ref_type,
+                    'iv_call_level': iv_call_level, 'iv_put_level': iv_put_level,
+                    'iv_call_chg': iv_call_chg, 'iv_put_chg': iv_put_chg,
+                })
             if oi_call_level:
                 oi_alerts.append({'strike': int(strike), 'side': 'C', 'level': oi_call_level, 'oi_chg': oi_chg_call_final, 'ref_type': oi_call_ref_type})
             if oi_put_level:
@@ -2335,6 +2613,166 @@ def register_routes(app):
         except Exception as e:
             import traceback; traceback.print_exc()
             return jsonify({'error': str(e)}), 500
+
+    @app.route('/api/iv_smile/gex')
+    def iv_api_gex():
+        """
+        GEX (Gamma Exposure) + 疼痛曲线 + OI分布 + 综合摘要。
+        返回:
+          - gex_bars: 每个行权价的 call_gex / put_gex / net_gex
+          - pain_curve: 每个行权价的 pain 值（买方总收益）
+          - oi_dist: 每个行权价的 call_oi / put_oi
+          - summary: PCR, net_gex, gex_flip, max_pain, T, days_left, futures_price
+        """
+        from scipy.stats import norm as sp_norm
+        with _state['lock']:
+            strike_oi = _state.get('strike_oi', {})
+            smile_raw = _state.get('smile_raw', {})
+            smile_smooth = _state.get('smile_smooth', {})
+            futures_price = _state.get('futures_price')
+            T = _state.get('T')
+            r = _state.get('rate', 0.02)
+            max_pain_val = _state.get('max_pain')
+            expiry = _state.get('expiry')
+            last_update = _state.get('last_update', '')
+
+        if not futures_price or not T or T <= 0:
+            return jsonify({'error': 'data not ready', 'gex_bars': [], 'pain_curve': [],
+                            'oi_dist': [], 'summary': {}})
+
+        F = futures_price
+        sqrtT = np.sqrt(T) if T > 0 else 1e-6
+
+        # GEX/OI只取有持仓的真实行权价（strike_oi），不含SVI插值点
+        all_strikes = sorted(set(float(k) for k in strike_oi.keys()))
+
+        # ---- 1. GEX 计算 ----
+        # 辅助函数：兼容字典key类型（可能是str/int/float）
+        def _get(d, k, default=None):
+            for key in [k, int(k), str(int(k))]:
+                if key in d:
+                    return d[key]
+            return default
+
+        gex_bars = []
+        for K in all_strikes:
+            oi_data = _get(strike_oi, K, {'C': 0, 'P': 0})
+            c_oi = oi_data.get('C', 0) or 0
+            p_oi = oi_data.get('P', 0) or 0
+
+            # 取IV: 优先用平滑值，次选raw平均
+            raw = _get(smile_raw, K, {})
+            sm = _get(smile_smooth, K)
+            if sm and sm > 0:
+                sigma = sm
+            else:
+                iv_c = raw.get('C')
+                iv_p = raw.get('P')
+                vals = [v for v in [iv_c, iv_p] if v and v > 0]
+                sigma = sum(vals) / len(vals) if vals else None
+
+            if not sigma or sigma <= 0 or K <= 0:
+                gex_bars.append({
+                    'strike': int(K), 'call_gex': 0, 'put_gex': 0, 'net_gex': 0
+                })
+                continue
+
+            # Black76 gamma: e^(-rT) * N'(d1) / (F * sigma * sqrt(T))
+            d1 = (np.log(F / K) + 0.5 * sigma ** 2 * T) / (sigma * sqrtT)
+            gamma = np.exp(-r * T) * sp_norm.pdf(d1) / (F * sigma * sqrtT)
+
+            # GEX = OI * gamma * F^2 * 0.01 * 合约乘数 (1% move, PTA=5吨/手)
+            # 正gamma: 做市商持有long gamma => call为正, put为负(做市商卖put=short gamma)
+            CONTRACT_MULT = 5  # PTA合约乘数 5吨/手
+            call_gex = c_oi * gamma * F * F * 0.01 * CONTRACT_MULT
+            put_gex = -p_oi * gamma * F * F * 0.01 * CONTRACT_MULT  # put GEX 取反（做市商通常short put）
+            net_gex = call_gex + put_gex
+
+            gex_bars.append({
+                'strike': int(K),
+                'call_gex': round(call_gex, 0),
+                'put_gex': round(put_gex, 0),
+                'net_gex': round(net_gex, 0),
+            })
+
+        # ---- 2. 疼痛曲线 (Pain Curve) ----
+        pain_curve = []
+        # 统一key为float
+        oi_strikes_map = {}
+        for k, v in strike_oi.items():
+            oi_strikes_map[float(k)] = v
+        oi_strikes = sorted(oi_strikes_map.keys())
+        if oi_strikes:
+            for K in oi_strikes:
+                pain = 0
+                for Ki in oi_strikes:
+                    c_oi = oi_strikes_map[Ki].get('C', 0) or 0
+                    p_oi = oi_strikes_map[Ki].get('P', 0) or 0
+                    pain += (c_oi * max(K - Ki, 0) + p_oi * max(Ki - K, 0)) * 5  # ×合约乘数
+                pain_curve.append({'strike': int(K), 'pain': round(pain, 0)})
+
+        # 从 pain_curve 实时确定 max_pain（覆盖 _state 中可能过时的值）
+        if pain_curve:
+            min_pain_entry = min(pain_curve, key=lambda x: x['pain'])
+            max_pain_val = min_pain_entry['strike']
+
+        # ---- 3. OI 分布 ----
+        oi_dist = []
+        total_call_oi = 0
+        total_put_oi = 0
+        for K in all_strikes:
+            oi_data = _get(strike_oi, K, {'C': 0, 'P': 0})
+            c_oi = oi_data.get('C', 0) or 0
+            p_oi = oi_data.get('P', 0) or 0
+            total_call_oi += c_oi
+            total_put_oi += p_oi
+            oi_dist.append({
+                'strike': int(K),
+                'call_oi': int(c_oi),
+                'put_oi': int(p_oi),
+            })
+
+        # ---- 4. 摘要指标 ----
+        pcr = round(total_put_oi / total_call_oi, 3) if total_call_oi > 0 else None
+        net_gex_total = sum(item['net_gex'] for item in gex_bars)
+
+        # GEX flip: net_gex从正变负（或反过来）的行权价（跳过OI=0的空行权价）
+        gex_flip = None
+        nonzero_gex = [b for b in sorted(gex_bars, key=lambda x: x['strike']) if b['net_gex'] != 0]
+        for i in range(1, len(nonzero_gex)):
+            prev_net = nonzero_gex[i - 1]['net_gex']
+            curr_net = nonzero_gex[i]['net_gex']
+            if prev_net * curr_net < 0:  # 符号反转
+                # 线性插值
+                k1 = nonzero_gex[i - 1]['strike']
+                k2 = nonzero_gex[i]['strike']
+                ratio = abs(prev_net) / (abs(prev_net) + abs(curr_net)) if (abs(prev_net) + abs(curr_net)) > 0 else 0.5
+                gex_flip = round((k1 + ratio * (k2 - k1)) / 2) * 2  # PTA tick=2
+                break
+
+        days_left = round(T * 365.25, 1) if T else None
+
+        summary = {
+            'futures_price': futures_price,
+            'max_pain': max_pain_val,
+            'pcr': pcr,
+            'net_gex': round(net_gex_total, 0),
+            'gex_direction': 'positive' if net_gex_total > 0 else 'negative',
+            'gex_flip': gex_flip,
+            'T': round(T, 6) if T else None,
+            'days_left': days_left,
+            'expiry': expiry.isoformat() if expiry else None,
+            'total_call_oi': int(total_call_oi),
+            'total_put_oi': int(total_put_oi),
+            'last_update': last_update,
+        }
+
+        return jsonify({
+            'gex_bars': gex_bars,
+            'pain_curve': pain_curve,
+            'oi_dist': oi_dist,
+            'summary': summary,
+        })
 
 
 # ===================== 入口 =====================

@@ -55,13 +55,7 @@
   .metric-value { font-size: 16px; font-weight: 600; }
   .metric-sub { font-size: 10px; color: #444; margin-top: 2px; }
 
-  /* ===== 图表区（2列并排）===== */
-  .chart-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-    margin-bottom: 10px;
-  }
+  /* ===== 图表卡片 ===== */
   .card {
     background: #12121a;
     border: 1px solid #2a2a4a;
@@ -74,6 +68,22 @@
     margin-bottom: 8px;
     text-transform: uppercase;
     letter-spacing: 1px;
+  }
+
+  /* ===== GEX 指标栏（1行4列）===== */
+  .gex-metric-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  /* ===== GEX 图表区（3列并排）===== */
+  .gex-chart-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 10px;
   }
 
   /* ===== T型表格 ===== */
@@ -349,17 +359,49 @@
   </div>
 </div>
 
-<!-- ===== 图表区（2列并排）===== -->
-<div class="chart-grid">
-  <!-- 左：隐含波动率微笑曲线 -->
-  <div class="card">
-    <div class="card-title">隐含波动率微笑曲线</div>
-    <div id="smileChart" style="width:100%;height:290px;"></div>
+<!-- ===== 微笑曲线（全宽） ===== -->
+<div class="card" style="margin-bottom:10px;">
+  <div class="card-title">隐含波动率微笑曲线</div>
+  <div id="smileChart" style="width:100%;height:290px;"></div>
+</div>
+
+<!-- ===== GEX 指标栏（1行4列）===== -->
+<div class="gex-metric-grid">
+  <div class="metric-box">
+    <div class="metric-name">PCR (Put/Call Ratio)</div>
+    <div class="metric-value" id="mPcr" style="color:#ff6b9d;">--</div>
+    <div class="metric-sub" id="mPcrSub">Put/Call持仓比</div>
   </div>
-  <!-- 右：ATM IV 走势图 -->
+  <div class="metric-box">
+    <div class="metric-name">净 GEX 方向</div>
+    <div class="metric-value" id="mGexDir" style="color:#00ff88;">--</div>
+    <div class="metric-sub" id="mGexDirSub">做市商 Gamma 敞口</div>
+  </div>
+  <div class="metric-box">
+    <div class="metric-name">GEX 翻转点</div>
+    <div class="metric-value" id="mGexFlip" style="color:#ffaa00;">--</div>
+    <div class="metric-sub" id="mGexFlipSub">正负 Gamma 切换价</div>
+  </div>
+  <div class="metric-box">
+    <div class="metric-name">距到期</div>
+    <div class="metric-value" id="mDaysLeft" style="color:#00d4ff;">--</div>
+    <div class="metric-sub" id="mDaysLeftSub">剩余交易日</div>
+  </div>
+</div>
+
+<!-- ===== GEX 图表区（3列并排）===== -->
+<div class="gex-chart-grid">
   <div class="card">
-    <div class="card-title">ATM IV 走势图</div>
-    <div id="atmChart" style="width:100%;height:260px;"></div>
+    <div class="card-title">GEX 分布（Gamma Exposure）</div>
+    <div id="gexChart" style="width:100%;height:280px;"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">疼痛曲线（Pain Curve）</div>
+    <div id="painChart" style="width:100%;height:280px;"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">持仓分布（OI Distribution）</div>
+    <div id="oiChart" style="width:100%;height:280px;"></div>
   </div>
 </div>
 
@@ -404,7 +446,6 @@
 <script>
 // ===================== 全局图表实例 =====================
 const chartInstances = {};
-let _atmHistory = [];
 
 // ===================== 通用主题 =====================
 const chartTheme = {
@@ -483,88 +524,168 @@ function initCharts() {
     ],
   });
 
-  // 2. ATM IV 走势图
-  const atmEl = document.getElementById('atmChart');
-  const atmChart = echarts.init(atmEl, null, { renderer: 'canvas' });
-  chartInstances.atm = atmChart;
-  atmChart.setOption({
+  window.addEventListener('resize', () => {
+    smileChart.resize();
+    if (chartInstances.gex) chartInstances.gex.resize();
+    if (chartInstances.pain) chartInstances.pain.resize();
+    if (chartInstances.oi) chartInstances.oi.resize();
+  });
+
+  // 3. GEX 分布柱状图
+  const gexEl = document.getElementById('gexChart');
+  const gexChart = echarts.init(gexEl, null, { renderer: 'canvas' });
+  chartInstances.gex = gexChart;
+  gexChart.setOption({
     ...chartTheme,
-    grid: { top: 15, right: 15, bottom: 25, left: 50 },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      backgroundColor: 'rgba(20,20,35,0.95)',
+      borderColor: '#2a2a5a',
+      textStyle: { color: '#ccc', fontSize: 11 },
+      formatter: function(params) {
+        if (!params || !params.length) return '';
+        let html = `<b>行权价 ${params[0].axisValue}</b><br/>`;
+        params.forEach(p => {
+          const color = p.seriesName === 'Call GEX' ? '#00d4ff' : p.seriesName === 'Put GEX' ? '#ff6b9d' : '#ffaa00';
+          html += `${p.seriesName}: <b style="color:${color}">${Math.round(p.value).toLocaleString()}</b><br/>`;
+        });
+        return html;
+      }
+    },
+    legend: { show: true, top: 2, right: 10, textStyle: { color: '#888', fontSize: 10 }, itemWidth: 12, itemHeight: 8 },
+    grid: { top: 30, right: 15, bottom: 25, left: 55 },
+    xAxis: {
+      type: 'category', data: [],
+      axisLine: { lineStyle: { color: '#2a2a4a' } },
+      axisTick: { show: false },
+      axisLabel: { color: '#555', fontSize: 9, rotate: 45 },
+    },
+    yAxis: {
+      type: 'value',
+      axisLine: { show: false }, axisTick: { show: false },
+      axisLabel: { color: '#555', fontSize: 9, formatter: v => { const a = Math.abs(v); return a >= 1e6 ? (v/1e6).toFixed(1)+'M' : a >= 1e3 ? (v/1e3).toFixed(0)+'K' : v; } },
+      splitLine: { lineStyle: { color: '#1a1a2a', type: 'dashed' } },
+    },
+    series: [
+      { name: 'Call GEX', type: 'bar', stack: 'gex', itemStyle: { color: '#00d4ff', opacity: 0.8 }, data: [] },
+      { name: 'Put GEX', type: 'bar', stack: 'gex', itemStyle: { color: '#ff6b9d', opacity: 0.8 }, data: [] },
+      { name: 'Net GEX', type: 'line', symbol: 'circle', symbolSize: 5, lineStyle: { color: '#ffaa00', width: 2 }, itemStyle: { color: '#ffaa00' }, data: [], z: 5 },
+    ],
+  });
+
+  // 4. 疼痛曲线
+  const painEl = document.getElementById('painChart');
+  const painChart = echarts.init(painEl, null, { renderer: 'canvas' });
+  chartInstances.pain = painChart;
+  painChart.setOption({
+    ...chartTheme,
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'cross', crossStyle: { color: '#555' } },
       backgroundColor: 'rgba(20,20,35,0.95)',
       borderColor: '#2a2a5a',
       textStyle: { color: '#ccc', fontSize: 11 },
-      formatter: params => {
+      formatter: function(params) {
+        if (!params || !params.length) return '';
         const p = params[0];
-        const v = p.value;
-        const iv = (v != null && !isNaN(v)) ? (v * 100).toFixed(2) + '%' : '--';
-        return `<b>${p.axisValue}</b><br/>ATM IV: <b style="color:#00ff88">${iv}</b>`;
-      },
+        return `<b>结算价 ${p.axisValue}</b><br/>买方总收益: <b style="color:#ff6b9d">${Math.round(p.value).toLocaleString()}</b>`;
+      }
     },
+    grid: { top: 15, right: 15, bottom: 25, left: 55 },
     xAxis: {
-      type: 'category',
+      type: 'category', data: [],
       axisLine: { lineStyle: { color: '#2a2a4a' } },
       axisTick: { show: false },
-      axisLabel: { color: '#444', fontSize: 8, interval: 4, rotate: 45 },
-      splitLine: { show: false },
+      axisLabel: { color: '#555', fontSize: 9, rotate: 45 },
     },
     yAxis: {
-      type: 'value', name: 'ATM IV (%)',
+      type: 'value', name: '买方收益',
       nameTextStyle: { color: '#444', fontSize: 10 },
       axisLine: { show: false }, axisTick: { show: false },
-      axisLabel: { color: '#555', fontSize: 9 },
+      axisLabel: { color: '#555', fontSize: 9, formatter: v => { const a = Math.abs(v); return a >= 1e6 ? (v/1e6).toFixed(1)+'M' : a >= 1e3 ? (v/1e3).toFixed(0)+'K' : v; } },
       splitLine: { lineStyle: { color: '#1a1a2a', type: 'dashed' } },
     },
     series: [{
-      name: 'ATM IV', type: 'line', smooth: true, lineWidth: 2,
-      itemStyle: { color: '#00ff88' },
+      name: '疼痛曲线', type: 'line', smooth: 0.3, lineWidth: 2.5,
+      itemStyle: { color: '#ff6b9d' },
       areaStyle: {
         color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-          { offset: 0, color: 'rgba(0,255,136,0.3)' },
-          { offset: 1, color: 'rgba(0,255,136,0.02)' }
+          { offset: 0, color: 'rgba(255,107,157,0.25)' },
+          { offset: 1, color: 'rgba(255,107,157,0.02)' }
         ])
       },
-      symbol: 'circle', symbolSize: 4,
-      data: [],
+      symbol: 'none', data: [],
     }],
   });
 
-  window.addEventListener('resize', () => {
-    smileChart.resize();
-    atmChart.resize();
+  // 5. OI 分布镜像柱状图
+  const oiEl = document.getElementById('oiChart');
+  const oiDistChart = echarts.init(oiEl, null, { renderer: 'canvas' });
+  chartInstances.oi = oiDistChart;
+  oiDistChart.setOption({
+    ...chartTheme,
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      backgroundColor: 'rgba(20,20,35,0.95)',
+      borderColor: '#2a2a5a',
+      textStyle: { color: '#ccc', fontSize: 11 },
+      formatter: function(params) {
+        if (!params || !params.length) return '';
+        let html = `<b>行权价 ${params[0].axisValue}</b><br/>`;
+        params.forEach(p => {
+          const color = p.seriesName === 'Call OI' ? '#00d4ff' : '#ff6b9d';
+          html += `${p.seriesName}: <b style="color:${color}">${Math.abs(p.value).toLocaleString()}</b><br/>`;
+        });
+        return html;
+      }
+    },
+    legend: { show: true, top: 2, right: 10, textStyle: { color: '#888', fontSize: 10 }, itemWidth: 12, itemHeight: 8 },
+    grid: { top: 30, right: 15, bottom: 25, left: 55 },
+    xAxis: {
+      type: 'category', data: [],
+      axisLine: { lineStyle: { color: '#2a2a4a' } },
+      axisTick: { show: false },
+      axisLabel: { color: '#555', fontSize: 9, rotate: 45 },
+    },
+    yAxis: {
+      type: 'value',
+      axisLine: { show: false }, axisTick: { show: false },
+      axisLabel: { color: '#555', fontSize: 9, formatter: v => Math.abs(v).toLocaleString() },
+      splitLine: { lineStyle: { color: '#1a1a2a', type: 'dashed' } },
+    },
+    series: [
+      { name: 'Call OI', type: 'bar', itemStyle: { color: '#00d4ff', opacity: 0.8 }, data: [] },
+      { name: 'Put OI', type: 'bar', itemStyle: { color: '#ff6b9d', opacity: 0.8 }, data: [] },
+    ],
   });
 }
 
 // ===================== 数据获取 & 更新 =====================
 async function fetchData() {
   try {
-    const [statusResp, curveResp, alertResp] = await Promise.all([
+    const [statusResp, curveResp, alertResp, gexResp] = await Promise.all([
       fetch('/api/iv_smile/status'),
       fetch('/api/iv_smile/curve'),
       fetch('/api/iv_smile/alert_data'),
+      fetch('/api/iv_smile/gex'),
     ]);
     if (!statusResp.ok || !curveResp.ok || !alertResp.ok) { showError('API请求失败'); return; }
 
     const status = await statusResp.json();
     const data = await curveResp.json();
     const alertData = await alertResp.json();
+    const gexData = gexResp.ok ? await gexResp.json() : null;
 
-    // ATM IV 走势图：每次 fetch 全量替换（后端已去重，数据量小无性能问题）
-    if (status.atm_history && Object.keys(status.atm_history).length > 0) {
-      _atmHistory = Object.entries(status.atm_history)
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .filter(([time, value]) => typeof value === 'number' && !isNaN(value))
-        .map(([time, value]) => ({ time, value }));
-    }
+    // ATM IV history no longer displayed (chart removed)
 
     updateStatus(status, data);
     updateSmileChart(data);
-    updateAtmChart(data);
     updateMetrics(data);
     updateTable(alertData, data);
     checkAndAlert(alertData);
+    if (gexData && !gexData.error) updateGexCharts(gexData);
 
     document.getElementById('lastUpdate').textContent =
       `最后更新: ${data.last_update || '--'} | 前次基准: ${data.prev_timestamp || '--'} | 版本 v2.11.3`;
@@ -622,27 +743,6 @@ function updateSmileChart(data) {
       { data: smoothData },
       { data: prevData },
     ],
-  });
-}
-
-function updateAtmChart(data) {
-  const chart = chartInstances.atm;
-  if (!chart) return;
-
-  if (_atmHistory.length === 0) {
-    chart.showLoading({
-      text: '盘中积累数据后显示',
-      color: '#444',
-      textColor: '#444',
-      maskColor: 'transparent',
-    });
-    return;
-  }
-  chart.hideLoading();
-
-  chart.setOption({
-    xAxis: { data: _atmHistory.map(d => d.time) },
-    series: [{ data: _atmHistory.map(d => d.value) }],
   });
 }
 
@@ -728,6 +828,124 @@ function updateMetrics(data) {
       const fitEl = document.getElementById('mFitErr');
       fitEl.textContent = rmse.toFixed(2) + '%';
       fitEl.style.color = rmse < 1 ? '#00ff88' : rmse < 3 ? '#ffaa00' : '#ff4444';
+    }
+  }
+}
+
+// ===================== GEX / Pain / OI 图表更新 =====================
+function updateGexCharts(gexData) {
+  const summary = gexData.summary || {};
+  const gexBars = gexData.gex_bars || [];
+  const painCurve = gexData.pain_curve || [];
+  const oiDist = gexData.oi_dist || [];
+
+  // ---- 指标栏 ----
+  // PCR
+  const pcrEl = document.getElementById('mPcr');
+  if (summary.pcr != null) {
+    pcrEl.textContent = summary.pcr.toFixed(3);
+    pcrEl.style.color = summary.pcr > 1.2 ? '#ff6b9d' : summary.pcr < 0.8 ? '#00d4ff' : '#aaa';
+    document.getElementById('mPcrSub').textContent =
+      summary.pcr > 1.5 ? '极度看跌' : summary.pcr > 1.2 ? '偏空' : summary.pcr < 0.7 ? '偏多' : '中性';
+  }
+
+  // 净GEX方向
+  const gexDirEl = document.getElementById('mGexDir');
+  if (summary.net_gex != null) {
+    const absGex = Math.abs(summary.net_gex);
+    const gexStr = absGex >= 1e6 ? (summary.net_gex/1e6).toFixed(1) + 'M' : absGex >= 1e3 ? (summary.net_gex/1e3).toFixed(0) + 'K' : Math.round(summary.net_gex);
+    const isPos = summary.net_gex > 0;
+    gexDirEl.textContent = (isPos ? '▲ +' : '▼ ') + gexStr;
+    gexDirEl.style.color = isPos ? '#00ff88' : '#ff4444';
+    document.getElementById('mGexDirSub').textContent =
+      isPos ? '正Gamma → 抑制波动' : '负Gamma → 放大波动';
+  }
+
+  // GEX翻转点
+  const flipEl = document.getElementById('mGexFlip');
+  if (summary.gex_flip != null) {
+    flipEl.textContent = summary.gex_flip;
+    const diff = summary.futures_price ? summary.gex_flip - summary.futures_price : 0;
+    document.getElementById('mGexFlipSub').textContent =
+      diff > 0 ? `高于现价 ${Math.abs(diff)} 点` : diff < 0 ? `低于现价 ${Math.abs(diff)} 点` : '与现价重合';
+  } else {
+    flipEl.textContent = '无';
+    document.getElementById('mGexFlipSub').textContent = '全为正或全为负';
+  }
+
+  // 距到期
+  const daysEl = document.getElementById('mDaysLeft');
+  if (summary.days_left != null) {
+    const d = summary.days_left;
+    daysEl.textContent = d.toFixed(1) + ' 天';
+    daysEl.style.color = d <= 3 ? '#ff4444' : d <= 7 ? '#ffaa00' : '#00d4ff';
+    document.getElementById('mDaysLeftSub').textContent =
+      d <= 3 ? '⚠️ 即将到期！Gamma加速' : d <= 7 ? '临近到期' : '时间充裕';
+  }
+
+  // ---- GEX 柱状图 ----
+  const gexChart = chartInstances.gex;
+  if (gexChart && gexBars.length > 0) {
+    // 过滤掉 OI 为 0 的行权价（无意义的空行）
+    const filtered = gexBars.filter(d => d.call_gex !== 0 || d.put_gex !== 0);
+    const strikes = filtered.map(d => String(d.strike));
+    gexChart.setOption({
+      xAxis: { data: strikes },
+      series: [
+        { data: filtered.map(d => d.call_gex) },
+        { data: filtered.map(d => d.put_gex) },
+        { data: filtered.map(d => d.net_gex) },
+      ],
+    });
+    // 在图表上标注期货价格线和Max Pain线
+    const markLines = [];
+    if (summary.futures_price) markLines.push({ xAxis: String(summary.futures_price), label: { formatter: 'F=' + summary.futures_price, color: '#00ff88', fontSize: 9 }, lineStyle: { color: '#00ff88', type: 'dashed' } });
+    if (summary.max_pain) markLines.push({ xAxis: String(summary.max_pain), label: { formatter: 'MP=' + summary.max_pain, color: '#ff6b9d', fontSize: 9 }, lineStyle: { color: '#ff6b9d', type: 'dotted' } });
+    if (markLines.length > 0) {
+      gexChart.setOption({ series: [{ name: 'Net GEX', markLine: { silent: true, symbol: 'none', data: markLines } }] });
+    }
+  }
+
+  // ---- 疼痛曲线 ----
+  const painChart = chartInstances.pain;
+  if (painChart && painCurve.length > 0) {
+    const strikes = painCurve.map(d => String(d.strike));
+    const pains = painCurve.map(d => d.pain);
+    painChart.setOption({
+      xAxis: { data: strikes },
+      series: [{
+        data: pains,
+        markPoint: summary.max_pain ? {
+          data: [{
+            coord: [String(summary.max_pain), painCurve.find(d => d.strike === summary.max_pain)?.pain || 0],
+            symbol: 'pin', symbolSize: 40,
+            itemStyle: { color: '#ff4444' },
+            label: { formatter: 'Max Pain\n' + summary.max_pain, fontSize: 9, color: '#fff' },
+          }],
+        } : undefined,
+        markLine: summary.futures_price ? {
+          silent: true, symbol: 'none',
+          data: [{ xAxis: String(summary.futures_price), label: { formatter: 'F=' + summary.futures_price, color: '#00ff88', fontSize: 9 }, lineStyle: { color: '#00ff88', type: 'dashed' } }],
+        } : undefined,
+      }],
+    });
+  }
+
+  // ---- OI 分布 ----
+  const oiChart = chartInstances.oi;
+  if (oiChart && oiDist.length > 0) {
+    const filtered = oiDist.filter(d => d.call_oi > 0 || d.put_oi > 0);
+    const strikes = filtered.map(d => String(d.strike));
+    oiChart.setOption({
+      xAxis: { data: strikes },
+      series: [
+        { data: filtered.map(d => d.call_oi) },
+        { data: filtered.map(d => -d.put_oi) },  // Put OI 向下（镜像）
+      ],
+    });
+    // 标注期货价格
+    if (summary.futures_price) {
+      oiChart.setOption({ series: [{ name: 'Call OI', markLine: { silent: true, symbol: 'none', data: [{ xAxis: String(summary.futures_price), label: { formatter: 'F=' + summary.futures_price, color: '#00ff88', fontSize: 9 }, lineStyle: { color: '#00ff88', type: 'dashed' } }] } }] });
     }
   }
 }
@@ -1000,8 +1218,17 @@ function checkAndAlert(alertData) {
     const isReversal = a.ref_type === 'reversal';
     const levelText = isReversal ? '⚡盘中反转' : a.level === 'major' ? '🔴重大异动' : '🟡显著异动';
     const title = `${levelText} — K${a.strike}`;
-    const chgText = a.iv_chg != null ? (a.iv_chg >= 0 ? '+' : '') + a.iv_chg.toFixed(2) + '%' : '';
-    const detail = `IV变化: ${chgText}`;
+    // 显示触发报警的具体维度（Call/Put raw IV变化），而非smooth笼统值
+    let parts = [];
+    if (a.iv_call_level) {
+      const cc = a.iv_call_chg != null ? (a.iv_call_chg >= 0 ? '+' : '') + a.iv_call_chg.toFixed(2) + '%' : '';
+      parts.push(`Call IV ${cc}`);
+    }
+    if (a.iv_put_level) {
+      const pc = a.iv_put_chg != null ? (a.iv_put_chg >= 0 ? '+' : '') + a.iv_put_chg.toFixed(2) + '%' : '';
+      parts.push(`Put IV ${pc}`);
+    }
+    const detail = parts.length ? parts.join('，') : `IV变化: ${a.iv_chg != null ? (a.iv_chg >= 0 ? '+' : '') + a.iv_chg.toFixed(2) + '%' : ''}`;
 
     const toastLevel = isReversal ? 'reversal' : a.level === 'major' ? 'major' : 'significant';
     showToast(title, detail, toastLevel);
