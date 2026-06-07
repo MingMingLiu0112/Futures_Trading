@@ -736,7 +736,7 @@ def _load_pta_spot_and_future(pta_data):
                         "value": round(basis_val, 1),
                         "premium": "现货升水" if basis_val > 0 else "现货贴水",
                         "level": "强" if abs(basis_val) > 150 else "中" if abs(basis_val) > 80 else "弱",
-                        "note": f"现货参考价¥{spot_px} - TA{main['symbol']}结算¥{fut_settle}"
+                        "note": f"现货参考价¥{spot_px} - {main['symbol']}结算¥{fut_settle}"
                     }
 
     except Exception as e:

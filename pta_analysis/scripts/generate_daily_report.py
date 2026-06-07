@@ -223,25 +223,30 @@ def get_pta_data() -> Dict:
         except Exception as e:
             print(f"PTA现货数据错误: {e}")
 
-    # PTA期货日行情
+    # PTA期货日行情（CZCE日行情，英文列名：symbol/settle/close/volume/open_interest/pre_settle/variety）
     try:
         df_fut = ak.get_czce_daily(date=date_str)
         if df_fut is not None and not df_fut.empty:
-            ta_fut = df_fut[df_fut['品种代码'].str.contains('TA', na=False)]
+            # 按variety或symbol筛选TA品种，按成交量降序取主力合约
+            if 'variety' in df_fut.columns:
+                ta_fut = df_fut[df_fut['variety'] == 'TA'].sort_values('volume', ascending=False)
+            else:
+                ta_fut = df_fut[df_fut['symbol'].str.startswith('TA', na=False)].sort_values('volume', ascending=False)
             if not ta_fut.empty:
-                r = ta_fut.iloc[-1]
+                r = ta_fut.iloc[0]  # 成交量最大 = 主力合约
                 data['future'] = {
-                    'symbol': str(r.get('品种代码', 'TA')),
-                    'settle': float(r.get('结算价', 0)),
-                    'close': float(r.get('收盘价', 0)),
-                    'volume': int(r.get('成交量', 0)),
-                    'open_interest': int(r.get('持仓量', 0)),
+                    'symbol': str(r.get('symbol', 'TA')),
+                    'settle': float(r.get('settle', 0)),
+                    'close': float(r.get('close', 0)),
+                    'volume': int(r.get('volume', 0)),
+                    'open_interest': int(r.get('open_interest', 0)),
+                    'pre_settle': float(r.get('pre_settle', 0)),
                 }
-                prev_close = float(r.get('昨收盘', 0))
-                if prev_close > 0:
-                    change = float(r.get('收盘价', 0)) - prev_close
+                pre_settle = float(r.get('pre_settle', 0))
+                if pre_settle > 0:
+                    change = float(r.get('close', 0)) - pre_settle
                     data['future']['change'] = round(change, 2)
-                    data['future']['change_pct'] = round((change / prev_close) * 100, 2)
+                    data['future']['change_pct'] = round((change / pre_settle) * 100, 2)
     except Exception as e:
         print(f"PTA期货数据错误: {e}")
 
