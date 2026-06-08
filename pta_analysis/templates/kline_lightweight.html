@@ -353,8 +353,8 @@
                 <option value="1month">月线</option>
             </select>
             <button onclick="loadAllData()">🔄 刷新</button>
-            <!-- 期权链按钮已废弃（v2.11.5）—— 整合到 隐波微笑 -->
-            <button onclick="window.open('/iv_smile', '_blank')" style="padding:6px 12px;border-radius:4px;border:1px solid #444;background:#2d2d44;color:#94a3b8;cursor:pointer;font-size:13px;">📈 隐波微笑</button>
+            <!-- 期权链按钮已废弃（v2.11.5）—— 整合到 动态期权 -->
+            <button onclick="window.open('/iv_smile', '_blank')" style="padding:6px 12px;border-radius:4px;border:1px solid #444;background:#2d2d44;color:#94a3b8;cursor:pointer;font-size:13px;">📈 动态期权</button>
             <button onclick="window.open('/chan/', '_blank')" style="padding:6px 12px;border-radius:4px;border:1px solid #444;background:#2d2d44;color:#94a3b8;cursor:pointer;font-size:13px;">📐 缠论</button>
 
             <button onclick="window.open('/trading', '_blank')" style="padding:6px 12px;border-radius:4px;border:1px solid #FF9800;background:#2d2d44;color:#FF9800;cursor:pointer;font-size:13px;font-weight:bold;">📉 回测</button>
@@ -2850,7 +2850,6 @@ async function loadDailyReport() {
                 // ============================
                 const s1 = d.section1 || {};
                 const gx = s1.gex_summary || {};
-                if (livePrice) gx.futures_price = livePrice;
                 html += `<div style="margin-bottom:14px;">
                     <div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:6px;">📊 ${s1.title || '期权数据解读'}</div>`;
 
@@ -2867,9 +2866,10 @@ async function loadDailyReport() {
                     </div>`;
 
                     html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;font-size:12px;">
-                        <span style="color:#ccc;">PCR <b style="color:${(gx.pcr||0)>1.2?'#ef5350':(gx.pcr||0)<0.8?'#26a69a':'#ffd700'}">${gx.pcr?gx.pcr.toFixed(3):'--'}</b></span>
-                        <span style="color:#ccc;">Call OI <b style="color:#26a69a;">${gx.total_call_oi?gx.total_call_oi.toLocaleString():'--'}</b></span>
-                        <span style="color:#ccc;">Put OI <b style="color:#ef5350;">${gx.total_put_oi?gx.total_put_oi.toLocaleString():'--'}</b></span>
+                        <span style="color:#ccc;">持仓PCR<b style="color:${(gx.pcr||0)>1.2?'#ef5350':(gx.pcr||0)<0.8?'#26a69a':'#ffd700'}"> ${gx.pcr?gx.pcr.toFixed(3):'--'}</b> <span style="font-size:10px;color:#888;">T表口径</span></span>
+                        <span style="color:#ccc;">Call持仓 <b style="color:#26a69a;">${gx.total_call_oi?gx.total_call_oi.toLocaleString():'--'}</b></span>
+                        <span style="color:#ccc;">Put持仓 <b style="color:#ef5350;">${gx.total_put_oi?gx.total_put_oi.toLocaleString():'--'}</b></span>
+                        ${gx.gex_pcr ? `<span style="color:#777;font-size:11px;">GEX口径PCR ${gx.gex_pcr.toFixed(3)}</span>` : ''}
                         <span style="color:#ccc;">到期 <b style="color:#ffd700;">${gx.expiry||'--'}</b></span>
                     </div>`;
 
@@ -4070,6 +4070,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div id="klFooterVersion" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.20</div>
+<div id="klFooterVersion" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.22</div>
 </body>
 </html>

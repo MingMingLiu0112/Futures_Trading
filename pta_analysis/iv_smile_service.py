@@ -2272,6 +2272,7 @@ def register_routes(app):
             'prev_timestamp': prev_ts_display,      # 格式: "09:30" 或 "昨收盘"
             'prev_interval_key': prev_key,          # 格式: "09:30"
             'current_interval_key': latest_key,   # 格式: "10:45"
+            'is_trading_hours': _is_trading_hours(),  # 当前是否处于交易时段（前端避免休盘显示“当前升波”）
             'using_night_fallback': using_night_fallback,  # 是否用了昨夜盘兜底
             'is_cold_start_fallback': is_cold_start_fallback,  # 冷启动兜底（prev与current相同，无对比意义）
         })

@@ -8,7 +8,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PTA期权隐波微笑曲线</title>
+<title>PTA期权动态监控</title>
 <script src="/static/js/echarts.min.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -306,7 +306,7 @@
 
 <!-- ===== 顶栏 ===== -->
 <div class="header">
-  <h2>📊 PTA期权隐波微笑曲线</h2>
+  <h2>📊 PTA期权动态监控</h2>
   <div style="display:flex;align-items:center;gap:16px;">
     <div class="status-bar">
       <div class="status-item">
@@ -720,7 +720,7 @@ async function fetchData() {
     if (gexData && !gexData.error) updateGexCharts(gexData, alertData);
 
     document.getElementById('lastUpdate').textContent =
-      `最后更新: ${data.last_update || '--'} | 前次基准: ${data.prev_timestamp || '--'} | 版本 v2.11.21`;
+      `最后更新: ${data.last_update || '--'} | 前次基准: ${data.prev_timestamp || '--'} | 版本 v2.11.22`;
   } catch (err) {
     showError('数据加载失败: ' + err.message);
   }
@@ -805,7 +805,8 @@ function updateMetrics(data) {
   } else if (atmItem && atmItem.smooth != null) {
     document.getElementById('mAtmIv').textContent = (atmItem.smooth * 100).toFixed(2) + '%';
   }
-  // ATM IV 变化 badge（放在sub行）
+  // ATM IV 变化 badge（放在sub行）。休盘时只表示“较基准变化”，不写成当前实时升/降波。
+  const isTradingHours = data.is_trading_hours === true;
   if (atmItem && atmItem.smooth != null && atmItem.smooth_prev != null) {
     const diff = atmItem.smooth - atmItem.smooth_prev;
     const sign = diff >= 0 ? '+' : '';
@@ -813,7 +814,8 @@ function updateMetrics(data) {
       : diff < -0.001 ? '<span class="badge badge-down">↓</span>'
       : '<span class="badge badge-flat">—</span>';
     const diffEl = document.getElementById('mAtmDiffSub');
-    diffEl.innerHTML = sign + (diff * 100).toFixed(2) + '% ' + badge;
+    const prefix = isTradingHours ? '' : '休盘·较基准 ';
+    diffEl.innerHTML = prefix + sign + (diff * 100).toFixed(2) + '% ' + badge;
     diffEl.style.color = diff > 0.001 ? '#ff4444' : diff < -0.001 ? '#00d4ff' : '#888';
   } else {
     document.getElementById('mAtmDiffSub').textContent = '无历史';
@@ -831,6 +833,7 @@ function updateMetrics(data) {
   }
 
   // ③ 全曲线平均变化：所有可比行权价的 smooth IV 均值变化（非 ATM 单点，非 Call/Put raw IV）
+  // 休盘时这里是“较基准变化”，不是当前盘中实时升/降波。
   let totalDiff = 0, count = 0;
   curve.forEach(d => {
     if (d.smooth != null && d.smooth_prev != null) {
@@ -843,8 +846,9 @@ function updateMetrics(data) {
     const shapeEl = document.getElementById('mShape');
     shapeEl.textContent = (avgDiff >= 0 ? '+' : '') + avgDiff.toFixed(2) + '%';
     shapeEl.style.color = avgDiff > 0.05 ? '#ff4444' : avgDiff < -0.05 ? '#00d4ff' : '#aaffaa';
-    document.getElementById('mShapeSub').textContent =
-      avgDiff > 0.05 ? 'smooth均值升波（非ATM）' : avgDiff < -0.05 ? 'smooth均值降波（非ATM）' : 'smooth均值基本持平';
+    let shapeText = avgDiff > 0.05 ? 'smooth均值升波（非ATM）' : avgDiff < -0.05 ? 'smooth均值降波（非ATM）' : 'smooth均值基本持平';
+    if (!isTradingHours) shapeText = shapeText.replace('升波', '高于基准').replace('降波', '低于基准');
+    document.getElementById('mShapeSub').textContent = shapeText;
   }
 
   // ④ 曲率 Curvature（SVI模型二阶导）
@@ -889,18 +893,34 @@ function updateGexCharts(gexData, alertData) {
   const hasPrev = prevGexBars.length > 0 || prevPainCurve.length > 0 || prevOiDist.length > 0;
 
   // ---- 指标栏 ----
-  // PCR
+  // 持仓PCR：Put持仓合计 / Call持仓合计。
+  // 使用T型表同源“存量显示口径”：当前持仓非0用当前；当前为0且前次有值时，用前次存量兜底。
+  // 只用于持仓PCR指标，避免GEX接口21档OI影响PCR显示。
   const pcrEl = document.getElementById('mPcr');
-  if (summary.pcr != null) {
-    pcrEl.textContent = summary.pcr.toFixed(3);
-    pcrEl.style.color = summary.pcr > 1.2 ? '#ff6b9d' : summary.pcr < 0.8 ? '#00d4ff' : '#aaa';
+  const volRows = (alertData && alertData.rows) || [];
+  let totalCallOi = 0, totalPutOi = 0;
+  volRows.forEach(r => {
+    const curCall = Number(r.oi_call || 0);
+    const curPut = Number(r.oi_put || 0);
+    const prevCall = Number(r.oi_call_prev || 0);
+    const prevPut = Number(r.oi_put_prev || 0);
+    totalCallOi += curCall !== 0 ? curCall : prevCall;
+    totalPutOi += curPut !== 0 ? curPut : prevPut;
+  });
+  if (totalCallOi > 0) {
+    const oiPcr = totalPutOi / totalCallOi;
+    pcrEl.textContent = oiPcr.toFixed(3);
+    pcrEl.style.color = oiPcr > 1.2 ? '#ff6b9d' : oiPcr < 0.8 ? '#00d4ff' : '#aaa';
     document.getElementById('mPcrSub').textContent =
-      summary.pcr > 1.5 ? '极度看跌' : summary.pcr > 1.2 ? '偏空' : summary.pcr < 0.7 ? '偏多' : '中性';
+      `Put ${totalPutOi.toLocaleString()} / Call ${totalCallOi.toLocaleString()}`;
+  } else {
+    pcrEl.textContent = '--';
+    pcrEl.style.color = '#555';
+    document.getElementById('mPcrSub').textContent = 'Call持仓为0，无法计算';
   }
 
   // 成交PCR：Put成交量合计 / Call成交量合计（使用T型表同源成交量字段）
   const volPcrEl = document.getElementById('mVolPcr');
-  const volRows = (alertData && alertData.rows) || [];
   let totalCallVol = 0, totalPutVol = 0;
   volRows.forEach(r => {
     totalCallVol += Number(r.vol_call || 0);

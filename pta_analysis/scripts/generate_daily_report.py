@@ -767,6 +767,27 @@ def generate_option_analysis(opt: Dict, gex: Dict = None, iv_curve: Dict = None,
     total_put_oi = gs.get('total_put_oi')
     expiry = gs.get('expiry', '')[:10] if gs.get('expiry') else ''
 
+    # 持仓PCR必须与 /iv_smile 指标栏一致：使用T型表显示口径，而不是GEX 21档OI口径。
+    # 口径：当前持仓非0用当前；当前持仓为0且前次有值时，用前次存量兜底。
+    # GEX/MaxPain/Flip仍沿用 /api/iv_smile/gex 的21档Gamma口径。
+    pcr_val = gs.get('pcr') or pcr_hold
+    pcr_call_oi = total_call_oi
+    pcr_put_oi = total_put_oi
+    if iv_table and iv_table.get('rows'):
+        t_call_oi = 0
+        t_put_oi = 0
+        for r in iv_table.get('rows', []):
+            cur_call = r.get('oi_call') or 0
+            cur_put = r.get('oi_put') or 0
+            prev_call = r.get('oi_call_prev') or 0
+            prev_put = r.get('oi_put_prev') or 0
+            t_call_oi += cur_call if cur_call != 0 else prev_call
+            t_put_oi += cur_put if cur_put != 0 else prev_put
+        if t_call_oi > 0:
+            pcr_val = t_put_oi / t_call_oi
+            pcr_call_oi = t_call_oi
+            pcr_put_oi = t_put_oi
+
     # OI分布——找最大Call压力位和Put支撑位 + 次大持仓位
     oi_dist = gex.get('oi_dist', [])
     max_call_strike = max_put_strike = None
@@ -971,14 +992,14 @@ def generate_option_analysis(opt: Dict, gex: Dict = None, iv_curve: Dict = None,
     # ===== 结论 =====
     conclusions = []
 
-    # GEX方向
+    # GEX方向：只描述波动状态，不把正/负Gamma当方向预测
     if net_gex is not None:
         if gex_direction == 'positive':
             conclusions.append(
-                f"🛡️ 净GEX为正(+{net_gex/1e6:.1f}M)，做市商正Gamma → 反向对冲压制波动，倾向区间震荡")
+                f"🛡️ 净GEX为正(+{net_gex/1e6:.1f}M)：做市商对冲流倾向涨了卖、跌了买，压制波动，更偏震荡/均值回归；这不是看涨信号")
         else:
             conclusions.append(
-                f"⚡ 净GEX为负({net_gex/1e6:.1f}M)，做市商负Gamma → 顺向对冲放大波动，警惕趋势加速")
+                f"⚡ 净GEX为负({net_gex/1e6:.1f}M)：做市商对冲流倾向涨了买、跌了卖，放大波动，突破后趋势延续风险更高；这不是看跌信号")
 
     # Max Pain 收敛
     if pain_convergence:
@@ -994,12 +1015,11 @@ def generate_option_analysis(opt: Dict, gex: Dict = None, iv_curve: Dict = None,
     if gex_flip and futures_price:
         dist = futures_price - gex_flip
         if dist > 0:
-            conclusions.append(f"📍 GEX翻转{gex_flip}，当前价在上方{dist:.0f}点 → 正Gamma区间，波动受抑")
+            conclusions.append(f"📍 GEX翻转{gex_flip}，当前价{futures_price:.0f}在上方{dist:.0f}点：处于正Gamma状态；若回落接近/有效跌破翻转线，震荡假设减弱、波动放大风险上升")
         else:
-            conclusions.append(f"📍 GEX翻转{gex_flip}，当前价在下方{abs(dist):.0f}点 → 负Gamma区间，波动放大")
+            conclusions.append(f"📍 GEX翻转{gex_flip}，当前价{futures_price:.0f}在下方{abs(dist):.0f}点：处于负Gamma状态；若重新站上翻转线，波动可能重新受抑")
 
     # PCR
-    pcr_val = gs.get('pcr') or pcr_hold
     if pcr_val:
         if pcr_val > 1.2:
             conclusions.append(f"📉 PCR={pcr_val:.3f}>1.2，看跌持仓偏重，空头力量偏强")
@@ -1052,9 +1072,13 @@ def generate_option_analysis(opt: Dict, gex: Dict = None, iv_curve: Dict = None,
             'futures_price': futures_price,
             'days_left': days_left,
             'expiry': expiry,
-            'total_call_oi': total_call_oi,
-            'total_put_oi': total_put_oi,
+            'total_call_oi': pcr_call_oi,
+            'total_put_oi': pcr_put_oi,
             'pcr': pcr_val,
+            'pcr_source': 'T表显示口径：当前持仓非0用当前，当前为0用前次兜底',
+            'gex_total_call_oi': total_call_oi,
+            'gex_total_put_oi': total_put_oi,
+            'gex_pcr': gs.get('pcr'),
             'max_call_strike': max_call_strike,
             'max_call_oi': max_call_oi,
             'max_put_strike': max_put_strike,
@@ -1455,11 +1479,11 @@ def generate_strategy_suggestions(opt: Dict, pta: Dict, cost_data: Dict, cost_lo
     option_score = 0
     option_reasons = []
 
-    # GEX方向
+    # GEX方向：波动状态，不作为方向多空加分
     if gex_direction == 'positive':
-        option_reasons.append(f'正Gamma(净GEX+{net_gex/1e6:.1f}M)，波动受压')
+        option_reasons.append(f'正Gamma(净GEX+{net_gex/1e6:.1f}M)，对冲流压制波动，偏震荡/均值回归')
     elif gex_direction == 'negative':
-        option_reasons.append(f'负Gamma(净GEX{net_gex/1e6:.1f}M)，波动放大')
+        option_reasons.append(f'负Gamma(净GEX{net_gex/1e6:.1f}M)，对冲流放大波动，趋势延续风险更高')
 
     # PCR
     if pcr:
@@ -1491,14 +1515,13 @@ def generate_strategy_suggestions(opt: Dict, pta: Dict, cost_data: Dict, cost_lo
                 option_score += score_adj
                 option_reasons.append(f'价格偏离痛点{max_pain}达{diff:+.0f}')
 
-    # GEX翻转点
+    # GEX翻转点：状态切换线，不直接作为方向多空分
     if gex_flip and pta_price and pta_price > 0:
-        if pta_price > gex_flip:
-            option_score += 0.2
-            option_reasons.append(f'价格在翻转点{gex_flip}上方(正Gamma区)')
+        dist = pta_price - gex_flip
+        if dist > 0:
+            option_reasons.append(f'价格{pta_price:.0f}在翻转点{gex_flip}上方{dist:.0f}点(正Gamma状态)')
         else:
-            option_score -= 0.2
-            option_reasons.append(f'价格在翻转点{gex_flip}下方(负Gamma区)')
+            option_reasons.append(f'价格{pta_price:.0f}在翻转点{gex_flip}下方{abs(dist):.0f}点(负Gamma状态)')
 
     option_score = max(-2, min(2, option_score))
     dim_scores['option'] = {
@@ -1523,17 +1546,21 @@ def generate_strategy_suggestions(opt: Dict, pta: Dict, cost_data: Dict, cost_lo
     # ===== 策略条目生成（保留原有的详细策略） =====
     # GEX环境
     if net_gex is not None and gex_direction:
+        flip_note = ''
+        if gex_flip and pta_price and pta_price > 0:
+            dist = pta_price - gex_flip
+            flip_note = f'；Flip={gex_flip}，当前价{pta_price:.0f}{"高于" if dist > 0 else "低于"}{gex_flip}{abs(dist):.0f}点'
         if gex_direction == 'positive':
             strategies.append({
-                'action': '🛡️ 正Gamma环境',
-                'detail': f'净GEX=+{net_gex/1e6:.1f}M，做市商反向对冲压制波动',
-                'suggestion': '利于卖方策略（卖跨/卖宽跨），预期区间震荡；买入波动率策略需谨慎'
+                'action': '🛡️ 正Gamma波动环境',
+                'detail': f'净GEX=+{net_gex/1e6:.1f}M，做市商对冲流倾向涨了卖、跌了买{flip_note}',
+                'suggestion': '偏波动抑制/震荡回归，追突破谨慎；若价格接近或跌破Flip，波动放大风险上升。GEX不是方向预测'
             })
         else:
             strategies.append({
-                'action': '⚡ 负Gamma环境',
-                'detail': f'净GEX={net_gex/1e6:.1f}M，做市商顺向对冲放大波动',
-                'suggestion': '波动率可能扩大，卖方注意止损保护；适合买入波动率或方向性策略'
+                'action': '⚡ 负Gamma波动环境',
+                'detail': f'净GEX={net_gex/1e6:.1f}M，做市商对冲流倾向涨了买、跌了卖{flip_note}',
+                'suggestion': '偏波动放大/趋势延续，卖方需控制尾部风险；若重新站上Flip，波动可能重新受抑。GEX不是方向预测'
             })
 
     # Max Pain / 到期
