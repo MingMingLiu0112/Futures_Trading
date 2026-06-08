@@ -2,6 +2,7 @@
 
 
 
+
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -70,10 +71,10 @@
     letter-spacing: 1px;
   }
 
-  /* ===== GEX 指标栏（1行4列）===== */
+  /* ===== GEX 指标栏（1行5列）===== */
   .gex-metric-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     gap: 8px;
     margin-bottom: 10px;
   }
@@ -88,6 +89,8 @@
 
   /* ===== T型表格 ===== */
   .t-table-wrap { margin-top: 10px; padding: 0 2px; max-height: 480px; overflow-y: auto; }
+  .t-table-toolbar { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; }
+  .t-table-toolbar .btn { padding: 3px 10px; font-size: 11px; white-space: nowrap; }
   .t-table {
     width: 100%;
     border-collapse: collapse;
@@ -108,12 +111,14 @@
     text-align: right;
     border-bottom: 2px solid #2a2a4a;
   }
-  /* 对称列宽：Call 4列 | 行权价 | Put 4列 */
-  .t-table colgroup .col-oi   { width: 14%; }
-  .t-table colgroup .col-oichg { width: 10%; }
-  .t-table colgroup .col-iv   { width: 10%; }
-  .t-table colgroup .col-ivchg { width: 10%; }
-  .t-table colgroup .col-strike { width: 12%; }
+  /* 对称列宽：Call 6列 | 行权价 | Put 6列 */
+  .t-table colgroup .col-oi   { width: 8%; }
+  .t-table colgroup .col-oichg { width: 8%; }
+  .t-table colgroup .col-vol  { width: 8%; }
+  .t-table colgroup .col-volchg { width: 8%; }
+  .t-table colgroup .col-iv   { width: 8%; }
+  .t-table colgroup .col-ivchg { width: 8%; }
+  .t-table colgroup .col-strike { width: 8%; }
   .t-table th.call-h { color: #00d4ff; }
   .t-table th.put-h { color: #ff6b9d; }
   .t-table th.center-h { color: #ffaa00; text-align: center; }
@@ -126,8 +131,8 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* 行权价居中（第5列） */
-  .t-table td:nth-child(5) { text-align: center; color: #ffaa00; font-weight: 600; }
+  /* 行权价居中（第7列） */
+  .t-table td:nth-child(7) { text-align: center; color: #ffaa00; font-weight: 600; }
   .t-table tr:hover { background: #1a1a2e; }
   .t-table tr.atm-row { background: #1a2a1a; }
   .t-table tr.atm-row:hover { background: #1f3020; }
@@ -330,7 +335,7 @@
   </div>
 </div>
 
-<!-- ===== 指标栏（1行4列）===== -->
+<!-- ===== 指标栏（1行5列）===== -->
 <div class="metric-grid">
   <div class="metric-box">
     <div class="metric-name">ATM 隐波</div>
@@ -343,9 +348,9 @@
     <div class="metric-sub" id="mSkewSub">dσ/dk at ATM</div>
   </div>
   <div class="metric-box">
-    <div class="metric-name">曲线形态</div>
+    <div class="metric-name">全曲线平均变化</div>
     <div class="metric-value" id="mShape" style="color:#aaffaa;">--</div>
-    <div class="metric-sub" id="mShapeSub">整体平移</div>
+    <div class="metric-sub" id="mShapeSub">smooth均值变化（非ATM）</div>
   </div>
   <div class="metric-box">
     <div class="metric-name">曲率 Curvature</div>
@@ -371,12 +376,17 @@
   </div>
 </div>
 
-<!-- ===== GEX 指标栏（1行4列）===== -->
+<!-- ===== GEX 指标栏（1行5列）===== -->
 <div class="gex-metric-grid">
   <div class="metric-box">
-    <div class="metric-name">PCR (Put/Call Ratio)</div>
+    <div class="metric-name">持仓PCR</div>
     <div class="metric-value" id="mPcr" style="color:#ff6b9d;">--</div>
     <div class="metric-sub" id="mPcrSub">Put/Call持仓比</div>
+  </div>
+  <div class="metric-box">
+    <div class="metric-name">成交PCR</div>
+    <div class="metric-value" id="mVolPcr" style="color:#ffaa00;">--</div>
+    <div class="metric-sub" id="mVolPcrSub">Put成交 / Call成交</div>
   </div>
   <div class="metric-box">
     <div class="metric-name">净 GEX 方向</div>
@@ -409,16 +419,23 @@
 
 <!-- ===== T型表格 ===== -->
 <div class="t-table-wrap">
-  <div class="card-title" style="margin-bottom:8px;">分档隐波明细</div>
-  <table class="t-table">
+  <div class="t-table-toolbar">
+    <div class="card-title">分档隐波明细</div>
+    <button class="btn" onclick="exportTTableExcel()">📥 Excel导出</button>
+  </div>
+  <table class="t-table" id="tTable">
     <colgroup>
       <col class="col-oichg">
       <col class="col-oi">
+      <col class="col-volchg">
+      <col class="col-vol">
       <col class="col-ivchg">
       <col class="col-iv">
       <col class="col-strike">
       <col class="col-iv">
       <col class="col-ivchg">
+      <col class="col-vol">
+      <col class="col-volchg">
       <col class="col-oi">
       <col class="col-oichg">
     </colgroup>
@@ -426,17 +443,21 @@
       <tr>
         <th class="call-h">持仓变化</th>
         <th class="call-h">Call持仓</th>
+        <th class="call-h">成交变化</th>
+        <th class="call-h">Call成交</th>
         <th class="call-h">IV变化</th>
         <th class="call-h">Call IV</th>
         <th class="center-h">行权价</th>
         <th class="put-h">Put IV</th>
         <th class="put-h">IV变化</th>
+        <th class="put-h">Put成交</th>
+        <th class="put-h">成交变化</th>
         <th class="put-h">Put持仓</th>
         <th class="put-h">持仓变化</th>
       </tr>
     </thead>
     <tbody id="tBody">
-      <tr><td colspan="9" style="text-align:center;color:#444;height:80px;">暂无数据</td></tr>
+      <tr><td colspan="13" style="text-align:center;color:#444;height:80px;">暂无数据</td></tr>
     </tbody>
   </table>
 </div>
@@ -696,10 +717,10 @@ async function fetchData() {
     updateMetrics(data);
     updateTable(alertData, data);
     checkAndAlert(alertData);
-    if (gexData && !gexData.error) updateGexCharts(gexData);
+    if (gexData && !gexData.error) updateGexCharts(gexData, alertData);
 
     document.getElementById('lastUpdate').textContent =
-      `最后更新: ${data.last_update || '--'} | 前次基准: ${data.prev_timestamp || '--'} | 版本 v2.11.20`;
+      `最后更新: ${data.last_update || '--'} | 前次基准: ${data.prev_timestamp || '--'} | 版本 v2.11.21`;
   } catch (err) {
     showError('数据加载失败: ' + err.message);
   }
@@ -768,7 +789,7 @@ function updateSmileChart(data) {
   });
 }
 
-// 更新指标栏（1行4列）
+// 更新指标栏（1行5列）
 function updateMetrics(data) {
   const curve = data.curve || [];
   if (curve.length === 0) return;
@@ -809,7 +830,7 @@ function updateMetrics(data) {
       skewVal < -0.05 ? 'Put偏斜（左倾）' : skewVal > 0.05 ? 'Call偏斜（右倾）' : '基本对称';
   }
 
-  // ③ 曲线形态（整体平移：升波/降波）
+  // ③ 全曲线平均变化：所有可比行权价的 smooth IV 均值变化（非 ATM 单点，非 Call/Put raw IV）
   let totalDiff = 0, count = 0;
   curve.forEach(d => {
     if (d.smooth != null && d.smooth_prev != null) {
@@ -823,7 +844,7 @@ function updateMetrics(data) {
     shapeEl.textContent = (avgDiff >= 0 ? '+' : '') + avgDiff.toFixed(2) + '%';
     shapeEl.style.color = avgDiff > 0.05 ? '#ff4444' : avgDiff < -0.05 ? '#00d4ff' : '#aaffaa';
     document.getElementById('mShapeSub').textContent =
-      avgDiff > 0.05 ? '整体升波' : avgDiff < -0.05 ? '整体降波' : '基本持平';
+      avgDiff > 0.05 ? 'smooth均值升波（非ATM）' : avgDiff < -0.05 ? 'smooth均值降波（非ATM）' : 'smooth均值基本持平';
   }
 
   // ④ 曲率 Curvature（SVI模型二阶导）
@@ -855,7 +876,7 @@ function updateMetrics(data) {
 }
 
 // ===================== GEX / Pain / OI 图表更新 =====================
-function updateGexCharts(gexData) {
+function updateGexCharts(gexData, alertData) {
   const summary = gexData.summary || {};
   const gexBars = gexData.gex_bars || [];
   const painCurve = gexData.pain_curve || [];
@@ -875,6 +896,26 @@ function updateGexCharts(gexData) {
     pcrEl.style.color = summary.pcr > 1.2 ? '#ff6b9d' : summary.pcr < 0.8 ? '#00d4ff' : '#aaa';
     document.getElementById('mPcrSub').textContent =
       summary.pcr > 1.5 ? '极度看跌' : summary.pcr > 1.2 ? '偏空' : summary.pcr < 0.7 ? '偏多' : '中性';
+  }
+
+  // 成交PCR：Put成交量合计 / Call成交量合计（使用T型表同源成交量字段）
+  const volPcrEl = document.getElementById('mVolPcr');
+  const volRows = (alertData && alertData.rows) || [];
+  let totalCallVol = 0, totalPutVol = 0;
+  volRows.forEach(r => {
+    totalCallVol += Number(r.vol_call || 0);
+    totalPutVol += Number(r.vol_put || 0);
+  });
+  if (totalCallVol > 0) {
+    const volPcr = totalPutVol / totalCallVol;
+    volPcrEl.textContent = volPcr.toFixed(3);
+    volPcrEl.style.color = volPcr > 1.2 ? '#ff6b9d' : volPcr < 0.8 ? '#00d4ff' : '#aaa';
+    document.getElementById('mVolPcrSub').textContent =
+      `Put ${totalPutVol.toLocaleString()} / Call ${totalCallVol.toLocaleString()}`;
+  } else {
+    volPcrEl.textContent = '--';
+    volPcrEl.style.color = '#555';
+    document.getElementById('mVolPcrSub').textContent = 'Call成交为0，无法计算';
   }
 
   // 净GEX方向
@@ -1013,7 +1054,7 @@ function updateTable(alertData, curveData) {
   const rows = alertData.rows || [];
   const tbody = document.getElementById('tBody');
   if (rows.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#444;height:80px;">暂无数据</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;color:#444;height:80px;">暂无数据</td></tr>';
     return;
   }
 
@@ -1046,7 +1087,7 @@ function updateTable(alertData, curveData) {
     return `<span style="color:#aaa">${text}</span>`;
   };
 
-  // 格式化持仓变化（百分比，统一字体颜色，达阈值用背景色块）
+  // 格式化数量变化（百分比，持仓/成交量共用；持仓达阈值用背景色块）
   const fmtOiChg = (current, prev, level) => {
     const cur = current || 0;
     const prv = prev || 0;
@@ -1076,7 +1117,7 @@ function updateTable(alertData, curveData) {
     return `<span style="color:#aaa">${text}</span>`;
   };
 
-  // 格式化持仓量
+  // 格式化数量（持仓/成交量共用）
   const fmtOi = (oi, prev) => {
     if (oi != null && oi > 0) return oi.toLocaleString();
     // 非交易时段当前OI=0，直接显示基准OI
@@ -1099,17 +1140,72 @@ function updateTable(alertData, curveData) {
     return `<tr ${trCls}>
       <td>${fmtOiChg(r.oi_call, r.oi_call_prev, r.oi_call_level)}</td>
       <td>${fmtOi(r.oi_call, r.oi_call_prev)}</td>
+      <td>${fmtOiChg(r.vol_call, r.vol_call_prev, '')}</td>
+      <td>${fmtOi(r.vol_call, r.vol_call_prev)}</td>
       <td>${fmtIvChg(callIvChg, r.iv_call_level, r.iv_ref_type)}</td>
       <td>${fmtIv(r.iv_call, 'iv-call')}</td>
       <td>${star}${r.strike}</td>
       <td>${fmtIv(r.iv_put, 'iv-put')}</td>
       <td>${fmtIvChg(putIvChg, r.iv_put_level, r.iv_ref_type)}</td>
+      <td>${fmtOi(r.vol_put, r.vol_put_prev)}</td>
+      <td>${fmtOiChg(r.vol_put, r.vol_put_prev, '')}</td>
       <td>${fmtOi(r.oi_put, r.oi_put_prev)}</td>
       <td>${fmtOiChg(r.oi_put, r.oi_put_prev, r.oi_put_level)}</td>
     </tr>`;
   }).join('');
 
   tbody.innerHTML = html;
+}
+
+
+function exportTTableExcel() {
+  const table = document.getElementById('tTable');
+  if (!table) { alert('T型表不存在'); return; }
+  const rows = Array.from(table.querySelectorAll('tr'));
+  const hasData = rows.some(tr => Array.from(tr.cells).some(td => td.textContent.trim() && !td.textContent.includes('暂无数据')));
+  if (!hasData) { alert('暂无可导出的T型表数据'); return; }
+
+  const clone = table.cloneNode(true);
+  clone.querySelectorAll('span').forEach(span => {
+    span.replaceWith(document.createTextNode(span.textContent));
+  });
+  clone.querySelectorAll('th,td').forEach(cell => {
+    cell.textContent = cell.textContent.replace(/★/g, '').trim();
+    cell.setAttribute('style', 'border:1px solid #999;text-align:center;mso-number-format:"\@";');
+  });
+
+  const esc = (v) => String(v ?? '--')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  const metricRows = Array.from(document.querySelectorAll('.metric-grid .metric-box, .gex-metric-grid .metric-box'))
+    .map(box => ({
+      name: box.querySelector('.metric-name')?.textContent?.trim() || '--',
+      value: box.querySelector('.metric-value')?.textContent?.trim() || '--',
+      sub: box.querySelector('.metric-sub')?.textContent?.trim() || '--'
+    }))
+    .filter(m => m.name !== '--');
+  const metricTable = `
+    <table style="border-collapse:collapse;margin-bottom:8px;">
+      <tr>
+        ${metricRows.map(m => `
+        <td style="border:1px solid #999;text-align:center;padding:4px 8px;mso-number-format:'\\@';white-space:nowrap;">
+          <b>${esc(m.name)}</b><br>${esc(m.value)}<br><span style="font-size:10px;color:#666;">${esc(m.sub)}</span>
+        </td>`).join('')}
+      </tr>
+    </table>`;
+
+  const contract = (document.getElementById('fPrice')?.textContent || 'PTA').replace(/[^0-9A-Za-z一-龥_-]/g, '');
+  const ts = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const stamp = `${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}_${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}`;
+  const html = `<!doctype html><html><head><meta charset="utf-8"></head><body>${metricTable}${clone.outerHTML}</body></html>`;
+  const blob = new Blob(['\ufeff', html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `PTA_T型表_${contract}_${stamp}.xls`;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
 }
 
 function showError(msg) { console.error(msg); }
@@ -1237,84 +1333,119 @@ function showToast(title, detail, level) {
 }
 
 // ===================== 异动检测与报警 =====================
-let _lastAlertKeys = null;  // null = 首次加载尚未初始化
+let _alertState = null;  // null = 首次加载尚未初始化；之后记录“指标+方向”是否已报过
 let _alertSoundEnabled = false;  // 页面需要用户交互后才能播放声音
+
+function levelName(level) {
+  return level === 'major' ? '重大' : level === 'significant' ? '显著' : '未触发';
+}
+
+function alertDirection(v) {
+  if (v == null || Math.abs(v) < 1e-9) return 'flat';
+  return v > 0 ? 'up' : 'down';
+}
+
+function markSeenAlert(state, baseKey, direction) {
+  if (direction === 'flat') return;
+  state.add(`${baseKey}_${direction}`);
+}
+
+function shouldFireAlert(state, baseKey, direction) {
+  if (direction === 'flat') return false;
+  // 最终规则：同一指标同一方向，只要报过显著或重大，后续同方向不再重复报；反方向达到阈值才报。
+  const directionalKey = `${baseKey}_${direction}`;
+  if (state.has(directionalKey)) return false;
+  state.add(directionalKey);
+  return true;
+}
+
+function initAlertState(alerts, oiAlerts) {
+  const state = new Set();
+  alerts.forEach(a => {
+    if (a.iv_call_level) markSeenAlert(state, `iv_oi_${a.strike}_C_${a.ref_type || 'close'}`, alertDirection(a.iv_call_chg));
+    if (a.iv_put_level) markSeenAlert(state, `iv_oi_${a.strike}_P_${a.ref_type || 'close'}`, alertDirection(a.iv_put_chg));
+  });
+  oiAlerts.forEach(a => {
+    markSeenAlert(state, `oi_${a.strike}_${a.side}_${a.ref_type || 'close'}`, alertDirection(a.oi_chg));
+  });
+  return state;
+}
 
 function checkAndAlert(alertData) {
   const alerts = alertData.iv_alerts || [];
   const oiAlerts = alertData.oi_alerts || [];
-  const newKeys = new Set();
 
-  alerts.forEach(a => {
-    const key = `iv_${a.strike}_${a.level}_${a.ref_type || 'close'}`;
-    newKeys.add(key);
-  });
-  oiAlerts.forEach(a => {
-    const key = `oi_${a.strike}_${a.side}_${a.level}_${a.ref_type || 'close'}`;
-    newKeys.add(key);
-  });
-
-  // 首次加载：只记录当前状态，不弹窗不响铃
-  if (_lastAlertKeys === null) {
-    _lastAlertKeys = newKeys;
-    console.log(`[Alert] 初始化完成，记录${newKeys.size}个异动状态（IV=${alerts.length} OI=${oiAlerts.length}）`);
+  // 首次加载：只记录当前方向状态，不弹窗不响铃，避免打开页面时刷屏
+  if (_alertState === null) {
+    _alertState = initAlertState(alerts, oiAlerts);
+    console.log(`[Alert] 初始化完成，记录${_alertState.size}个已存在异动方向（IV=${alerts.length} OI=${oiAlerts.length}）`);
     return;
   }
 
-  // 后续轮询：只对新出现的key弹窗
   let alertCount = 0;
+  let displayedCount = 0;
   let highestLevel = 'significant';  // 记录最高级别用于声音
 
-  // IV异动
-  alerts.forEach(a => {
-    const key = `iv_${a.strike}_${a.level}_${a.ref_type || 'close'}`;
-    if (_lastAlertKeys.has(key)) return;  // 已报过
-
+  const fire = (level, isReversal) => {
     alertCount++;
-    if (alertCount > 5) return;
+    if (isReversal) highestLevel = 'reversal';
+    else if (level === 'major' && highestLevel !== 'reversal') highestLevel = 'major';
+    if (displayedCount >= 5) return false;
+    displayedCount++;
+    return true;
+  };
 
+  // IV联动异动：只有 raw IV 与同侧持仓(OI) 都达到阈值才弹窗；IV-only 仅保留T表标色
+  alerts.forEach(a => {
     const isReversal = a.ref_type === 'reversal';
-    const levelText = isReversal ? '⚡盘中反转' : a.level === 'major' ? '🔴重大异动' : '🟡显著异动';
-    const title = `${levelText} — K${a.strike}`;
-    // 显示触发报警的具体维度（Call/Put raw IV变化），而非smooth笼统值
-    let parts = [];
+    const refType = a.ref_type || 'close';
+    const items = [];
     if (a.iv_call_level) {
-      const cc = a.iv_call_chg != null ? (a.iv_call_chg >= 0 ? '+' : '') + a.iv_call_chg.toFixed(2) + '%' : '';
-      parts.push(`Call IV ${cc}`);
+      const dir = alertDirection(a.iv_call_chg);
+      if (shouldFireAlert(_alertState, `iv_oi_${a.strike}_C_${refType}`, dir)) {
+        const cc = a.iv_call_chg != null ? (a.iv_call_chg >= 0 ? '+' : '') + a.iv_call_chg.toFixed(2) + '%' : '';
+        const oc = a.oi_call_chg != null ? (a.oi_call_chg >= 0 ? '+' : '') + (a.oi_call_chg * 100).toFixed(1) + '%' : '';
+        items.push({ side: 'Call', ivChg: cc, oiChg: oc, ivLevel: a.iv_call_level, oiLevel: a.oi_call_level, level: a.level || a.iv_call_level });
+      }
     }
     if (a.iv_put_level) {
-      const pc = a.iv_put_chg != null ? (a.iv_put_chg >= 0 ? '+' : '') + a.iv_put_chg.toFixed(2) + '%' : '';
-      parts.push(`Put IV ${pc}`);
+      const dir = alertDirection(a.iv_put_chg);
+      if (shouldFireAlert(_alertState, `iv_oi_${a.strike}_P_${refType}`, dir)) {
+        const pc = a.iv_put_chg != null ? (a.iv_put_chg >= 0 ? '+' : '') + a.iv_put_chg.toFixed(2) + '%' : '';
+        const op = a.oi_put_chg != null ? (a.oi_put_chg >= 0 ? '+' : '') + (a.oi_put_chg * 100).toFixed(1) + '%' : '';
+        items.push({ side: 'Put', ivChg: pc, oiChg: op, ivLevel: a.iv_put_level, oiLevel: a.oi_put_level, level: a.level || a.iv_put_level });
+      }
     }
-    const detail = parts.length ? parts.join('，') : `IV变化: ${a.iv_chg != null ? (a.iv_chg >= 0 ? '+' : '') + a.iv_chg.toFixed(2) + '%' : ''}`;
+    if (!items.length) return;
 
-    const toastLevel = isReversal ? 'reversal' : a.level === 'major' ? 'major' : 'significant';
+    const level = items.some(x => x.level === 'major') ? 'major' : 'significant';
+    if (!fire(level, isReversal)) return;
+
+    const levelText = isReversal ? '⚡盘中联动反转' : level === 'major' ? '🔴较收盘联动重大异动' : '🟡较收盘联动显著异动';
+    const title = `${levelText} — K${a.strike}`;
+    const basisText = isReversal ? '较报警后同向极值' : '较收盘/前次基准';
+    const detail = `${basisText}：` + items.map(x => `${x.side} raw IV ${x.ivChg}(${levelName(x.ivLevel)})，OI ${x.oiChg}(${levelName(x.oiLevel)})`).join('；') + `。整体级别=IV/OI中最高级别`; 
+    const toastLevel = isReversal ? 'reversal' : level === 'major' ? 'major' : 'significant';
     showToast(title, detail, toastLevel);
-
-    if (isReversal) highestLevel = 'reversal';
-    else if (a.level === 'major' && highestLevel !== 'reversal') highestLevel = 'major';
   });
 
-  // OI异动
+  // OI异动：Call/Put持仓分别按方向去重
   oiAlerts.forEach(a => {
     const isReversal = a.ref_type === 'reversal';
-    const key = `oi_${a.strike}_${a.side}_${a.level}_${a.ref_type || 'close'}`;
-    if (_lastAlertKeys.has(key)) return;
+    const refType = a.ref_type || 'close';
+    const dir = alertDirection(a.oi_chg);
+    if (!shouldFireAlert(_alertState, `oi_${a.strike}_${a.side}_${refType}`, dir)) return;
 
-    alertCount++;
-    if (alertCount > 5) return;
+    if (!fire(a.level, isReversal)) return;
 
     const sideName = a.side === 'C' ? 'Call' : 'Put';
-    const levelText = isReversal ? '⚡持仓盘中反转' : a.level === 'major' ? '🔴持仓重大异动' : '📊持仓显著异动';
+    const levelText = isReversal ? '⚡持仓盘中反转' : a.level === 'major' ? '🔴较收盘持仓重大异动' : '📊较收盘持仓显著异动';
     const title = `${levelText} — K${a.strike} ${sideName}`;
     const chgText = a.oi_chg != null ? (a.oi_chg >= 0 ? '+' : '') + (a.oi_chg * 100).toFixed(1) + '%' : '';
-    const detail = `OI变化: ${chgText}`;
-
+    const basisText = isReversal ? '较盘中滚动基准' : '较收盘/前次基准';
+    const detail = `${basisText}：OI变化 ${chgText}`;
     const toastLevel = isReversal ? 'reversal' : a.level === 'major' ? 'major' : 'significant';
     showToast(title, detail, toastLevel);
-
-    if (isReversal) highestLevel = 'reversal';
-    else if (a.level === 'major' && highestLevel !== 'reversal') highestLevel = 'major';
   });
 
   // 声音（只响一次，取最高级别）
@@ -1324,11 +1455,9 @@ function checkAndAlert(alertData) {
     else playSoundSignificant();
   }
 
-  if (alertCount > 5) {
-    showToast(`还有 ${alertCount - 5} 个异动`, '查看T型表格了解详情', 'significant');
+  if (alertCount > displayedCount) {
+    showToast(`还有 ${alertCount - displayedCount} 个异动`, '查看T型表格了解详情', 'significant');
   }
-
-  _lastAlertKeys = newKeys;
 }
 
 // ===================== 初始化 =====================

@@ -5,6 +5,7 @@
 
 
 
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -48,8 +49,8 @@ _state = {
     'lock': Lock(),
     'active_contract': None,
     'data_ready': False,   # 数据是否真正到达
+    'strike_vol': {},      # {strike: {'C': volume, 'P': volume}} 期权成交量
 }
-
 # 飞书Webhook（用于IV变化报警）
 _FEISHU_WEBHOOK = os.environ.get('FEISHU_WEBHOOK', '')
 
@@ -60,6 +61,7 @@ _last_valid = {
     'smile_raw': {},
     'smile_smooth': {},
     'svi_params': None,
+    'strike_vol': {},
 }
 
 # 历史快照（按固定15分钟时间点存储）
@@ -68,18 +70,21 @@ _last_valid = {
 _interval_snapshots = {}          # 内存快照: key="HH:MM" 或 "night"（仅当天数据）
 _interval_loaded_from_disk = set()  # 已从磁盘加载的日期，避免重复
 _prev_day_baseline = {}           # 前一交易日15:00收盘快照（启动时从磁盘加载）
-                                  # {'smooth': {}, 'raw': {}, 'strike_oi': {}, 'timestamp': str, 'futures_price': float}
+                                  # {'smooth': {}, 'raw': {}, 'strike_oi': {}, 'strike_vol': {}, 'timestamp': str, 'futures_price': float}
 
 
 # IV变化报警追踪（避免重复报警）
 _iv_alert_sent_today = set()       # 今天已发送的报警记录: {(strike, direction), ...}
 _iv_alert_last_send_time = {}      # 上次发送时间: {f"{strike}_{dir}": timestamp}
 _iv_alert_last_direction = {}      # 上次报警方向: {f"{strike}": 'up'|'down', f"oi_{strike}_{side}": 'up'|'down'}
-_iv_alert_dynamic_baseline = {}    # 动态基准: {strike: iv_value} — 每次IV报警触发后更新，用于捕捉盘中二次变化
-_oi_alert_dynamic_baseline = {}    # OI动态基准: {"strike_side": oi_value} — 捕捉持仓盘中反转
+_iv_alert_dynamic_baseline = {}    # 动态基准: {strike: smooth_iv_value} — 每次IV报警触发后更新，用于捕捉盘中二次变化
+_iv_alert_dynamic_raw_baseline = {}  # 兼容旧逻辑：动态raw基准
+_oi_alert_dynamic_baseline = {}    # 兼容旧逻辑：OI动态基准
+_iv_alert_watermarks = {}          # {"strike_side": {'trend':'up/down','extreme':float}} 报警后同向最高/最低点
+_oi_alert_watermarks = {}          # {"strike_side": {'trend':'up/down','extreme':int}} 报警后同向最高/最低点
 
 # 每日收盘基准快照（15:00 收盘时记录，作为盘中对比基准）
-_close_baseline = {}               # {'smooth': {}, 'raw': {}, 'strike_oi': {}, 'S': float, 'ts': str}
+_close_baseline = {}               # {'smooth': {}, 'raw': {}, 'strike_oi': {}, 'strike_vol': {}, 'S': float, 'ts': str}
 
 # ===================== IV变化报警（基于15:00收盘基准） =====================
 # 阈值逻辑与主页期权链一致：按波动环境/持仓量级分档
@@ -110,13 +115,14 @@ def _get_oi_thresholds(oi):
         return {'noise': 0.07, 'sigLow': 0.07, 'extreme': 0.15}
     return {'noise': 0.10, 'sigLow': 0.10, 'extreme': 0.25}
 
-def _record_close_baseline(smile_smooth, smile_raw, strike_oi, S):
+def _record_close_baseline(smile_smooth, smile_raw, strike_oi, S, strike_vol=None):
     """记录每日15:00收盘基准快照，同时重置报警状态"""
-    global _close_baseline, _iv_alert_dynamic_baseline, _oi_alert_dynamic_baseline
+    global _close_baseline, _iv_alert_dynamic_baseline, _iv_alert_dynamic_raw_baseline, _oi_alert_dynamic_baseline, _iv_alert_watermarks, _oi_alert_watermarks
     _close_baseline = {
         'smooth': {k: float(v) for k, v in smile_smooth.items()},
         'raw': {k: dict(v) for k, v in smile_raw.items()},
         'strike_oi': {k: dict(v) for k, v in strike_oi.items()},
+        'strike_vol': {k: dict(v) for k, v in (strike_vol or {}).items()},
         'S': float(S),
         'ts': datetime.now().isoformat(),
     }
@@ -125,7 +131,10 @@ def _record_close_baseline(smile_smooth, smile_raw, strike_oi, S):
     _iv_alert_last_send_time.clear()
     _iv_alert_last_direction.clear()
     _iv_alert_dynamic_baseline = {}
+    _iv_alert_dynamic_raw_baseline = {}
     _oi_alert_dynamic_baseline = {}
+    _iv_alert_watermarks = {}
+    _oi_alert_watermarks = {}
     print(f"[iv_smile] 📌 收盘基准已记录: {len(smile_smooth)}档 S={S:.0f}")
 
 def _check_iv_alert(smile_smooth, smile_raw, strike_oi, S, max_pain):
@@ -190,6 +199,9 @@ def _check_iv_alert(smile_smooth, smile_raw, strike_oi, S, max_pain):
                     _iv_alert_last_direction[dir_key] = direction
                     # 触发后更新动态基准 → 下次变化从此刻开始算
                     _iv_alert_dynamic_baseline[strike] = cur_iv
+                    _raw_v = smile_raw.get(strike) or smile_raw.get(int(strike)) if str(strike).isdigit() else smile_raw.get(strike)
+                    if isinstance(_raw_v, dict):
+                        _iv_alert_dynamic_raw_baseline[strike] = dict(_raw_v)
 
     # 持仓变化检测（Call/Put分别检测，含盘中反转）
     for strike, cur_ois in strike_oi.items():
@@ -326,6 +338,7 @@ def _save_close_state():
             'svi_params': _state.get('svi_params'),
             'last_update': _state.get('last_update'),
             'strike_oi': _state.get('strike_oi', {}),
+            'strike_vol': _state.get('strike_vol', {}),
         },
         'last_valid': {
             'futures_price': _last_valid.get('futures_price'),
@@ -336,6 +349,7 @@ def _save_close_state():
             'smile_smooth': _last_valid.get('smile_smooth', {}),
             'svi_params': _last_valid.get('svi_params'),
             'strike_oi': _last_valid.get('strike_oi', {}),
+            'strike_vol': _last_valid.get('strike_vol', {}),
         },
     }
     import tempfile
@@ -358,22 +372,67 @@ def _save_close_state():
         print(f"[iv_smile] ⚠️ 收盘快照保存失败: {e}")
 
 
+def _copy_close_state_to_interval_snapshot(hh, mm, now):
+    """
+    收盘边界快照：把当前最后有效状态复制到对应15分钟槽（10:15/11:30/15:00/23:00）。
+
+    关键点：这里只复制 _state 中已计算好的 IV/SVI/OI/成交量，不重新调用 compute_once，
+    因此不会破坏“休盘不重算 IV/SVI”的保护；同时补齐 11:30/15:00/23:00 这类
+    交易时段右边界因为 `_is_trading_hours()` 使用 `< end` 而不会自然生成的快照。
+    """
+    interval_key = f"{hh:02d}:{mm:02d}"
+    if interval_key in _interval_snapshots:
+        return False
+
+    smooth = _state.get('smile_smooth') or _last_valid.get('smile_smooth') or {}
+    raw = _state.get('smile_raw') or _last_valid.get('smile_raw') or {}
+    if not smooth:
+        print(f"[iv_smile] ⚠️ 收盘边界快照跳过: {interval_key} 无smile数据")
+        return False
+
+    strike_oi = _state.get('strike_oi') or _last_valid.get('strike_oi') or {}
+    strike_vol = _state.get('strike_vol') or _last_valid.get('strike_vol') or {}
+    _interval_snapshots[interval_key] = {
+        'smooth': {k: float(v) for k, v in smooth.items()},
+        'raw': {k: (dict(v) if isinstance(v, dict) else v) for k, v in raw.items()},
+        'timestamp': now.isoformat(),
+        'svi_params': _state.get('svi_params') or _last_valid.get('svi_params'),
+        'futures_price': _state.get('futures_price') or _last_valid.get('futures_price'),
+        'ref_strike': _state.get('ref_strike') or _last_valid.get('ref_strike'),
+        'max_pain': _state.get('max_pain') or _last_valid.get('max_pain'),
+        'atm_strike': _state.get('atm_strike') or _last_valid.get('atm_strike'),
+        'strike_oi': {k: dict(v) for k, v in strike_oi.items()},
+        'strike_vol': {k: dict(v) for k, v in strike_vol.items()},
+        'close_boundary': True,
+    }
+    print(f"[iv_smile] 📌 收盘边界快照已补齐: {interval_key} ({len(smooth)}档)")
+    return True
+
+
 def _check_and_save_close_state():
     """
-    检查当前是否为 PTA 收盘时间点（±2分钟窗口），是则保存收盘快照。
+    检查当前是否为 PTA 收盘时间点，是则保存收盘快照。
     每个时间槽在本进程生命周期内只保存一次。
+
+    同时把当前最后有效状态复制到对应15分钟槽，补齐 10:15/11:30/15:00/23:00
+    收盘边界快照；不重新计算 IV/SVI。
     """
     now = datetime.now()
     for hh, mm in _PTA_CLOSE_TIMES:
         slot_key = f"{now.strftime('%Y%m%d')}_{hh:02d}{mm:02d}"
         if slot_key in _close_state_saved_slots:
             continue
-        # ±2分钟窗口
         target_min = hh * 60 + mm
         now_min = now.hour * 60 + now.minute
-        if abs(now_min - target_min) <= 2:
+        diff = now_min - target_min
+        # 只在收盘点到达后2分钟内保存，避免 14:58 这类提前写入 15:00 快照。
+        # 11:30/15:00/23:00 已进入休盘分支，由调度器在 else 中调用本函数；不重算 IV/SVI。
+        if 0 <= diff <= 2:
             _close_state_saved_slots.add(slot_key)
+            added_boundary_snapshot = _copy_close_state_to_interval_snapshot(hh, mm, now)
             _save_close_state()
+            if added_boundary_snapshot:
+                _save_all_snapshots()
             break
 
 
@@ -399,14 +458,14 @@ def _load_close_state():
 
         # 恢复 _state
         for key in ('futures_price', 'atm_strike', 'max_pain', 'ref_strike',
-                     'smile_raw', 'smile_smooth', 'svi_params', 'last_update', 'strike_oi'):
+                     'smile_raw', 'smile_smooth', 'svi_params', 'last_update', 'strike_oi', 'strike_vol'):
             val = saved_state.get(key)
             if val is not None:
                 _state[key] = val
 
         # 恢复 _last_valid
         for key in ('futures_price', 'atm_strike', 'max_pain', 'ref_strike',
-                     'smile_raw', 'smile_smooth', 'svi_params', 'strike_oi'):
+                     'smile_raw', 'smile_smooth', 'svi_params', 'strike_oi', 'strike_vol'):
             val = saved_valid.get(key)
             if val is not None:
                 _last_valid[key] = val
@@ -852,6 +911,10 @@ def _load_previous_day_snapshots():
         if restored_oi:
             _last_valid['strike_oi'] = restored_oi
             _state['strike_oi'] = restored_oi
+        restored_vol = latest_for_restore.get('strike_vol', {})
+        if restored_vol:
+            _last_valid['strike_vol'] = restored_vol
+            _state['strike_vol'] = restored_vol
 
         print(f"[iv_smile] 📂 已恢复标的价格: S={restored_price}, ATM={restored_atm}, MP={restored_mp} (from {latest_for_restore_key})")
 
@@ -1025,6 +1088,8 @@ def _restore_from_latest_snapshot():
             _state['last_update'] = snap['last_update']
         if snap.get('strike_oi'):
             _state['strike_oi'] = snap['strike_oi']
+        if snap.get('strike_vol'):
+            _state['strike_vol'] = snap['strike_vol']
         print(f"[iv_smile] ✅ 已从快照恢复数据 ({latest_key})")
 
 # 启动时尝试加载上一交易日的全量快照（移到smooth_smile定义之后）
@@ -1555,6 +1620,7 @@ def tqsdk_loop():
                                     'ask': getattr(oq, 'ask_price1', None) or 0,
                                     'last': getattr(oq, 'last_price', None) or 0,
                                     'open_interest': getattr(oq, 'open_interest', None) or 0,
+                                    'volume': getattr(oq, 'volume', None) or 0,
                                 }
                         _tqsdk_quotes['snap'] = snap
                         _tqsdk_last_data_time = time.time()
@@ -1688,18 +1754,24 @@ def compute_once(force=False):
     # PTA 最小变动价位=2，取偶数
     S = round(S / 2) * 2
 
-    # 2. 持仓量数据 + 计算最大痛点
+    # 2. 持仓量/成交量数据 + 计算最大痛点
     opt_snap = snap.get('options', {})
 
-    # 构建 {strike: {C/P: oi}} 结构（仅用有报价的档位）
+    # 构建 {strike: {C/P: oi}} / {strike: {C/P: volume}} 结构（仅用有报价的档位）
     strike_oi = {}
+    strike_vol = {}
     for sym, strike, opt_type in _option_symbols:
         q = opt_snap.get(sym, {})
         oi = q.get('open_interest') or q.get('oi') or 0
+        vol = q.get('volume') or q.get('vol') or 0
         if oi > 0:
             if strike not in strike_oi:
                 strike_oi[strike] = {'C': 0, 'P': 0}
             strike_oi[strike][opt_type] = oi
+        if vol > 0:
+            if strike not in strike_vol:
+                strike_vol[strike] = {'C': 0, 'P': 0}
+            strike_vol[strike][opt_type] = vol
 
     max_pain = calc_max_pain(strike_oi, S)
     if max_pain is None:
@@ -1791,6 +1863,7 @@ def compute_once(force=False):
                     'max_pain': max_pain,
                     'atm_strike': atm_strike,
                     'strike_oi': {k: dict(v) for k, v in strike_oi.items()},
+                    'strike_vol': {k: dict(v) for k, v in strike_vol.items()},
                 }
                 print(f"[iv_smile] 📦 快照已存: {interval_key} ({len(_interval_snapshots)}个时间点)")
         else:
@@ -1810,6 +1883,7 @@ def compute_once(force=False):
         _last_valid['max_pain'] = max_pain
         _last_valid['atm_strike'] = atm_strike
         _last_valid['strike_oi'] = {k: dict(v) for k, v in strike_oi.items()}
+        _last_valid['strike_vol'] = {k: dict(v) for k, v in strike_vol.items()}
         if should_update_smile:
             _last_valid['smile_raw'] = {k: v for k, v in raw_iv.items()}
             _last_valid['smile_smooth'] = smooth_iv
@@ -1817,6 +1891,7 @@ def compute_once(force=False):
 
         # 更新状态
         _state['strike_oi'] = {k: dict(v) for k, v in strike_oi.items()}
+        _state['strike_vol'] = {k: dict(v) for k, v in strike_vol.items()}
         _state['futures_price'] = S
         _state['T'] = T                     # 保持T与数据同步（GEX API依赖此值）
         _state['ref_strike'] = ref_strike   # 最大痛点（参考行权价）
@@ -1841,7 +1916,7 @@ def compute_once(force=False):
     # 15:00收盘时记录基准快照（每个交易日只记一次）
     now = datetime.now()
     if now.hour == 15 and now.minute == 0 and not _close_baseline:
-        _record_close_baseline(smooth_iv, raw_iv, strike_oi, S)
+        _record_close_baseline(smooth_iv, raw_iv, strike_oi, S, strike_vol)
 
     # PTA 四个收盘时间点（10:15/11:30/15:00/23:00）自动保存收盘快照
     _check_and_save_close_state()
@@ -1879,6 +1954,8 @@ def start_scheduler(interval_minutes=1):
                 compute_once()
                 offhours_t_counter = 0  # 开盘重置
             else:
+                # 休盘边界（11:30/15:00/23:00）不重算IV/SVI，只复制最后有效状态补齐收盘快照
+                _check_and_save_close_state()
                 offhours_t_counter += 1
                 if offhours_t_counter >= 60:  # 60 × 1分钟 = 1小时
                     _refresh_t_offhours()
@@ -2124,9 +2201,10 @@ def register_routes(app):
                         # 快照中 raw 可能已是平均值（float），无C/P区分
                         entry['raw_C_prev'] = pv
                         entry['raw_P_prev'] = pv
-                # 隐波变化绝对值（当前smooth - 15:00收盘smooth）
+                # 隐波变化（带符号）：当前smooth - 15:00收盘smooth
+                # 不能取 abs，否则降波也会被显示成“剧升”。
                 if 'smooth' in entry and 'smooth_prev' in entry:
-                    entry['iv_change'] = round(abs(entry['smooth'] - entry['smooth_prev']), 4)
+                    entry['iv_change'] = round(entry['smooth'] - entry['smooth_prev'], 4)
                 curve_data.append(entry)
 
         # 格式化prev_timestamp（更友好）
@@ -2342,6 +2420,7 @@ def register_routes(app):
         now = datetime.now()
         with _state['lock']:
             strike_oi = _state.get('strike_oi', {})
+            strike_vol = _state.get('strike_vol', {})
             smile_raw = _state.get('smile_raw', {})
             smile_smooth = _state.get('smile_smooth', {})
             futures_price = _state.get('futures_price')
@@ -2352,6 +2431,7 @@ def register_routes(app):
         b_smooth = close_baseline.get('smooth', {}) if close_baseline else {}
         b_raw = close_baseline.get('raw', {}) if close_baseline else {}
         b_oi = close_baseline.get('strike_oi', {}) if close_baseline else {}
+        b_vol = close_baseline.get('strike_vol', {}) if close_baseline else {}
         close_ts = close_baseline.get('ts', '') if close_baseline else ''
         has_baseline = bool(b_smooth)
 
@@ -2366,6 +2446,8 @@ def register_routes(app):
                 if snap_oi:
                     b_oi = snap_oi
                     print(f"[iv_smile] 📌 alert_data 从前一交易日基准恢复OI smooth={len(b_smooth)}档")
+            if not b_vol:
+                b_vol = _prev_day_baseline.get('strike_vol', {})
             has_baseline = bool(b_smooth)
 
         # 用ATM隐波判断波动环境（比全档位均值更准确）
@@ -2377,7 +2459,7 @@ def register_routes(app):
         iv_t = _get_iv_thresholds(atm_iv)
 
         # 合并所有行权价（统一为字符串key）
-        all_keys = set(str(k) for k in list(strike_oi.keys()) + list(b_oi.keys()))
+        all_keys = set(str(k) for k in list(strike_oi.keys()) + list(b_oi.keys()) + list(strike_vol.keys()) + list(b_vol.keys()))
         if not all_keys and smile_smooth:
             all_keys = set(str(k) for k in smile_smooth.keys())
             # 补充raw数据
@@ -2386,6 +2468,10 @@ def register_routes(app):
                     strike_oi[k] = {'C': 0, 'P': 0}
                 if k not in b_oi:
                     b_oi[k] = {'C': 0, 'P': 0}
+                if k not in strike_vol:
+                    strike_vol[k] = {'C': 0, 'P': 0}
+                if k not in b_vol:
+                    b_vol[k] = {'C': 0, 'P': 0}
 
         rows = []
         iv_alerts = []  # {'strike': int, 'level': str}
@@ -2394,6 +2480,8 @@ def register_routes(app):
         for strike in sorted(all_keys, key=lambda x: int(x)):
             cur_oi = strike_oi.get(strike) or strike_oi.get(int(strike)) or {'C': 0, 'P': 0}
             b_oi_s = b_oi.get(strike) or b_oi.get(int(strike)) or {'C': 0, 'P': 0}
+            cur_vol = strike_vol.get(strike) or strike_vol.get(int(strike)) or {'C': 0, 'P': 0}
+            b_vol_s = b_vol.get(strike) or b_vol.get(int(strike)) or {'C': 0, 'P': 0}
 
             # IV（strike可能是str，但数据源key可能是int，双查找）
             raw = smile_raw.get(strike) or smile_raw.get(int(strike)) or {}
@@ -2436,26 +2524,18 @@ def register_routes(app):
                 iv_p_b = None
             b_sm = b_smooth.get(strike) or b_smooth.get(int(strike)) or 0
 
-            # IV变化（用平滑IV）— 同时比较收盘基准和动态基准，取较大变化
+            # IV变化：close基准 + 报警后同向极值watermark反转。
+            # T表颜色仍按close基准；弹窗IV报警必须与同侧OI变化联动。
             iv_chg_close = (sm - b_sm) * 100 if (sm and b_sm) else None
-            dyn_iv = _iv_alert_dynamic_baseline.get(strike) or _iv_alert_dynamic_baseline.get(int(strike))
-            iv_chg_dyn = (sm - dyn_iv) * 100 if (sm and dyn_iv) else None
-            # 取变化更大的那个
             iv_ref_type = 'close'
-            if iv_chg_close is not None and iv_chg_dyn is not None and abs(iv_chg_dyn) > abs(iv_chg_close):
-                iv_chg = iv_chg_dyn
-                iv_ref_type = 'reversal'
-            else:
-                iv_chg = iv_chg_close
+            iv_chg = iv_chg_close
 
-            # IV颜色级别 — Call和Put各自独立判定（基于raw IV变化，与前端显示一致）
             sig_t = iv_t['significant'] * 100   # 转为百分点
             ext_t = iv_t.get('extreme', 999) * 100
             def _iv_level_for(iv_cur, iv_prev):
                 if iv_cur is None or iv_prev is None or iv_prev == 0:
                     return ''
-                # 脏基准过滤：
-                # PTA期权正常IV在20-40%（深度OTM除外），baseline偏离当前值1.5倍以上视为脏
+                # 脏基准过滤：PTA正常IV多在20-40%，baseline偏离当前1.5倍以上视为脏
                 if iv_prev > 60 and iv_cur > 0 and iv_prev > iv_cur * 1.5:
                     return ''
                 chg = abs(iv_cur - iv_prev)
@@ -2464,8 +2544,24 @@ def register_routes(app):
                 if chg >= sig_t:
                     return 'significant'
                 return ''
-            iv_call_level = _iv_level_for(iv_c, iv_c_b)
-            iv_put_level = _iv_level_for(iv_p, iv_p_b)
+            def _iv_diff(iv_cur, iv_prev):
+                return round(iv_cur - iv_prev, 2) if (iv_cur is not None and iv_prev is not None and iv_prev != 0) else None
+            def _dir(v):
+                if v is None or abs(v) < 1e-9:
+                    return None
+                return 'up' if v > 0 else 'down'
+            def _better_level(a, b):
+                if a == 'major' or b == 'major':
+                    return 'major'
+                if a == 'significant' or b == 'significant':
+                    return 'significant'
+                return ''
+
+            # close基准：普通“较收盘/前次基准”异动
+            iv_call_level_close = _iv_level_for(iv_c, iv_c_b)
+            iv_put_level_close = _iv_level_for(iv_p, iv_p_b)
+            iv_call_chg_close = _iv_diff(iv_c, iv_c_b)
+            iv_put_chg_close = _iv_diff(iv_p, iv_p_b)
 
             # OI变化（比率）
             def oi_chg_ratio(cur, prv):
@@ -2477,59 +2573,170 @@ def register_routes(app):
             oi_put = int(cur_oi.get('P', 0))
             oi_call_b = int(b_oi_s.get('C', 0))
             oi_put_b = int(b_oi_s.get('P', 0))
+            vol_call = int(cur_vol.get('C', 0))
+            vol_put = int(cur_vol.get('P', 0))
+            vol_call_b = int(b_vol_s.get('C', 0))
+            vol_put_b = int(b_vol_s.get('P', 0))
 
             oi_chg_call = oi_chg_ratio(oi_call, oi_call_b)
             oi_chg_put = oi_chg_ratio(oi_put, oi_put_b)
+            vol_chg_call = oi_chg_ratio(vol_call, vol_call_b)
+            vol_chg_put = oi_chg_ratio(vol_put, vol_put_b)
 
-            # OI动态基准对比（盘中反转检测）
-            def oi_dyn_chg(strike_key, side, cur, base_chg):
-                dyn_key = f"{strike_key}_{side}"
-                dyn_oi = _oi_alert_dynamic_baseline.get(dyn_key)
-                if dyn_oi is not None and dyn_oi > 0:
-                    dyn_ratio = (cur - dyn_oi) / dyn_oi
-                    if abs(dyn_ratio) > abs(base_chg or 0):
-                        return dyn_ratio, 'reversal'
-                return base_chg, 'close'
-
-            oi_chg_call_final, oi_call_ref_type = oi_dyn_chg(strike, 'C', oi_call, oi_chg_call)
-            oi_chg_put_final, oi_put_ref_type = oi_dyn_chg(strike, 'P', oi_put, oi_chg_put)
-
-            # 兜底：如果 baseline 没有 OI 数据但有 raw IV(prev)，用 raw IV(prev) 作为 IV 前值
-            # 用于处理：某些档位（如5300/5400）在前收盘时无数据，现在有数据的情况
-            # 注意：b_raw_s.get('C') 为 None 时 (None or 0)*100 = 0，需要还原为 None
+            # 兜底：baseline raw IV可能缺失，转float供输出
             iv_c_b = float(iv_c_b) if iv_c_b is not None else None
             iv_p_b = float(iv_p_b) if iv_p_b is not None else None
 
-            # OI颜色级别（当前OI归零的排除——到期清零不是异动）
+            # OI颜色级别（当前OI归零排除：到期清零不是异动）
             def oi_level(chg, base_oi, cur_oi):
                 if chg is None or base_oi <= 0:
                     return ''
                 if cur_oi <= 0:
-                    return ''  # 持仓归零不报警
+                    return ''
                 t = _get_oi_thresholds(base_oi)
                 abs_c = abs(chg)
                 if abs_c >= t['sigLow']:
                     return 'major' if abs_c >= t.get('extreme', 999) else 'significant'
                 return ''
 
-            oi_call_level = oi_level(oi_chg_call_final, oi_call_b, oi_call)
-            oi_put_level = oi_level(oi_chg_put_final, oi_put_b, oi_put)
+            oi_call_level_close = oi_level(oi_chg_call, oi_call_b, oi_call)
+            oi_put_level_close = oi_level(oi_chg_put, oi_put_b, oi_put)
 
-            # 记录需要弹窗报警的档位
-            if iv_call_level or iv_put_level:
-                best_level = 'major' if (iv_call_level == 'major' or iv_put_level == 'major') else 'significant'
-                # 弹窗文案：带上触发报警的具体维度（Call/Put raw IV变化），不只是smooth
-                iv_call_chg = round(iv_c - iv_c_b, 2) if (iv_c is not None and iv_c_b is not None and iv_c_b != 0) else None
-                iv_put_chg = round(iv_p - iv_p_b, 2) if (iv_p is not None and iv_p_b is not None and iv_p_b != 0) else None
+            # 报警后同向极值watermark：不是“上次报警点”，而是报警后原方向走出的最高/最低点。
+            def iv_watermark_level(strike_key, side, cur_iv, close_chg, close_level):
+                key = f"{strike_key}_{side}"
+                st = _iv_alert_watermarks.get(key)
+                close_dir = _dir(close_chg)
+                # 首次close报警建立趋势与极值；之后同向继续刷新极值
+                if st is None:
+                    if close_level and close_dir:
+                        _iv_alert_watermarks[key] = {'trend': close_dir, 'extreme': cur_iv}
+                    return '', None
+                trend = st.get('trend')
+                extreme = st.get('extreme')
+                if cur_iv is None or extreme is None or not trend:
+                    return '', None
+                # 同向延伸：刷新最高/最低，不报警
+                if trend == 'up' and cur_iv >= extreme:
+                    st['extreme'] = cur_iv
+                    return '', None
+                if trend == 'down' and cur_iv <= extreme:
+                    st['extreme'] = cur_iv
+                    return '', None
+                # 从最高/最低反向回撤/反弹
+                dyn_chg = _iv_diff(cur_iv, extreme)
+                dyn_level = _iv_level_for(cur_iv, extreme)
+                if dyn_level and _dir(dyn_chg) and _dir(dyn_chg) != trend:
+                    # 反转触发后切换趋势，并以当前值作为新方向的初始极值
+                    st['trend'] = _dir(dyn_chg)
+                    st['extreme'] = cur_iv
+                    return dyn_level, dyn_chg
+                return '', dyn_chg
+
+            def oi_watermark_level(strike_key, side, cur, close_chg, close_level):
+                key = f"{strike_key}_{side}"
+                st = _oi_alert_watermarks.get(key)
+                close_dir = _dir(close_chg)
+                if st is None:
+                    if close_level and close_dir:
+                        _oi_alert_watermarks[key] = {'trend': close_dir, 'extreme': cur}
+                    return '', None
+                trend = st.get('trend')
+                extreme = st.get('extreme')
+                if cur <= 0 or not extreme or extreme <= 0 or not trend:
+                    return '', None
+                if trend == 'up' and cur >= extreme:
+                    st['extreme'] = cur
+                    return '', None
+                if trend == 'down' and cur <= extreme:
+                    st['extreme'] = cur
+                    return '', None
+                dyn_chg = (cur - extreme) / extreme
+                dyn_level = oi_level(dyn_chg, extreme, cur)
+                if dyn_level and _dir(dyn_chg) and _dir(dyn_chg) != trend:
+                    st['trend'] = _dir(dyn_chg)
+                    st['extreme'] = cur
+                    return dyn_level, dyn_chg
+                return '', dyn_chg
+
+            iv_call_level_dyn, iv_call_chg_dyn = iv_watermark_level(strike, 'C', iv_c, iv_call_chg_close, iv_call_level_close)
+            iv_put_level_dyn, iv_put_chg_dyn = iv_watermark_level(strike, 'P', iv_p, iv_put_chg_close, iv_put_level_close)
+            oi_call_level_dyn, oi_chg_call_dyn = oi_watermark_level(strike, 'C', oi_call, oi_chg_call, oi_call_level_close)
+            oi_put_level_dyn, oi_chg_put_dyn = oi_watermark_level(strike, 'P', oi_put, oi_chg_put, oi_put_level_close)
+
+            # 默认T表颜色仍按close基准显示
+            iv_call_level = iv_call_level_close
+            iv_put_level = iv_put_level_close
+            oi_call_level = oi_call_level_close
+            oi_put_level = oi_put_level_close
+
+            # IV弹窗必须联动同侧OI变化：close基准和watermark反转分别判断；IV-only只在T表标色。
+            linked_oi_keys = set()  # 已被IV+OI联动覆盖的OI，避免再弹单独持仓重大
+            def linked_iv_item(side, iv_level, iv_chg_val, oi_level_val, oi_chg_val):
+                if not iv_level or not oi_level_val:
+                    return None
+                return {
+                    'side': side,
+                    'level': _better_level(iv_level, oi_level_val),
+                    'iv_level': iv_level,
+                    'iv_chg': iv_chg_val,
+                    'oi_level': oi_level_val,
+                    'oi_chg': oi_chg_val,
+                }
+
+            close_items = []
+            x = linked_iv_item('C', iv_call_level_close, iv_call_chg_close, oi_call_level_close, oi_chg_call)
+            if x: close_items.append(x)
+            x = linked_iv_item('P', iv_put_level_close, iv_put_chg_close, oi_put_level_close, oi_chg_put)
+            if x: close_items.append(x)
+            if close_items:
+                best_level = 'major' if any(x['level'] == 'major' for x in close_items) else 'significant'
+                for x in close_items:
+                    linked_oi_keys.add((x['side'], 'close'))
                 iv_alerts.append({
-                    'strike': int(strike), 'level': best_level, 'iv_chg': iv_chg, 'ref_type': iv_ref_type,
-                    'iv_call_level': iv_call_level, 'iv_put_level': iv_put_level,
-                    'iv_call_chg': iv_call_chg, 'iv_put_chg': iv_put_chg,
+                    'strike': int(strike), 'level': best_level, 'iv_chg': iv_chg_close, 'ref_type': 'close',
+                    'iv_call_level': next((x['iv_level'] for x in close_items if x['side'] == 'C'), ''),
+                    'iv_put_level': next((x['iv_level'] for x in close_items if x['side'] == 'P'), ''),
+                    'iv_call_chg': next((x['iv_chg'] for x in close_items if x['side'] == 'C'), None),
+                    'iv_put_chg': next((x['iv_chg'] for x in close_items if x['side'] == 'P'), None),
+                    'oi_call_level': next((x['oi_level'] for x in close_items if x['side'] == 'C'), ''),
+                    'oi_put_level': next((x['oi_level'] for x in close_items if x['side'] == 'P'), ''),
+                    'oi_call_chg': next((x['oi_chg'] for x in close_items if x['side'] == 'C'), None),
+                    'oi_put_chg': next((x['oi_chg'] for x in close_items if x['side'] == 'P'), None),
+                    'linked': True,
                 })
-            if oi_call_level:
-                oi_alerts.append({'strike': int(strike), 'side': 'C', 'level': oi_call_level, 'oi_chg': oi_chg_call_final, 'ref_type': oi_call_ref_type})
-            if oi_put_level:
-                oi_alerts.append({'strike': int(strike), 'side': 'P', 'level': oi_put_level, 'oi_chg': oi_chg_put_final, 'ref_type': oi_put_ref_type})
+
+            reversal_items = []
+            x = linked_iv_item('C', iv_call_level_dyn, iv_call_chg_dyn, oi_call_level_dyn, oi_chg_call_dyn)
+            if x: reversal_items.append(x)
+            x = linked_iv_item('P', iv_put_level_dyn, iv_put_chg_dyn, oi_put_level_dyn, oi_chg_put_dyn)
+            if x: reversal_items.append(x)
+            if reversal_items:
+                best_level = 'major' if any(x['level'] == 'major' for x in reversal_items) else 'significant'
+                for x in reversal_items:
+                    linked_oi_keys.add((x['side'], 'reversal'))
+                iv_alerts.append({
+                    'strike': int(strike), 'level': best_level, 'iv_chg': None, 'ref_type': 'reversal',
+                    'iv_call_level': next((x['iv_level'] for x in reversal_items if x['side'] == 'C'), ''),
+                    'iv_put_level': next((x['iv_level'] for x in reversal_items if x['side'] == 'P'), ''),
+                    'iv_call_chg': next((x['iv_chg'] for x in reversal_items if x['side'] == 'C'), None),
+                    'iv_put_chg': next((x['iv_chg'] for x in reversal_items if x['side'] == 'P'), None),
+                    'oi_call_level': next((x['oi_level'] for x in reversal_items if x['side'] == 'C'), ''),
+                    'oi_put_level': next((x['oi_level'] for x in reversal_items if x['side'] == 'P'), ''),
+                    'oi_call_chg': next((x['oi_chg'] for x in reversal_items if x['side'] == 'C'), None),
+                    'oi_put_chg': next((x['oi_chg'] for x in reversal_items if x['side'] == 'P'), None),
+                    'linked': True,
+                })
+
+            # 持仓自身报警保留，但只保留“重大”单独弹窗；显著持仓已通过IV联动参与提示，避免刷屏。
+            if oi_call_level_close == 'major' and ('C', 'close') not in linked_oi_keys:
+                oi_alerts.append({'strike': int(strike), 'side': 'C', 'level': oi_call_level_close, 'oi_chg': oi_chg_call, 'ref_type': 'close', 'standalone': True})
+            if oi_put_level_close == 'major' and ('P', 'close') not in linked_oi_keys:
+                oi_alerts.append({'strike': int(strike), 'side': 'P', 'level': oi_put_level_close, 'oi_chg': oi_chg_put, 'ref_type': 'close', 'standalone': True})
+            if oi_call_level_dyn == 'major' and ('C', 'reversal') not in linked_oi_keys:
+                oi_alerts.append({'strike': int(strike), 'side': 'C', 'level': oi_call_level_dyn, 'oi_chg': oi_chg_call_dyn, 'ref_type': 'reversal', 'standalone': True})
+            if oi_put_level_dyn == 'major' and ('P', 'reversal') not in linked_oi_keys:
+                oi_alerts.append({'strike': int(strike), 'side': 'P', 'level': oi_put_level_dyn, 'oi_chg': oi_chg_put_dyn, 'ref_type': 'reversal', 'standalone': True})
 
             rows.append({
                 'strike': int(strike),
@@ -2542,6 +2749,13 @@ def register_routes(app):
                 'oi_put_chg': float(oi_chg_put * 100) if oi_chg_put is not None else None,
                 'oi_call_level': oi_call_level,
                 'oi_put_level': oi_put_level,
+                # 成交量（同OI使用当前/基准对比口径；暂不触发报警色块）
+                'vol_call': vol_call,
+                'vol_put': vol_put,
+                'vol_call_prev': vol_call_b,
+                'vol_put_prev': vol_put_b,
+                'vol_call_chg': float(vol_chg_call * 100) if vol_chg_call is not None else None,
+                'vol_put_chg': float(vol_chg_put * 100) if vol_chg_put is not None else None,
                 # IV（原始）
                 'iv_call': round(iv_c, 2) if iv_c else None,
                 'iv_put': round(iv_p, 2) if iv_p else None,
