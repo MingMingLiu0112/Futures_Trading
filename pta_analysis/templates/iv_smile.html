@@ -720,7 +720,7 @@ async function fetchData() {
     if (gexData && !gexData.error) updateGexCharts(gexData, alertData);
 
     document.getElementById('lastUpdate').textContent =
-        `最后更新: ${data.last_update || '--'} | 前次基准: ${data.prev_timestamp || '--'} | 版本 v2.11.23`;
+        `最后更新: ${data.last_update || '--'} | 前次基准: ${data.prev_timestamp || '--'} | 版本 v2.11.24`;
   } catch (err) {
     showError('数据加载失败: ' + err.message);
   }

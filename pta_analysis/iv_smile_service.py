@@ -1230,6 +1230,70 @@ _tqsdk_last_data_time = None      # 上次数据更新时间戳
 # ===================== 动态查主力合约 =====================
 
 _EXPIRY_CACHE = {}  # {contract_code: last_trade_date}
+_OPTION_STRIKES_CACHE = {}  # {contract_code: [strike, ...]}
+
+def _get_option_strikes_for_contract(opt_prefix):
+    """
+    获取当前期权月份真实存在的全档行权价。
+    T型表/PCR/Excel需要全档；若交易所合约表获取失败，再由调用方兜底ATM±10。
+    """
+    global _OPTION_STRIKES_CACHE
+    import re
+    import akshare as ak
+
+    try:
+        df = ak.option_contract_info_ctp()
+        if df is None or df.empty:
+            raise ValueError("option_contract_info_ctp returned empty")
+
+        name_col = '合约名称'
+        underlying_col = '标的合约ID'
+        strike_col = '行权价'
+
+        masks = []
+        if underlying_col in df.columns:
+            masks.append(df[underlying_col].astype(str).eq(opt_prefix))
+        if name_col in df.columns:
+            masks.append(df[name_col].astype(str).str.startswith(opt_prefix, na=False))
+        if not masks:
+            raise ValueError(f"missing contract columns: {list(df.columns)}")
+
+        mask = masks[0]
+        for m in masks[1:]:
+            mask = mask | m
+        sub = df[mask].copy()
+        if sub.empty:
+            raise ValueError(f"no option contracts for {opt_prefix}")
+
+        strikes = []
+        if strike_col in sub.columns:
+            for v in sub[strike_col].tolist():
+                try:
+                    if v is not None and str(v).strip() != '':
+                        strikes.append(int(float(v)))
+                except Exception:
+                    pass
+
+        # 兜底：从 TA607C6600 / TA607P6600 这类合约名提取
+        if name_col in sub.columns:
+            for name in sub[name_col].astype(str).tolist():
+                m = re.search(r'[CP](\d+)$', name)
+                if m:
+                    strikes.append(int(m.group(1)))
+
+        strikes = sorted(set(strikes))
+        if not strikes:
+            raise ValueError(f"no strikes parsed for {opt_prefix}")
+
+        _OPTION_STRIKES_CACHE[opt_prefix] = strikes
+        return strikes
+    except Exception as e:
+        cached = _OPTION_STRIKES_CACHE.get(opt_prefix)
+        if cached:
+            print(f"[iv_smile] ⚠️ 获取{opt_prefix}全档行权价失败，使用缓存{len(cached)}档: {e}")
+            return cached
+        print(f"[iv_smile] ⚠️ 获取{opt_prefix}全档行权价失败: {e}")
+        return []
 
 def get_active_ta_contract():
     """
@@ -1631,9 +1695,14 @@ def tqsdk_loop():
             # PTA 最小变动价位为2，取偶数
             S = round(S / 2) * 2
             atm_strike = round(S / 100) * 100
-            strikes = list(range(atm_strike - 10 * 100, atm_strike + 11 * 100, 100))
 
-            print(f"[iv_smile] S={S:.0f} ATM={atm_strike} 档位:{strikes[0]}~{strikes[-1]}")
+            # T型表/PCR/Excel必须订阅当前月份真实存在的全档行权价；ATM±10只作为合约表失败兜底。
+            strikes = _get_option_strikes_for_contract(opt_prefix)
+            if strikes:
+                print(f"[iv_smile] S={S:.0f} ATM={atm_strike} 全档订阅{opt_prefix} 行权价数:{len(strikes)} 档位:{strikes[0]}~{strikes[-1]}")
+            else:
+                strikes = list(range(atm_strike - 10 * 100, atm_strike + 11 * 100, 100))
+                print(f"[iv_smile] S={S:.0f} ATM={atm_strike} ⚠️ 全档获取失败，兜底ATM±10 档位:{strikes[0]}~{strikes[-1]}")
 
             # === 订阅期权行情 ===
             option_quotes = {}
@@ -1661,19 +1730,32 @@ def tqsdk_loop():
                 for sym, _, _ in option_symbols:
                     oq = option_quotes.get(sym)
                     if oq:
-                        bid = getattr(oq, 'bid_price1', None)
-                        if bid and bid > 0:
+                        # 全档订阅后，深虚值/深实值期权经常没有bid，但仍有持仓/成交等T表所需字段。
+                        # 等待条件不能只看bid，否则会卡在64/86，导致T表继续返回旧的21档快照。
+                        bid = getattr(oq, 'bid_price1', None) or 0
+                        ask = getattr(oq, 'ask_price1', None) or 0
+                        last = getattr(oq, 'last_price', None) or 0
+                        oi = getattr(oq, 'open_interest', None) or 0
+                        vol = getattr(oq, 'volume', None) or 0
+                        if bid > 0 or ask > 0 or last > 0 or oi > 0 or vol > 0:
                             count += 1
                 elapsed = time.time() - wait_start
+                # 全档链深档可能长期无报价；T表/PCR只需要能拿到OI/volume的主体合约。
+                # 不再用80%硬门槛，否则 TA607 64/86 会一直卡住。
+                min_ready = max(int(len(option_symbols) * 0.6), min(20, len(option_symbols)))
                 if count > data_ready_count:
                     data_ready_count = count
-                    print(f"  [{elapsed:.0f}s] {count}/{len(option_symbols)} 个期权有报价")
-                    if count >= len(option_symbols) * 0.8:
-                        print(f"[iv_smile] ✅ 80%期权已就位 ({data_ready_count}/{len(option_symbols)})，继续...")
+                    print(f"  [{elapsed:.0f}s] {count}/{len(option_symbols)} 个期权字段已到达")
+                    if count >= min_ready:
+                        print(f"[iv_smile] ✅ 期权字段已就位 ({data_ready_count}/{len(option_symbols)})，继续...")
                         break
+                # 全档链中无报价深档不应阻塞服务：30秒后只要已有足够字段，先进入主循环持续更新
+                if elapsed >= 30 and data_ready_count >= min_ready:
+                    print(f"[iv_smile] ✅ 等待30秒后已有足够字段 ({data_ready_count}/{len(option_symbols)})，继续...")
+                    break
                 # 每5秒报告一次进度（持续等待，不放弃）
                 if time.time() - last_progress_time >= 5:
-                    print(f"  [{elapsed:.0f}s] 等待中... {count}/{len(option_symbols)} 个期权有报价（持续等待，不放弃）")
+                    print(f"  [{elapsed:.0f}s] 等待中... {count}/{len(option_symbols)} 个期权字段已到达（深档无bid不阻塞）")
                     last_progress_time = time.time()
                 loop.run_until_complete(asyncio.sleep(0.05))
 
@@ -1684,7 +1766,7 @@ def tqsdk_loop():
                 continue
 
             # 即使没到80%，只要有数据就继续（不做重启，继续等待）
-            if data_ready_count < len(option_symbols) * 0.8:
+            if data_ready_count < min_ready:
                 if data_ready_count > 0:
                     print(f"[iv_smile] ⚠️ 只有 {data_ready_count}/{len(option_symbols)} 期权有报价，持续等待（模拟账户数据可能延迟）")
                 else:
@@ -3108,7 +3190,12 @@ def register_routes(app):
         # ---- 通用计算函数 ----
         def _calc_gex_pain_oi(oi_dict):
             """根据给定的 strike_oi 字典，计算 gex_bars, pain_curve, oi_dist 及摘要"""
-            oi_strikes = sorted(set(float(k) for k in oi_dict.keys()))
+            # GEX/Flip/Max Pain 固定使用ATM附近21档口径；T表/PCR/Excel可全档，二者不要混用。
+            atm_for_gex = round(F / 100) * 100
+            oi_strikes_all = sorted(set(float(k) for k in oi_dict.keys()))
+            oi_strikes = [k for k in oi_strikes_all if atm_for_gex - 1000 <= k <= atm_for_gex + 1000]
+            if not oi_strikes:
+                oi_strikes = oi_strikes_all
             # 1. GEX
             gex_list = []
             for K in oi_strikes:
@@ -3135,8 +3222,8 @@ def register_routes(app):
                 net_gex = call_gex + put_gex
                 gex_list.append({'strike': int(K), 'call_gex': round(call_gex, 0),
                                  'put_gex': round(put_gex, 0), 'net_gex': round(net_gex, 0)})
-            # 2. Pain Curve
-            oi_map = {float(k): v for k, v in oi_dict.items()}
+            # 2. Pain Curve（同样使用GEX 21档口径）
+            oi_map = {K: _get(oi_dict, K, {'C': 0, 'P': 0}) for K in oi_strikes}
             sorted_ks = sorted(oi_map.keys())
             pain_list = []
             for K in sorted_ks:
