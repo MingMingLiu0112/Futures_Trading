@@ -6,6 +6,8 @@
 
 
 
+
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -632,46 +634,51 @@ def _is_trading_day(dt=None):
     return True
 
 
+# PTA有效交易时段（分钟）：09:00-10:15, 10:30-11:30, 13:30-15:00, 21:00-23:00
+_PTA_TRADING_MINUTE_RANGES = (
+    (9 * 60, 10 * 60 + 15),
+    (10 * 60 + 30, 11 * 60 + 30),
+    (13 * 60 + 30, 15 * 60),
+    (21 * 60, 23 * 60),
+)
+_PTA_TRADING_MINUTES_PER_DAY = sum(end - start for start, end in _PTA_TRADING_MINUTE_RANGES)  # 345分钟
+
+
+def _has_pta_night_session(day):
+    """判断指定自然日晚上21:00-23:00是否有PTA夜盘。PTA夜盘不跨零点。"""
+    if isinstance(day, datetime):
+        day = day.date()
+    if day.weekday() >= 5 or _is_cn_holiday(day):
+        return False
+    if day.weekday() == 4:  # 周五夜盘正常交易（PTA 23:00结束，不跨周六）
+        return True
+    tomorrow = day + timedelta(days=1)
+    return tomorrow.weekday() < 5 and not _is_cn_holiday(tomorrow)
+
+
 def _is_trading_hours():
     """
     判断当前是否在PTA交易时段（允许SVI校准）。
-    PTA(CZCE)交易时段：
-      日盘上午: 09:00-11:30
-      日盘下午: 13:30-15:00
-      夜盘:     21:00-23:00（当日结束，不跨零点）
+    PTA(CZCE)有效交易时段：
+      上午: 09:00-10:15, 10:30-11:30（10:15-10:30短休）
+      下午: 13:30-15:00
+      夜盘: 21:00-23:00（当日结束，不跨零点）
     其余时段跳过校准，避免休盘期间虚假波动。
-    同时检查交易日——周末/节假日不交易。
-    节假日前一天没有夜盘（次日休市则当晚不开夜盘）。
     """
     now = datetime.now()
     if not _is_trading_day(now):
         return False
-    h, m = now.hour, now.minute
-    total = h * 60 + m
-    # 日盘上午: 09:00-11:30 (540-690)
-    am_start, am_end = 9 * 60, 11 * 60 + 30
-    # 日盘下午: 13:30-15:00 (810-900)
-    pm_start, pm_end = 13 * 60 + 30, 15 * 60
-    # 夜盘: 21:00-23:00 (1260-1380), 不跨零点
-    night_start, night_end = 21 * 60, 23 * 60
-    # 日盘判断
-    if am_start <= total < am_end:  # 09:00-11:30
-        return True
-    if pm_start <= total < pm_end:  # 13:30-15:00
-        return True
-    # 夜盘判断: 21:00-23:00
-    if night_start <= total < night_end:
-        # 规则：节假日/长假前一天没有夜盘（次交易日休市则今晚不开夜盘）
-        # 周五正常有夜盘（PTA夜盘23:00结束，不跨到周六）
-        today_wd = now.weekday()
-        if today_wd == 4:  # 周五
+    total = now.hour * 60 + now.minute
+
+    # 日盘：短休10:15-10:30不算交易时段
+    for start, end in _PTA_TRADING_MINUTE_RANGES[:3]:
+        if start <= total < end:
             return True
-        if today_wd >= 5:  # 周六周日不可能有夜盘
-            return False
-        tomorrow = now.date() + timedelta(days=1)
-        if _is_cn_holiday(tomorrow) or tomorrow.weekday() >= 5:
-            return False  # 次日休市，今晚没有夜盘
-        return True
+
+    # 夜盘：还要检查节假日前夜盘规则
+    night_start, night_end = _PTA_TRADING_MINUTE_RANGES[3]
+    if night_start <= total < night_end:
+        return _has_pta_night_session(now.date())
     return False
 
 
@@ -699,32 +706,78 @@ def _count_trading_days(start_date, end_date):
     return count
 
 
+def _remaining_trading_minutes_in_day(day, from_minute=0, until_minute=24 * 60):
+    """计算某自然日从 from_minute 到 until_minute 之间剩余PTA有效交易分钟数。"""
+    if isinstance(day, datetime):
+        day = day.date()
+    if day.weekday() >= 5 or _is_cn_holiday(day):
+        return 0
+    total = 0
+    for start, end in _PTA_TRADING_MINUTE_RANGES:
+        if start == 21 * 60 and not _has_pta_night_session(day):
+            continue
+        s = max(start, from_minute)
+        e = min(end, until_minute)
+        if e > s:
+            total += e - s
+    return total
+
+
+def _count_remaining_trading_minutes(now, expiry):
+    """
+    计算从 now 到 expiry 之间的剩余PTA有效交易分钟。
+    - date 型 expiry 按到期日 15:00 处理
+    - 交易时段内按分钟递减
+    - 10:15-10:30、午休、收盘后、周末/节假日期间自然冻结
+    """
+    if now is None:
+        now = datetime.now()
+    if isinstance(expiry, datetime):
+        expiry_dt = expiry
+        if expiry_dt.hour == 0 and expiry_dt.minute == 0 and expiry_dt.second == 0 and expiry_dt.microsecond == 0:
+            expiry_dt = expiry_dt.replace(hour=15, minute=0)
+    else:
+        expiry_dt = datetime.combine(expiry, datetime.min.time()).replace(hour=15, minute=0)
+    if now >= expiry_dt:
+        return 0
+
+    cur_date = now.date()
+    expiry_date = expiry_dt.date()
+    cur_min = now.hour * 60 + now.minute
+    expiry_min = expiry_dt.hour * 60 + expiry_dt.minute
+
+    total = 0
+    d = cur_date
+    while d <= expiry_date:
+        if d == cur_date and d == expiry_date:
+            total += _remaining_trading_minutes_in_day(d, cur_min, expiry_min)
+        elif d == cur_date:
+            total += _remaining_trading_minutes_in_day(d, cur_min, 24 * 60)
+        elif d == expiry_date:
+            total += _remaining_trading_minutes_in_day(d, 0, expiry_min)
+        else:
+            total += _remaining_trading_minutes_in_day(d, 0, 24 * 60)
+        d += timedelta(days=1)
+    return total
+
+
 def _calc_T_trading_days(expiry, now=None):
     """
-    用交易日计算到期时间T（年化）。
-    行业标准：T = 剩余交易日 / 每年交易日数(245)。
-    
-    今天当天算一个完整交易日（盘中），到期日不算（到期日收盘后才真正到期，
-    但最后一天时间价值几乎为0，用整数交易日足够准确）。
-    
-    最小值 0.5/245（到期日当天），避免T=0导致IV爆炸。
+    用剩余有效交易分钟计算到期时间T（年化）。
+
+    T = 剩余PTA有效交易分钟 / (245 * 345)
+    PTA有效交易时段：09:00-10:15, 10:30-11:30, 13:30-15:00, 21:00-23:00。
+    交易时段内T随分钟递减；短休/午休/收盘后/周末节假日T冻结。
     """
     if now is None:
         now = datetime.now()
     if expiry is None:
         return 30 / _TRADING_DAYS_PER_YEAR  # 默认30个交易日
-    
-    expiry_date = expiry.date() if isinstance(expiry, datetime) else expiry
-    today = now.date() if isinstance(now, datetime) else now
-    
-    if today >= expiry_date:
-        return 0.5 / _TRADING_DAYS_PER_YEAR  # 到期日当天，给最小值
-    
-    trading_days = _count_trading_days(today, expiry_date)
-    if trading_days <= 0:
-        return 0.5 / _TRADING_DAYS_PER_YEAR
-    
-    return trading_days / _TRADING_DAYS_PER_YEAR
+
+    remaining_minutes = _count_remaining_trading_minutes(now, expiry)
+    effective_minutes = max(remaining_minutes, 1)  # 最小1分钟，避免T=0导致IV爆炸
+    return effective_minutes / (_TRADING_DAYS_PER_YEAR * _PTA_TRADING_MINUTES_PER_DAY)
+
 
 
 def _load_previous_day_snapshots():
@@ -1026,11 +1079,12 @@ def _load_previous_day_snapshots():
             _contract, _exp = get_active_ta_contract()
             _state['expiry'] = _exp
             _state['active_contract'] = _contract
-            # 用交易日计算T
+            # 用剩余有效交易分钟计算T
             _T = _calc_T_trading_days(_exp)
             _state['T'] = _T
-            _td = _count_trading_days(datetime.now().date(), _exp.date() if isinstance(_exp, datetime) else _exp)
-            print(f"[iv_smile] 📂 已恢复到期日: {_contract} expiry={_exp.date()} T={_T:.6f}yr ({_td}个交易日)")
+            _mins = _count_remaining_trading_minutes(datetime.now(), _exp)
+            _td_equiv = _mins / _PTA_TRADING_MINUTES_PER_DAY
+            print(f"[iv_smile] 📂 已恢复到期日: {_contract} expiry={_exp.date()} 15:00 T={_T:.6f}yr ({_mins}有效分钟≈{_td_equiv:.2f}交易日)")
         except Exception as e:
             print(f"[iv_smile] ⚠️ 恢复到期日失败: {e}")
     if _state.get('futures_price'):
@@ -1047,6 +1101,54 @@ def _load_previous_day_snapshots():
 
     if not _interval_snapshots:
         print("[iv_smile] ⚠️ 未找到历史快照（正常，服务初次启动）")
+
+
+def _ensure_today_close_baseline_after_21():
+    """
+    21:00新交易周期开始后，确保前次基准自动切到今日15:00收盘快照。
+
+    场景：服务在15:00前/盘后启动时，_prev_day_baseline 会加载上一交易日15:00；
+    到21:00后若进程不断线，必须自动把今日15:00快照灌入 _close_baseline，
+    否则 curve/alert/gex 仍会继续拿上一交易日基准。
+    """
+    global _close_baseline
+    now = datetime.now()
+    if not (_is_trading_day(now) and now.hour >= 21):
+        return False
+
+    today = now.strftime('%Y%m%d')
+    cur_ts = (_close_baseline or {}).get('ts') or (_close_baseline or {}).get('timestamp') or ''
+    if cur_ts[:10].replace('-', '') == today and (_close_baseline or {}).get('smooth'):
+        return True
+
+    path = _get_snapshot_path(today)
+    if not os.path.exists(path):
+        return False
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            payload = json.load(f)
+        snap_15 = payload.get('snapshots', {}).get('15:00')
+        if not snap_15 or not snap_15.get('smooth'):
+            return False
+        snap_ts = snap_15.get('timestamp', '')
+        if snap_ts[:10].replace('-', '') != today:
+            print(f"[iv_smile] ⚠️ 今日15:00基准timestamp不匹配({snap_ts})，不切换")
+            return False
+        _close_baseline = {
+            'smooth': snap_15.get('smooth', {}),
+            'raw': snap_15.get('raw', {}),
+            'strike_oi': snap_15.get('strike_oi', {}),
+            'strike_vol': snap_15.get('strike_vol', {}),
+            'S': snap_15.get('S') or snap_15.get('futures_price'),
+            'atm_strike': snap_15.get('atm_strike'),
+            'ts': snap_ts,
+        }
+        print(f"[iv_smile] 🔁 21:00基准自动切换: 今日15:00 ({today}) smooth={len(_close_baseline['smooth'])}档 oi={len(_close_baseline.get('strike_oi') or {})}档 ts={snap_ts[:19]}")
+        return True
+    except Exception as e:
+        print(f"[iv_smile] ⚠️ 21:00基准自动切换失败: {e}")
+        return False
+
 
 def _try_restore_from_cache():
     """
@@ -1937,9 +2039,10 @@ def _refresh_t_offhours():
     with _state['lock']:
         old_T = _state.get('T')
         _state['T'] = T
-    td = _count_trading_days(datetime.now().date(), expiry.date() if isinstance(expiry, datetime) else expiry)
-    print(f"[iv_smile] 🕐 休盘T刷新: T={T:.6f}yr ({td}个交易日) (前值={old_T:.6f})" if old_T else
-          f"[iv_smile] 🕐 休盘T刷新: T={T:.6f}yr ({td}个交易日)")
+    mins = _count_remaining_trading_minutes(datetime.now(), expiry)
+    td_equiv = mins / _PTA_TRADING_MINUTES_PER_DAY
+    print(f"[iv_smile] 🕐 休盘T刷新: T={T:.6f}yr ({mins}有效分钟≈{td_equiv:.2f}交易日) (前值={old_T:.6f})" if old_T else
+          f"[iv_smile] 🕐 休盘T刷新: T={T:.6f}yr ({mins}有效分钟≈{td_equiv:.2f}交易日)")
 
 
 def start_scheduler(interval_minutes=1):
@@ -2017,6 +2120,7 @@ def register_routes(app):
 
     @app.route('/api/iv_smile/curve')
     def iv_api_curve():
+        _ensure_today_close_baseline_after_21()
         """
         返回当前曲线 + 上一快照曲线（用于对比）。
         逻辑：取快照中最新时间点作为当前，上一时间点作为对比基准。
@@ -2414,6 +2518,7 @@ def register_routes(app):
 
     @app.route('/api/iv_smile/alert_data')
     def iv_api_alert_data():
+        _ensure_today_close_baseline_after_21()
         """
         T型报价+报警数据：对比当日15:00收盘基准，返回带颜色标注级别的完整数据。
         用于前端T型表格颜色标注 + 弹窗声音报警判断。
@@ -2427,8 +2532,9 @@ def register_routes(app):
             futures_price = _state.get('futures_price')
             max_pain = _state.get('max_pain')
 
-        # 前次曲线：优先 _close_baseline（运行时记录），兜底 _prev_day_baseline（前一交易日15:00）
-        close_baseline = _close_baseline
+        # 前次基准：交易日21:00才切到今日15:00；21:00前仍用上一交易日15:00，便于盘后复盘
+        now_hour = datetime.now().hour
+        close_baseline = _close_baseline if now_hour >= 21 else {}
         b_smooth = close_baseline.get('smooth', {}) if close_baseline else {}
         b_raw = close_baseline.get('raw', {}) if close_baseline else {}
         b_oi = close_baseline.get('strike_oi', {}) if close_baseline else {}
@@ -2958,8 +3064,9 @@ def register_routes(app):
 
     @app.route('/api/iv_smile/gex')
     def iv_api_gex():
+        _ensure_today_close_baseline_after_21()
         """
-        GEX (Gamma Exposure) + 疼痛曲线 + OI分布 + 综合摘要。
+        Gamma Exposure API
         返回:
           - gex_bars / pain_curve / oi_dist / summary: 当前实时数据
           - prev_gex_bars / prev_pain_curve / prev_oi_dist / prev_summary: 前次基准
