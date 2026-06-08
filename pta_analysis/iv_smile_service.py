@@ -70,10 +70,6 @@ _interval_loaded_from_disk = set()  # 已从磁盘加载的日期，避免重复
 _prev_day_baseline = {}           # 前一交易日15:00收盘快照（启动时从磁盘加载）
                                   # {'smooth': {}, 'raw': {}, 'strike_oi': {}, 'timestamp': str, 'futures_price': float}
 
-# ATM IV 历史（每分钟追加一点，连续曲线）
-# [{'time_key': '09:01', 'value': 0.2534}, ...]
-_atm_iv_history = []
-_prev_atm_snapshot_minute = -1     # 上次追加时的15分钟窗口编号，不再用于去重，仅占位兼容
 
 # IV变化报警追踪（避免重复报警）
 _iv_alert_sent_today = set()       # 今天已发送的报警记录: {(strike, direction), ...}
@@ -429,11 +425,9 @@ def _load_close_state():
                 else:
                     # 用 svi_jw_params 重算
                     try:
-                        _T_for_jw = 30 / 365  # 默认值
+                        _T_for_jw = 30 / _TRADING_DAYS_PER_YEAR  # 默认值
                         if _state.get('expiry'):
-                            _T_for_jw = (_state['expiry'] - datetime.now()).total_seconds() / (365.25 * 24 * 3600)
-                            if _T_for_jw <= 0:
-                                _T_for_jw = 1 / 365
+                            _T_for_jw = _calc_T_trading_days(_state['expiry'])
                         jw = svi_jw_params(cur_svi['a'], cur_svi['b'], cur_svi['rho'],
                                           cur_svi['m'], cur_svi['sigma'], _T_for_jw)
                         cur_svi['skew'] = jw['skew']
@@ -483,7 +477,7 @@ def _save_all_snapshots():
     payload = {
         'date': date_str,
         'snapshots': merged,   # 合并后全量快照 dict
-        'atm_iv_history': _atm_iv_history,  # ATM IV 走势历史（分钟级数据点列表）
+
     }
     # 原子写入：先写临时文件，再 os.replace() 覆盖目标文件。
     # os.replace 在同一文件系统上是原子操作，即使进程被 kill -9 也不会
@@ -581,9 +575,11 @@ def _is_trading_day(dt=None):
 
 def _is_trading_hours():
     """
-    判断当前是否在交易时段（允许SVI校准）。
-    CZCE日盘: 09:00-15:00
-    夜盘:     21:00-02:30（次日）
+    判断当前是否在PTA交易时段（允许SVI校准）。
+    PTA(CZCE)交易时段：
+      日盘上午: 09:00-11:30
+      日盘下午: 13:30-15:00
+      夜盘:     21:00-23:00（当日结束，不跨零点）
     其余时段跳过校准，避免休盘期间虚假波动。
     同时检查交易日——周末/节假日不交易。
     节假日前一天没有夜盘（次日休市则当晚不开夜盘）。
@@ -593,20 +589,83 @@ def _is_trading_hours():
         return False
     h, m = now.hour, now.minute
     total = h * 60 + m
-    # 日盘: 09:00-15:00 (540-900)
-    day_start, day_end = 9 * 60, 15 * 60
-    # 夜盘: 21:00-02:30 (1260-150), 跨零点处理
-    night_start, night_end = 21 * 60, 2 * 60 + 30  # 1260, 150
-    if night_start <= total < 24 * 60:  # 21:00-23:59 — 检查次日是否休市
+    # 日盘上午: 09:00-11:30 (540-690)
+    am_start, am_end = 9 * 60, 11 * 60 + 30
+    # 日盘下午: 13:30-15:00 (810-900)
+    pm_start, pm_end = 13 * 60 + 30, 15 * 60
+    # 夜盘: 21:00-23:00 (1260-1380), 不跨零点
+    night_start, night_end = 21 * 60, 23 * 60
+    # 日盘判断
+    if am_start <= total < am_end:  # 09:00-11:30
+        return True
+    if pm_start <= total < pm_end:  # 13:30-15:00
+        return True
+    # 夜盘判断: 21:00-23:00
+    if night_start <= total < night_end:
+        # 规则：节假日/长假前一天没有夜盘（次交易日休市则今晚不开夜盘）
+        # 周五正常有夜盘（PTA夜盘23:00结束，不跨到周六）
+        today_wd = now.weekday()
+        if today_wd == 4:  # 周五
+            return True
+        if today_wd >= 5:  # 周六周日不可能有夜盘
+            return False
         tomorrow = now.date() + timedelta(days=1)
         if _is_cn_holiday(tomorrow) or tomorrow.weekday() >= 5:
             return False  # 次日休市，今晚没有夜盘
         return True
-    if 0 <= total <= night_end:  # 00:00-02:30（前一天夜盘延续，已由_is_trading_day过滤）
-        return True
-    if day_start <= total < day_end:  # 09:00-15:00
-        return True
     return False
+
+
+# ===================== 交易日T计算 =====================
+
+_TRADING_DAYS_PER_YEAR = 245  # 中国期货每年约245个交易日
+
+def _count_trading_days(start_date, end_date):
+    """
+    计算从 start_date 到 end_date（不含）之间的交易日数。
+    排除周末和法定节假日。
+    """
+    from datetime import date
+    if isinstance(start_date, datetime):
+        start_date = start_date.date()
+    if isinstance(end_date, datetime):
+        end_date = end_date.date()
+    count = 0
+    d = start_date
+    while d < end_date:
+        wd = d.weekday()
+        if wd < 5 and not _is_cn_holiday(d):
+            count += 1
+        d += timedelta(days=1)
+    return count
+
+
+def _calc_T_trading_days(expiry, now=None):
+    """
+    用交易日计算到期时间T（年化）。
+    行业标准：T = 剩余交易日 / 每年交易日数(245)。
+    
+    今天当天算一个完整交易日（盘中），到期日不算（到期日收盘后才真正到期，
+    但最后一天时间价值几乎为0，用整数交易日足够准确）。
+    
+    最小值 0.5/245（到期日当天），避免T=0导致IV爆炸。
+    """
+    if now is None:
+        now = datetime.now()
+    if expiry is None:
+        return 30 / _TRADING_DAYS_PER_YEAR  # 默认30个交易日
+    
+    expiry_date = expiry.date() if isinstance(expiry, datetime) else expiry
+    today = now.date() if isinstance(now, datetime) else now
+    
+    if today >= expiry_date:
+        return 0.5 / _TRADING_DAYS_PER_YEAR  # 到期日当天，给最小值
+    
+    trading_days = _count_trading_days(today, expiry_date)
+    if trading_days <= 0:
+        return 0.5 / _TRADING_DAYS_PER_YEAR
+    
+    return trading_days / _TRADING_DAYS_PER_YEAR
 
 
 def _load_previous_day_snapshots():
@@ -668,22 +727,7 @@ def _load_previous_day_snapshots():
                         latest_for_restore_ts = ts
             _interval_loaded_from_disk.add(today)
             print(f"[iv_smile] 📂 已加载今日快照 ({today}): {len(_interval_snapshots)}个时间点")
-            # 恢复 ATM IV 走势历史（过滤非交易时段的脏数据）
-            saved_history = payload.get('atm_iv_history', [])
-            if saved_history:
-                _atm_iv_history.clear()
-                for item in saved_history:
-                    tk = item.get('time_key', '')
-                    # time_key格式: "MM/DD HH:MM"，提取小时判断是否在交易时段
-                    try:
-                        hh = int(tk.split(' ')[1].split(':')[0]) if ' ' in tk else -1
-                    except (ValueError, IndexError):
-                        hh = -1
-                    # 交易时段: 09-15, 21-23, 00-02
-                    if 9 <= hh <= 15 or 21 <= hh <= 23 or 0 <= hh <= 2:
-                        _atm_iv_history.append(item)
-                if _atm_iv_history:
-                    print(f"[iv_smile] 📂 已恢复ATM IV走势: {len(_atm_iv_history)}个数据点")
+
         except Exception as e:
             print(f"[iv_smile] ⚠️ 加载今日快照失败: {e}")
 
@@ -814,35 +858,6 @@ def _load_previous_day_snapshots():
         if restored_smooth:
             print(f"[iv_smile] 📂 已恢复微笑曲线: {len(restored_smooth)}档平滑IV (from {latest_for_restore_key})")
 
-        # === 3.0 初始化 ATM IV 走势历史（从当前恢复数据生成至少一个点） ===
-        # 盘后/周末场景: compute_once() 不会运行（被 _is_trading_hours 拦截），
-        # 走势历史需要从恢复的 smooth 曲线 + 快照时间戳初始化，至少让前端走势图显示当前值
-        if restored_smooth and not _atm_iv_history:
-            # 优先用 max_pain 处的 IV（这是 ATM 走势的"代表值"）
-            _atm_k = restored_mp or restored_atm
-            if _atm_k and str(_atm_k) in restored_smooth:
-                _atm_iv_val = restored_smooth[str(_atm_k)]
-            elif _atm_k and _atm_k in restored_smooth:
-                _atm_iv_val = restored_smooth[_atm_k]
-            else:
-                # 兜底: 用最接近 futures_price 的行权价 IV
-                if restored_price and restored_price > 0:
-                    _nearest_k = min(restored_smooth.keys(),
-                                    key=lambda k: abs(int(k) - restored_price))
-                    _atm_iv_val = restored_smooth[_nearest_k]
-                else:
-                    _atm_iv_val = None
-
-            if _atm_iv_val:
-                # 冷启动初始化：只在交易时段才写入走势起点（盘后不写，避免产生脏数据）
-                _now_h = datetime.now().hour
-                _in_trading = (9 <= _now_h < 15) or (21 <= _now_h <= 23) or (0 <= _now_h < 3)
-                if _in_trading:
-                    _init_time_key = datetime.now().strftime('%m/%d %H:%M')
-                    _atm_iv_history.append({'time_key': _init_time_key, 'value': float(_atm_iv_val)})
-                    print(f"[iv_smile] 📈 已初始化ATM IV走势: {_init_time_key} → {_atm_iv_val*100:.2f}%")
-                else:
-                    print(f"[iv_smile] 📈 盘后冷启动，跳过ATM IV走势初始化 (hour={_now_h})")
 
         # === 3.1 如果 svi_params 无效，用 raw 数据重新做 SVI 拟合 ===
         _svi_valid = (restored_sabr and isinstance(restored_sabr, dict)
@@ -875,11 +890,9 @@ def _load_previous_day_snapshots():
                 # 计算 T（到期时间）— 始终用 datetime.now()（时间持续流动）
                 _expiry = _state.get('expiry')
                 if _expiry:
-                    T = (_expiry - datetime.now()).total_seconds() / (365.25 * 24 * 3600)
-                    if T <= 0:
-                        T = 1 / 365
+                    T = _calc_T_trading_days(_expiry)
                 else:
-                    T = 30 / 365  # 默认30天
+                    T = 30 / _TRADING_DAYS_PER_YEAR  # 默认30个交易日
 
                 refit_smooth, refit_svi = smooth_smile(K_list, IV_list, restored_price, T)
                 if refit_svi:
@@ -930,11 +943,9 @@ def _load_previous_day_snapshots():
         if len(_K_list) >= 4:
             _expiry = _state.get('expiry')
             if _expiry:
-                _refit_T = (_expiry - datetime.now()).total_seconds() / (365.25 * 24 * 3600)
-                if _refit_T <= 0:
-                    _refit_T = 1 / 365
+                _refit_T = _calc_T_trading_days(_expiry)
             else:
-                _refit_T = 30 / 365
+                _refit_T = 30 / _TRADING_DAYS_PER_YEAR
             _refit_smooth, _refit_svi = smooth_smile(_K_list, _IV_list, _refit_F, _refit_T)
             if _refit_svi:
                 _state['svi_params'] = _refit_svi
@@ -952,12 +963,11 @@ def _load_previous_day_snapshots():
             _contract, _exp = get_active_ta_contract()
             _state['expiry'] = _exp
             _state['active_contract'] = _contract
-            # 用 datetime.now() 计算T（时间持续流动）
-            _T = (_exp - datetime.now()).total_seconds() / (365.25 * 24 * 3600)
-            if _T <= 0:
-                _T = 1 / 365
+            # 用交易日计算T
+            _T = _calc_T_trading_days(_exp)
             _state['T'] = _T
-            print(f"[iv_smile] 📂 已恢复到期日: {_contract} expiry={_exp.date()} T={_T:.6f}yr (ref=now)")
+            _td = _count_trading_days(datetime.now().date(), _exp.date() if isinstance(_exp, datetime) else _exp)
+            print(f"[iv_smile] 📂 已恢复到期日: {_contract} expiry={_exp.date()} T={_T:.6f}yr ({_td}个交易日)")
         except Exception as e:
             print(f"[iv_smile] ⚠️ 恢复到期日失败: {e}")
     if _state.get('futures_price'):
@@ -1237,14 +1247,15 @@ def fit_svi(K_list, IV_list, F, T):
     K_v = K_arr[valid]
     IV_v = IV_arr[valid]
     
-    # 过滤深度OTM：moneyness ±30% 且 绝对距离 ≤2000
+    # 过滤深度OTM：moneyness ±15% 且 绝对距离 ≤1000
+    # 深度OTM（如K=4550 IV=103%）会严重拉高SVI曲线ATM端，必须剔除
     moneyness_pct = np.abs(K_v - F) / F
-    near_mask = moneyness_pct <= 0.30
-    abs_mask = np.abs(K_v - F) <= 2000
+    near_mask = moneyness_pct <= 0.15
+    abs_mask = np.abs(K_v - F) <= 1000
     combined_mask = near_mask & abs_mask
     
     if combined_mask.sum() < 3:
-        combined_mask = moneyness_pct <= 0.50
+        combined_mask = moneyness_pct <= 0.25
     if combined_mask.sum() < 3:
         return None
     
@@ -1698,14 +1709,12 @@ def compute_once(force=False):
     # 参考行权价 = 最大痛点
     ref_strike = max_pain
 
-    # 3. 剩余期限（年）— 始终用 datetime.now()（时间持续流动，T随真实时间衰减）
+    # 3. 剩余期限（年）— 用交易日计算
     expiry = _state.get('expiry')
     if not expiry:
         print("[iv_smile] 到期日未设置")
         return False
-    T = (expiry - datetime.now()).total_seconds() / (365.25 * 24 * 3600)
-    if T <= 0:
-        T = 1 / 365
+    T = _calc_T_trading_days(expiry)
 
     # 4. 收集IV（用买卖价中点）
     raw_iv = {}
@@ -1822,20 +1831,6 @@ def compute_once(force=False):
         if should_update_smile:
             _state['last_update'] = now.isoformat()
 
-        # 记录ATM IV到历史（每1分钟追加一点，连续曲线）
-        global _prev_atm_snapshot_minute, _atm_iv_history
-        atm_iv_val = smooth_iv.get(max_pain) if max_pain else None
-        if atm_iv_val:
-            time_key = f"{now.hour:02d}:{now.minute:02d}"
-            # 同一分钟内多次 compute_once 只保留最新值（覆盖而非追加）
-            if _atm_iv_history and _atm_iv_history[-1]['time_key'] == time_key:
-                _atm_iv_history[-1]['value'] = float(atm_iv_val)
-            else:
-                _atm_iv_history.append({'time_key': time_key, 'value': float(atm_iv_val)})
-                if len(_atm_iv_history) > 480:
-                    del _atm_iv_history[:-480]
-        _prev_atm_snapshot_minute = -1  # 占位兼容，不再用于去重
-
     svi_str = (f"a={svi['a']:.4f} b={svi['b']:.4f} ρ={svi['rho']:.3f} ATMvol={svi['atm_vol']:.2%}") if svi else "失败"
     mp_str = f"MP={max_pain}" if max_pain else ""
     print(f"[iv_smile] ✅ S={S:.0f} {mp_str} 档位={len(raw_iv)} SVI({svi_str})")
@@ -1863,15 +1858,13 @@ def _refresh_t_offhours():
     expiry = _state.get('expiry')
     if not expiry:
         return
-    T = (expiry - datetime.now()).total_seconds() / (365.25 * 24 * 3600)
-    if T <= 0:
-        T = 1 / 365
+    T = _calc_T_trading_days(expiry)
     with _state['lock']:
         old_T = _state.get('T')
         _state['T'] = T
-    days_left = round(T * 365.25, 1)
-    print(f"[iv_smile] 🕐 休盘T刷新: T={T:.6f}yr ({days_left}天) (前值={old_T:.6f})" if old_T else
-          f"[iv_smile] 🕐 休盘T刷新: T={T:.6f}yr ({days_left}天)")
+    td = _count_trading_days(datetime.now().date(), expiry.date() if isinstance(expiry, datetime) else expiry)
+    print(f"[iv_smile] 🕐 休盘T刷新: T={T:.6f}yr ({td}个交易日) (前值={old_T:.6f})" if old_T else
+          f"[iv_smile] 🕐 休盘T刷新: T={T:.6f}yr ({td}个交易日)")
 
 
 def start_scheduler(interval_minutes=1):
@@ -1881,19 +1874,16 @@ def start_scheduler(interval_minutes=1):
         counter = 0
         offhours_t_counter = 0  # 休盘T刷新计数器
         while _state['running']:
-            # compute_once() 内部有 data_ready 守卫和非交易时段空跑逻辑，
-            # 09:00 后数据到达即自动触发，15:00 后空跑不影响
-            compute_once()
-            counter += 1
-
-            # 休盘时段：每60次循环（≈1小时）刷新一次T
-            if not _is_trading_hours():
+            # 休盘时段：跳过compute_once，避免用datetime.now()算T导致IV虚高
+            if _is_trading_hours():
+                compute_once()
+                offhours_t_counter = 0  # 开盘重置
+            else:
                 offhours_t_counter += 1
                 if offhours_t_counter >= 60:  # 60 × 1分钟 = 1小时
                     _refresh_t_offhours()
                     offhours_t_counter = 0
-            else:
-                offhours_t_counter = 0  # 开盘重置（开盘时T在compute_once里更新）
+            counter += 1
 
             # 每15分钟持久化一次快照（每刻钟整点：0,15,30,45分钟）
             now = datetime.now()
@@ -1945,7 +1935,6 @@ def register_routes(app):
                 'rate': _state['rate'],
                 'active_contract': _state.get('active_contract'),
                 'snapshot_times': snapshot_times,  # 格式: ["09:00","09:15",...]
-                'atm_history': {item['time_key']: item['value'] for item in _atm_iv_history},
                 'reconnect_count': _tqsdk_reconnect_count,
             })
 
@@ -2052,6 +2041,12 @@ def register_routes(app):
                     ts = _prev_day_baseline.get('timestamp', '')[:19]
                     # 仅首次打印，避免刷屏（通过prev_key是否已设来控制）
             prev_key = '15:00收盘' if prev_smooth else None
+
+            # ---- 前次基准smooth直接使用快照原始值 ----
+            # 快照里的smooth是当时BS反算+SVI拟合的结果,直接反映当时市场IV水平。
+            # 不要用SVI参数重算——因为快照的raw IV和smooth都是用当时的T反算的,
+            # 属于同一体系,直接对比方向是正确的。
+            # (之前的重算逻辑会因为前后T值不同导致方向错误)
 
             # 前次ATM：优先取baseline的atm_strike，其次从futures_price/S计算
             prev_atm_strike = None
@@ -2192,11 +2187,10 @@ def register_routes(app):
             'prev_atm_strike': prev_atm_strike,
             'last_update': _state['last_update'],
             'expiry': _state['expiry'].isoformat() if _state.get('expiry') else None,
-            'T': (((_state['expiry'] - datetime.now()).total_seconds() / (365.25 * 24 * 3600))
-                  if _state.get('expiry') else _state.get('T')),  # 实时T
+            'T': (_calc_T_trading_days(_state['expiry'])
+                  if _state.get('expiry') else _state.get('T')),  # 交易日T
             'svi_params': svi,
             'curve': curve_data,
-            'atm_history': {item['time_key']: item['value'] for item in _atm_iv_history},
             'prev_timestamp': prev_ts_display,      # 格式: "09:30" 或 "昨收盘"
             'prev_interval_key': prev_key,          # 格式: "09:30"
             'current_interval_key': latest_key,   # 格式: "10:45"
@@ -2767,11 +2761,9 @@ def register_routes(app):
             expiry = _state.get('expiry')
             last_update = _state.get('last_update', '')
 
-        # T 实时计算（不依赖 _state['T']，确保每次API调用都是最新值）
+        # T 用交易日计算
         if expiry:
-            T = (expiry - datetime.now()).total_seconds() / (365.25 * 24 * 3600)
-            if T <= 0:
-                T = 1 / 365
+            T = _calc_T_trading_days(expiry)
         else:
             T = _state.get('T')
 
@@ -2856,7 +2848,13 @@ def register_routes(app):
                     ratio = abs(pn) / (abs(pn) + abs(cn)) if (abs(pn) + abs(cn)) > 0 else 0.5
                     gex_flip = round((k1 + ratio * (k2 - k1)) / 2) * 2
                     break
-            days_left = round(T * 365.25, 1) if T else None
+            # days_left 用日历天（自然日），更直观
+            if expiry:
+                days_left = round((expiry - datetime.now()).total_seconds() / 86400, 1)
+                if days_left < 0:
+                    days_left = 0
+            else:
+                days_left = None
             summ = {
                 'futures_price': futures_price, 'max_pain': mp, 'pcr': pcr,
                 'net_gex': round(net_gex_total, 0),
