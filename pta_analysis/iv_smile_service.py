@@ -641,7 +641,15 @@ _PTA_TRADING_MINUTE_RANGES = (
     (13 * 60 + 30, 15 * 60),
     (21 * 60, 23 * 60),
 )
+_PTA_OPEN_TIMES = {(9, 0), (10, 30), (13, 30), (21, 0)}
 _PTA_TRADING_MINUTES_PER_DAY = sum(end - start for start, end in _PTA_TRADING_MINUTE_RANGES)  # 345分钟
+
+
+def _is_opening_first_minute(now=None):
+    """开盘首分钟不写15分钟快照：等待TqSdk首个完整行情刷新后再落槽。"""
+    if now is None:
+        now = datetime.now()
+    return (now.hour, now.minute) in _PTA_OPEN_TIMES
 
 
 def _has_pta_night_session(day):
@@ -2034,7 +2042,10 @@ def compute_once(force=False):
             # 按固定15分钟时间点存储快照
             # ⛔ 同一15分钟块内不覆盖：避免同一槽内多次计算导致数据被冲掉
             interval_key = get_interval_key(now)
-            if interval_key in _interval_snapshots:
+            if _is_opening_first_minute(now):
+                print(f"[iv_smile] ⏭ 跳过开盘首分钟快照: {interval_key}，等待下一分钟完整行情")
+                interval_key = None
+            elif interval_key in _interval_snapshots:
                 print(f"[iv_smile] ⏭ 跳过重复写入: {interval_key}（该槽已存在）")
             else:
                 _interval_snapshots[interval_key] = {

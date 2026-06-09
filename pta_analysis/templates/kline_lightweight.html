@@ -544,7 +544,10 @@
     <div class="option-section" id="daily-report-section">
         <div class="section-title">
             <span>📋 研报与策略 <span id="reportTime" style="color:#888;font-size:11px;"></span></span>
-            <button onclick="loadDailyReport()" style="background:#e65100;color:#fff;border:none;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px;">刷新</button>
+            <span style="display:flex;gap:6px;align-items:center;">
+                <button onclick="exportStrategyReport()" style="background:#2e7d32;color:#fff;border:none;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px;">导出Word</button>
+                <button onclick="refreshStrategyReport()" style="background:#e65100;color:#fff;border:none;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px;">手动刷新</button>
+            </span>
         </div>
         <div id="dailyReportContent" style="padding:10px;background:#252538;border-radius:0 0 8px 8px;max-height:700px;overflow-y:auto;">
             <div style="color:#888;text-align:center;padding:20px;">加载中...</div>
@@ -572,6 +575,74 @@
         // 周期切换中标记（防止 setData([]) 触发回调时报错）
         let _switchingPeriod = false;
         let _completingSwitch = false;  // fitContent执行中标记，防止竞态
+        let _syncingCharts = false;     // 多图时间轴同步互斥，防止递归/重复订阅竞态
+
+        function syncChartsToVisibleRange(sourceChart = mainChart) {
+            if (!sourceChart || _syncingCharts) return;
+            let timeRange = null;
+            try { timeRange = sourceChart.timeScale().getVisibleRange(); } catch(e) { return; }
+            if (!timeRange) return;
+            _syncingCharts = true;
+            [mainChart, macdChart, kdjChart].forEach(ch => {
+                if (ch && ch !== sourceChart) {
+                    try { ch.timeScale().setVisibleRange(timeRange); } catch(e) {}
+                }
+            });
+            _syncingCharts = false;
+        }
+
+        function preserveAndSyncVisibleRange(width) {
+            let timeRange = null;
+            try { timeRange = mainChart ? mainChart.timeScale().getVisibleRange() : null; } catch(e) {}
+            [mainChart, macdChart, kdjChart].forEach(ch => {
+                if (ch) {
+                    try { ch.applyOptions({ width }); } catch(e) {}
+                }
+            });
+            if (timeRange) {
+                [mainChart, macdChart, kdjChart].forEach(ch => {
+                    if (ch) {
+                        try { ch.timeScale().setVisibleRange(timeRange); } catch(e) {}
+                    }
+                });
+            } else {
+                syncChartsToVisibleRange(mainChart);
+            }
+        }
+
+        function isAtRealtime() {
+            if (!mainChart || !klineData || klineData.length === 0) return true;
+            try {
+                const lr = mainChart.timeScale().getVisibleLogicalRange();
+                return !lr || lr.to >= klineData.length - 3;
+            } catch(e) {
+                return true;
+            }
+        }
+
+        function scrollChartsToRealTime() {
+            [mainChart, macdChart, kdjChart].forEach(ch => {
+                if (ch) {
+                    try { ch.timeScale().scrollToRealTime(); } catch(e) {}
+                }
+            });
+            syncChartsToVisibleRange(mainChart);
+        }
+
+        function upsertLatestKlineBar(lastNew) {
+            if (!lastNew || !isFinite(Number(lastNew.time))) return;
+            const incomingTime = Number(lastNew.time);
+            const normalized = { ...lastNew, time: incomingTime };
+            const lastIdx = klineData.length - 1;
+            if (lastIdx >= 0 && Number(klineData[lastIdx].time) === incomingTime) {
+                klineData[lastIdx] = { ...klineData[lastIdx], ...normalized };
+            } else if (lastIdx >= 0 && Number(klineData[lastIdx].time) > incomingTime) {
+                const idx = klineData.findIndex(k => Number(k.time) === incomingTime);
+                if (idx >= 0) klineData[idx] = { ...klineData[idx], ...normalized };
+            } else {
+                klineData.push(normalized);
+            }
+        }
 
         // ==================== 绘图工具状态 ====================
         let currentTool = null;           // 'hline'|'vline'|'line'|'rect'|'ray'|null
@@ -740,44 +811,22 @@
             // 买卖点
             // markers handled by candleSeries
 
-            // 订阅主图滚动，同步MACD和KDJ
-            // 双向同步：主图变化→副图跟随；副图操作→也同步回主图（保持一致）
-            let _syncingMain = false;
-            let _syncingSub = false;
-            
+            // 订阅滚动/缩放：统一用时间范围同步，避免副图过滤早期数据导致逻辑索引错位；只保留一个主图订阅，避免竞态。
             mainChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
-                if (_syncingMain) return;
-                _syncingSub = true;
-                if (range) {
-                    // 用时间范围同步，避免因数据量不同（MACD过滤前25根）导致逻辑索引偏移
-                    const timeRange = mainChart.timeScale().getVisibleRange();
-                    if (timeRange) {
-                        if (macdChart) macdChart.timeScale().setVisibleRange(timeRange);
-                        if (kdjChart) kdjChart.timeScale().setVisibleRange(timeRange);
-                    }
+                if (!range || _switchingPeriod || _completingSwitch || _syncingCharts) return;
+                syncChartsToVisibleRange(mainChart);
+                // 滚动后重绘MACD标注
+                if (lastMacdWaveData && lastMacdWaveData.times.length > 0) {
+                    drawMacdWaveLabels(lastMacdWaveData.times, lastMacdWaveData.waveEndLabels);
                 }
-                _syncingSub = false;
             });
             
             // 副图操作后同步回主图（防止副图独立操作）
             [macdChart, kdjChart].forEach(subChart => {
                 if (!subChart) return;
                 subChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
-                    if (_syncingSub || _syncingMain) return;
-                    _syncingMain = true;
-                    if (range) {
-                        const timeRange = subChart.timeScale().getVisibleRange();
-                        if (timeRange) {
-                            mainChart.timeScale().setVisibleRange(timeRange);
-                            // 其他副图也要跟随
-                            [macdChart, kdjChart].forEach(other => {
-                                if (other && other !== subChart) {
-                                    other.timeScale().setVisibleRange(timeRange);
-                                }
-                            });
-                        }
-                    }
-                    _syncingMain = false;
+                    if (!range || _switchingPeriod || _completingSwitch || _syncingCharts) return;
+                    syncChartsToVisibleRange(subChart);
                 });
             });
             
@@ -846,38 +895,14 @@
             // 指标与主图同轴
 
             window.addEventListener('resize', () => {
-                _syncingMain = true;
                 const w = container.clientWidth;
-                mainChart.applyOptions({ width: w });
-                if (macdChart) macdChart.applyOptions({ width: w });
-                if (kdjChart) kdjChart.applyOptions({ width: w });
-                mainChart.timeScale().fitContent();
-                if (macdChart) macdChart.timeScale().fitContent();
-                if (kdjChart) kdjChart.timeScale().fitContent();
-                // resize后重绘标注
+                preserveAndSyncVisibleRange(w);
+                // resize后重绘标注，但不fitContent，避免窗口尺寸变化时把用户视图/最新位置重置。
                 if (lastMacdWaveData.times.length > 0) {
                     setTimeout(() => drawMacdWaveLabels(lastMacdWaveData.times, lastMacdWaveData.waveEndLabels), 100);
                 }
-                _syncingMain = false;
             });
             
-            // 主图滚动时也更新MACD标注（v4.1.0 API: subscribeVisibleLogicalRangeChange）
-            mainChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
-                if (range && !_syncingMain && !_syncingSub) {
-                    _syncingSub = true;
-                    const timeRange = mainChart.timeScale().getVisibleRange();
-                    if (timeRange) {
-                        if (macdChart) macdChart.timeScale().setVisibleRange(timeRange);
-                        if (kdjChart) kdjChart.timeScale().setVisibleRange(timeRange);
-                    }
-                    _syncingSub = false;
-                }
-                // 滚动后重绘MACD标注
-                if (lastMacdWaveData && lastMacdWaveData.times.length > 0) {
-                    drawMacdWaveLabels(lastMacdWaveData.times, lastMacdWaveData.waveEndLabels);
-                }
-            });
-
             // ==================== 绘图工具事件 ====================
             // 使用原生DOM事件避免LightweightCharts事件冲突
             mainChart.chartElement().addEventListener('click', (e) => {
@@ -2661,23 +2686,47 @@
                 });
         }
         
-async function loadDailyReport() {
+function fetchWithTimeout(url, timeoutMs = 8000) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeoutMs);
+            return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timer));
+        }
+
+function getStrategyReportEndpoint() {
+            const now = new Date();
+            const minutes = now.getHours() * 60 + now.getMinutes();
+            // 盘后默认展示全天综合日报；交易时段展示15分钟实时研报。
+            if (minutes >= 15 * 60) return '/api/strategy_report/daily';
+            return '/api/strategy_report/realtime';
+        }
+
+        async function loadDailyReport(endpoint) {
+            endpoint = endpoint || getStrategyReportEndpoint();
             const container = document.getElementById('dailyReportContent');
-            container.innerHTML = '<div style="color:#888;text-align:center;padding:20px;">⏳ 正在加载日报...</div>';
+            container.innerHTML = '<div style="color:#888;text-align:center;padding:20px;">⏳ 正在加载研报与策略...</div>';
             try {
-                // 并行请求：日报 + 产业链 + K线实时价
-                const [reportRes, fundRes, klineRes] = await Promise.all([
-                    fetch('/api/daily_report?refresh=1'),
-                    fetch('/api/fundamental').catch(() => null),
-                    fetch('/api/kline/data?period=1min').catch(() => null)
+                // 并行请求：15分钟缓存研报 + 产业链 + K线实时价。默认不refresh=1；allSettled+超时保证单接口失败不阻断面板。
+                const [reportSettled, fundSettled, klineSettled] = await Promise.allSettled([
+                    fetchWithTimeout(endpoint, endpoint.includes('/refresh') ? 120000 : 10000),
+                    fetchWithTimeout('/api/fundamental', 6000),
+                    fetchWithTimeout('/api/kline/data?period=1min', 5000)
                 ]);
+                if (reportSettled.status !== 'fulfilled' || !reportSettled.value) {
+                    throw new Error(reportSettled.reason?.message || '研报接口超时/失败');
+                }
+                const reportRes = reportSettled.value;
+                const fundRes = fundSettled.status === 'fulfilled' ? fundSettled.value : null;
+                const klineRes = klineSettled.status === 'fulfilled' ? klineSettled.value : null;
                 const reportResult = await reportRes.json();
                 if (!reportResult.success) {
                     container.innerHTML = '<div style="color:#f44336;text-align:center;padding:20px;">日报生成失败: ' + (reportResult.error || '') + '</div>';
                     return;
                 }
                 const d = reportResult.data || {};
-                document.getElementById('reportTime').textContent = d.timestamp ? '  ' + d.timestamp : '';
+                const cacheMark = reportResult.cached ? `  缓存${reportResult.cache_minutes || 15}分钟` : '  最新';
+                const staleMark = reportResult.stale ? '  ⚠️过期缓存' : '';
+                const sessionMark = d.market_session ? `  ${d.market_session}` : '';
+                document.getElementById('reportTime').textContent = d.timestamp ? `  ${d.timestamp}${sessionMark}${cacheMark}${staleMark}` : '';
 
                 // 解析产业链数据（允许失败）
                 let fundData = {};
@@ -2699,10 +2748,123 @@ async function loadDailyReport() {
                 const chgColor = v => v > 0 ? '#26a69a' : v < 0 ? '#ef5350' : '#888';
                 const chgSign = v => v > 0 ? '+' : '';
 
-                let html = '';
+                function escText(v) {
+                    return String(v == null ? '' : v).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+                }
+                function renderIntradayAnalysis(intraday, reportData = {}) {
+                    const cell = (v) => escText(v == null || v === '' ? '--' : v);
+                    function renderReportTable(title, headers, rows) {
+                        rows = Array.isArray(rows) ? rows : [];
+                        if (!rows.length) return '';
+                        let html = `<div style="margin:8px 0 10px 0;"><div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">${cell(title)}</div>`;
+                        html += `<table style="width:100%;border-collapse:collapse;font-size:11px;line-height:1.45;background:#12121b;border:1px solid #2a2a36;">`;
+                        html += `<thead><tr>${headers.map(h => `<th style="color:#aaa;text-align:left;padding:5px 6px;border-bottom:1px solid #333;font-weight:500;">${cell(h)}</th>`).join('')}</tr></thead><tbody>`;
+                        rows.slice(0, 8).forEach(row => {
+                            html += `<tr>${(Array.isArray(row) ? row : []).map(v => `<td style="color:#ddd;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">${cell(v)}</td>`).join('')}</tr>`;
+                        });
+                        html += `</tbody></table></div>`;
+                        return html;
+                    }
+                    function splitNarrativeNotes(text) {
+                        const notes = { market: [], gex: [], oi: [], iv: [], macro: [], strategy: [], other: [] };
+                        String(text || '').split(/\n+|。|；/).map(x => x.trim()).filter(Boolean).forEach(part => {
+                            const t = part.replace(/^[-•\s]+/, '');
+                            if (/GEX|Gamma|Pain|痛点|翻转/.test(t)) notes.gex.push(t);
+                            else if (/持仓|OI|Put|Call|支撑|压力/.test(t)) notes.oi.push(t);
+                            else if (/IV|隐波|波动|偏斜|Skew|曲率|T表/.test(t)) notes.iv.push(t);
+                            else if (/原油|PX|成本|宏观|快讯|美元|库存|开工|利润/.test(t)) notes.macro.push(t);
+                            else if (/策略|操作|买方|卖方|期货|期权|建议|风险/.test(t)) notes.strategy.push(t);
+                            else if (/盘面|价格|主力|标的|节奏|基差/.test(t)) notes.market.push(t);
+                            else notes.other.push(t);
+                        });
+                        return notes;
+                    }
+                    function combinedInterpretation(base, extraList) {
+                        const parts = [];
+                        if (base) parts.push(String(base));
+                        (extraList || []).forEach(x => { if (x) parts.push(String(x)); });
+                        return parts.join('；');
+                    }
+                    function renderInterpretation(text) {
+                        if (!text) return '';
+                        return `<div style="margin:-4px 0 10px 0;color:#cfcfcf;font-size:11px;line-height:1.65;background:#101018;border-left:2px solid #444;padding:6px 8px;border-radius:3px;">${cell(text)}</div>`;
+                    }
 
-                if (reportResult.stale) {
-                    html += `<div style="background:#b71c1c;color:#fff;padding:5px 10px;font-size:10px;margin-bottom:8px;border-radius:4px;">
+                    function renderStrategyBlock(key, cls) {
+                        const block = (intraday.strategy_blocks || {})[key] || {};
+                        const items = Array.isArray(block.items) ? block.items : [];
+                        if (!items.length) return '';
+                        return `<div class="strategy-block ${cls}" style="flex:1 1 220px;min-width:220px;background:#15151f;border:1px solid #30303d;border-radius:5px;padding:8px 10px;">
+                            <div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">${cell(block.title)}</div>
+                            <ul style="margin:0;padding-left:16px;color:#d0d0d0;font-size:11px;line-height:1.65;">${items.map(x => `<li>${cell(x)}</li>`).join('')}</ul>
+                        </div>`;
+                    }
+                    const oup = intraday.option_underlying_price;
+                    const mfp = intraday.main_futures_price;
+                    const narrative = intraday.narrative || reportData.narrative_report || '';
+                    const narrativeNotes = splitNarrativeNotes(narrative);
+                    let out = `<div style="margin-bottom:14px;padding:10px 12px;background:#15151f;border-left:3px solid #ffd700;border-radius:5px;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+                            <div style="color:#ffd700;font-size:13px;font-weight:bold;">🧭 ${cell(intraday.title || '盘中综合研判')}</div>
+                            <div style="color:#aaa;font-size:11px;">${cell(intraday.summary || intraday.conclusion || '')}</div>
+                        </div>`;
+                    const cmp = reportData.previous_day_comparison || intraday.previous_day_comparison || {};
+                    if (cmp.comparison_quality || cmp.data_limitation_note || cmp.intraday_coverage_status) {
+                        out += `<div style="margin:0 0 10px 0;color:#d7d7d7;font-size:11px;line-height:1.65;background:#101018;border-left:2px solid #777;padding:7px 9px;border-radius:3px;">
+                            <b>动态对比完整度：</b>${cell(cmp.comparison_quality || '-')}
+                            <span style="margin-left:10px;color:#aaa;">日内快照：${cell(cmp.intraday_coverage_status || '-')}</span>
+                            <span style="margin-left:10px;color:#aaa;">前日总报：${cmp.previous_day_available ? '已接入' : '暂缺'}</span>
+                            ${cmp.data_limitation_note ? `<div style="margin-top:4px;color:#aaa;">${cell(cmp.data_limitation_note)}</div>` : ''}
+                        </div>`;
+                    }
+                    out += `<div style="display:flex;flex-wrap:wrap;gap:6px 14px;color:#aaa;font-size:11px;margin-bottom:6px;"><span>期权链标的参考价 <b style="color:#ab47bc;">${oup != null ? fc(oup,0) : '--'}</b></span><span>盘面主力参考价 <b style="color:#ffd700;">${mfp != null ? fc(mfp,0) : '--'}</b></span></div>`;
+                    out += renderReportTable('盘面快照', ['项目','当前值','交易含义'], intraday.market_snapshot_table || []);
+                    out += renderInterpretation(combinedInterpretation(intraday.market_snapshot_interpretation, narrativeNotes.market));
+                    out += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;">`;
+                    out += renderReportTable('GEX / Pain', ['指标','当前值'], intraday.gex_table || []);
+                    out += renderInterpretation(combinedInterpretation(intraday.gex_interpretation, narrativeNotes.gex));
+                    out += renderReportTable('Pain Curve近端', ['行权价','Pain','备注'], intraday.pain_table || []);
+                    out += `</div>`;
+                    const oi = intraday.oi_tables || {};
+                    out += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;">`;
+                    out += renderReportTable('Put持仓集中', ['Put行权价','Put OI'], oi.put || []);
+                    out += renderReportTable('Call持仓集中', ['Call行权价','Call OI'], oi.call || []);
+                    out += renderInterpretation(combinedInterpretation(intraday.oi_interpretation, narrativeNotes.oi));
+                    out += `</div>`;
+                    out += renderReportTable('ATM附近IV / T表', ['K','C IV','P IV','SVI/平滑IV','OI结构'], intraday.iv_table || []);
+                    out += renderInterpretation(combinedInterpretation(intraday.iv_interpretation, narrativeNotes.iv));
+                    out += renderReportTable('宏观与成本快照', ['项目','当前值','解读'], intraday.macro_table || []);
+                    out += renderInterpretation(combinedInterpretation(intraday.macro_interpretation, narrativeNotes.macro));
+                    const news = Array.isArray(intraday.macro_news_items) ? intraday.macro_news_items.slice(0, 5) : [];
+                    if (news.length) {
+                        out += `<div style="margin:8px 0;"><div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">宏观财经快讯</div><ul style="margin:0;padding-left:18px;color:#d0d0d0;font-size:11px;line-height:1.65;">${news.map(x => `<li>${cell(x)}</li>`).join('')}</ul></div>`;
+                    }
+                    out += `<div style="margin-top:10px;color:#ffd700;font-size:12px;font-weight:bold;">操作策略</div><div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;">`;
+                    out += renderStrategyBlock('futures_strategy', 'futures');
+                    out += renderStrategyBlock('option_seller_strategy', 'option-seller');
+                    out += renderStrategyBlock('option_buyer_strategy', 'option-buyer');
+                    out += `</div>`;
+                    const strategyText = combinedInterpretation(intraday.strategy_logic, narrativeNotes.strategy);
+                    if (strategyText) {
+                        out += `<div style="margin-top:8px;color:#cfcfcf;font-size:11px;line-height:1.65;background:#101018;border-left:2px solid #444;padding:6px 8px;border-radius:3px;"><b style="color:#ffd700;">策略依据：</b>${cell(strategyText)}</div>`;
+                    }
+                    const otherNotes = narrativeNotes.other.slice(0, 2);
+                    if (otherNotes.length) {
+                        out += `<div style="margin-top:8px;color:#aaa;font-size:11px;line-height:1.65;"><b style="color:#ffd700;">综合摘要：</b>${cell(otherNotes.join('；'))}</div>`;
+                    }
+                    const snaps = Array.isArray(reportData.intraday_snapshots) ? reportData.intraday_snapshots.slice(-6) : [];
+                    if (snaps.length) {
+                        out += `<div style="margin-top:8px;color:#ffd700;font-size:12px;font-weight:bold;">日内15分钟快照摘要</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:4px 10px;margin-top:4px;">${snaps.map(s => `<div style="color:#aaa;font-size:11px;line-height:1.5;">${cell(s.slot || s.time || '-')}: ${cell(s.summary || '-')}</div>`).join('')}</div>`;
+                    }
+                    out += `</div>`;
+                    return out;
+                }
+
+                function legacyDailyReport() {
+                    let legacyHtml = '';
+
+                    if (reportResult.stale) {
+                    legacyHtml += `<div style="background:#b71c1c;color:#fff;padding:5px 10px;font-size:10px;margin-bottom:8px;border-radius:4px;">
                         ⚠️ 显示过期缓存（${d.timestamp || '未知'}），请稍后刷新
                     </div>`;
                 }
@@ -2750,11 +2912,11 @@ async function loadDailyReport() {
                 const hasFund = Object.keys(fundData).length > 0;
                 if (hasFund) {
                     const profitColor = (profit.profit||0) >= 0 ? '#26a69a' : '#ef5350';
-                    html += `<div style="margin-bottom:14px;">
+                    legacyHtml += `<div style="margin-bottom:14px;">
                     <div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:6px;">🏭 产业链概览</div>`;
 
                     // 流程图
-                    html += `<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-bottom:10px;font-size:11px;">
+                    legacyHtml += `<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-bottom:10px;font-size:11px;">
                         <span style="background:#1a2a3a;padding:4px 8px;border-radius:4px;">🛢️ 布伦特 <b style="color:${chgColor(brent.change_pct)}">$${fc(brent.price,2)}</b> <span style="color:${chgColor(brent.change_pct)};font-size:10px;">${chgSign(brent.change_pct)}${fc(brent.change_pct,2)}%</span></span>
                         <span style="color:#555;">→</span>
                         <span style="background:#1a2a3a;padding:4px 8px;border-radius:4px;">⛽ 石脑油 <b style="color:#ccc;">$${fc(naphtha.naphtha_cfr_estimate,0)}</b></span>
@@ -2766,7 +2928,7 @@ async function loadDailyReport() {
 
                     // 核心数据
                     const basisColor = (pta.basis?.value||0)>0?'#26a69a':'#ef5350';
-                    html += `<div style="display:flex;flex-wrap:wrap;gap:3px 12px;margin-bottom:8px;font-size:13px;line-height:1.8;">
+                    legacyHtml += `<div style="display:flex;flex-wrap:wrap;gap:3px 12px;margin-bottom:8px;font-size:13px;line-height:1.8;">
                         <span style="color:#aaa;">期货<b style="color:#eee;"> ${fut.symbol||'--'} ¥${fc(fut.close||fut.settle,0)}</b> <span style="color:${chgColor(fut.change_pct)};font-size:11px;">${chgSign(fut.change_pct)}${fc(fut.change_pct,2)}%</span></span>
                         <span style="color:#aaa;">基差<b style="color:${basisColor};"> ${chgSign(pta.basis?.value)}${fc(pta.basis?.value,0)}</b> <span style="font-size:11px;color:#888;">${pta.basis?.premium||''}</span></span>
                         <span style="color:#aaa;">成本<b style="color:#eee;"> ¥${fc(ptaCost.pta_cost,0)}</b></span>
@@ -2774,7 +2936,7 @@ async function loadDailyReport() {
                     </div>`;
 
                     // 库存 + PXN
-                    html += `<div style="display:flex;flex-wrap:wrap;gap:3px 12px;margin-bottom:8px;font-size:13px;line-height:1.8;">
+                    legacyHtml += `<div style="display:flex;flex-wrap:wrap;gap:3px 12px;margin-bottom:8px;font-size:13px;line-height:1.8;">
                         <span style="color:#aaa;">📦PTA库存<b style="color:#eee;"> ${inv.stock ? (inv.stock/10000).toFixed(1)+'万吨' : '--'}</b> <span style="color:${chgColor(-(inv.change||0))};font-size:11px;">${inv.change!=null ? (inv.change>=0?'+':'')+inv.change : ''}</span></span>
                         <span style="color:#aaa;">📦MEG<b style="color:#eee;"> ${megInv.stock ? megInv.stock.toLocaleString()+'吨' : '--'}</b> <span style="color:${chgColor(-(megInv.change||0))};font-size:11px;">${megInv.change!=null ? (megInv.change>=0?'+':'')+megInv.change : ''}</span></span>
                         <span style="color:#aaa;">📦苯乙烯<b style="color:#eee;"> ${smInv.stock ? (smInv.stock/10000).toFixed(1)+'万吨' : '--'}</b> <span style="color:${chgColor(-(smInv.change||0))};font-size:11px;">${smInv.change!=null ? (smInv.change>=0?'+':'')+smInv.change : ''}</span></span>
@@ -2784,20 +2946,20 @@ async function loadDailyReport() {
                     // 下游品种
                     const dsKeys = Object.keys(downstream);
                     if (dsKeys.length > 0) {
-                        html += `<div style="margin-bottom:8px;">
+                        legacyHtml += `<div style="margin-bottom:8px;">
                             <div style="color:#888;font-size:10px;margin-bottom:4px;">⬇️ 下游关联品种</div>
                             <div style="display:flex;gap:6px;flex-wrap:wrap;">`;
                         dsKeys.forEach(k => {
                             const v = downstream[k];
                             const bColor = (v.near_basis||0) < 0 ? '#ef5350' : '#26a69a';
-                            html += `<span style="background:#1a1a28;padding:3px 8px;border-radius:4px;font-size:10px;color:#ccc;">${k} ¥${fc(v.price,0)} <span style="color:${bColor};font-size:10px;">近月基差${v.near_basis>=0?'+':''}${fc(v.near_basis,0)}</span></span>`;
+                            legacyHtml += `<span style="background:#1a1a28;padding:3px 8px;border-radius:4px;font-size:10px;color:#ccc;">${k} ¥${fc(v.price,0)} <span style="color:${bColor};font-size:10px;">近月基差${v.near_basis>=0?'+':''}${fc(v.near_basis,0)}</span></span>`;
                         });
-                        html += `</div></div>`;
+                        legacyHtml += `</div></div>`;
                     }
 
                     // 产业链指数
                     if (chainThs.chain_index) {
-                        html += `<div style="margin-bottom:6px;font-size:10px;color:#888;">
+                        legacyHtml += `<div style="margin-bottom:6px;font-size:10px;color:#888;">
                             📊 产业链指数: <span style="color:#ffd700;font-weight:bold;">${fc(chainThs.chain_index,2)}</span>
                             <span style="color:#555;"> (历史高点 ${fc(chainThs.index_high,2)} @ ${chainThs.index_high_date||'--'})</span>
                         </div>`;
@@ -2810,7 +2972,7 @@ async function loadDailyReport() {
                     const commData = commObj ? commObj.data : null;
                     if (commData) {
                         const rColor = commData.rating.includes('多') ? '#26a69a' : commData.rating.includes('空') ? '#ef5350' : '#ffd700';
-                        html += `<div style="margin-top:6px;padding:8px;background:#1e1e30;border-left:3px solid ${rColor};border-radius:4px;">
+                        legacyHtml += `<div style="margin-top:6px;padding:8px;background:#1e1e30;border-left:3px solid ${rColor};border-radius:4px;">
                             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
                                 <span style="color:#ffd700;font-size:10px;">🤖 AI产业点评</span>
                                 <span style="color:${rColor};font-weight:bold;font-size:12px;">${commData.rating}(${commData.total_score>=0?'+':''}${commData.total_score.toFixed(2)})</span>
@@ -2821,7 +2983,7 @@ async function loadDailyReport() {
                             const sColor = s > 0.3 ? '#26a69a' : s < -0.3 ? '#ef5350' : '#888';
                             const barW = Math.abs(s) / 2 * 100;
                             const barDir = s >= 0 ? 'right' : 'left';
-                            html += `<div style="display:flex;align-items:center;gap:4px;margin:2px 0;font-size:10px;">
+                            legacyHtml += `<div style="display:flex;align-items:center;gap:4px;margin:2px 0;font-size:10px;">
                                 <span style="width:70px;color:#aaa;flex-shrink:0;">${dimIcons[dim]||''}${dim}</span>
                                 <div style="flex:1;height:8px;background:#111;border-radius:4px;position:relative;overflow:hidden;">
                                     <div style="position:absolute;${barDir}:50%;width:${barW}%;height:100%;background:${sColor};border-radius:4px;"></div>
@@ -2830,19 +2992,19 @@ async function loadDailyReport() {
                                 <span style="color:${sColor};width:32px;text-align:right;">${s>=0?'+':''}${s.toFixed(1)}</span>
                             </div>`;
                         }
-                        html += `<div style="color:#bbb;font-size:11px;margin-top:4px;line-height:1.5;">${commData.outlook}</div>`;
-                        html += `</div>`;
+                        legacyHtml += `<div style="color:#bbb;font-size:11px;margin-top:4px;line-height:1.5;">${commData.outlook}</div>`;
+                        legacyHtml += `</div>`;
                     } else if (commText) {
                         const lines = commText.split('\n').filter(l => l.trim());
-                        html += `<div style="margin-top:6px;padding:8px;background:#1e1e30;border-left:3px solid #ffd700;border-radius:4px;">
+                        legacyHtml += `<div style="margin-top:6px;padding:8px;background:#1e1e30;border-left:3px solid #ffd700;border-radius:4px;">
                             <div style="color:#ffd700;font-size:10px;margin-bottom:4px;">🤖 AI产业点评</div>`;
                         lines.forEach(line => {
-                            html += `<div style="color:#bbb;font-size:10px;line-height:1.6;">${line}</div>`;
+                            legacyHtml += `<div style="color:#bbb;font-size:10px;line-height:1.6;">${line}</div>`;
                         });
-                        html += `</div>`;
+                        legacyHtml += `</div>`;
                     }
 
-                    html += `</div>`;
+                    legacyHtml += `</div>`;
                 }
 
                 // ============================
@@ -2850,7 +3012,7 @@ async function loadDailyReport() {
                 // ============================
                 const s1 = d.section1 || {};
                 const gx = s1.gex_summary || {};
-                html += `<div style="margin-bottom:14px;">
+                legacyHtml += `<div style="margin-bottom:14px;">
                     <div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:6px;">📊 ${s1.title || '期权数据解读'}</div>`;
 
                 if (gx.net_gex !== undefined) {
@@ -2859,13 +3021,13 @@ async function loadDailyReport() {
                     const gLabel = gDir ? '🛡️ 正Gamma·压制波动' : '⚡ 负Gamma·放大波动';
                     const netM = (gx.net_gex / 1e6).toFixed(1);
 
-                    html += `<div style="display:flex;flex-wrap:wrap;gap:3px 12px;margin-bottom:6px;font-size:13px;line-height:1.8;">
+                    legacyHtml += `<div style="display:flex;flex-wrap:wrap;gap:3px 12px;margin-bottom:6px;font-size:13px;line-height:1.8;">
                         <span style="color:#aaa;">净GEX<b style="color:${gColor};"> ${gx.net_gex>0?'+':''}${netM}M</b> <span style="font-size:11px;color:${gColor};">${gLabel}</span></span>
                         <span style="color:#aaa;">🎯最大痛点<b style="color:#ffd700;"> ${gx.max_pain||'--'}</b> <span style="font-size:11px;color:#888;">期货${gx.futures_price||'--'}</span></span>
                         <span style="color:#aaa;">📍GEX翻转<b style="color:#ab47bc;"> ${gx.gex_flip||'--'}</b> <span style="font-size:11px;color:#888;">剩余${gx.days_left?gx.days_left.toFixed(1)+'天':'--'}</span></span>
                     </div>`;
 
-                    html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;font-size:12px;">
+                    legacyHtml += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;font-size:12px;">
                         <span style="color:#ccc;">持仓PCR<b style="color:${(gx.pcr||0)>1.2?'#ef5350':(gx.pcr||0)<0.8?'#26a69a':'#ffd700'}"> ${gx.pcr?gx.pcr.toFixed(3):'--'}</b> <span style="font-size:10px;color:#888;">T表口径</span></span>
                         <span style="color:#ccc;">Call持仓 <b style="color:#26a69a;">${gx.total_call_oi?gx.total_call_oi.toLocaleString():'--'}</b></span>
                         <span style="color:#ccc;">Put持仓 <b style="color:#ef5350;">${gx.total_put_oi?gx.total_put_oi.toLocaleString():'--'}</b></span>
@@ -2874,7 +3036,7 @@ async function loadDailyReport() {
                     </div>`;
 
                     if (gx.max_put_strike && gx.max_call_strike) {
-                        html += `<div style="display:flex;gap:6px;margin-bottom:6px;font-size:12px;">
+                        legacyHtml += `<div style="display:flex;gap:6px;margin-bottom:6px;font-size:12px;">
                             <span style="background:#1b2a1b;padding:2px 6px;border-radius:3px;color:#26a69a;">支撑 ${gx.max_put_strike} (${gx.max_put_oi?gx.max_put_oi.toLocaleString():0}手)</span>
                             <span style="color:#555;">↔</span>
                             <span style="background:#2a1b1b;padding:2px 6px;border-radius:3px;color:#ef5350;">压力 ${gx.max_call_strike} (${gx.max_call_oi?gx.max_call_oi.toLocaleString():0}手)</span>
@@ -2885,23 +3047,23 @@ async function loadDailyReport() {
                 // Pain Top5
                 const painH = s1.pain_highlights || [];
                 if (painH.length > 0) {
-                    html += `<div style="margin-bottom:6px;">
+                    legacyHtml += `<div style="margin-bottom:6px;">
                         <div style="color:#888;font-size:10px;margin-bottom:3px;">💀 疼痛曲线 Top5</div>
                         <div style="display:flex;gap:4px;flex-wrap:wrap;">`;
                     painH.forEach(p => {
                         const bg = p.is_min ? '#ffd700' : '#444';
                         const fg = p.is_min ? '#000' : '#ccc';
                         const pv = p.pain >= 1e6 ? (p.pain/1e6).toFixed(1)+'M' : p.pain.toLocaleString();
-                        html += `<span style="background:${bg};color:${fg};padding:1px 6px;border-radius:3px;font-size:10px;">${p.strike}:${pv}${p.is_min?' ★':''}</span>`;
+                        legacyHtml += `<span style="background:${bg};color:${fg};padding:1px 6px;border-radius:3px;font-size:10px;">${p.strike}:${pv}${p.is_min?' ★':''}</span>`;
                     });
-                    html += `</div></div>`;
+                    legacyHtml += `</div></div>`;
                 }
 
                 // 核心区间（effective support/resistance 优先于 max_put/call）
                 const effSup = gx.effective_support || gx.max_put_strike;
                 const effRes = gx.effective_resistance || gx.max_call_strike;
                 if (effSup && effRes && (effSup !== gx.max_put_strike || effRes !== gx.max_call_strike)) {
-                    html += `<div style="display:flex;gap:6px;margin-bottom:6px;font-size:12px;">
+                    legacyHtml += `<div style="display:flex;gap:6px;margin-bottom:6px;font-size:12px;">
                         <span style="background:#1b2a1b;padding:2px 6px;border-radius:3px;color:#26a69a;">核心支撑 ${effSup}</span>
                         <span style="color:#555;">↔</span>
                         <span style="background:#2a1b1b;padding:2px 6px;border-radius:3px;color:#ef5350;">核心压力 ${effRes}</span>
@@ -2914,7 +3076,7 @@ async function loadDailyReport() {
                 if (oiConc) {
                     const concPct = oiConc.toFixed(1);
                     const concColor = oiConc > 60 ? '#ffd700' : oiConc > 40 ? '#ff9800' : '#888';
-                    html += `<div style="font-size:11px;color:#888;margin-bottom:4px;">持仓集中度 <b style="color:${concColor};">${concPct}%</b> <span style="font-size:10px;">（ATM±500点内OI占比）</span></div>`;
+                    legacyHtml += `<div style="font-size:11px;color:#888;margin-bottom:4px;">持仓集中度 <b style="color:${concColor};">${concPct}%</b> <span style="font-size:10px;">（ATM±500点内OI占比）</span></div>`;
                 }
 
                 // Max Pain 收敛分析（在 s1 顶层，不在 gex_summary 里）
@@ -2922,7 +3084,7 @@ async function loadDailyReport() {
                 if (painConv) {
                     const probColor = painConv.probability === '高' ? '#ef5350' : painConv.probability === '中' ? '#ff9800' : '#888';
                     const devDir = painConv.deviation_pct > 0 ? '▲' : '▼';
-                    html += `<div style="font-size:11px;margin-bottom:6px;color:#aaa;">
+                    legacyHtml += `<div style="font-size:11px;margin-bottom:6px;color:#aaa;">
                         🎯 Max Pain收敛: 概率<b style="color:${probColor};"> ${painConv.probability}</b>
                         · 偏离<b style="color:#ccc;"> ${devDir}${Math.abs(painConv.deviation_pct).toFixed(1)}%</b>
                         · 剩余<b style="color:#ccc;"> ${painConv.days_left.toFixed(1)}天</b>
@@ -2933,25 +3095,25 @@ async function loadDailyReport() {
                 const iva = s1.iv_analysis;
                 if (iva) {
                     const regimeColor = {'extreme':'#ef5350','high':'#ef5350','mid':'#ffd700','low':'#26a69a','compressed':'#4fc3f7'};
-                    html += `<div style="background:#1a1a2e;padding:6px 8px;border-radius:4px;margin-bottom:6px;">
+                    legacyHtml += `<div style="background:#1a1a2e;padding:6px 8px;border-radius:4px;margin-bottom:6px;">
                         <div style="color:#ab47bc;font-size:11px;font-weight:bold;margin-bottom:4px;">📈 IV曲线解读</div>
                         <div style="display:flex;flex-wrap:wrap;gap:3px 12px;font-size:12px;line-height:1.8;">
                             <span style="color:#aaa;">ATM IV <b style="color:#ffd700;">${iva.atm_vol||'--'}%</b></span>
                             <span style="color:#aaa;">环境 <b style="color:${regimeColor[iva.vol_regime]||'#888'};">${iva.vol_level||'--'}</b></span>`;
                     if (iva.skew_desc) {
                         const skColor = iva.skew_level?.includes('left') ? '#26a69a' : iva.skew_level?.includes('right') ? '#ef5350' : '#888';
-                        html += `<span style="color:#aaa;">Skew <b style="color:${skColor};">${iva.skew>0?'+':''}${iva.skew}</b> <span style="font-size:10px;color:#888;">${iva.skew_desc.split('，')[0]}</span></span>`;
+                        legacyHtml += `<span style="color:#aaa;">Skew <b style="color:${skColor};">${iva.skew>0?'+':''}${iva.skew}</b> <span style="font-size:10px;color:#888;">${iva.skew_desc.split('，')[0]}</span></span>`;
                     }
                     if (iva.curv_desc) {
-                        html += `<span style="color:#aaa;">Curvature <b style="color:#ab47bc;">${iva.curvature}</b> <span style="font-size:10px;color:#888;">${iva.curv_desc.split('，')[0]}</span></span>`;
+                        legacyHtml += `<span style="color:#aaa;">Curvature <b style="color:#ab47bc;">${iva.curvature}</b> <span style="font-size:10px;color:#888;">${iva.curv_desc.split('，')[0]}</span></span>`;
                     }
-                    html += `</div></div>`;
+                    legacyHtml += `</div></div>`;
                 }
 
                 // IV变动 Top3（在 s1 顶层）
                 const ivChg = s1.iv_changes || [];
                 if (ivChg.length > 0) {
-                    html += `<div style="margin-bottom:6px;">
+                    legacyHtml += `<div style="margin-bottom:6px;">
                         <div style="color:#888;font-size:10px;margin-bottom:3px;">⚡ IV变动 Top3</div>
                         <div style="display:flex;gap:4px;flex-wrap:wrap;">`;
                     ivChg.forEach(ic => {
@@ -2966,59 +3128,59 @@ async function loadDailyReport() {
                             const pColor = pChg > 0 ? '#ef5350' : '#26a69a';
                             parts.push(`<span style="color:${pColor};">P${pChg > 0 ? '+' : ''}${pChg.toFixed(2)}%</span>`);
                         }
-                        html += `<span style="background:${ic.is_atm?'#2a2a3e':'#333'};padding:1px 6px;border-radius:3px;font-size:10px;">
+                        legacyHtml += `<span style="background:${ic.is_atm?'#2a2a3e':'#333'};padding:1px 6px;border-radius:3px;font-size:10px;">
                             <span style="color:#ccc;">${ic.strike}${ic.is_atm?' ATM':''}</span>
                             ${parts.join(' ')}
                         </span>`;
                     });
-                    html += `</div></div>`;
+                    legacyHtml += `</div></div>`;
                 }
 
                 // 结论观点
-                if (s1.summary) html += `<div style="color:#999;font-size:11px;line-height:1.6;margin-bottom:6px;">${s1.summary}</div>`;
+                if (s1.summary) legacyHtml += `<div style="color:#999;font-size:11px;line-height:1.6;margin-bottom:6px;">${s1.summary}</div>`;
                 const concl = s1.conclusions || [];
                 if (concl.length > 0) {
-                    concl.forEach(c => { html += `<div style="color:#bbb;font-size:11px;line-height:1.6;">• ${c}</div>`; });
+                    concl.forEach(c => { legacyHtml += `<div style="color:#bbb;font-size:11px;line-height:1.6;">• ${c}</div>`; });
                 }
-                html += `</div>`;
+                legacyHtml += `</div>`;
 
                 // ===== 三、宏观与基本面 =====
                 const s2 = d.section2 || {};
-                html += `<div style="margin-bottom:14px;">
+                legacyHtml += `<div style="margin-bottom:14px;">
                     <div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:6px;">🌍 ${s2.title || '宏观与基本面'}</div>`;
 
                 // 新闻快讯（合并显示）
                 const s2news = s2.news || {};
                 const allNews = [...(s2news.geo||[]), ...(s2news.macro||[]), ...(s2news.industry||[])].filter(n=>n&&n.length>10).slice(0,4);
                 if (allNews.length > 0) {
-                    html += `<div style="margin-bottom:4px;">`;
+                    legacyHtml += `<div style="margin-bottom:4px;">`;
                     allNews.forEach(n => {
-                        html += `<div style="color:#888;font-size:10px;line-height:1.5;margin-bottom:2px;">· ${n.length>90?n.substring(0,90)+'…':n}</div>`;
+                        legacyHtml += `<div style="color:#888;font-size:10px;line-height:1.5;margin-bottom:2px;">· ${n.length>90?n.substring(0,90)+'…':n}</div>`;
                     });
-                    html += `</div>`;
+                    legacyHtml += `</div>`;
                 }
 
-                // 综合叙述
+                // 综合说明
                 if (s2.narrative) {
-                    html += `<div style="color:#aaa;font-size:11px;line-height:1.6;padding:6px 8px;background:#1e1e30;border-radius:4px;">${s2.narrative}</div>`;
+                    legacyHtml += `<div style="color:#aaa;font-size:11px;line-height:1.6;padding:6px 8px;background:#1e1e30;border-radius:4px;">${s2.narrative}</div>`;
                 }
 
                 // AI四维评分（如果有）
                 const aiR = s2.ai_rating;
                 if (aiR && aiR.rating) {
                     const ratingColor = aiR.score > 0.3 ? '#26a69a' : (aiR.score < -0.3 ? '#ef5350' : '#ffd700');
-                    html += `<div style="margin-top:4px;padding:4px 6px;background:#1a1a28;border-radius:4px;border-left:2px solid ${ratingColor};">
+                    legacyHtml += `<div style="margin-top:4px;padding:4px 6px;background:#1a1a28;border-radius:4px;border-left:2px solid ${ratingColor};">
                         <span style="color:${ratingColor};font-size:10px;font-weight:bold;">AI评级: ${aiR.rating}</span>
                         <span style="color:#888;font-size:11px;">(${aiR.score>0?'+':''}${aiR.score.toFixed(2)})</span>
                     </div>`;
                 }
-                html += `</div>`;
+                legacyHtml += `</div>`;
 
                 // ===== 四、策略建议（三维研判） =====
                 const s3 = d.section3 || {};
                 const direction = s3.direction || '';
                 const dirColor = direction.includes('多')?'#26a69a':(direction.includes('空')?'#ef5350':'#ffd700');
-                html += `<div style="margin-bottom:10px;">
+                legacyHtml += `<div style="margin-bottom:10px;">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
                         <span style="color:#ffd700;font-size:12px;font-weight:bold;">🎯 ${s3.title || '策略建议'}</span>
                         ${direction ? `<span style="background:${dirColor};color:#000;font-size:10px;font-weight:bold;padding:1px 8px;border-radius:10px;">${direction}</span>` : ''}
@@ -3027,11 +3189,11 @@ async function loadDailyReport() {
                 // 三维度评分条
                 const dims = s3.dimensions || {};
                 if (Object.keys(dims).length > 0) {
-                    html += `<div style="display:flex;gap:4px;margin-bottom:6px;">`;
+                    legacyHtml += `<div style="display:flex;gap:4px;margin-bottom:6px;">`;
                     for (const [key, dim] of Object.entries(dims)) {
                         const dColor = dim.label==='利多'?'#26a69a':(dim.label==='利空'?'#ef5350':'#888');
                         const barPct = Math.min(100, Math.max(0, (dim.score + 2) / 4 * 100));
-                        html += `<div style="flex:1;background:#1a1a28;border-radius:4px;padding:4px 6px;">
+                        legacyHtml += `<div style="flex:1;background:#1a1a28;border-radius:4px;padding:4px 6px;">
                             <div style="display:flex;justify-content:space-between;">
                                 <span style="color:#888;font-size:10px;">${dim.name}</span>
                                 <span style="color:${dColor};font-size:10px;font-weight:bold;">${dim.label}</span>
@@ -3042,12 +3204,12 @@ async function loadDailyReport() {
                             <div style="color:#666;font-size:7px;margin-top:1px;">${(dim.score>0?'+':'')+(dim.score||0).toFixed(1)} × ${((dim.weight||0)*100).toFixed(0)}%</div>
                         </div>`;
                     }
-                    html += `</div>`;
+                    legacyHtml += `</div>`;
                 }
 
                 const strats = s3.strategies || [];
                 strats.forEach(s => {
-                    html += `<div style="margin-bottom:6px;padding:6px 8px;background:#1a1a28;border-radius:4px;">
+                    legacyHtml += `<div style="margin-bottom:6px;padding:6px 8px;background:#1a1a28;border-radius:4px;">
                         <div style="color:#ffd700;font-size:10px;font-weight:bold;">${s.action||''}</div>
                         <div style="color:#999;font-size:11px;margin:3px 0;line-height:1.5;">${s.detail||''}</div>
                         <div style="color:#26a69a;font-size:11px;">→ ${s.suggestion||''}</div>
@@ -3055,24 +3217,50 @@ async function loadDailyReport() {
                 });
 
                 if (s3.core_idea) {
-                    html += `<div style="padding:6px 8px;background:#1e1e30;border-left:3px solid ${dirColor};border-radius:4px;margin-top:6px;">
+                    legacyHtml += `<div style="padding:6px 8px;background:#1e1e30;border-left:3px solid ${dirColor};border-radius:4px;margin-top:6px;">
                         <span style="color:#ffd700;font-size:10px;font-weight:bold;">💡 </span>
                         <span style="color:#ccc;font-size:10px;line-height:1.5;">${s3.core_idea}</span>
                     </div>`;
                 }
-                html += `</div>`;
+                legacyHtml += `</div>`;
 
                 // 底部
-                html += `<div style="color:#444;font-size:9px;text-align:center;padding-top:6px;border-top:1px solid #333;">
+                legacyHtml += `<div style="color:#444;font-size:9px;text-align:center;padding-top:6px;border-top:1px solid #333;">
                     郑商所 · iv_smile实时 · 隆众资讯 · 新浪财经 · 同花顺/生意社 | ⚠️ 仅供参考
                 </div>`;
+                    return legacyHtml;
+                }
+
+                const intraday = d.intraday_analysis || d.market_brief;
+                let html = '';
+                if (reportResult.stale) {
+                    html += `<div style="background:#b71c1c;color:#fff;padding:5px 10px;font-size:10px;margin-bottom:8px;border-radius:4px;">
+                        ⚠️ 显示过期缓存（${d.timestamp || '未知'}），请稍后刷新
+                    </div>`;
+                }
+                if (intraday || d.narrative_report) {
+                    html += renderIntradayAnalysis(intraday || { narrative: d.narrative_report }, d);
+                } else {
+                    html += legacyDailyReport();
+                }
 
                 container.innerHTML = html;
 
             } catch(e) {
-                container.innerHTML = '<div style="color:#888;text-align:center;padding:20px;">日报加载失败: ' + e.message + '</div>';
+                container.innerHTML = '<div style="color:#888;text-align:center;padding:20px;">研报加载失败: ' + e.message + '</div>';
                 console.error('loadDailyReport error:', e);
             }
+        }
+
+        async function refreshStrategyReport() {
+            await loadDailyReport('/api/strategy_report/refresh');
+        }
+
+        function exportStrategyReport() {
+            const now = new Date();
+            const minutes = now.getHours() * 60 + now.getMinutes();
+            const type = minutes >= 15 * 60 ? 'daily' : 'realtime';
+            window.location.href = `/api/strategy_report/export?type=${type}&format=docx`;
         }
 
         async function loadOptionChain() {
@@ -3376,6 +3564,7 @@ async function loadDailyReport() {
             // 捕获切换状态，防止 update() 内部 RAF 回调与周期切换竞争
             const switching = _switchingPeriod;
             if (switching) return;
+            const wasAtRealtime = isAtRealtime();
             try {
                 const period = document.getElementById('period').value;
                 const res = await fetch(`/api/kline/data?symbol=${currentSymbol}&period=` + period);
@@ -3396,6 +3585,7 @@ async function loadDailyReport() {
                     console.warn('[incrementalUpdate] 数据含无效值，跳过更新');
                     return;
                 }
+                upsertLatestKlineBar(lastNew);
                 try {
                     candleSeries.update({
                         time: lastTime,
@@ -3414,6 +3604,14 @@ async function loadDailyReport() {
                             color: close >= open ? '#26a69a80' : '#ef535080'
                         });
                     } catch(e) {}
+                }
+
+                // 增量更新也同步刷新副图指标，避免主图最新K线已更新但MACD/KDJ停在旧数据导致纵向/时间轴错位。
+                calculateAndDrawMACD();
+                calculateAndDrawKDJ();
+                syncChartsToVisibleRange(mainChart);
+                if (wasAtRealtime) {
+                    scrollChartsToRealTime();
                 }
                 
                 // 更新持仓量
@@ -4070,6 +4268,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div id="klFooterVersion" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.24</div>
+<div id="klFooterVersion" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.25</div>
 </body>
 </html>

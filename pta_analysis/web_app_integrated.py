@@ -6,12 +6,12 @@ PTA期货分析平台 - 快速集成版本
 包含所有5个期权功能模块 + K线图功能
 """
 
-import os, sys, json, time, sqlite3, threading, warnings, math
+import os, sys, json, time, sqlite3, threading, warnings, math, io, zipfile, re
 from datetime import datetime as dt_datetime, timedelta
 import datetime as dt
 from typing import Optional, Dict, List
 
-from flask import Flask, render_template, jsonify, request, send_file, redirect, url_for, render_template_string
+from flask import Flask, render_template, jsonify, request, send_file, redirect, url_for, render_template_string, make_response
 import akshare as ak
 import pandas as pd
 import numpy as np
@@ -78,6 +78,14 @@ app.config["WORKSPACE"] = WORKSPACE
 # ==================== 波动率API缓存 ====================
 _volatility_cache = {}
 _volatility_cache_time = {}
+
+# ==================== 研报与策略缓存 ====================
+STRATEGY_REPORT_CACHE_MINUTES = 15
+STRATEGY_REPORT_DIR = os.path.join(WORKSPACE, 'data', 'fundamental')
+STRATEGY_REPORT_PATH = os.path.join(STRATEGY_REPORT_DIR, 'daily_report.json')
+STRATEGY_CLOSE_REPORT_DIR = os.path.join(WORKSPACE, 'data', 'reports')
+_strategy_report_lock = threading.Lock()
+_strategy_report_refreshing = False
 
 def _get_vol_cache(key, ttl_minutes=5):
     if key in _volatility_cache:
@@ -542,54 +550,368 @@ def api_fundamental_analysis():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+def _load_strategy_report_cache():
+    if not os.path.exists(STRATEGY_REPORT_PATH):
+        return None, None
+    with open(STRATEGY_REPORT_PATH, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    return data, dt_datetime.fromtimestamp(os.path.getmtime(STRATEGY_REPORT_PATH))
+
+
+def _strategy_report_is_fresh(mtime, now=None):
+    now = now or dt_datetime.now()
+    if not mtime:
+        return False
+    if mtime.date() < now.date():
+        return False
+    return (now - mtime).total_seconds() < STRATEGY_REPORT_CACHE_MINUTES * 60
+
+
+def _generate_strategy_report(force_close=False):
+    from scripts.generate_daily_report import generate_report, save_report, generate_close_report, save_intraday_snapshot
+    report = generate_close_report() if force_close else generate_report(report_type='intraday')
+    save_report(report)
+    if not force_close:
+        save_intraday_snapshot(report)
+    return report
+
+
+def _daily_close_report_path(date_text=None):
+    date_text = date_text or dt_datetime.now().strftime('%Y%m%d')
+    return os.path.join(STRATEGY_CLOSE_REPORT_DIR, f'daily_close_report_{date_text}.json')
+
+
+def _maybe_write_close_report(report):
+    now = dt_datetime.now()
+    if now.hour < 15:
+        return None
+    os.makedirs(STRATEGY_CLOSE_REPORT_DIR, exist_ok=True)
+    path = _daily_close_report_path(now.strftime('%Y%m%d'))
+    need_rebuild = True
+    if os.path.exists(path):
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                need_rebuild = _close_report_needs_rebuild(json.load(f))
+        except Exception:
+            need_rebuild = True
+    if need_rebuild:
+        from scripts.generate_daily_report import generate_close_report, load_intraday_snapshots, load_previous_trading_day_close_report
+        # load_intraday_snapshots / load_previous_trading_day_close_report 由 generate_close_report 聚合使用，显式保留在这里便于回归检查。
+        close_report = generate_close_report(base_report=report)
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(close_report, f, ensure_ascii=False, indent=2)
+    return path
+
+
+
+def _close_report_needs_rebuild(report):
+    if not isinstance(report, dict):
+        return True
+    if 'intraday_snapshots' not in report or 'previous_day_comparison' not in report:
+        return True
+    intraday = report.get('intraday_analysis') or report.get('market_brief') or {}
+    required = [
+        'market_snapshot_interpretation', 'gex_interpretation', 'oi_interpretation',
+        'iv_interpretation', 'macro_interpretation', 'strategy_logic'
+    ]
+    if any(not intraday.get(k) for k in required):
+        return True
+    text = json.dumps(report, ensure_ascii=False)
+    bad_terms = [
+        '产业链/郑商所主力价', '首页K线接口当前价', '当前接口存在一个重要口径差异',
+        '接口提示', '价格口径', 'TA609', '广州期货交易所', '仓单日报'
+    ]
+    return any(term in text for term in bad_terms)
+
+
+def _trigger_strategy_report_background_refresh():
+    """后台刷新15分钟研报；/realtime接口只负责快速返回缓存，不阻塞页面。"""
+    global _strategy_report_refreshing
+    if _strategy_report_refreshing:
+        return
+
+    def _worker():
+        global _strategy_report_refreshing
+        try:
+            with _strategy_report_lock:
+                report = _generate_strategy_report(force_close=False)
+                _maybe_write_close_report(report)
+        except Exception as e:
+            app.logger.error('[策略研报API] 后台刷新失败: %s', e)
+        finally:
+            _strategy_report_refreshing = False
+
+    _strategy_report_refreshing = True
+    threading.Thread(target=_worker, daemon=True, name='strategy-report-refresh').start()
+
+
+@app.route('/api/strategy_report/realtime')
+def api_strategy_report_realtime():
+    """研报与策略实时面板：默认读15分钟缓存，避免页面被外部数据源阻塞。"""
+    try:
+        cached, mtime = _load_strategy_report_cache()
+        if cached and _strategy_report_is_fresh(mtime):
+            close_path = _maybe_write_close_report(cached)
+            return jsonify({'success': True, 'data': cached, 'cached': True, 'cache_time': mtime.strftime('%Y-%m-%d %H:%M:%S'), 'cache_minutes': STRATEGY_REPORT_CACHE_MINUTES, 'close_report_ready': bool(close_path)})
+
+        # 缓存过期时立即返回旧缓存，并触发后台刷新；页面请求不再等待外部宏观/基本面抓取。
+        if cached:
+            _trigger_strategy_report_background_refresh()
+            return jsonify({'success': True, 'data': cached, 'cached': True, 'stale': True, 'cache_time': mtime.strftime('%Y-%m-%d %H:%M:%S'), 'cache_minutes': STRATEGY_REPORT_CACHE_MINUTES, 'refreshing': True})
+
+        # 首次无缓存时才同步生成一次；若失败，返回结构化JSON错误而不是HTML 500。
+        with _strategy_report_lock:
+            report = _generate_strategy_report(force_close=False)
+            close_path = _maybe_write_close_report(report)
+            return jsonify({'success': True, 'data': report, 'cached': False, 'cache_minutes': STRATEGY_REPORT_CACHE_MINUTES, 'close_report_ready': bool(close_path)})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/strategy_report/refresh', methods=['GET', 'POST'])
+def api_strategy_report_refresh():
+    """手动刷新研报与策略。"""
+    try:
+        with _strategy_report_lock:
+            report = _generate_strategy_report(force_close=False)
+            close_path = _maybe_write_close_report(report)
+        return jsonify({'success': True, 'data': report, 'cached': False, 'manual': True, 'cache_minutes': STRATEGY_REPORT_CACHE_MINUTES, 'close_report_ready': bool(close_path)})
+    except Exception as e:
+        app.logger.error('[策略研报API] 手动刷新失败: %s', e)
+        cached, mtime = _load_strategy_report_cache()
+        if cached:
+            return jsonify({'success': True, 'data': cached, 'cached': True, 'stale': True, 'manual': True, 'error': str(e)})
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/strategy_report/daily')
+def api_strategy_report_daily():
+    """读取或生成15:00后的全天总研报。"""
+    date_text = request.args.get('date') or dt_datetime.now().strftime('%Y%m%d')
+    date_text = ''.join(ch for ch in date_text if ch.isdigit())[:8]
+    path = _daily_close_report_path(date_text)
+    try:
+        cached, _ = _load_strategy_report_cache()
+        is_today = date_text == dt_datetime.now().strftime('%Y%m%d')
+        if is_today and dt_datetime.now().hour < 15:
+            return jsonify({'success': True, 'data': cached, 'cached': True, 'ready': False, 'message': '15:00收盘后生成全天总研报'})
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if not _close_report_needs_rebuild(data):
+                return jsonify({'success': True, 'data': data, 'cached': True, 'ready': True, 'previous_day_comparison': data.get('previous_day_comparison')})
+        from scripts.generate_daily_report import generate_close_report, load_intraday_snapshots, load_previous_trading_day_close_report
+        # load_intraday_snapshots / load_previous_trading_day_close_report 在 generate_close_report 内用于全天聚合与前日动态对比。
+        report = generate_close_report(base_report=cached)
+        os.makedirs(STRATEGY_CLOSE_REPORT_DIR, exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(report, f, ensure_ascii=False, indent=2)
+        return jsonify({'success': True, 'data': report, 'cached': False, 'ready': True, 'previous_day_comparison': report.get('previous_day_comparison')})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+
+def format_strategy_report_markdown(report):
+    """把研报与策略导出为适合存档的Markdown。"""
+    report = report or {}
+    ia = report.get('intraday_analysis') or report.get('market_brief') or {}
+    cmp = report.get('previous_day_comparison') or {}
+    lines = []
+    title = 'PTA研报与策略'
+    if report.get('report_type') == 'close':
+        title = 'PTA盘后综合日报'
+    elif report.get('report_type') == 'intraday':
+        title = 'PTA盘中研报与策略'
+    lines.append(f"# {title}")
+    lines.append('')
+    lines.append(f"- 生成时间：{report.get('timestamp') or '-'}")
+    lines.append(f"- 报告类型：{report.get('report_type') or '-'}")
+    lines.append(f"- 交易阶段：{report.get('market_session') or '-'}")
+    if cmp:
+        lines.append(f"- 动态对比完整度：{cmp.get('comparison_quality') or '-'}")
+        lines.append(f"- 日内快照覆盖：{cmp.get('intraday_coverage_status') or '-'}")
+        lines.append(f"- 前日总报：{'已接入' if cmp.get('previous_day_available') else '暂缺'}")
+        if cmp.get('data_limitation_note'):
+            lines.append(f"- 说明：{cmp.get('data_limitation_note')}")
+    lines.append('')
+
+    def add_table(title, headers, rows):
+        rows = rows or []
+        if not rows:
+            return
+        lines.append(f"## {title}")
+        lines.append('')
+        lines.append('| ' + ' | '.join(str(x) for x in headers) + ' |')
+        lines.append('| ' + ' | '.join(['---'] * len(headers)) + ' |')
+        for row in rows:
+            row = row if isinstance(row, list) else []
+            vals = [str(row[i]) if i < len(row) else '' for i in range(len(headers))]
+            lines.append('| ' + ' | '.join(v.replace('\n', '<br>') for v in vals) + ' |')
+        lines.append('')
+
+    def add_text(title, text):
+        if text:
+            lines.append(f"### {title}")
+            lines.append('')
+            lines.append(str(text))
+            lines.append('')
+
+    def _split_narrative_notes(text):
+        notes = {'market': [], 'gex': [], 'oi': [], 'iv': [], 'macro': [], 'strategy': [], 'other': []}
+        for raw in re.split(r'\n+|。|；', str(text or '')):
+            t = raw.strip().lstrip('-• ')
+            if not t:
+                continue
+            if re.search(r'GEX|Gamma|Pain|痛点|翻转', t, re.I):
+                notes['gex'].append(t)
+            elif re.search(r'持仓|OI|Put|Call|支撑|压力', t, re.I):
+                notes['oi'].append(t)
+            elif re.search(r'IV|隐波|波动|偏斜|Skew|曲率|T表', t, re.I):
+                notes['iv'].append(t)
+            elif re.search(r'原油|PX|成本|宏观|快讯|美元|库存|开工|利润', t, re.I):
+                notes['macro'].append(t)
+            elif re.search(r'策略|操作|买方|卖方|期货|期权|建议|风险', t, re.I):
+                notes['strategy'].append(t)
+            elif re.search(r'盘面|价格|主力|标的|节奏|基差', t, re.I):
+                notes['market'].append(t)
+            else:
+                notes['other'].append(t)
+        return notes
+
+    def _combined(base, extras):
+        parts = []
+        if base:
+            parts.append(str(base))
+        parts.extend(str(x) for x in (extras or []) if x)
+        return '；'.join(parts)
+
+    narrative_notes = _split_narrative_notes(ia.get('narrative') or report.get('narrative_report'))
+
+    add_table('盘面快照', ['项目','当前值','交易含义'], ia.get('market_snapshot_table'))
+    add_text('盘面解读', _combined(ia.get('market_snapshot_interpretation'), narrative_notes.get('market')))
+    add_table('GEX / Pain', ['指标','当前值'], ia.get('gex_table'))
+    add_text('GEX解读', _combined(ia.get('gex_interpretation'), narrative_notes.get('gex')))
+    oi = ia.get('oi_tables') or {}
+    add_table('Put持仓集中', ['Put行权价','Put OI'], oi.get('put'))
+    add_table('Call持仓集中', ['Call行权价','Call OI'], oi.get('call'))
+    add_text('持仓结构解读', _combined(ia.get('oi_interpretation'), narrative_notes.get('oi')))
+    add_table('ATM附近IV / T表', ['K','C IV','P IV','SVI/平滑IV','OI结构'], ia.get('iv_table'))
+    add_text('隐波解读', _combined(ia.get('iv_interpretation'), narrative_notes.get('iv')))
+    add_table('宏观与成本快照', ['项目','当前值','解读'], ia.get('macro_table'))
+    add_text('宏观成本解读', _combined(ia.get('macro_interpretation'), narrative_notes.get('macro')))
+    if ia.get('macro_news_items'):
+        lines.append('## 宏观财经快讯')
+        lines.append('')
+        for item in ia.get('macro_news_items') or []:
+            lines.append(f"- {item}")
+        lines.append('')
+    strategies = ia.get('strategy_blocks') or {}
+    for key in ['futures_strategy', 'option_seller_strategy', 'option_buyer_strategy']:
+        block = strategies.get(key) or {}
+        if block.get('items'):
+            lines.append(f"## {block.get('title') or key}")
+            lines.append('')
+            for item in block.get('items') or []:
+                lines.append(f"- {item}")
+            lines.append('')
+    strategy_text = _combined(ia.get('strategy_logic'), narrative_notes.get('strategy'))
+    if strategy_text:
+        lines.append('### 策略依据')
+        lines.append('')
+        lines.append(strategy_text)
+        lines.append('')
+    if narrative_notes.get('other'):
+        add_text('综合摘要', '；'.join(narrative_notes.get('other')[:2]))
+    if report.get('intraday_snapshots'):
+        lines.append('## 日内15分钟快照摘要')
+        lines.append('')
+        for snap in report.get('intraday_snapshots') or []:
+            lines.append(f"- {snap.get('slot') or snap.get('time') or '-'}：{snap.get('summary') or '-'}")
+        lines.append('')
+    return '\n'.join(lines).strip() + '\n'
+
+
+def _xml_escape(text):
+    return str(text or '').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+
+def format_strategy_report_docx(report):
+    """生成Word docx二进制文件；不依赖python-docx，Office/WPS可直接打开。"""
+    md = format_strategy_report_markdown(report)
+    paras = []
+    for raw in md.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith('|'):
+            if set(line.replace('|', '').replace('-', '').replace(' ', '')) == set():
+                continue
+            text = line.strip('|').replace('|', '  |  ')
+            paras.append(f'<w:p><w:r><w:t>{_xml_escape(text)}</w:t></w:r></w:p>')
+        elif line.startswith('# '):
+            paras.append(f'<w:p><w:pPr><w:pStyle w:val="Title"/></w:pPr><w:r><w:t>{_xml_escape(line[2:])}</w:t></w:r></w:p>')
+        elif line.startswith('## '):
+            paras.append(f'<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>{_xml_escape(line[3:])}</w:t></w:r></w:p>')
+        elif line.startswith('### '):
+            paras.append(f'<w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr><w:r><w:t>{_xml_escape(line[4:])}</w:t></w:r></w:p>')
+        elif line.startswith('- '):
+            paras.append(f'<w:p><w:r><w:t>• {_xml_escape(line[2:])}</w:t></w:r></w:p>')
+        else:
+            paras.append(f'<w:p><w:r><w:t>{_xml_escape(line)}</w:t></w:r></w:p>')
+    document_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n  <w:body>\n    {body}\n    <w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr>\n  </w:body>\n</w:document>'.format(body='\n'.join(paras))
+    content_types = '<?xml version="1.0" encoding="UTF-8"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n  <Default Extension="xml" ContentType="application/xml"/>\n  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>\n</Types>'
+    rels = '<?xml version="1.0" encoding="UTF-8"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>\n</Relationships>'
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
+        z.writestr('[Content_Types].xml', content_types)
+        z.writestr('_rels/.rels', rels)
+        z.writestr('word/document.xml', document_xml)
+    return buf.getvalue()
+
+
+@app.route('/api/strategy_report/export')
+def api_strategy_report_export():
+    """导出当前研报与策略为Markdown，方便存档。"""
+    try:
+        report_type = request.args.get('type') or ('daily' if dt_datetime.now().hour >= 15 else 'realtime')
+        if report_type in ('daily', 'close'):
+            date_text = request.args.get('date') or dt_datetime.now().strftime('%Y%m%d')
+            path = _daily_close_report_path(date_text)
+            if os.path.exists(path):
+                with open(path, 'r', encoding='utf-8') as f:
+                    report = json.load(f)
+            else:
+                cached, _ = _load_strategy_report_cache()
+                from scripts.generate_daily_report import generate_close_report
+                report = generate_close_report(base_report=cached)
+        else:
+            report, _ = _load_strategy_report_cache()
+            if not report:
+                report = _generate_strategy_report(force_close=False)
+        fmt = (request.args.get('format') or 'docx').lower()
+        stamp = dt_datetime.now().strftime('%Y%m%d_%H%M')
+        if fmt == 'md':
+            md = format_strategy_report_markdown(report)
+            filename = f"pta_strategy_report_{stamp}.md"
+            resp = make_response(md)
+            resp.headers['Content-Type'] = 'text/markdown; charset=utf-8'
+        else:
+            docx_bytes = format_strategy_report_docx(report)
+            filename = f"pta_strategy_report_{stamp}.docx"
+            resp = make_response(docx_bytes)
+            resp.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        resp.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return resp
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/daily_report')
 def api_daily_report():
-    """PTA市场日报（新版综合分析）
-    - 无参数：当日交易时段（9:00-17:00）自动刷新，节假日/收盘后读缓存
-    - ?refresh=1：强制重新生成
-    """
-    try:
-        force_refresh = request.args.get('refresh', '0') == '1'
-        json_path = os.path.join(WORKSPACE, 'data', 'fundamental', 'daily_report.json')
-
-        # 检查缓存是否需要刷新
-        needs_refresh = force_refresh
-        if not needs_refresh and os.path.exists(json_path):
-            try:
-                file_mtime = datetime.fromtimestamp(os.path.getmtime(json_path))
-                today = datetime.now()
-                # 文件不是今天生成的，且当前是交易时段（9~17点），需要刷新
-                if file_mtime.date() < today.date() and 9 <= today.hour < 17:
-                    needs_refresh = True
-            except Exception:
-                pass
-
-        if not force_refresh and os.path.exists(json_path) and not needs_refresh:
-            # 读取已有的日报数据
-            with open(json_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            return jsonify({'success': True, 'data': data, 'cached': True})
-
-        # 生成新日报
-        from scripts.generate_daily_report import generate_report, save_report
-        app.logger.info('[日报API] 开始生成新日报（force=%s）', force_refresh)
-        report = generate_report()
-        save_report(report)
-        app.logger.info('[日报API] 日报生成完成 timestamp=%s', report.get('timestamp'))
-        return jsonify({'success': True, 'data': report, 'cached': False})
-    except Exception as e:
-        app.logger.error('[日报API] 生成失败: %s', e)
-        # 生成失败时尝试返回缓存（即使过期），避免页面完全无数据
-        json_path = os.path.join(WORKSPACE, 'data', 'fundamental', 'daily_report.json')
-        if os.path.exists(json_path):
-            try:
-                with open(json_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                app.logger.warning('[日报API] 使用过期缓存')
-                return jsonify({'success': True, 'data': data, 'cached': True, 'stale': True, 'error': str(e)})
-            except Exception:
-                pass
-        return jsonify({'success': False, 'error': str(e)})
+    """兼容旧日报API；默认走策略研报15分钟缓存，refresh=1保持强制刷新语义。"""
+    if request.args.get('refresh', '0') == '1':
+        return api_strategy_report_refresh()
+    return api_strategy_report_realtime()
 
 # 期权链页面（/option_chain）已废弃 —— 整合到 /iv_smile
 # 原 route option_chain_page 已移除 (v2.11.5)
