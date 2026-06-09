@@ -22,6 +22,29 @@ def test_daily_report_frontend_uses_cached_realtime_api_by_default():
     assert "/api/strategy_report/refresh" in src
 
 
+def test_frontend_strategy_endpoint_uses_realtime_during_all_pta_sessions():
+    """日盘和夜盘交易时段都必须走实时研报；只有休盘/盘后才走全天日报。"""
+    src = TEMPLATE.read_text(encoding="utf-8")
+    fn = src[src.index("function getStrategyReportEndpoint"):src.index("async function loadDailyReport")]
+    assert "function isPtaTradingTime" in src
+    assert "if (isPtaTradingTime(now)) return '/api/strategy_report/realtime';" in fn
+    assert "return '/api/strategy_report/daily';" in fn
+    assert "if (minutes >= 15 * 60) return '/api/strategy_report/daily';" not in fn
+
+
+def test_frontend_strategy_report_refresh_aligns_to_quarter_hour_slots():
+    """自动刷新要对齐00/15/30/45整15分钟，而不是从页面打开后简单setInterval 15分钟。"""
+    src = TEMPLATE.read_text(encoding="utf-8")
+    assert "function scheduleStrategyReportAutoRefresh" in src
+    scheduler = src[src.index("function scheduleStrategyReportAutoRefresh"):src.index("// 近月期货价格每分钟轮询")]
+    assert "nextQuarter" in scheduler
+    assert "setTimeout" in scheduler
+    assert "15 * 60 * 1000" in scheduler
+    assert "setInterval(() =>" not in scheduler
+    assert "loadDailyReport('/api/strategy_report/realtime')" in scheduler
+    assert "setTimeout(() => loadDailyReport('/api/strategy_report/realtime')," in scheduler
+
+
 def test_daily_report_api_has_15min_cache_and_close_report_support():
     """后端需要15分钟滚动缓存，并支持15:00后全天总研报。"""
     web = WEB_APP.read_text(encoding="utf-8")

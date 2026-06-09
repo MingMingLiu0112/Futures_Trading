@@ -2692,12 +2692,20 @@ function fetchWithTimeout(url, timeoutMs = 8000) {
             return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timer));
         }
 
+function isPtaTradingTime(now = new Date()) {
+            const day = now.getDay();
+            if (day === 0 || day === 6) return false;
+            const minutes = now.getHours() * 60 + now.getMinutes();
+            return (9 * 60 <= minutes && minutes < 11 * 60 + 30)
+                || (13 * 60 + 30 <= minutes && minutes < 15 * 60)
+                || (21 * 60 <= minutes && minutes < 23 * 60);
+        }
+
 function getStrategyReportEndpoint() {
             const now = new Date();
-            const minutes = now.getHours() * 60 + now.getMinutes();
-            // 盘后默认展示全天综合日报；交易时段展示15分钟实时研报。
-            if (minutes >= 15 * 60) return '/api/strategy_report/daily';
-            return '/api/strategy_report/realtime';
+            // 日盘/夜盘交易时段展示15分钟实时研报；休盘/盘后默认展示全天综合日报。
+            if (isPtaTradingTime(now)) return '/api/strategy_report/realtime';
+            return '/api/strategy_report/daily';
         }
 
         async function loadDailyReport(endpoint) {
@@ -3939,14 +3947,25 @@ function getStrategyReportEndpoint() {
             });
             loadOptionChain();
             loadDailyReport();
-            // 研报与策略：交易时段(9:00-23:00)每15分钟自动刷新
-            setInterval(() => {
-                const h = new Date().getHours();
-                if ((h >= 9 && h < 15) || (h >= 21 && h < 23)) {
-                    console.log('[研报] 交易时段自动刷新');
-                    loadDailyReport();
-                }
-            }, 15 * 60 * 1000);
+            // 研报与策略：PTA交易时段对齐00/15/30/45整15分钟自动刷新；盘后/休盘不产生日内刷新
+            function scheduleStrategyReportAutoRefresh() {
+                const now = new Date();
+                const quarterMs = 15 * 60 * 1000;
+                const nextQuarter = new Date(now);
+                const nextMinute = Math.floor(now.getMinutes() / 15) * 15 + 15;
+                nextQuarter.setMinutes(nextMinute, 0, 0);
+                const delayMs = Math.max(1000, Math.min(quarterMs, nextQuarter.getTime() - now.getTime()));
+                setTimeout(() => {
+                    if (isPtaTradingTime(new Date())) {
+                        console.log('[研报] 整15分钟自动刷新');
+                        loadDailyReport('/api/strategy_report/realtime');
+                        // 后端过期缓存会先返回旧内容并后台生成；短延迟再拉一次拿新缓存。
+                        setTimeout(() => loadDailyReport('/api/strategy_report/realtime'), 45000);
+                    }
+                    scheduleStrategyReportAutoRefresh();
+                }, delayMs);
+            }
+            scheduleStrategyReportAutoRefresh();
             // 近月期货价格每分钟轮询（价格变化时重算ATM+重建Smile）
             setInterval(pollTa606Price, 60000);
             // 期权链数据每5分钟自动刷新（保持OI/IV等数据时效性）
@@ -4290,6 +4309,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div id="klFooterVersion" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.28</div>
+<div id="klFooterVersion" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.29</div>
 </body>
 </html>
