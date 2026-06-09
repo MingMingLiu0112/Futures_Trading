@@ -26,6 +26,8 @@ warnings.filterwarnings('ignore')
 
 WORKSPACE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUTPUT_PATH = os.path.join(WORKSPACE, 'data', 'fundamental', 'daily_report.json')
+INTRADAY_REPORT_DIR = os.path.join(WORKSPACE, 'data', 'reports', 'intraday')
+CLOSE_REPORT_DIR = os.path.join(WORKSPACE, 'data', 'reports')
 USD_CNY = 7.2
 
 
@@ -656,10 +658,28 @@ def get_industry_analysis_data() -> Dict:
     return {}
 
 
-def generate_report() -> Dict:
-    """生成完整日报数据"""
+def _market_session(now: Optional[datetime] = None) -> str:
+    now = now or datetime.now()
+    hm = now.hour * 100 + now.minute
+    if 900 <= hm < 1130:
+        return '上午盘'
+    if 1330 <= hm < 1500:
+        return '下午盘'
+    if 1500 <= hm < 2100:
+        return '收盘后'
+    if 2100 <= hm < 2300:
+        return '夜盘'
+    return '非交易时段'
+
+
+def generate_report(report_type: str = 'intraday') -> Dict:
+    """生成完整日报数据。report_type=intraday用于15分钟滚动研报。"""
+    now = datetime.now()
     report = {
-        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'timestamp': now.strftime('%Y-%m-%d %H:%M:%S'),
+        'report_type': report_type,
+        'market_session': _market_session(now),
+        'refresh_interval_minutes': 15,
         'section1': None,  # 期权数据解读
         'section2': None,  # 宏观与基本面
         'section3': None,  # 策略建议
@@ -741,6 +761,12 @@ def generate_report() -> Dict:
     report['section1'] = generate_option_analysis(opt, gex, iv_curve, iv_table)
     report['section2'] = generate_macro_analysis(crude, px, pta, rates, inventory, macro_news, cost_data, cost_low, cost_high, industry)
     report['section3'] = generate_strategy_suggestions(opt, pta, cost_data, cost_low, cost_high, gex, industry)
+
+    # 新主展示：盘中综合研判。旧 section1/2/3 只作为兼容数据源和降级展示。
+    intraday_analysis = generate_intraday_analysis(report)
+    report['intraday_analysis'] = intraday_analysis
+    report['market_brief'] = intraday_analysis
+    report['narrative_report'] = intraday_analysis.get('narrative')
 
     return report
 
@@ -1569,8 +1595,8 @@ def generate_strategy_suggestions(opt: Dict, pta: Dict, cost_data: Dict, cost_lo
             diff = pta_price - max_pain
             strategies.append({
                 'action': '🎯 到期前痛点引力',
-                'detail': f'距到期{days_left:.1f}天，价格{pta_price:.0f} vs 痛点{max_pain}，偏差{diff:+.0f}',
-                'suggestion': f'临近到期价格倾向向痛点{max_pain}回归，'
+                'detail': f'距到期{days_left:.1f}天，期权链/期权服务标的价{pta_price:.0f} vs 痛点{max_pain}，偏差{diff:+.0f}',
+                'suggestion': f'临近到期标的价倾向向痛点{max_pain}回归，'
                               f'{"上方Call卖方受益" if diff > 0 else "下方Put卖方受益"}，'
                               f'Theta加速衰减利好卖方'
             })
@@ -1578,8 +1604,8 @@ def generate_strategy_suggestions(opt: Dict, pta: Dict, cost_data: Dict, cost_lo
             diff = pta_price - max_pain
             strategies.append({
                 'action': '🎯 痛点参考',
-                'detail': f'价格{pta_price:.0f} vs 痛点{max_pain}，偏差{diff:+.0f}',
-                'suggestion': f'关注价格向痛点{max_pain}的回归倾向'
+                'detail': f'期权链/期权服务标的价{pta_price:.0f} vs 痛点{max_pain}，偏差{diff:+.0f}',
+                'suggestion': f'关注标的价向痛点{max_pain}的回归倾向'
             })
 
     # 产业基本面策略
@@ -1644,12 +1670,12 @@ def generate_strategy_suggestions(opt: Dict, pta: Dict, cost_data: Dict, cost_lo
     if pta_price and bottom and top and pta_price > 0:
         mid = (bottom + top) / 2
         if pta_price > top:
-            core_parts.append(f'价格{pta_price:.0f}已突破压力位{top}')
+            core_parts.append(f'期权链/期权服务标的价{pta_price:.0f}已突破压力位{top}')
         elif pta_price < bottom:
-            core_parts.append(f'价格{pta_price:.0f}跌破支撑位{bottom}')
+            core_parts.append(f'期权链/期权服务标的价{pta_price:.0f}跌破支撑位{bottom}')
         else:
             pos = '偏上' if pta_price > mid else '偏下'
-            core_parts.append(f'价格{pta_price:.0f}在【{bottom},{top}】区间{pos}')
+            core_parts.append(f'期权链/期权服务标的价{pta_price:.0f}在【{bottom},{top}】区间{pos}')
 
     if days_left and days_left <= 5:
         core_parts.append(f'仅剩{days_left:.1f}天到期，Theta加速衰减')
@@ -1665,6 +1691,491 @@ def generate_strategy_suggestions(opt: Dict, pta: Dict, cost_data: Dict, cost_lo
         'total_score': round(total_score, 2),
         'dimensions': dim_scores,
     }
+
+
+
+def _fmt_num(v, digits: int = 0, prefix: str = '') -> str:
+    try:
+        if v is None:
+            return '--'
+        x = float(v)
+        return f"{prefix}{x:.{digits}f}"
+    except Exception:
+        return '--'
+
+
+def _fmt_signed(v, digits: int = 0, suffix: str = '') -> str:
+    try:
+        if v is None:
+            return '--'
+        return f"{float(v):+.{digits}f}{suffix}"
+    except Exception:
+        return '--'
+
+
+def _fmt_oi(v) -> str:
+    try:
+        return f"{int(float(v)):,}"
+    except Exception:
+        return '--'
+
+
+def _pct_desc(v) -> str:
+    try:
+        x = float(v)
+        return f"{x:+.2f}%"
+    except Exception:
+        return '--'
+
+
+def _as_float(v):
+    try:
+        if v is None or v == '':
+            return None
+        return float(v)
+    except Exception:
+        return None
+
+
+def _table(headers, rows) -> str:
+    lines = ['| ' + ' | '.join(headers) + ' |', '| ' + ' | '.join(['---'] * len(headers)) + ' |']
+    for row in rows:
+        lines.append('| ' + ' | '.join(str(x) for x in row) + ' |')
+    return '\n'.join(lines)
+
+
+def get_main_futures_price() -> Dict:
+    """读取首页K线主力合约价，必须与期权链/期权服务标的价分开。"""
+    out = {'price': None, 'change_pct': None, 'symbol': None, 'source': '首页K线主力合约价'}
+    for period in ('1min', '15min'):
+        try:
+            resp = requests.get(f'http://127.0.0.1:8424/api/kline/data?period={period}', timeout=5)
+            if resp.ok:
+                data = resp.json()
+                out['price'] = data.get('current_price')
+                out['change_pct'] = data.get('change_pct')
+                out['symbol'] = data.get('symbol') or data.get('contract') or 'TA主力'
+                out['period'] = period
+                out['source_detail'] = data.get('source')
+                out['fallback_warning'] = data.get('fallback_warning')
+                bars = data.get('data') or []
+                if (not out['price']) and bars:
+                    out['price'] = bars[-1].get('close')
+                if bars:
+                    last = bars[-1] or {}
+                    prev = bars[-2] if len(bars) >= 2 else {}
+                    out['last_close'] = last.get('close')
+                    out['last_open'] = last.get('open')
+                    out['last_time'] = last.get('time') or last.get('datetime')
+                    if last.get('close') is not None and prev.get('close') is not None:
+                        out['last_bar_change'] = last.get('close') - prev.get('close')
+                    if len(bars) >= 21 and bars[-21].get('close') is not None and last.get('close') is not None:
+                        out['change_20_bars'] = last.get('close') - bars[-21].get('close')
+                if out.get('price') is not None:
+                    break
+        except Exception as e:
+            out['error'] = str(e)
+    return out
+
+
+
+def _clean_report_text(text: str) -> str:
+    text = str(text or '')
+    for bad in ['TA609', '广州期货交易所', '仓单日报', '产业链/郑商所主力价']:
+        text = text.replace(bad, '')
+    return ' '.join(text.split())
+
+def _snapshot_has_dirty_text(snapshot: Dict) -> bool:
+    raw = json.dumps(snapshot, ensure_ascii=False)
+    return any(bad in raw for bad in ['TA609', '广州期货交易所', '仓单日报', '产业链/郑商所主力价'])
+
+def generate_intraday_analysis(report: Dict) -> Dict:
+    """生成详尽版盘中综合研判：期货价格、GEX、Pain、OI、IV、宏观快讯、策略。"""
+    s1 = report.get('section1') or {}
+    s2 = report.get('section2') or {}
+    s3 = report.get('section3') or {}
+    gex = report.get('gex') or {}
+    gex_summary = s1.get('gex_summary') or gex.get('summary') or {}
+    pain_curve = gex.get('pain_curve') or []
+    oi_dist = gex.get('oi_dist') or []
+    iv_rows = (report.get('iv_table') or {}).get('rows') or []
+    if not iv_rows:
+        iv_rows = (report.get('iv_curve') or {}).get('curve') or []
+    iv_analysis = s1.get('iv_analysis') or {}
+    pta = report.get('pta') or {}
+    px = report.get('px') or {}
+    crude = report.get('crude') or {}
+    cost = report.get('cost') or {}
+    news = report.get('macro_news') or {}
+
+    option_underlying_price = gex_summary.get('futures_price')
+    main_px = get_main_futures_price()
+    main_futures_price = main_px.get('price') or pta.get('dominant_price') or pta.get('near_price')
+    main_symbol = main_px.get('symbol') or pta.get('dominant_contract') or 'TA主力'
+
+    direction = s3.get('direction') or '震荡'
+    gex_dir = gex_summary.get('gex_direction')
+    net_gex = _as_float(gex_summary.get('net_gex'))
+    net_gex_m = net_gex / 1e6 if net_gex is not None else None
+    max_pain = gex_summary.get('max_pain')
+    gex_flip = gex_summary.get('gex_flip')
+    pcr = gex_summary.get('pcr')
+    days_left = gex_summary.get('days_left')
+    total_call_oi = gex_summary.get('total_call_oi')
+    total_put_oi = gex_summary.get('total_put_oi')
+    max_put = gex_summary.get('effective_support') or gex_summary.get('max_put_strike')
+    max_call = gex_summary.get('effective_resistance') or gex_summary.get('max_call_strike')
+    max_put_oi = gex_summary.get('max_put_oi')
+    max_call_oi = gex_summary.get('max_call_oi')
+
+    gamma_desc = '正Gamma区，做市商对冲倾向抑制波动' if gex_dir == 'positive' else ('负Gamma区，做市商对冲更容易追涨杀跌、放大波动' if gex_dir == 'negative' else 'Gamma方向待确认')
+    if direction == '震荡' and gex_dir == 'negative' and main_px.get('change_20_bars') and main_px.get('change_20_bars') < 0:
+        headline_dir = '偏弱震荡'
+    else:
+        headline_dir = direction
+
+    pta_spot = pta.get('spot_price') or pta.get('spot', {}).get('price')
+    # 盘面主力参考价只能来自首页K线实时接口，不能混用产业链/fundamental中的TA609结算价。
+    main_futures_label = main_symbol or 'TA主力'
+    main_futures_display_price = main_futures_price
+    near_basis = pta.get('near_basis')
+    px_price = px.get('spot_price') or px.get('price')
+    profit = cost.get('profit') if isinstance(cost, dict) else None
+    profit_pct = cost.get('profit_pct') if isinstance(cost, dict) else None
+    pta_cost = cost.get('pta_cost') if isinstance(cost, dict) else None
+    brent = crude.get('brent') or {}
+    wti = crude.get('wti') or {}
+
+    pain_rows = []
+    for item in sorted(pain_curve, key=lambda x: abs((x.get('strike') or 0) - (max_pain or option_underlying_price or 0)))[:5]:
+        pain_rows.append([_fmt_num(item.get('strike')), _fmt_oi(item.get('pain')), '最低' if item.get('strike') == max_pain else ''])
+    if not pain_rows and max_pain:
+        pain_rows.append([_fmt_num(max_pain), '--', '最低'])
+
+    top_put_oi = sorted([x for x in oi_dist if (x.get('put_oi') or 0) > 0], key=lambda x: x.get('put_oi') or 0, reverse=True)[:5]
+    top_call_oi = sorted([x for x in oi_dist if (x.get('call_oi') or 0) > 0], key=lambda x: x.get('call_oi') or 0, reverse=True)[:5]
+    put_rows = [[_fmt_num(x.get('strike')), _fmt_oi(x.get('put_oi'))] for x in top_put_oi]
+    call_rows = [[_fmt_num(x.get('strike')), _fmt_oi(x.get('call_oi'))] for x in top_call_oi]
+
+    atm = (report.get('iv_curve') or {}).get('atm_strike') or max_pain or option_underlying_price
+    def strike_val(row): return _as_float(row.get('strike')) or 0
+    near_iv_rows = sorted(iv_rows, key=lambda r: abs(strike_val(r) - (atm or 0)))[:5]
+    near_iv_rows = sorted(near_iv_rows, key=strike_val)
+    iv_table_rows = []
+    for r in near_iv_rows:
+        c_iv = r.get('iv_call') or r.get('call_iv') or r.get('raw_C')
+        p_iv = r.get('iv_put') or r.get('put_iv') or r.get('raw_P')
+        svi = r.get('svi_iv') or r.get('smooth') or r.get('raw_avg')
+        if c_iv is not None and abs(float(c_iv)) < 3: c_iv = float(c_iv) * 100
+        if p_iv is not None and abs(float(p_iv)) < 3: p_iv = float(p_iv) * 100
+        if svi is not None and abs(float(svi)) < 3: svi = float(svi) * 100
+        iv_table_rows.append([_fmt_num(r.get('strike')), _fmt_num(c_iv, 2) + '%', _fmt_num(p_iv, 2) + '%', _fmt_num(svi, 2) + '%', f"C {_fmt_oi(r.get('call_oi') or r.get('oi_call'))} / P {_fmt_oi(r.get('put_oi') or r.get('oi_put'))}"])
+
+    atm_iv = iv_analysis.get('atm_vol')
+    skew_desc = iv_analysis.get('skew_desc') or ''
+    curv_desc = iv_analysis.get('curv_desc') or ''
+
+    def is_useful_macro_news(item):
+        text = str(item or '').strip()
+        if len(text) < 18:
+            return False
+        noise_terms = ['广州期货交易所', '仓单日报']
+        if all(term in text for term in noise_terms):
+            return False
+        if text.endswith('】') and len(text) < 40:
+            return False
+        return True
+
+    macro_news_items = []
+    if isinstance(news, dict):
+        for key in ['macro', 'geo', 'industry', 'fed']:
+            vals = news.get(key) or []
+            if isinstance(vals, list):
+                macro_news_items.extend(str(x) for x in vals if is_useful_macro_news(x))
+    elif isinstance(news, list):
+        macro_news_items = [str(x) for x in news if is_useful_macro_news(x)]
+    macro_news_items = macro_news_items[:6]
+
+    key_levels = []
+    if gex_flip: key_levels.append([_fmt_num(gex_flip), 'GEX Flip，重新站上后负Gamma压力缓和' if gex_dir == 'negative' else 'GEX Flip，跌破后波动可能放大'])
+    if max_pain: key_levels.append([_fmt_num(max_pain), 'Max Pain + 临近到期收敛锚'])
+    if max_put: key_levels.append([_fmt_num(max_put), '近端Put防线/有效支撑'])
+    if max_call: key_levels.append([_fmt_num(max_call), '近端Call压力/有效压力'])
+    if top_call_oi:
+        key_levels.append([f"{_fmt_num(top_call_oi[0].get('strike'))}", '上方最大Call持仓压力带'])
+    if top_put_oi:
+        key_levels.append([f"{_fmt_num(top_put_oi[0].get('strike'))}", '下方最大Put保护盘区域'])
+
+    if max_pain and option_underlying_price:
+        pain_diff = float(option_underlying_price) - float(max_pain)
+        pain_comment = f"当前期权标的价距离Max Pain约{pain_diff:+.0f}点，临近到期存在向{_fmt_num(max_pain)}收敛的引力。"
+    else:
+        pain_comment = "Max Pain 数据暂缺，痛点收敛强度需等待下一轮期权刷新。"
+
+    futures_bias = '短线偏弱' if (main_px.get('change_20_bars') or 0) < 0 else ('短线偏强' if (main_px.get('change_20_bars') or 0) > 0 else '短线震荡')
+    conclusion = f"当前市场判断：短线“{headline_dir}”，但不是单边空头。" if '空' not in str(headline_dir) else f"当前市场判断：短线“{headline_dir}”，需要防范顺势扩散。"
+
+    market_snapshot_table = [
+        ['期权链标的参考价', _fmt_num(option_underlying_price), '用于GEX、Pain、OI和IV结构判断'],
+        ['盘面主力参考价', f"{main_futures_label} {_fmt_num(main_futures_display_price)}", f"K线短线节奏：{futures_bias}"],
+        ['最近20根K线', _fmt_signed(main_px.get('change_20_bars')), '观察日内强弱和追单风险'],
+        ['PTA现货', _fmt_num(pta_spot), '现货/成本锚'],
+        ['现货-近月基差', _fmt_signed(near_basis), '升水偏强、贴水偏弱'],
+    ]
+    gex_table = [['标的价F', _fmt_num(option_underlying_price)], ['GEX Flip', _fmt_num(gex_flip)], ['净GEX', f"{_fmt_num(net_gex_m,1)}M"], ['Gamma方向', gex_dir or '--'], ['Max Pain', _fmt_num(max_pain)], ['PCR', _fmt_num(pcr,3)], ['剩余到期', f"{_fmt_num(days_left,1)}天"]]
+    pain_table = pain_rows
+    oi_tables = {'put': put_rows or [['--','--']], 'call': call_rows or [['--','--']]}
+    iv_table = iv_table_rows or [['--','--','--','--','--']]
+    macro_table = [
+        ['Brent', f"{_fmt_num(brent.get('price'),2,'$')}，{_pct_desc(brent.get('change_pct'))}", '原油宏观成本'],
+        ['WTI', f"{_fmt_num(wti.get('price'),2,'$')}，{_pct_desc(wti.get('change_pct'))}", '原油宏观成本'],
+        ['PX现货', _fmt_num(px_price), '成本端'],
+        ['PTA估算成本', _fmt_num(pta_cost), '成本支撑区'],
+        ['PTA利润', f"{_fmt_num(profit)}，{_fmt_num(profit_pct,1)}%", '利润高则供应压力偏空'],
+    ]
+
+    futures_strategy = [
+        f"{_fmt_num(gex_flip)} / {_fmt_num(max_call)}下方不宜追多，先按反抽压力处理。",
+        f"跌破{_fmt_num(max_pain)}并放量增仓，负Gamma可能放大下跌，下一目标看{_fmt_num(max_put)}。",
+        f"重新站回{_fmt_num(gex_flip)}，空头动能减弱，回到区间震荡。",
+    ]
+    option_seller_strategy = [
+        "临近到期Theta衰减快，震荡时卖方有时间价值优势。",
+        f"负Gamma环境不裸卖近端Put，尤其是{_fmt_num(max_pain)}失守后。",
+        f"若站回{_fmt_num(gex_flip)}，可考虑更稳健的宽跨/价差结构。",
+    ]
+    option_buyer_strategy = [
+        f"买Put触发点优先看{_fmt_num(max_pain)}有效跌破。",
+        f"买Call触发点看重新站回{_fmt_num(gex_flip)}或压力位后的修复。",
+        "夹在痛点和压力之间横盘时，买方容易被时间价值消耗。",
+    ]
+    strategy_blocks = {
+        'futures_strategy': {'title': '期货操作', 'items': futures_strategy},
+        'option_seller_strategy': {'title': '期权卖方策略', 'items': option_seller_strategy},
+        'option_buyer_strategy': {'title': '期权买方策略', 'items': option_buyer_strategy},
+    }
+
+    market_snapshot_interpretation = f"盘面短线{futures_bias}，但期权结构仍以{_fmt_num(option_underlying_price)}附近的GEX/Pain为核心锚。盘面价用于判断追单节奏，期权链标的价用于判断波动和持仓压力，两者分工明确。"
+    gex_interpretation = f"GEX显示{gamma_desc}，因此策略重点不是简单看涨看跌，而是观察{_fmt_num(gex_flip)}能否收复、{_fmt_num(max_pain)}是否失守。"
+    oi_interpretation = f"Put集中区给出下方防线，Call集中区给出上方压力；当前结构更适合围绕{_fmt_num(max_pain)}—{_fmt_num(max_call)}做区间和突破触发，而不是无条件追单。"
+    iv_interpretation = f"ATM隐波约{_fmt_num(atm_iv,1)}%，{skew_desc or '偏度待确认'}。若Put溢价继续抬升，买方看跌才有更强胜率；若IV回落，卖方时间价值优势更明显。"
+    macro_interpretation = "宏观成本端只保留有内容的快讯和油/PX/PTA成本信息；无正文的标题类消息不进入研判，避免噪音干扰策略判断。"
+    strategy_logic = f"逻辑闭环：盘面节奏决定入场时机，GEX/Pain决定关键触发位，OI决定支撑压力，IV决定买方还是卖方更占优。因此期货看{_fmt_num(max_pain)}与{_fmt_num(gex_flip)}，卖方控制负Gamma风险，买方等待跌破或突破信号。"
+
+    sections = [
+        conclusion,
+        "",
+        "1. 期货价格层面（期货盘面）：短线节奏看盘面主力，期权结构看期权链标的参考价。",
+        _table(['项目','当前值','交易含义'], market_snapshot_table),
+        market_snapshot_interpretation,
+        f"盘面主力参考价显示{futures_bias}，最近一根变化{_fmt_signed(main_px.get('last_bar_change'))}点，过去20根累计{_fmt_signed(main_px.get('change_20_bars'))}点。期权链标的参考价{_fmt_num(option_underlying_price)}用于判断GEX、Pain和持仓压力，不与盘面价混在一起下结论。",
+        "",
+        "2. GEX结构：价格所处Gamma区决定波动是否容易被放大。",
+        _table(['指标','当前值'], gex_table),
+        gex_interpretation,
+        f"核心含义：F={_fmt_num(option_underlying_price)} {'低于' if option_underlying_price and gex_flip and option_underlying_price < gex_flip else '高于或接近'} GEX Flip={_fmt_num(gex_flip)}，当前处在{gamma_desc}。若价格重新站回{_fmt_num(gex_flip)}/{_fmt_num(max_call)}上方，负Gamma压力会缓和；若跌破{_fmt_num(max_pain)}附近，波动可能更顺。",
+        "",
+        "3. Max Pain：临近到期关注痛点收敛，而不是简单看多看空。",
+        _table(['行权价','Pain','备注'], pain_table),
+        f"当前Max Pain={_fmt_num(max_pain)}。{pain_comment} 因此期权维度不是极端单边，而是上方Call压力、下方痛点/Put防线共同约束。",
+        "",
+        "4. 持仓结构：Put持仓偏多时要区分保护盘和主动空头。",
+        f"当前总持仓：Call OI={_fmt_oi(total_call_oi)}，Put OI={_fmt_oi(total_put_oi)}，PCR={_fmt_num(pcr,3)}。",
+        "Put持仓集中：\n" + _table(['Put行权价','Put OI'], oi_tables['put']),
+        "Call持仓集中：\n" + _table(['Call行权价','Call OI'], oi_tables['call']),
+        f"解读：Put集中在{', '.join(_fmt_num(x.get('strike')) for x in top_put_oi[:3]) or '--'}，Call压力集中在{', '.join(_fmt_num(x.get('strike')) for x in top_call_oi[:4]) or '--'}。大致结构是：{_fmt_num(max_pain)}为痛点锚，{_fmt_num(gex_flip)}为波动分界，{_fmt_num(max_call)}及以上为压力带。",
+        "",
+        "5. IV结构：看ATM隐波是否够高，也看左侧保护溢价。",
+        _table(['K','C IV','P IV','SVI/平滑IV','OI结构'], iv_table),
+        iv_interpretation,
+        f"ATM附近隐波约{_fmt_num(atm_iv,1)}%，属于{s1.get('iv_analysis',{}).get('vol_level','中波/待确认')}；{skew_desc or 'Skew待确认'}；{curv_desc or '曲率待确认'}。左侧Put IV若显著高于ATM，说明市场对下跌尾部风险有定价。",
+        "",
+        "6. 基本面与宏观：先看宏观快讯和成本链，周频供需项暂不放入盘中主研判。",
+        _table(['项目','当前值','解读'], macro_table),
+        macro_interpretation,
+        ("宏观快讯：" + '；'.join(x[:90] for x in macro_news_items[:4]) + '。') if macro_news_items else '宏观快讯：暂无有效快讯。',
+        f"基本面不是单边空：现货/成本可能提供下方支撑；但加工利润{_fmt_num(profit)}元若处在偏高区域，容易限制上方弹性。",
+        "",
+        "综合结论",
+        f"当前主线：{headline_dir}，核心区间关注{_fmt_num(max_pain)}—{_fmt_num(max_call)}。期货短线{futures_bias}，期权结构处在{gamma_desc}，真正的方向触发在{_fmt_num(max_pain)}跌破或{_fmt_num(gex_flip)}/{_fmt_num(max_call)}重新站上。",
+        "",
+        "关键价位",
+        _table(['位置','含义'], key_levels or [['--','--']]),
+        "",
+        "操作思路，仅按结构说",
+        "如果偏交易期货：\n• " + "\n• ".join(futures_strategy),
+        "如果偏期权卖方：\n• " + "\n• ".join(option_seller_strategy),
+        "如果偏买方：\n• " + "\n• ".join(option_buyer_strategy),
+        "",
+        f"一句话总结：现在不是强多盘，短线{futures_bias}；看{_fmt_num(max_pain)}是否守住，守住就是临近到期向{_fmt_num(max_pain)}—{_fmt_num(max_call)}收敛，跌破则负Gamma会让下跌更顺。",
+    ]
+    narrative = '\n'.join(sections)
+
+    return {
+        'title': '盘中综合研判',
+        'summary': conclusion,
+        'conclusion': conclusion,
+        'futures_panel': sections[3],
+        'option_structure': gamma_desc,
+        'macro_fundamental': '宏观基本面：以宏观财经快讯和成本链为主，暂不展示周频供需项。',
+        'strategy_judgement': sections[-2],
+        'narrative': narrative,
+        'bullets': [f"GEX：{gamma_desc}", f"Pain：{pain_comment}", f"宏观：Brent{_fmt_num(brent.get('price'),2,'$')}"],
+        'market_snapshot_interpretation': market_snapshot_interpretation,
+        'gex_interpretation': gex_interpretation,
+        'oi_interpretation': oi_interpretation,
+        'iv_interpretation': iv_interpretation,
+        'macro_interpretation': macro_interpretation,
+        'strategy_logic': strategy_logic,
+        'market_snapshot_table': market_snapshot_table,
+        'gex_table': gex_table,
+        'pain_table': pain_table,
+        'oi_tables': oi_tables,
+        'iv_table': iv_table,
+        'macro_table': macro_table,
+        'macro_news_items': macro_news_items,
+        'strategy_blocks': strategy_blocks,
+        'key_levels': key_levels,
+        'option_underlying_price': option_underlying_price,
+        'main_futures_price': main_futures_price,
+        'main_futures_symbol': main_symbol,
+    }
+
+
+def _safe_date_text(value=None) -> str:
+    text = value or datetime.now().strftime('%Y%m%d')
+    return ''.join(ch for ch in str(text) if ch.isdigit())[:8] or datetime.now().strftime('%Y%m%d')
+
+
+def save_intraday_snapshot(report: Dict, now: Optional[datetime] = None) -> Optional[str]:
+    """保存盘中15分钟研报快照，供收盘总研报聚合。"""
+    now = now or datetime.now()
+    date_text = now.strftime('%Y%m%d')
+    slot_minute = (now.minute // 15) * 15
+    slot = now.replace(minute=slot_minute, second=0, microsecond=0).strftime('%H%M')
+    day_dir = os.path.join(INTRADAY_REPORT_DIR, date_text)
+    os.makedirs(day_dir, exist_ok=True)
+    path = os.path.join(day_dir, f'{slot}.json')
+    payload = dict(report or {})
+    payload['snapshot_slot'] = slot
+    payload['snapshot_time'] = now.strftime('%Y-%m-%d %H:%M:%S')
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    return path
+
+
+
+def load_intraday_snapshots(date_text: Optional[str] = None) -> List[Dict]:
+    """读取某交易日盘中15分钟研报快照。"""
+    date_text = _safe_date_text(date_text)
+    day_dir = os.path.join(INTRADAY_REPORT_DIR, date_text)
+    if not os.path.isdir(day_dir):
+        return []
+    snapshots = []
+    for name in sorted(os.listdir(day_dir)):
+        if not name.endswith('.json'):
+            continue
+        try:
+            with open(os.path.join(day_dir, name), 'r', encoding='utf-8') as f:
+                snapshots.append(json.load(f))
+        except Exception:
+            continue
+    return snapshots
+
+
+def load_previous_trading_day_close_report(date_text: Optional[str] = None) -> Optional[Dict]:
+    """读取前一交易日收盘研报，用于动态对比。"""
+    base = datetime.strptime(_safe_date_text(date_text), '%Y%m%d')
+    for i in range(1, 8):
+        d = base - timedelta(days=i)
+        if d.weekday() >= 5:
+            continue
+        path = os.path.join(CLOSE_REPORT_DIR, f"daily_close_report_{d.strftime('%Y%m%d')}.json")
+        if os.path.exists(path):
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                return None
+    return None
+
+
+def build_daily_comparison(current_report: Dict, previous_report: Optional[Dict], intraday_snapshots: List[Dict]) -> Dict:
+    """生成全天总研报的日内变化和前日对比，并明确数据覆盖度。"""
+    def pick_price(r):
+        ia = (r or {}).get('intraday_analysis') or {}
+        return _as_float(ia.get('option_underlying_price')) or _as_float(ia.get('main_futures_price'))
+
+    snapshot_count = len(intraday_snapshots)
+    slots = [x.get('snapshot_slot') for x in intraday_snapshots if x.get('snapshot_slot')]
+    prices = [pick_price(x) for x in intraday_snapshots]
+    prices = [x for x in prices if x is not None]
+    cur_price = pick_price(current_report)
+    prev_price = pick_price(previous_report) if previous_report else None
+    previous_day_available = previous_report is not None
+
+    if snapshot_count >= 12:
+        intraday_coverage_status = '完整'
+        intraday_note = f'已归档{snapshot_count}份整15分钟盘中研报，可进行较完整的日内过程复盘。'
+    elif snapshot_count >= 3:
+        intraday_coverage_status = '部分'
+        intraday_note = f'已归档{snapshot_count}份整15分钟盘中研报，只能做阶段性日内对比。'
+    else:
+        intraday_coverage_status = '样本不足'
+        intraday_note = f'仅归档{snapshot_count}份整15分钟盘中研报，日内动态对比样本不足。'
+
+    if previous_day_available and prev_price is not None and cur_price is not None:
+        day_note = f'相对前一交易日参考价变化{cur_price - prev_price:+.0f}点。'
+    else:
+        day_note = '前一交易日收盘研报暂缺，日间动态对比暂不能完整展开。'
+
+    comparison_quality = '完整' if intraday_coverage_status == '完整' and previous_day_available else ('部分' if snapshot_count >= 3 or previous_day_available else '样本不足')
+    data_limitation_note = '' if comparison_quality == '完整' else f'{intraday_note}{day_note}'
+
+    return {
+        'snapshot_count': snapshot_count,
+        'intraday_slots': slots,
+        'intraday_coverage_status': intraday_coverage_status,
+        'previous_day_available': previous_day_available,
+        'comparison_quality': comparison_quality,
+        'data_limitation_note': data_limitation_note,
+        'intraday_price_range': {'low': min(prices) if prices else None, 'high': max(prices) if prices else None},
+        'current_vs_previous_price_change': (cur_price - prev_price) if cur_price is not None and prev_price is not None else None,
+        'summary': f"全天共归档{snapshot_count}份15分钟研报；{intraday_note}{day_note}"
+    }
+
+
+def generate_close_report(base_report: Optional[Dict] = None) -> Dict:
+    """生成15:00收盘后的全天总研报，综合当日15分钟盘中研报并与前一交易日对比。"""
+    report = dict(base_report) if base_report else generate_report(report_type='close')
+    now = datetime.now()
+    date_text = now.strftime('%Y%m%d')
+    intraday_snapshots = load_intraday_snapshots(date_text)
+    previous_report = load_previous_trading_day_close_report(date_text)
+    previous_day_comparison = build_daily_comparison(report, previous_report, intraday_snapshots)
+    report['timestamp'] = now.strftime('%Y-%m-%d %H:%M:%S')
+    report['report_type'] = 'close'
+    report['market_session'] = '收盘后'
+    report['intraday_snapshots'] = [
+        {
+            'slot': x.get('snapshot_slot'),
+            'time': x.get('snapshot_time') or x.get('timestamp'),
+            'summary': _clean_report_text((x.get('intraday_analysis') or {}).get('summary') or x.get('narrative_report') or '')[:180],
+            'option_underlying_price': (x.get('intraday_analysis') or {}).get('option_underlying_price'),
+            'main_futures_price': (x.get('intraday_analysis') or {}).get('main_futures_price'),
+        }
+        for x in intraday_snapshots
+    ]
+    report['previous_day_comparison'] = previous_day_comparison
+    report['close_summary'] = {
+        'title': '15:00收盘后全天总研报',
+        'generated_at': report['timestamp'],
+        'summary': _clean_report_text(previous_day_comparison.get('summary')),
+        'source_sections': ['日内15分钟研报快照', '期权GEX/OI/IV结构', '宏观财经快讯', '前一交易日收盘研报'],
+    }
+    # 对外返回前清理旧历史快照/前日缓存中可能残留的脏标题。
+    report = json.loads(_clean_report_text(json.dumps(report, ensure_ascii=False)))
+    return report
 
 
 def save_report(report: Dict):

@@ -3,6 +3,8 @@
 
 
 
+
+
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -720,7 +722,7 @@ async function fetchData() {
     if (gexData && !gexData.error) updateGexCharts(gexData, alertData);
 
     document.getElementById('lastUpdate').textContent =
-        `最后更新: ${data.last_update || '--'} | 前次基准: ${data.prev_timestamp || '--'} | 版本 v2.11.24`;
+        `最后更新: ${data.last_update || '--'} | 前次基准: ${data.prev_timestamp || '--'} | 版本 v2.11.25`;
   } catch (err) {
     showError('数据加载失败: ' + err.message);
   }
@@ -737,6 +739,32 @@ function updateStatus(status, data) {
   fPriceEl.className = (!status.last_update || status.last_update === 'None') ? 'status-value warn' : 'status-value';
 }
 
+const ATM_WINDOW_SIZE = 15;
+
+function filterSmileCurveAroundAtm(curve, atmStrike, windowSize = ATM_WINDOW_SIZE) {
+  const sorted = [...(curve || [])]
+    .filter(d => d && d.strike != null && !isNaN(Number(d.strike)))
+    .sort((a, b) => Number(a.strike) - Number(b.strike));
+  if (!sorted.length) return [];
+
+  const atm = Number(atmStrike);
+  if (!isFinite(atm)) return sorted;
+
+  let atmIndex = sorted.findIndex(d => Number(d.strike) === atm);
+  if (atmIndex < 0) {
+    atmIndex = sorted.reduce((bestIdx, d, idx) => {
+      const dist = Math.abs(Number(d.strike) - atm);
+      const bestDist = Math.abs(Number(sorted[bestIdx].strike) - atm);
+      return dist < bestDist ? idx : bestIdx;
+    }, 0);
+  }
+
+  // 严格按当前ATM左右各最多15档截取；不为凑满31个点向单侧深翼回补，避免横轴被深翼拉偏。
+  const start = Math.max(0, atmIndex - windowSize);
+  const end = Math.min(sorted.length, atmIndex + windowSize + 1);
+  return sorted.slice(start, end);
+}
+
 function updateSmileChart(data) {
   const chart = chartInstances.smile;
   if (!chart) return;
@@ -747,14 +775,15 @@ function updateSmileChart(data) {
   }
   chart.hideLoading();
 
-  // 按行权价排序
-  const sorted = [...curve].sort((a, b) => a.strike - b.strike);
+  // 仅展示当前ATM上下15档；raw散点按OTM口径展示，SVI曲线用smooth拟合值。
+  const sorted = filterSmileCurveAroundAtm(curve, data.atm_strike, ATM_WINDOW_SIZE);
   const strikes = sorted.map(d => String(d.strike));
+  const atmNum = Number(data.atm_strike);
 
   // 构建数据数组：对应 category 轴上每个 index 的值
-  // category 轴的 series data 应为纯数值数组，与 xAxis.data 一一对应
-  const callData = sorted.map(d => (d.raw_C != null && !isNaN(d.raw_C)) ? d.raw_C : null);
-  const putData = sorted.map(d => (d.raw_P != null && !isNaN(d.raw_P)) ? d.raw_P : null);
+  // Call虚值在ATM上方，Put虚值在ATM下方；ATM点不画raw散点，只由SVI曲线体现。
+  const callData = sorted.map(d => (Number(d.strike) > atmNum && d.raw_C != null && !isNaN(d.raw_C)) ? d.raw_C : null);
+  const putData = sorted.map(d => (Number(d.strike) < atmNum && d.raw_P != null && !isNaN(d.raw_P)) ? d.raw_P : null);
   const smoothData = sorted.map(d => (d.smooth != null && !isNaN(d.smooth)) ? d.smooth : null);
   const prevData = sorted.map(d => (d.smooth_prev != null && !isNaN(d.smooth_prev)) ? d.smooth_prev : null);
 
