@@ -437,5 +437,8 @@ def test_frontend_prioritizes_trader_report_over_old_table_script():
     render_src = template[template.index("function renderIntradayAnalysis"):template.index("function legacyDailyReport")]
     assert "intraday.trader_report" in render_src
     assert "renderTraderReport" in render_src
+    assert "let out = '';" in render_src
     assert "out += renderTraderReport(intraday.trader_report" in render_src
     assert "return renderTraderReport(intraday.trader_report" not in render_src
+    assert render_src.index("let out = '';") < render_src.index("out += renderTraderReport(intraday.trader_report")
+    assert render_src.index("intraday.trader_report") < render_src.index("market_snapshot_table")

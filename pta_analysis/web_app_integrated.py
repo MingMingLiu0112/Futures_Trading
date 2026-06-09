@@ -611,6 +611,7 @@ def _close_report_needs_rebuild(report):
         return True
     intraday = report.get('intraday_analysis') or report.get('market_brief') or {}
     required = [
+        'trader_report',
         'market_snapshot_interpretation', 'gex_interpretation', 'oi_interpretation',
         'iv_interpretation', 'macro_interpretation', 'strategy_logic'
     ]

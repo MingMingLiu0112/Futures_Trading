@@ -2821,10 +2821,11 @@ function getStrategyReportEndpoint() {
                     const oup = intraday.option_underlying_price;
                     const mfp = intraday.main_futures_price;
                     const narrativeNotes = intraday.narrative_notes || { market: [], gex: [], oi: [], iv: [], macro: [], strategy: [], other: [] };
+                    let out = '';
                     if (intraday.trader_report) {
                         out += renderTraderReport(intraday.trader_report);
                     }
-                    let out = `<div style="margin-bottom:14px;padding:10px 12px;background:#15151f;border-left:3px solid #ffd700;border-radius:5px;">
+                    out += `<div style="margin-bottom:14px;padding:10px 12px;background:#15151f;border-left:3px solid #ffd700;border-radius:5px;">
                         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
                             <div style="color:#ffd700;font-size:13px;font-weight:bold;">🧭 ${cell(intraday.title || '盘中综合研判')}</div>
                             <div style="color:#aaa;font-size:11px;">${cell(intraday.summary || intraday.conclusion || '')}</div>
@@ -4289,6 +4290,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div id="klFooterVersion" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.27</div>
+<div id="klFooterVersion" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.28</div>
 </body>
 </html>
