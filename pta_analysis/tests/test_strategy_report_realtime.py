@@ -380,3 +380,62 @@ def test_manual_macro_input_is_supported_and_prioritized():
     assert "用户盘前/休盘后手工输入优先" in script
     assert "【人工宏观基本面】" in script
     assert "自动快讯只作补充" in script
+
+
+def test_intraday_analysis_outputs_trader_report_template_text():
+    """前端应展示交易员版研报正文，而不是只显示旧表格脚本。"""
+    import sys
+    sys.path.insert(0, str(ROOT))
+    from scripts import generate_daily_report as gdr
+
+    old = gdr.get_main_futures_price
+    gdr.get_main_futures_price = lambda: {"symbol": "TA", "price": 6242, "change_20_bars": 12, "last_bar_change": 2}
+    try:
+        report = {
+            "gex": {
+                "summary": {
+                    "futures_price": 6424, "max_pain": 6400, "gex_flip": 6454,
+                    "net_gex": -47200000, "gex_direction": "negative", "pcr": 1.184,
+                    "days_left": 1.1, "effective_support": 6200, "effective_resistance": 6700,
+                    "max_put_oi": 37475, "max_call_oi": 21261, "total_call_oi": 100000, "total_put_oi": 118400,
+                },
+                "pain_curve": [{"strike": 6400, "pain": 100}, {"strike": 6500, "pain": 200}],
+                "oi_dist": [
+                    {"strike": 6000, "put_oi": 37475, "call_oi": 1000},
+                    {"strike": 6200, "put_oi": 22779, "call_oi": 2000},
+                    {"strike": 6500, "put_oi": 3000, "call_oi": 12635},
+                    {"strike": 6600, "put_oi": 1000, "call_oi": 14330},
+                    {"strike": 6700, "put_oi": 1000, "call_oi": 15428},
+                    {"strike": 7000, "put_oi": 500, "call_oi": 21261},
+                ],
+            },
+            "section1": {"iv_analysis": {"atm_vol": 23.7, "skew_desc": "深度左偏", "curv_desc": "曲率正常", "vol_level": "中波"}},
+            "section3": {"direction": "震荡"},
+            "iv_curve": {"atm_strike": 6400, "curve": [{"strike": 6400, "iv_call": 0.23, "iv_put": 0.25, "svi_iv": 0.237, "call_oi": 1000, "put_oi": 2000}]},
+            "pta": {"spot_price": 6500, "near_basis": 212},
+            "px": {"spot_price": 1166.33},
+            "cost": {"profit": 624, "profit_pct": 10, "pta_cost": 6000},
+            "crude": {"brent": {"price": 93.34, "change_pct": -2}, "wti": {"price": 90.17, "change_pct": -2}},
+            "manual_macro_input": {"summary": "PX检修集中、PTA低库存与聚酯产销放量，短期围绕6400-6600偏强震荡。"},
+        }
+        ia = gdr.generate_intraday_analysis(report)
+    finally:
+        gdr.get_main_futures_price = old
+
+    text = ia.get("trader_report") or ""
+    assert "PTA 最新综合研判" in text
+    assert "当前 PTA 不适合简单看空" in text
+    assert "负 Gamma 区" in text
+    assert "6400上方不追空" in text
+    assert "期权卖方策略" in text
+    assert ia.get("summary") == "当前 PTA 不适合简单看空。"
+
+
+def test_frontend_prioritizes_trader_report_over_old_table_script():
+    """页面有 trader_report 时必须优先渲染正文模板，避免用户看到旧脚本式表格。"""
+    template = TEMPLATE.read_text(encoding="utf-8")
+    render_src = template[template.index("function renderIntradayAnalysis"):template.index("function legacyDailyReport")]
+    assert "intraday.trader_report" in render_src
+    assert "renderTraderReport" in render_src
+    assert "out += renderTraderReport(intraday.trader_report" in render_src
+    assert "return renderTraderReport(intraday.trader_report" not in render_src

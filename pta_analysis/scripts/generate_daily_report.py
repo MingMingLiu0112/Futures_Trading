@@ -1902,7 +1902,7 @@ def generate_intraday_analysis(report: Dict) -> Dict:
     max_put_oi = gex_summary.get('max_put_oi')
     max_call_oi = gex_summary.get('max_call_oi')
 
-    gamma_desc = '正Gamma区，做市商对冲倾向抑制波动' if gex_dir == 'positive' else ('负Gamma区，做市商对冲更容易追涨杀跌、放大波动' if gex_dir == 'negative' else 'Gamma方向待确认')
+    gamma_desc = '正 Gamma 区，做市商对冲倾向抑制波动' if gex_dir == 'positive' else ('负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动' if gex_dir == 'negative' else 'Gamma方向待确认')
     if direction == '震荡' and gex_dir == 'negative' and main_px.get('change_20_bars') and main_px.get('change_20_bars') < 0:
         headline_dir = '偏弱震荡'
     else:
@@ -2042,6 +2042,49 @@ def generate_intraday_analysis(report: Dict) -> Dict:
     macro_hint = '；'.join(macro_news_items[:2]) if macro_news_items else '暂无高质量宏观快讯'
     macro_interpretation = f"宏观与成本端只采用完整可读的消息和人工补充材料，自动快讯只作补充。当前可参考：{macro_hint}。盘中策略仍以价格结构触发为主，宏观材料用于解释成本弹性和隔夜风险。"
     strategy_logic = f"策略依据：先用盘面主力判断追单节奏，再用GEX/Pain确定触发位，用OI确认支撑压力，用IV决定买方还是卖方更占优。当前重点是{_fmt_num(max_pain)}是否跌破、{_fmt_num(gex_flip)}是否收复；未触发前以区间和风控为主，触发后再顺势加速。"
+
+    upper_zone = _fmt_num(max_call) if max_call else '6550-6600'
+    support_zone = _fmt_num(max_put) if max_put else '6200'
+    gex_flip_text = _fmt_num(gex_flip)
+    max_pain_text = _fmt_num(max_pain)
+    macro_core = macro_news_items[0].replace('【人工宏观基本面】', '') if macro_news_items else '基本面日内变化不大，重点看原油/PX事件驱动与期权结构触发。'
+    trader_report = "\n".join([
+        "PTA 最新综合研判",
+        "",
+        "一、核心结论",
+        "当前 PTA 不适合简单看空。",
+        f"产业链给出的底色是偏强震荡、有支撑但上方也有压制。当前核心区间先看{max_pain_text}-{upper_zone}，不是无脑追多，也不是在{max_pain_text}上方主动追空。",
+        f"期权结构上，当前价格处于{gamma_desc}，这意味着一旦关键位置被突破，波动容易被放大。",
+        "",
+        "二、宏观与成本端",
+        f"日内基本面不做机械重复改写，作为背景锚处理：{macro_core}",
+        f"原油/PX若继续偏强，会给PTA下方托底；如果中东缓和、原油回落或PX转弱，则多头会受压。当前PTA利润约{_fmt_num(profit)}元，加工费偏高会限制上方持续单边拉涨空间。",
+        "",
+        "三、PTA自身基本面",
+        f"现货参考{_fmt_num(pta_spot)}，基差{_fmt_signed(near_basis)}，PX参考{_fmt_num(px_price)}，PTA估算成本{_fmt_num(pta_cost)}。现货/成本仍提供支撑，但高加工费和装置重启预期会压制追多空间。",
+        "",
+        "四、当前期权结构",
+        f"期权链标的参考价：{_fmt_num(option_underlying_price)}；Max Pain：{max_pain_text}；GEX Flip：{gex_flip_text}；净GEX：{_fmt_num(net_gex_m,1)}M；Gamma方向：{gex_dir or '--'}；PCR：{_fmt_num(pcr,3)}；剩余到期：约{_fmt_num(days_left,1)}天。",
+        f"临近到期，{max_pain_text}对价格有明显吸引力；站回{gex_flip_text}后负Gamma压力缓和，跌破{max_pain_text}则负Gamma可能放大下跌。",
+        "",
+        "五、持仓压力与支撑",
+        f"下方Put防线重点看{max_pain_text}、{support_zone}；上方Call压力重点看{upper_zone}以及更高Call集中区。持仓给出的不是单边方向，而是区间边界。",
+        "",
+        "六、隐波与风险情绪",
+        f"ATM隐波约{_fmt_num(atm_iv,1)}%，{skew_desc or '偏度待确认'}。如果Put保护溢价继续高于Call，说明市场仍在为下跌尾部风险付费；临近到期买方不能在中间位置随意追。",
+        "",
+        "七、交易策略",
+        "1. 期货操作",
+        f"{max_pain_text}上方不追空；{gex_flip_text}下方不盲目追多；站回{gex_flip_text}才考虑短多延续；跌破{max_pain_text}才考虑顺势空头，下一层关注{support_zone}。",
+        "2. 期权卖方策略",
+        f"临近到期Theta衰减快，但负Gamma环境下不裸卖近端Put。若价格维持在{max_pain_text}上方，可优先考虑有保护的价差结构；若跌破{max_pain_text}，卖Put风险快速上升。",
+        "3. 期权买方策略",
+        f"买Put触发点看有效跌破{max_pain_text}，最好伴随原油/PX走弱或盘面放量；买Call触发点看重新站回{gex_flip_text}，否则容易被时间价值消耗。",
+        "",
+        "八、最终判断",
+        f"基本面偏强支撑，期权结构偏震荡拉扯，短线处于负Gamma敏感区。{max_pain_text}不破，短期仍以偏强震荡对待；站上{gex_flip_text}，价格有机会继续试探{upper_zone}；跌破{max_pain_text}，负Gamma可能放大下跌，回看{support_zone}。",
+    ])
+
     narrative_notes = {
         'market': [market_snapshot_interpretation],
         'gex': [gex_interpretation],
@@ -2103,8 +2146,9 @@ def generate_intraday_analysis(report: Dict) -> Dict:
 
     return {
         'title': '盘中综合研判',
-        'summary': conclusion,
+        'summary': '当前 PTA 不适合简单看空。',
         'conclusion': conclusion,
+        'trader_report': trader_report,
         'futures_panel': sections[3],
         'option_structure': gamma_desc,
         'macro_fundamental': '宏观基本面：以宏观财经快讯和成本链为主，暂不展示周频供需项。',

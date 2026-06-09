@@ -2789,6 +2789,25 @@ function getStrategyReportEndpoint() {
                         if (!text) return '';
                         return `<div style="margin:-4px 0 10px 0;color:#cfcfcf;font-size:11px;line-height:1.65;background:#101018;border-left:2px solid #444;padding:6px 8px;border-radius:3px;">${cell(text)}</div>`;
                     }
+                    function renderTraderReport(text) {
+                        const raw = String(text || '').trim();
+                        if (!raw) return '';
+                        const lines = raw.split(/\n+/).map(x => x.trim()).filter(Boolean);
+                        let html = `<div style="margin-bottom:14px;padding:12px 14px;background:#15151f;border-left:3px solid #ffd700;border-radius:5px;color:#ddd;font-size:12px;line-height:1.75;">`;
+                        lines.forEach((line, idx) => {
+                            if (idx === 0) {
+                                html += `<div style="color:#ffd700;font-size:15px;font-weight:bold;margin-bottom:8px;">${cell(line)}</div>`;
+                            } else if (/^[一二三四五六七八九十]+、/.test(line)) {
+                                html += `<div style="color:#ffd700;font-size:13px;font-weight:bold;margin:12px 0 5px 0;">${cell(line)}</div>`;
+                            } else if (/^[123]\. /.test(line)) {
+                                html += `<div style="color:#e6d28a;font-size:12px;font-weight:bold;margin:8px 0 3px 0;">${cell(line)}</div>`;
+                            } else {
+                                html += `<div style="margin:3px 0;color:#d0d0d0;">${cell(line)}</div>`;
+                            }
+                        });
+                        html += `</div>`;
+                        return html;
+                    }
 
                     function renderStrategyBlock(key, cls) {
                         const block = (intraday.strategy_blocks || {})[key] || {};
@@ -2802,6 +2821,9 @@ function getStrategyReportEndpoint() {
                     const oup = intraday.option_underlying_price;
                     const mfp = intraday.main_futures_price;
                     const narrativeNotes = intraday.narrative_notes || { market: [], gex: [], oi: [], iv: [], macro: [], strategy: [], other: [] };
+                    if (intraday.trader_report) {
+                        out += renderTraderReport(intraday.trader_report);
+                    }
                     let out = `<div style="margin-bottom:14px;padding:10px 12px;background:#15151f;border-left:3px solid #ffd700;border-radius:5px;">
                         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
                             <div style="color:#ffd700;font-size:13px;font-weight:bold;">🧭 ${cell(intraday.title || '盘中综合研判')}</div>
@@ -4267,6 +4289,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div id="klFooterVersion" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.26</div>
+<div id="klFooterVersion" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.27</div>
 </body>
 </html>
