@@ -200,9 +200,9 @@ def test_macro_news_filters_empty_warehouse_receipt_titles():
     """宏观快讯过滤只有标题没有内容、且与PTA无关的仓单日报噪音。"""
     script = REPORT_SCRIPT.read_text(encoding="utf-8")
     intraday_src = script[script.index("def generate_intraday_analysis"):script.index("def generate_close_report")]
-    assert "is_useful_macro_news" in intraday_src
-    assert "仓单日报" in intraday_src
-    assert "广州期货交易所" in intraday_src
+    assert "_clean_news_text" in intraday_src
+    assert "仓单日报" in script
+    assert "广州期货交易所" in script
 
 
 def test_intraday_report_has_interpretation_fields_after_tables():
@@ -310,7 +310,8 @@ def test_frontend_renders_same_rich_sections_as_export():
     assert "综合摘要" in render_src
     assert "日内15分钟快照摘要" in render_src
     assert "reportData.intraday_snapshots" in render_src
-    assert "narrative_report" in render_src
+    assert "narrative_notes" in render_src
+    assert "splitNarrativeNotes(narrative)" not in render_src
     assert "综合叙述" not in render_src
 
 
@@ -334,3 +335,48 @@ def test_narrative_is_merged_into_related_interpretations_not_big_block():
     assert "narrative_notes.get('macro')" in formatter
     assert "综合摘要" in formatter
     assert "add_text('综合叙述'" not in formatter
+
+
+def test_strategy_notes_do_not_slice_full_narrative_into_fragments():
+    """策略依据不应从整篇叙述/Markdown表格硬切，避免残片和无用文本。"""
+    template = TEMPLATE.read_text(encoding="utf-8")
+    render_src = template[template.index("function renderIntradayAnalysis"):template.index("function legacyDailyReport")]
+    assert "intraday.narrative_notes" in render_src
+    assert "splitNarrativeNotes(narrative)" not in render_src
+    assert "reportData.narrative_report" not in render_src
+
+    web = WEB_APP.read_text(encoding="utf-8")
+    formatter = web[web.index("def format_strategy_report_markdown"):web.index("def _xml_escape")]
+    assert "ia.get('narrative_notes')" in formatter
+    assert "_split_narrative_notes(ia.get('narrative')" not in formatter
+    assert "_split_narrative_notes(report.get('narrative_report')" not in formatter
+
+
+def test_intraday_snapshots_only_in_pta_trading_sessions():
+    """15分钟盘中快照只能在PTA交易时段产生，盘后/休盘不能写入。"""
+    import sys
+    from datetime import datetime
+    sys.path.insert(0, str(ROOT))
+    from scripts.generate_daily_report import _is_pta_trading_session, save_intraday_snapshot, _slot_is_pta_trading_session
+
+    assert _is_pta_trading_session(datetime(2026, 6, 9, 9, 15)) is True
+    assert _is_pta_trading_session(datetime(2026, 6, 9, 14, 45)) is True
+    assert _is_pta_trading_session(datetime(2026, 6, 9, 21, 15)) is True
+    assert _is_pta_trading_session(datetime(2026, 6, 9, 15, 30)) is False
+    assert _is_pta_trading_session(datetime(2026, 6, 9, 20, 30)) is False
+    assert _slot_is_pta_trading_session('0915') is True
+    assert _slot_is_pta_trading_session('1530') is False
+    assert save_intraday_snapshot({'x': 1}, now=datetime(2026, 6, 9, 15, 30)) is None
+
+
+def test_manual_macro_input_is_supported_and_prioritized():
+    """用户盘前/休盘后补充的宏观基本面应有固定入口，并优先于自动快讯。"""
+    web = WEB_APP.read_text(encoding="utf-8")
+    script = REPORT_SCRIPT.read_text(encoding="utf-8")
+    assert "/api/strategy_report/manual_macro" in web
+    assert "manual_macro_input.json" in web
+    assert "MANUAL_MACRO_INPUT_PATH" in script
+    assert "load_manual_macro_input" in script
+    assert "用户盘前/休盘后手工输入优先" in script
+    assert "【人工宏观基本面】" in script
+    assert "自动快讯只作补充" in script

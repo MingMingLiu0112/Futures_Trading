@@ -28,7 +28,56 @@ WORKSPACE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUTPUT_PATH = os.path.join(WORKSPACE, 'data', 'fundamental', 'daily_report.json')
 INTRADAY_REPORT_DIR = os.path.join(WORKSPACE, 'data', 'reports', 'intraday')
 CLOSE_REPORT_DIR = os.path.join(WORKSPACE, 'data', 'reports')
+MANUAL_MACRO_INPUT_PATH = os.path.join(WORKSPACE, 'data', 'fundamental', 'manual_macro_input.json')
 USD_CNY = 7.2
+
+
+def _is_pta_trading_session(now: Optional[datetime] = None) -> bool:
+    """PTA交易时段：9:00-11:30, 13:30-15:00, 21:00-23:00；仅交易时段产生日内快照。"""
+    now = now or datetime.now()
+    if now.weekday() >= 5:
+        return False
+    minutes = now.hour * 60 + now.minute
+    return (9*60 <= minutes < 11*60 + 30) or (13*60 + 30 <= minutes < 15*60) or (21*60 <= minutes < 23*60)
+
+
+def _slot_is_pta_trading_session(slot: str) -> bool:
+    try:
+        text = str(slot).zfill(4)
+        minutes = int(text[:2]) * 60 + int(text[2:4])
+    except Exception:
+        return False
+    return (9*60 <= minutes < 11*60 + 30) or (13*60 + 30 <= minutes < 15*60) or (21*60 <= minutes < 23*60)
+
+
+def _clean_news_text(text: str, max_len: int = 240) -> str:
+    text = re.sub(r'\s+', ' ', str(text or '')).strip()
+    text = re.sub(r'^(SHMET|财联社|金十数据)?\d{2}月\d{2}日讯[，,：:]*', '', text).strip()
+    text = re.sub(r'^(【快讯】|快讯[:：])', '', text).strip()
+    bad_fragments = ['广州期货交易所', '仓单日报']
+    if any(x in text for x in bad_fragments):
+        return ''
+    if len(text) < 18 or text.endswith('】'):
+        return ''
+    # 不在固定100字处硬截断，优先在标点收尾，避免半句话。
+    if len(text) > max_len:
+        cut = max(text.rfind(p, 0, max_len) for p in ['。', '；', '，', ',', ';'])
+        text = text[:cut + 1] if cut >= 80 else text[:max_len]
+    return text.strip(' ，,;；')
+
+
+def load_manual_macro_input() -> Dict:
+    """读取用户盘前/休盘后喂入的宏观基本面材料；自动抓取只作为补充。"""
+    if not os.path.exists(MANUAL_MACRO_INPUT_PATH):
+        return {}
+    try:
+        with open(MANUAL_MACRO_INPUT_PATH, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return data
+    except Exception as e:
+        print(f'手工宏观基本面读取失败: {e}')
+    return {}
 
 
 def fetch(url: str, timeout: int = 12) -> str:
@@ -433,13 +482,13 @@ def get_macro_news() -> Dict:
                 macro_kws = ['宏观', '经济', 'GDP', '通胀', '出口', '进口', '制造业', 'PMI']
                 
                 if any(kw.lower() in content.lower() for kw in geo_kws) and len(news['geo']) < 2:
-                    news['geo'].append(content[:100])
+                    news['geo'].append(_clean_news_text(content))
                 elif any(kw in content for kw in fed_kws) and len(news['fed']) < 2:
-                    news['fed'].append(content[:100])
+                    news['fed'].append(_clean_news_text(content))
                 elif any(kw.lower() in content.lower() for kw in ind_kws) and len(news['industry']) < 4:
-                    news['industry'].append(content[:100])
+                    news['industry'].append(_clean_news_text(content))
                 elif any(kw in content for kw in macro_kws) and len(news['macro']) < 2:
-                    news['macro'].append(content[:100])
+                    news['macro'].append(_clean_news_text(content))
     except Exception as e:
         print(f"SHMET快讯错误: {e}")
 
@@ -491,19 +540,28 @@ def get_macro_news() -> Dict:
                 macro_kws = ['降息', '加息', '美联储', 'CPI', 'PPI', '经济', 'GDP', '通胀']
                 ind_kws = ['PTA', 'PX', '聚酯', '原油', '石化', '化工']
                 
+                cleaned_title = _clean_news_text(title, 160)
+                if not cleaned_title:
+                    continue
                 if any(kw in title for kw in geo_kws) and len(news['geo']) < 4:
-                    news['geo'].append(title[:80])
+                    news['geo'].append(cleaned_title)
                 elif any(kw in title for kw in macro_kws) and len(news['macro']) < 3:
-                    news['macro'].append(title[:80])
+                    news['macro'].append(cleaned_title)
                 elif any(kw in title for kw in ind_kws) and len(news['industry']) < 6:
-                    news['industry'].append(title[:80])
+                    news['industry'].append(cleaned_title)
     except Exception as e:
         print(f"百度财经新闻错误: {e}")
 
-    # 去重
+    # 统一清洗去重，去掉半截句、标题噪音和空值。
     for key in news:
         seen = set()
-        news[key] = [x for x in news[key] if not (x in seen or seen.add(x))]
+        cleaned = []
+        for x in news[key]:
+            t = _clean_news_text(x)
+            if t and t not in seen:
+                seen.add(t)
+                cleaned.append(t)
+        news[key] = cleaned
 
     return news
 
@@ -707,6 +765,21 @@ def generate_report(report_type: str = 'intraday') -> Dict:
 
     print("[7/7] 获取宏观快讯...")
     macro_news = get_macro_news()
+    manual_macro = load_manual_macro_input()
+    if manual_macro:
+        report['manual_macro_input'] = manual_macro
+        # 用户盘前/休盘后手工输入优先，自动抓取只作补充。
+        manual_news = manual_macro.get('news') or manual_macro.get('macro_news') or {}
+        if isinstance(manual_news, dict):
+            for k, vals in manual_news.items():
+                if isinstance(vals, str):
+                    vals = [vals]
+                if isinstance(vals, list):
+                    macro_news.setdefault(k, [])
+                    macro_news[k] = [_clean_news_text(x) for x in vals if _clean_news_text(x)] + macro_news.get(k, [])
+        elif isinstance(manual_news, list):
+            macro_news.setdefault('macro', [])
+            macro_news['macro'] = [_clean_news_text(x) for x in manual_news if _clean_news_text(x)] + macro_news.get('macro', [])
 
     # 计算成本利润
     cost_data = {}
@@ -1807,6 +1880,7 @@ def generate_intraday_analysis(report: Dict) -> Dict:
     crude = report.get('crude') or {}
     cost = report.get('cost') or {}
     news = report.get('macro_news') or {}
+    manual_macro = report.get('manual_macro_input') or {}
 
     option_underlying_price = gex_summary.get('futures_price')
     main_px = get_main_futures_price()
@@ -1875,25 +1949,31 @@ def generate_intraday_analysis(report: Dict) -> Dict:
     skew_desc = iv_analysis.get('skew_desc') or ''
     curv_desc = iv_analysis.get('curv_desc') or ''
 
-    def is_useful_macro_news(item):
-        text = str(item or '').strip()
-        if len(text) < 18:
-            return False
-        noise_terms = ['广州期货交易所', '仓单日报']
-        if all(term in text for term in noise_terms):
-            return False
-        if text.endswith('】') and len(text) < 40:
-            return False
-        return True
-
     macro_news_items = []
+    if manual_macro:
+        manual_summary = _clean_news_text(manual_macro.get('summary') or manual_macro.get('text') or manual_macro.get('comment') or '', 360)
+        if manual_summary:
+            macro_news_items.append('【人工宏观基本面】' + manual_summary)
+        for key in ['crude', 'px', 'pta', 'cost', 'macro', 'events']:
+            val = manual_macro.get(key)
+            vals = val if isinstance(val, list) else ([val] if isinstance(val, str) else [])
+            for x in vals:
+                t = _clean_news_text(x, 260)
+                if t and t not in macro_news_items:
+                    macro_news_items.append(t)
     if isinstance(news, dict):
         for key in ['macro', 'geo', 'industry', 'fed']:
             vals = news.get(key) or []
             if isinstance(vals, list):
-                macro_news_items.extend(str(x) for x in vals if is_useful_macro_news(x))
+                for x in vals:
+                    t = _clean_news_text(x, 240)
+                    if t and t not in macro_news_items:
+                        macro_news_items.append(t)
     elif isinstance(news, list):
-        macro_news_items = [str(x) for x in news if is_useful_macro_news(x)]
+        for x in news:
+            t = _clean_news_text(x, 240)
+            if t and t not in macro_news_items:
+                macro_news_items.append(t)
     macro_news_items = macro_news_items[:6]
 
     key_levels = []
@@ -1955,12 +2035,22 @@ def generate_intraday_analysis(report: Dict) -> Dict:
         'option_buyer_strategy': {'title': '期权买方策略', 'items': option_buyer_strategy},
     }
 
-    market_snapshot_interpretation = f"盘面短线{futures_bias}，但期权结构仍以{_fmt_num(option_underlying_price)}附近的GEX/Pain为核心锚。盘面价用于判断追单节奏，期权链标的价用于判断波动和持仓压力，两者分工明确。"
-    gex_interpretation = f"GEX显示{gamma_desc}，因此策略重点不是简单看涨看跌，而是观察{_fmt_num(gex_flip)}能否收复、{_fmt_num(max_pain)}是否失守。"
-    oi_interpretation = f"Put集中区给出下方防线，Call集中区给出上方压力；当前结构更适合围绕{_fmt_num(max_pain)}—{_fmt_num(max_call)}做区间和突破触发，而不是无条件追单。"
-    iv_interpretation = f"ATM隐波约{_fmt_num(atm_iv,1)}%，{skew_desc or '偏度待确认'}。若Put溢价继续抬升，买方看跌才有更强胜率；若IV回落，卖方时间价值优势更明显。"
-    macro_interpretation = "宏观成本端只保留有内容的快讯和油/PX/PTA成本信息；无正文的标题类消息不进入研判，避免噪音干扰策略判断。"
-    strategy_logic = f"逻辑闭环：盘面节奏决定入场时机，GEX/Pain决定关键触发位，OI决定支撑压力，IV决定买方还是卖方更占优。因此期货看{_fmt_num(max_pain)}与{_fmt_num(gex_flip)}，卖方控制负Gamma风险，买方等待跌破或突破信号。"
+    market_snapshot_interpretation = f"盘面短线{futures_bias}，期权链标的参考价{_fmt_num(option_underlying_price)}负责GEX、Pain和持仓压力判断，盘面主力参考价{_fmt_num(main_futures_display_price)}负责入场节奏判断；两者不混用，避免把结构位和短线K线信号揉成一个价格。"
+    gex_interpretation = f"GEX处在{gamma_desc}。因此交易上先盯两条线：{_fmt_num(max_pain)}若失守，负Gamma容易放大顺势波动；{_fmt_num(gex_flip)}若被重新收复，追涨杀跌压力会减轻。"
+    oi_interpretation = f"持仓给出的不是单边方向，而是边界：Put集中区对应下方防线，Call集中区对应上方压力。当前更适合把{_fmt_num(max_pain)}—{_fmt_num(max_call)}当作区间框架，再等跌破或站回触发。"
+    iv_interpretation = f"ATM隐波约{_fmt_num(atm_iv,1)}%，{skew_desc or '偏度待确认'}。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。"
+    macro_hint = '；'.join(macro_news_items[:2]) if macro_news_items else '暂无高质量宏观快讯'
+    macro_interpretation = f"宏观与成本端只采用完整可读的消息和人工补充材料，自动快讯只作补充。当前可参考：{macro_hint}。盘中策略仍以价格结构触发为主，宏观材料用于解释成本弹性和隔夜风险。"
+    strategy_logic = f"策略依据：先用盘面主力判断追单节奏，再用GEX/Pain确定触发位，用OI确认支撑压力，用IV决定买方还是卖方更占优。当前重点是{_fmt_num(max_pain)}是否跌破、{_fmt_num(gex_flip)}是否收复；未触发前以区间和风控为主，触发后再顺势加速。"
+    narrative_notes = {
+        'market': [market_snapshot_interpretation],
+        'gex': [gex_interpretation],
+        'oi': [oi_interpretation],
+        'iv': [iv_interpretation],
+        'macro': [macro_interpretation],
+        'strategy': [strategy_logic],
+        'other': []
+    }
 
     sections = [
         conclusion,
@@ -2021,6 +2111,7 @@ def generate_intraday_analysis(report: Dict) -> Dict:
         'strategy_judgement': sections[-2],
         'narrative': narrative,
         'bullets': [f"GEX：{gamma_desc}", f"Pain：{pain_comment}", f"宏观：Brent{_fmt_num(brent.get('price'),2,'$')}"],
+        'narrative_notes': narrative_notes,
         'market_snapshot_interpretation': market_snapshot_interpretation,
         'gex_interpretation': gex_interpretation,
         'oi_interpretation': oi_interpretation,
@@ -2048,11 +2139,15 @@ def _safe_date_text(value=None) -> str:
 
 
 def save_intraday_snapshot(report: Dict, now: Optional[datetime] = None) -> Optional[str]:
-    """保存盘中15分钟研报快照，供收盘总研报聚合。"""
+    """保存盘中15分钟研报快照，供收盘总研报聚合；非交易时段不写入。"""
     now = now or datetime.now()
+    if not _is_pta_trading_session(now):
+        return None
     date_text = now.strftime('%Y%m%d')
     slot_minute = (now.minute // 15) * 15
     slot = now.replace(minute=slot_minute, second=0, microsecond=0).strftime('%H%M')
+    if not _slot_is_pta_trading_session(slot):
+        return None
     day_dir = os.path.join(INTRADAY_REPORT_DIR, date_text)
     os.makedirs(day_dir, exist_ok=True)
     path = os.path.join(day_dir, f'{slot}.json')
@@ -2077,7 +2172,9 @@ def load_intraday_snapshots(date_text: Optional[str] = None) -> List[Dict]:
             continue
         try:
             with open(os.path.join(day_dir, name), 'r', encoding='utf-8') as f:
-                snapshots.append(json.load(f))
+                item = json.load(f)
+                if _slot_is_pta_trading_session(item.get('snapshot_slot') or name[:4]):
+                    snapshots.append(item)
         except Exception:
             continue
     return snapshots

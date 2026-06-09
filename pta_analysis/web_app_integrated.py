@@ -645,6 +645,26 @@ def _trigger_strategy_report_background_refresh():
     threading.Thread(target=_worker, daemon=True, name='strategy-report-refresh').start()
 
 
+@app.route('/api/strategy_report/manual_macro', methods=['GET', 'POST'])
+def api_strategy_report_manual_macro():
+    """保存/读取用户盘前或休盘后补充的宏观基本面材料。"""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'fundamental', 'manual_macro_input.json')
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if request.method == 'GET':
+        data = {}
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        return jsonify({'success': True, 'data': data, 'path': path})
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({'success': False, 'error': '内容必须是JSON对象'}), 400
+    payload['updated_at'] = dt_datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    return jsonify({'success': True, 'data': payload})
+
+
 @app.route('/api/strategy_report/realtime')
 def api_strategy_report_realtime():
     """研报与策略实时面板：默认读15分钟缓存，避免页面被外部数据源阻塞。"""
@@ -786,7 +806,7 @@ def format_strategy_report_markdown(report):
         parts.extend(str(x) for x in (extras or []) if x)
         return '；'.join(parts)
 
-    narrative_notes = _split_narrative_notes(ia.get('narrative') or report.get('narrative_report'))
+    narrative_notes = ia.get('narrative_notes') or {'market': [], 'gex': [], 'oi': [], 'iv': [], 'macro': [], 'strategy': [], 'other': []}
 
     add_table('盘面快照', ['项目','当前值','交易含义'], ia.get('market_snapshot_table'))
     add_text('盘面解读', _combined(ia.get('market_snapshot_interpretation'), narrative_notes.get('market')))
