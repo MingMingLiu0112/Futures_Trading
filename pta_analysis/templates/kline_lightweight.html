@@ -16,6 +16,7 @@
 
 
 
+
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -23,9 +24,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PTA期货综合分析 - Lightweight Charts</title>
     <script src="/static/js/lightweight-charts.4.1.0.min.js" onerror="console.error('LightweightCharts failed to load')"></script>
-    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/echarts.min.js"></script>
+    <link rel="stylesheet" href="/static/bootstrap/bootstrap.min.css">
+    <script src="/static/bootstrap/bootstrap.bundle.min.js"></script>
     <style>
         * { box-sizing: border-box; }
         @keyframes blink {
@@ -2702,10 +2703,9 @@ function isPtaTradingTime(now = new Date()) {
         }
 
 function getStrategyReportEndpoint() {
-            const now = new Date();
-            // 日盘/夜盘交易时段展示15分钟实时研报；休盘/盘后默认展示全天综合日报。
-            if (isPtaTradingTime(now)) return '/api/strategy_report/realtime';
-            return '/api/strategy_report/daily';
+            // 首页盘面助理优先展示最新15分钟研报；盘后总报可由导出/归档入口使用。
+            // 休盘后若默认切到 daily close report，会展示15:00固化价格，导致参考价与K线实时盘面不一致。
+            return '/api/strategy_report/realtime';
         }
 
         async function loadDailyReport(endpoint) {
@@ -2717,7 +2717,7 @@ function getStrategyReportEndpoint() {
                 const [reportSettled, fundSettled, klineSettled] = await Promise.allSettled([
                     fetchWithTimeout(endpoint, endpoint.includes('/refresh') ? 120000 : 10000),
                     fetchWithTimeout('/api/fundamental', 6000),
-                    fetchWithTimeout('/api/kline/data?period=1min', 5000)
+                    fetchWithTimeout(`/api/kline/data?symbol=${currentSymbol}&period=1min`, 8000)
                 ]);
                 if (reportSettled.status !== 'fulfilled' || !reportSettled.value) {
                     throw new Error(reportSettled.reason?.message || '研报接口超时/失败');
@@ -2742,13 +2742,69 @@ function getStrategyReportEndpoint() {
                     try { const fr = await fundRes.json(); fundData = fr.data || {}; } catch(e) {}
                 }
 
-                // K线实时价
-                let livePrice = null, liveChangePct = null;
-                if (klineRes && klineRes.ok) {
+                // K线图当前价：直接复用主K线图已加载的最后一根close，避免盘面助理再单独请求价格导致不同步。
+                // 若主K线尚未加载，则用同一个K线接口兜底获取一次。
+                function getChartLastPrice() {
+                    if (Array.isArray(klineData) && klineData.length > 0) {
+                        const last = klineData[klineData.length - 1];
+                        const close = Number(last && last.close);
+                        if (isFinite(close) && close > 0) return close;
+                    }
+                    const lastPriceEl = document.getElementById('lastPrice');
+                    const elPrice = Number(lastPriceEl && lastPriceEl.textContent);
+                    if (isFinite(elPrice) && elPrice > 0) return elPrice;
+                    return null;
+                }
+                let livePrice = getChartLastPrice(), liveChangePct = null, liveSource = livePrice ? '页面K线图' : null, liveTime = null;
+                if (!livePrice && klineRes && klineRes.ok) {
                     try {
                         const kd = await klineRes.json();
-                        if (kd.current_price > 0) { livePrice = kd.current_price; liveChangePct = kd.change_pct; }
+                        const arr = Array.isArray(kd.data) ? kd.data : [];
+                        const last = arr.length ? arr[arr.length - 1] : null;
+                        const px = Number((last && last.close) || kd.current_price);
+                        if (isFinite(px) && px > 0) {
+                            livePrice = px;
+                            liveChangePct = kd.change_pct;
+                            liveSource = kd.source || 'K线接口';
+                            liveTime = last ? last.time : null;
+                        }
                     } catch(e) {}
+                }
+
+                // K线实时价只代表盘面主力/609节奏；期权链标的价/GEX标的价是另一套口径（当前TA607），不能用K线价覆盖。
+                // 之前这里把 livePrice 同时写入 option_underlying_price 和 gex_summary.futures_price，导致607价格被609价格污染。
+                let intraday = (d.intraday_analysis || d.market_brief || {});
+                const oupBefore = intraday.option_underlying_price;
+                const mfpBefore = intraday.main_futures_price;
+                if (livePrice) {
+                    if (intraday.main_futures_price) intraday.main_futures_price = livePrice;
+                    // 盘面助理表格行是研报生成时固化的字符串；字段覆盖不会自动改表格内容，必须同步改"盘面主力"行。
+                    if (Array.isArray(intraday.market_snapshot_table)) {
+                        intraday.market_snapshot_table = intraday.market_snapshot_table.map(row => {
+                            if (!Array.isArray(row) || row.length < 2) return row;
+                            const key = String(row[0] || '');
+                            const liveText = Number(livePrice).toFixed(0);
+                            if (key.includes('盘面主力参考价') || key.includes('盘面助理参考价')) return [row[0], `${currentSymbol || 'TA主力'} ${liveText}`, row[2] || 'K线实时价'];
+                            return row;
+                        });
+                    }
+                    // market_snapshot_interpretation 摘要里也嵌入了"盘面主力参考价 6290"等固化字符串，必须就地替换为实时价。
+                    const liveText = Number(livePrice).toFixed(0);
+                    const replacePriceInText = (text) => {
+                        if (!text) return text;
+                        let s = String(text);
+                        // 只替换盘面主力/助理口径；不要替换"期权链标的参考价"，它应保持607/GEX同源价。
+                        s = s.replace(/盘面主力参考价\s*[A-Z0-9]*\s*[\d,.\s]{1,8}/g, `盘面主力参考价 ${currentSymbol || 'TA主力'} ${liveText}`);
+                        s = s.replace(/盘面助理参考价\s*[A-Z0-9]*\s*[\d,.\s]{1,8}/g, `盘面助理参考价 ${currentSymbol || 'TA主力'} ${liveText}`);
+                        return s;
+                    };
+                    intraday.market_snapshot_interpretation = replacePriceInText(intraday.market_snapshot_interpretation);
+                    intraday.gex_interpretation = replacePriceInText(intraday.gex_interpretation);
+                    intraday.oi_interpretation = replacePriceInText(intraday.oi_interpretation);
+                    intraday.iv_interpretation = replacePriceInText(intraday.iv_interpretation);
+                    intraday.macro_interpretation = replacePriceInText(intraday.macro_interpretation);
+                    if (intraday.summary) intraday.summary = replacePriceInText(intraday.summary);
+                    if (intraday.conclusion) intraday.conclusion = replacePriceInText(intraday.conclusion);
                 }
 
                 // helpers
@@ -2847,7 +2903,17 @@ function getStrategyReportEndpoint() {
                             ${cmp.data_limitation_note ? `<div style="margin-top:4px;color:#aaa;">${cell(cmp.data_limitation_note)}</div>` : ''}
                         </div>`;
                     }
-                    out += `<div style="display:flex;flex-wrap:wrap;gap:6px 14px;color:#aaa;font-size:11px;margin-bottom:6px;"><span>期权链标的参考价 <b style="color:#ab47bc;">${oup != null ? fc(oup,0) : '--'}</b></span><span>盘面主力参考价 <b style="color:#ffd700;">${mfp != null ? fc(mfp,0) : '--'}</b></span></div>`;
+                    const liveBadge = (origVal, fixedVal) => {
+                        if (livePrice && origVal != null && Math.abs(Number(origVal) - Number(fixedVal)) >= 0.5) {
+                            return ` <span style="color:#26a69a;font-size:10px;" title="原研报缓存 ${fc(origVal,0)}，已用K线实时价覆盖">✓已实时</span>`;
+                        }
+                        return '';
+                    };
+                    out += `<div style="display:flex;flex-wrap:wrap;gap:6px 14px;color:#aaa;font-size:11px;margin-bottom:6px;">
+                        <span>期权链标的参考价 <b style="color:#ab47bc;">${oup != null ? fc(oup,0) : '--'}</b>${liveBadge(oupBefore, oup)}</span>
+                        <span>盘面主力参考价 <b style="color:#ffd700;">${mfp != null ? fc(mfp,0) : '--'}</b>${liveBadge(mfpBefore, mfp)}</span>
+                        ${livePrice ? `<span style="color:#888;font-size:10px;" title="数据源：${liveSource||'kline'}">K线实时 <b style="color:#26a69a;">${fc(livePrice,0)}</b></span>` : ''}
+                    </div>`;
                     out += renderReportTable('盘面快照', ['项目','当前值','交易含义'], intraday.market_snapshot_table || []);
                     out += renderInterpretation(combinedInterpretation(intraday.market_snapshot_interpretation, narrativeNotes.market));
                     out += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;">`;
@@ -3261,7 +3327,7 @@ function getStrategyReportEndpoint() {
                     return legacyHtml;
                 }
 
-                const intraday = d.intraday_analysis || d.market_brief;
+                intraday = intraday || d.intraday_analysis || d.market_brief;
                 let html = '';
                 if (reportResult.stale) {
                     html += `<div style="background:#b71c1c;color:#fff;padding:5px 10px;font-size:10px;margin-bottom:8px;border-radius:4px;">
@@ -4309,6 +4375,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div id="klFooterVersion" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.29</div>
+<div id="klFooterVersion" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.30</div>
 </body>
 </html>

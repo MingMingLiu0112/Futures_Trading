@@ -1,4 +1,6 @@
 
+
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -625,6 +627,178 @@ def _close_report_needs_rebuild(report):
     return any(term in text for term in bad_terms)
 
 
+# ==================== K线接口实时价覆盖 ====================
+# 缓存生成时可能是 6290（15:00 收盘瞬间最后一根K线 close），但用户复盘/导出/显示时
+# 实际价格已经变成 6302（TA2609 主力最新）。这里用 K线接口对所有出口做现场覆盖，
+# 保证缓存/前端/Word/MD 导出 4 个出口值一致。
+_STRATEGY_KLINE_CACHE = {'ts': 0.0, 'data': None}
+_STRATEGY_KLINE_TTL = 3  # 短缓存，避免在同一次导出时把接口打穿
+
+
+def _fetch_kline_ta609_for_report():
+    """从首页K线接口拿当前 TA2609 主力价。仅做研报覆盖用，失败返回 None。
+
+    必须优先使用 1min K线实时接口，保持与首页主K线图一致；后端 1day 预热缓存只做兜底，避免盘面助理参考价慢一拍。
+    """
+    import time as _t
+    now = _t.time()
+    if _STRATEGY_KLINE_CACHE['data'] is not None and now - _STRATEGY_KLINE_CACHE['ts'] < _STRATEGY_KLINE_TTL:
+        return _STRATEGY_KLINE_CACHE['data']
+
+    def _parse(d):
+        if not d:
+            return None
+        price = d.get('current_price')
+        if price is None:
+            bars = d.get('data') or []
+            if bars:
+                price = bars[-1].get('close')
+        if price is None:
+            return None
+        return {
+            'price': float(price),
+            'change_pct': d.get('change_pct'),
+            'source': d.get('source'),
+            'symbol': d.get('symbol') or 'TA2609',
+        }
+
+    # 1) HTTP 1min 接口：与首页主K线图同源，盘面助理参考价必须优先取它。
+    try:
+        import requests
+        r = requests.get('http://127.0.0.1:8424/api/kline/data?symbol=TA609&period=1min&count=2', timeout=10)
+        if r.ok:
+            d = r.json()
+            result = _parse(d)
+            if result:
+                _STRATEGY_KLINE_CACHE['ts'] = now
+                _STRATEGY_KLINE_CACHE['data'] = result
+                return result
+    except Exception:
+        pass
+
+    # 2) 后端进程内 _kline_tqsdk_cache（1day 周期）只做兜底，不能优先，否则盘面助理会显示日线缓存价。
+    try:
+        with _kline_tqsdk_lock:
+            cached = _kline_tqsdk_cache.get('KQ.m@CZCE.TA_86400_500')
+        if cached:
+            d = cached.get('result') or {}
+            result = _parse(d)
+            if result:
+                _STRATEGY_KLINE_CACHE['ts'] = now
+                _STRATEGY_KLINE_CACHE['data'] = result
+                return result
+    except Exception:
+        pass
+
+    return None
+
+
+def _override_report_with_kline_price(report):
+    """用首页K线接口当前价覆盖研报里的盘面主力参考价（字段/表格/正文三处都要覆盖）。
+    对应前端 loadDailyReport() 的覆盖逻辑；这里是后端镜像，确保导出 Word/MD 与前端一致。
+    """
+    if not isinstance(report, dict):
+        return report
+    kline = _fetch_kline_ta609_for_report()
+    if not kline or kline.get('price') is None:
+        app.logger.warning('[覆盖] K线接口未返回价,report=%s keys=%s', report.get('report_type'), list(report.keys())[:5] if isinstance(report, dict) else None)
+        return report
+    new_price = float(kline['price'])
+    new_symbol = str(kline.get('symbol') or 'TA2609')
+    live_text = f"{new_price:g}"
+    app.logger.warning('[覆盖] K线接口 price=%s symbol=%s, old_mfp=%s', new_price, new_symbol, (report.get('intraday_analysis') or {}).get('main_futures_price'))
+
+    def _override_node(node):
+        if not isinstance(node, dict):
+            return
+        old_price = node.get('main_futures_price')
+        # 字段层
+        if old_price is not None and float(old_price) != new_price:
+            node['main_futures_price'] = new_price
+        if not node.get('main_futures_symbol'):
+            node['main_futures_symbol'] = new_symbol
+        # 注意：K线实时价只覆盖盘面主力参考价。
+        # 期权链标的参考价/GEX futures_price 是期权结构口径，不能被 TA609 K线价污染。
+        # 表格层：futures_panel 是 markdown table 字符串。
+        # 单元格内容可能是 "6338"、"TA 6338"、"TA2609 6338" 等不同形式，必须用统一替换。
+        panel = node.get('futures_panel')
+        if isinstance(panel, str):
+            import re as _re
+            # 把 "| 盘面主力参考价 | <TA?> <价格> |" 整段重写为新价；不依赖价格字段格式
+            panel = _re.sub(
+                r'(\|\s*盘面主力参考价\s*\|\s*)([^\n|]+?)(\s*\|)',
+                lambda m: f'{m.group(1)}{new_symbol} {live_text}{m.group(3)}',
+                panel)
+            node['futures_panel'] = panel
+        mst = node.get('market_snapshot_table')
+        if isinstance(mst, list):
+            for row in mst:
+                if not (isinstance(row, list) and len(row) >= 2):
+                    continue
+                key = str(row[0] or '')
+                if '盘面主力参考价' in key or '盘面助理参考价' in key:
+                    row[1] = f"{new_symbol} {live_text}"
+        # 文本层
+        def _rep(text):
+            if not isinstance(text, str):
+                return None
+            import re as _re
+            # 关键：必须用 ASCII 标志，否则 \s 会吞掉汉字边界（汉字的"负责"被当空白），
+            # 导致 "盘面主力参考价 TA 6338负责..." 永远匹配不完整、文本残留旧价。
+            # 三种格式都要覆盖：
+            #   1) markdown 表格行："| 盘面主力参考价 | TA 6338 |" 整段重写（保护 | 边界）
+            #   2) narrative 文本："盘面主力参考价 TA 6338" / "盘面主力参考价6338" inline
+            _pat_table_main = r'\|\s*盘面主力参考价\s*\|\s*(?:[A-Z0-9]+\s+)?\d+(?:\.\d+)?\s*\|'
+            _pat_table_asst = r'\|\s*盘面助理参考价\s*\|\s*(?:[A-Z0-9]+\s+)?\d+(?:\.\d+)?\s*\|'
+            _pat_inline_main = r'盘面主力参考价\s+(?:[A-Z0-9]+\s+)?\d+(?:\.\d+)?'
+            _pat_inline_main2 = r'盘面主力参考价\d+(?:\.\d+)?'  # 紧贴数字的"盘面主力参考价6338"
+            _pat_inline_asst = r'盘面助理参考价\s+(?:[A-Z0-9]+\s+)?\d+(?:\.\d+)?'
+            _pat_inline_asst2 = r'盘面助理参考价\d+(?:\.\d+)?'
+            # 表格行整段替换（先做，保护 | 边界）
+            text = _re.sub(_pat_table_main,
+                f'| 盘面主力参考价 | {new_symbol} {live_text} |', text, flags=_re.ASCII)
+            text = _re.sub(_pat_table_asst,
+                f'| 盘面助理参考价 | {new_symbol} {live_text} |', text, flags=_re.ASCII)
+            # 文本 inline 替换
+            text = _re.sub(_pat_inline_main,
+                f'盘面主力参考价 {new_symbol} {live_text}', text, flags=_re.ASCII)
+            text = _re.sub(_pat_inline_main2,
+                f'盘面主力参考价 {new_symbol} {live_text}', text, flags=_re.ASCII)
+            text = _re.sub(_pat_inline_asst,
+                f'盘面助理参考价 {new_symbol} {live_text}', text, flags=_re.ASCII)
+            text = _re.sub(_pat_inline_asst2,
+                f'盘面助理参考价 {new_symbol} {live_text}', text, flags=_re.ASCII)
+            return text
+        for k in ('narrative', 'trader_report',
+                  'market_snapshot_interpretation',
+                  'gex_interpretation', 'oi_interpretation',
+                  'iv_interpretation', 'macro_interpretation',
+                  'strategy_logic', 'summary', 'conclusion'):
+            v = _rep(node.get(k))
+            if v is not None:
+                node[k] = v
+        # 节点级：递归扫所有字符串字段（防止 narrative/strategy_logic 嵌套 JSON 字符串）
+        for k, v in list(node.items()):
+            if isinstance(v, str) and ('盘面主力参考价' in v or '期权链标的参考价' in v):
+                nv = _rep(v)
+                if nv is not None:
+                    node[k] = nv
+
+    # intraday_analysis 和 market_brief 是两个独立的快照节点，futures_panel 字符串也可能分别缓存着不同的旧价；
+    # 之前的实现只覆盖了 intraday_analysis，导致前端 market_brief 路径（部分页面/导出/某些主题）仍显示 8 分钟前写死的旧价。
+    # 关键：期权链标的参考价/GEX/Pain 的价不允许被 K线价污染，_override_node 内部已守住这条边界。
+    if isinstance(report.get('intraday_analysis'), dict):
+        _override_node(report['intraday_analysis'])
+    if isinstance(report.get('market_brief'), dict):
+        _override_node(report['market_brief'])
+    for snap in report.get('intraday_snapshots') or []:
+        if isinstance(snap, dict):
+            for sub in ('intraday_analysis', 'market_brief'):
+                if isinstance(snap.get(sub), dict):
+                    _override_node(snap[sub])
+    return report
+
+
 def _trigger_strategy_report_background_refresh():
     """后台刷新15分钟研报；/realtime接口只负责快速返回缓存，不阻塞页面。"""
     global _strategy_report_refreshing
@@ -673,16 +847,21 @@ def api_strategy_report_realtime():
         cached, mtime = _load_strategy_report_cache()
         if cached and _strategy_report_is_fresh(mtime):
             close_path = _maybe_write_close_report(cached)
+            # 新鲜缓存也要用 K线实时价覆盖盘面主力参考价，避免缓存里固化的旧价与首页K线图不一致。
+            cached = _override_report_with_kline_price(cached)
             return jsonify({'success': True, 'data': cached, 'cached': True, 'cache_time': mtime.strftime('%Y-%m-%d %H:%M:%S'), 'cache_minutes': STRATEGY_REPORT_CACHE_MINUTES, 'close_report_ready': bool(close_path)})
 
         # 缓存过期时立即返回旧缓存，并触发后台刷新；页面请求不再等待外部宏观/基本面抓取。
         if cached:
             _trigger_strategy_report_background_refresh()
+            # 出口前用 K 线接口实时价覆盖字段/表格/正文；和前端 loadDailyReport() 一致。
+            cached = _override_report_with_kline_price(cached)
             return jsonify({'success': True, 'data': cached, 'cached': True, 'stale': True, 'cache_time': mtime.strftime('%Y-%m-%d %H:%M:%S'), 'cache_minutes': STRATEGY_REPORT_CACHE_MINUTES, 'refreshing': True})
 
         # 首次无缓存时才同步生成一次；若失败，返回结构化JSON错误而不是HTML 500。
         with _strategy_report_lock:
             report = _generate_strategy_report(force_close=False)
+            report = _override_report_with_kline_price(report)
             close_path = _maybe_write_close_report(report)
             return jsonify({'success': True, 'data': report, 'cached': False, 'cache_minutes': STRATEGY_REPORT_CACHE_MINUTES, 'close_report_ready': bool(close_path)})
     except Exception as e:
@@ -695,12 +874,14 @@ def api_strategy_report_refresh():
     try:
         with _strategy_report_lock:
             report = _generate_strategy_report(force_close=False)
+            report = _override_report_with_kline_price(report)
             close_path = _maybe_write_close_report(report)
         return jsonify({'success': True, 'data': report, 'cached': False, 'manual': True, 'cache_minutes': STRATEGY_REPORT_CACHE_MINUTES, 'close_report_ready': bool(close_path)})
     except Exception as e:
         app.logger.error('[策略研报API] 手动刷新失败: %s', e)
         cached, mtime = _load_strategy_report_cache()
         if cached:
+            cached = _override_report_with_kline_price(cached)
             return jsonify({'success': True, 'data': cached, 'cached': True, 'stale': True, 'manual': True, 'error': str(e)})
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -720,10 +901,12 @@ def api_strategy_report_daily():
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             if not _close_report_needs_rebuild(data):
+                data = _override_report_with_kline_price(data)
                 return jsonify({'success': True, 'data': data, 'cached': True, 'ready': True, 'previous_day_comparison': data.get('previous_day_comparison')})
         from scripts.generate_daily_report import generate_close_report, load_intraday_snapshots, load_previous_trading_day_close_report
         # load_intraday_snapshots / load_previous_trading_day_close_report 在 generate_close_report 内用于全天聚合与前日动态对比。
         report = generate_close_report(base_report=cached)
+        report = _override_report_with_kline_price(report)
         os.makedirs(STRATEGY_CLOSE_REPORT_DIR, exist_ok=True)
         with open(path, 'w', encoding='utf-8') as f:
             json.dump(report, f, ensure_ascii=False, indent=2)
@@ -753,9 +936,28 @@ def format_strategy_report_markdown(report):
         lines.append(f"- 动态对比完整度：{cmp.get('comparison_quality') or '-'}")
         lines.append(f"- 日内快照覆盖：{cmp.get('intraday_coverage_status') or '-'}")
         lines.append(f"- 前日总报：{'已接入' if cmp.get('previous_day_available') else '暂缺'}")
+        if cmp.get('summary'):
+            lines.append(f"- 收盘复盘摘要：{cmp.get('summary')}")
         if cmp.get('data_limitation_note'):
             lines.append(f"- 说明：{cmp.get('data_limitation_note')}")
     lines.append('')
+
+    if cmp.get('intraday_review') or cmp.get('previous_day_dynamic'):
+        lines.append('## 收盘复盘：日内走势与前日动态对比')
+        lines.append('')
+        review = cmp.get('intraday_review') or {}
+        prev_dyn = cmp.get('previous_day_dynamic') or {}
+        if review.get('summary'):
+            lines.append(f"- 日内走势：{review.get('summary')}")
+        if prev_dyn.get('summary'):
+            lines.append(f"- 前日对比：{prev_dyn.get('summary')}")
+        if review.get('points'):
+            lines.append('')
+            lines.append('| 时点 | 盘面主力参考价 | 结构判断 | 摘要 |')
+            lines.append('| --- | --- | --- | --- |')
+            for p in review.get('points') or []:
+                lines.append(f"| {p.get('slot') or '-'} | {_fmt_num(p.get('price'))} | {p.get('bias') or '-'} | {p.get('summary') or '-'} |")
+        lines.append('')
 
     def add_table(title, headers, rows):
         rows = rows or []
@@ -910,6 +1112,8 @@ def api_strategy_report_export():
             report, _ = _load_strategy_report_cache()
             if not report:
                 report = _generate_strategy_report(force_close=False)
+        # 导出前用首页K线实时价刷新"盘面主力参考价"字段/表格/正文三层
+        report = _override_report_with_kline_price(report)
         fmt = (request.args.get('format') or 'docx').lower()
         stamp = dt_datetime.now().strftime('%Y%m%d_%H%M')
         if fmt == 'md':
@@ -1210,7 +1414,7 @@ def _fetch_kline_data(symbol='TA609', period='5min', count=500,
         '1day': 86400, '1week': 604800, '1month': 2592000
     }
     tqsdk_symbol_map = {
-        'TA0': 'CZCE.TA609', 'TA909': 'CZCE.TA609', 'TA609': 'CZCE.TA609',
+        'TA0': 'KQ.m@CZCE.TA', 'TA909': 'CZCE.TA609', 'TA609': 'CZCE.TA609',
         'TA607': 'CZCE.TA607', 'TA610': 'CZCE.TA610',
     }
     tqsdk_symbol = tqsdk_symbol_map.get(symbol, 'CZCE.TA609')
@@ -1360,10 +1564,12 @@ def _get_yesterday_close_akshare(symbol='TA0'):
 # 休盘时数据不变，取一次缓存即可；盘中适当刷新
 import time as _time_mod
 _kline_tqsdk_cache = {}       # key: f"{symbol}_{period}" -> {'data': ..., 'ts': time.time(), 'yesterday_close': ...}
-_KLINE_CACHE_TTL = 300        # 缓存5分钟（休盘时数据不变，盘中5分钟也足够）
+_KLINE_CACHE_TTL = 2          # 主页K线必须准实时；短缓存只用于避免频繁创建TqApi连接
+_KLINE_TQSDK_RETRY_COOLDOWN = 60  # TqSdk临时失败后1分钟再试，不再永久降级到akshare
 _kline_tqsdk_lock = threading.Lock()
-_kline_tqsdk_failed = True    # 默认禁用TqSdk，全部走akshare，避免与iv_smile长连接竞争
-                              # 盘中如需启用可通过 /api/kline/enable_tqsdk 打开
+_kline_tqsdk_failed = False   # 默认启用TqSdk；akshare仅作为明确fallback
+_kline_tqsdk_failed_at = 0
+_kline_tqsdk_warmed = False    # 启动时预热标志：避免首页冷启动耗时 18s+ 才拿到第一根K线
 
 @app.route('/api/kline/data')
 def api_kline_data():
@@ -1373,7 +1579,7 @@ def api_kline_data():
     - 涨跌（change/change_pct）: 较昨日收盘价
     - volume_change / open_interest_change: 较前一根K线
     """
-    global _kline_tqsdk_failed
+    global _kline_tqsdk_failed, _kline_tqsdk_failed_at
     import re
     
     period = request.args.get('period', '1min')
@@ -1381,7 +1587,7 @@ def api_kline_data():
     
     # 前端合约名 -> TqSdk合约名映射
     tqsdk_symbol_map = {
-        'TA0': 'CZCE.TA609',   # PTA主力（当前9月）
+        'TA0': 'KQ.m@CZCE.TA',   # PTA主力连续（天勤自动跟随真实主力）
         'TA909': 'CZCE.TA609', # PTA9月
         'TA609': 'CZCE.TA609', # PTA9月
         'TA0C': 'CZCE.TA609',  # 认购期权（占位）
@@ -1404,9 +1610,13 @@ def api_kline_data():
     else:
         return jsonify({'error': f'unsupported period: {period}', 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0})
     
+    # 如果TqSdk刚失败过，只在冷却期内暂时跳过；到期后自动重试，避免永久卡在akshare延迟源
+    if _kline_tqsdk_failed and (_time_mod.time() - _kline_tqsdk_failed_at) >= _KLINE_TQSDK_RETRY_COOLDOWN:
+        _kline_tqsdk_failed = False
+
     # ==================== TqSdk 分支（带缓存，避免频繁创建连接） ====================
     cache_key = f"{tqsdk_symbol}_{period}_{count}"
-    
+
     # 检查缓存是否有效
     if not _kline_tqsdk_failed:
         with _kline_tqsdk_lock:
@@ -1418,10 +1628,14 @@ def api_kline_data():
     # 缓存未命中或已过期，尝试TqSdk（但如果之前失败过就跳过）
     if not _kline_tqsdk_failed:
         try:
-            # TqKq() 是免费行情连接，不需要账号密码
-            api = TqApi(TqKq(), auth=TqAuth('test', 'test'))
+            # 使用真实TqSdk认证 + 主力连续合约；TqKq测试环境在部分进程中会与长连接竞争
+            # 这里优先取天勤实时/准实时行情，失败才临时fallback到akshare。
+            # 注意：盘后调用 wait_update 会一直等到夜盘开盘才返回新 tick（hang 几分钟到几小时），
+            # 因此 wait_update 的 deadline 必须很短；K线最后一根 close 本身已是最新可用价。
+            api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS), debug=False)
             klines = api.get_kline_serial(tqsdk_symbol, period_sec, data_length=count)
-            
+            api.wait_update(deadline=_time_mod.time() + 1)  # 1秒即可：只接收已经到了的tick；盘后夜盘未开时直接返回缓存kline
+
             # 获取昨日收盘价（用于计算涨跌）——从同一个api实例获取，不再创建新连接
             yesterday_close = None
             try:
@@ -1469,8 +1683,9 @@ def api_kline_data():
             
             return jsonify(result)
         except Exception as e:
-            app.logger.error(f'[K线API] TqSdk获取失败，降级到akshare symbol={symbol} period={period} error={type(e).__name__}:{e}')
-            _kline_tqsdk_failed = True   # 标记失败，后续直接走akshare不再尝试TqSdk
+            app.logger.error(f'[K线API] TqSdk获取失败，临时降级到akshare symbol={symbol} period={period} error={type(e).__name__}:{e}')
+            _kline_tqsdk_failed = True
+            _kline_tqsdk_failed_at = _time_mod.time()
 
     # ==================== Akshare Fallback 分支 ====================
     try:
@@ -1479,19 +1694,19 @@ def api_kline_data():
         df.columns = [c.strip() for c in df.columns]
         df['datetime'] = pd.to_datetime(df['datetime'])
         df = df.sort_values('datetime').tail(500).reset_index(drop=True)
-        
+
         # 获取昨日收盘价
         yesterday_close = _get_yesterday_close_akshare('TA0')
-        
+
         data = []
         for _, row in df.iterrows():
             close = float(row['close']) if math.isfinite(row['close']) else None
             if close is None or close == 0:
                 continue
             data.append(_build_kline_bar(row, close, use_tqsdk=False))
-        
+
         data.sort(key=lambda x: x['time'])
-        
+
         # 计算涨跌
         last = data[-1] if data else {}
         current_price = _safe_val(last.get('close', 0), 0)
@@ -1500,7 +1715,7 @@ def api_kline_data():
             change_pct = round((change / yesterday_close) * 100, 2)
         else:
             change, change_pct = 0, 0
-        
+
         # 添加增减值
         _add_kline_changes(data)
 
@@ -1515,6 +1730,96 @@ def api_kline_data():
     except Exception as e2:
         app.logger.error(f'[K线API] TqSdk和akshare均失败 symbol={symbol} period={period} error={e2}')
         return jsonify({'error': f'获取失败: {str(e2)}', 'symbol': 'TA', 'period': period, 'data': [], 'current_price': 0, 'change': 0, 'change_pct': 0, 'fallback_warning': '❌ K线数据获取完全失败，实时和延迟数据源均不可用'})
+
+
+def _kline_warmup():
+    """启动时预热K线缓存：避免首页冷启动耗时18s+才拿到第一根K线。
+    主流周期TA0 1min/5min/15min/30min/60min/1day各预热一次。"""
+    global _kline_tqsdk_warmed
+    targets = [
+        ('KQ.m@CZCE.TA', 60, 1000),       # 1min
+        ('KQ.m@CZCE.TA', 300, 1000),      # 5min
+        ('KQ.m@CZCE.TA', 900, 1000),      # 15min
+        ('KQ.m@CZCE.TA', 1800, 1000),     # 30min
+        ('KQ.m@CZCE.TA', 3600, 1000),     # 60min
+        ('KQ.m@CZCE.TA', 86400, 500),     # 1day
+    ]
+    for sym, period_sec, count in targets:
+        if _kline_tqsdk_failed:
+            break
+        try:
+            cache_key = f"{sym}_{period_sec}_{count}"
+            with _kline_tqsdk_lock:
+                if _kline_tqsdk_cache.get(cache_key):
+                    continue
+            api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS), debug=False)
+            try:
+                klines = api.get_kline_serial(sym, period_sec, data_length=count)
+                api.wait_update(deadline=_time_mod.time() + 5)
+                yesterday_close = None
+                try:
+                    daily = api.get_kline_serial(sym, 86400, data_length=10)
+                    if len(daily) >= 2:
+                        prev_close = float(daily.iloc[-2]['close'])
+                        if math.isfinite(prev_close) and prev_close > 0:
+                            yesterday_close = prev_close
+                except Exception:
+                    pass
+                data = []
+                for _, row in klines.iterrows():
+                    close = float(row['close']) if math.isfinite(row['close']) else None
+                    if close is None or close == 0:
+                        continue
+                    data.append(_build_kline_bar(row, close, use_tqsdk=True))
+                data.sort(key=lambda x: x['time'])
+                last = data[-1] if data else {}
+                current_price = _safe_val(last.get('close', 0), 0)
+                if yesterday_close and yesterday_close > 0:
+                    change = round(current_price - yesterday_close, 2)
+                    change_pct = round((change / yesterday_close) * 100, 2)
+                else:
+                    change, change_pct = 0, 0
+                _add_kline_changes(data)
+                result = {
+                    'symbol': 'TA', 'period': _kline_period_label(period_sec),
+                    'data': data, 'current_price': round(current_price, 2),
+                    'change': change, 'change_pct': change_pct,
+                    'yesterday_close': yesterday_close, 'source': 'tqsdk',
+                }
+                with _kline_tqsdk_lock:
+                    _kline_tqsdk_cache[cache_key] = {'result': result, 'ts': _time_mod.time()}
+                app.logger.info(f'[K线预热] 完成 {sym} {period_sec}s count={count} last={current_price}')
+            finally:
+                try:
+                    api.close()
+                except Exception:
+                    pass
+        except Exception as e:
+            app.logger.warning(f'[K线预热] 失败 {sym} {period_sec}s: {type(e).__name__}:{e}')
+            _kline_tqsdk_failed = True
+            _kline_tqsdk_failed_at = _time_mod.time()
+            break
+    _kline_tqsdk_warmed = True
+    app.logger.info('[K线预热] 全部完成')
+
+
+def _kline_period_label(period_sec: int) -> str:
+    if period_sec < 60: return f'{period_sec}s'
+    if period_sec < 3600: return f'{period_sec // 60}min'
+    if period_sec < 86400: return f'{period_sec // 3600}h'
+    if period_sec < 604800: return f'{period_sec // 86400}day'
+    return f'{period_sec // 604800}week'
+
+
+# 启动后延迟2秒预热，避免和server boot日志抢资源
+def _kline_warmup_scheduler():
+    import time as _t
+    _t.sleep(2)
+    try:
+        _kline_warmup()
+    except Exception as e:
+        app.logger.warning(f'[K线预热] 线程异常: {e}')
+threading.Thread(target=_kline_warmup_scheduler, daemon=True, name='kline-warmup').start()
 
 
 

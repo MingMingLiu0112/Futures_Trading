@@ -1584,6 +1584,12 @@ def fit_svi(K_list, IV_list, F, T):
         'curvature': jw['curvature'],
         'min_var': jw['min_var'],
         'rmse': float(rmse),
+        'metric_note': {
+            'skew': 'ATM skew = dσ/dk|0，表示ATM附近隐波对数价差的一阶斜率；不是rho本身，也不是翼部斜率。',
+            'curvature': 'curvature = ATM附近二阶凸性近似值，数值越大表示微笑越弯。',
+            'rho': 'rho 是 SVI 原始参数中的偏斜控制项，通常为负表示左偏，但与展示层 skew 不是同一数值。',
+            'rmse': 'rmse 表示拟合误差，越小越好。',
+        },
         'success': True,
     }
 
@@ -2441,6 +2447,31 @@ def register_routes(app):
 
         # SVI 参数（从全局状态获取，即使冷启动也有快照中恢复的值）
         svi = _state.get('svi_params', {})
+        skew_audit = None
+        if isinstance(svi, dict) and svi.get('a') is not None:
+            skew_val = svi.get('skew')
+            rho_val = svi.get('rho')
+            curv_val = svi.get('curvature')
+            skew_abs = abs(float(skew_val)) if skew_val is not None else None
+            if skew_abs is None:
+                skew_label = '未知'
+            elif skew_abs < 0.25:
+                skew_label = '轻微偏斜'
+            elif skew_abs < 0.75:
+                skew_label = '中等偏斜'
+            else:
+                skew_label = '显著偏斜'
+            skew_audit = {
+                'status': 'ok',
+                'formula': 'skew = dσ/dk|ATM = dw/dk / (2*sqrt(w*T)), k=ln(K/F)',
+                'meaning': '展示的 skew 是ATM附近隐含波动率曲线一阶斜率，不是SVI原始参数rho；rho只控制左右偏斜方向。',
+                'current_skew': skew_val,
+                'current_rho': rho_val,
+                'current_curvature': curv_val,
+                'label': skew_label,
+                'interpretation': f"当前skew={skew_val:.3f}，rho={rho_val:.3f}，口径判断为{skew_label}；负值表示左侧/低行权价方向隐波相对更高。" if skew_val is not None and rho_val is not None else None,
+                'recommendation': '保留当前公式；前端/研报展示时标注为“ATM偏度(dσ/dlnK)”以避免与rho或翼部偏斜混淆。',
+            }
 
         # 实时计算 max_pain（与 GEX API 一致，避免用 _state 中过时的缓存值）
         realtime_max_pain = _state.get('max_pain')
@@ -2453,6 +2484,54 @@ def register_routes(app):
         except Exception:
             pass
 
+        # 基于期权链同源标的价 + 当前ATM IV计算到期价格波动置信区间。
+        # 注意：这里必须使用 _state['futures_price']（期权链/GEX/IV口径），不能使用首页TA609盘面主力K线价。
+        curve_T = (_calc_T_trading_days(_state['expiry'])
+                   if _state.get('expiry') else _state.get('T'))
+        confidence_band = None
+        try:
+            band_underlying = float(_state.get('futures_price') or 0)
+            atm_iv = None
+            if isinstance(svi, dict) and svi.get('atm_vol') is not None:
+                atm_iv = float(svi.get('atm_vol'))
+            if (not atm_iv or atm_iv <= 0) and _state.get('atm_strike') is not None:
+                atm_key = _state.get('atm_strike')
+                smooth = _state.get('smile_smooth') or {}
+                for k in (atm_key, str(atm_key), int(atm_key) if isinstance(atm_key, float) else atm_key):
+                    if k in smooth and smooth.get(k) is not None:
+                        atm_iv = float(smooth.get(k))
+                        break
+            T_val = float(curve_T or 0)
+            if band_underlying > 0 and atm_iv and atm_iv > 0 and T_val > 0:
+                sigma_move_pct = atm_iv * (T_val ** 0.5)
+                sigma_move = band_underlying * sigma_move_pct
+                def _band(z, level):
+                    move = sigma_move * z
+                    return {
+                        'level': level,
+                        'z': z,
+                        'lower': round(band_underlying - move, 1),
+                        'upper': round(band_underlying + move, 1),
+                        'move': round(move, 1),
+                        'move_pct': round(sigma_move_pct * z * 100, 2),
+                    }
+                confidence_band = {
+                    'status': 'ok',
+                    'underlying_price': band_underlying,
+                    'atm_iv': atm_iv,
+                    'T': T_val,
+                    'expiry': _state['expiry'].isoformat() if _state.get('expiry') else None,
+                    'horizon': 'to_expiry',
+                    'formula': 'S ± z * S * ATM_IV * sqrt(T)',
+                    'source': 'iv_smile_curve.option_underlying_price + svi_params.atm_vol',
+                    'bands': {
+                        '68': _band(1.0, '约68%/1σ'),
+                        '95': _band(1.96, '约95%/1.96σ'),
+                    },
+                }
+        except Exception as e:
+            confidence_band = {'status': 'error', 'error': str(e)}
+
         return jsonify({
             'futures_price': _state['futures_price'],
             'underlying_price': _state['futures_price'],   # 标的价格（前端指标栏用）
@@ -2462,9 +2541,10 @@ def register_routes(app):
             'prev_atm_strike': prev_atm_strike,
             'last_update': _state['last_update'],
             'expiry': _state['expiry'].isoformat() if _state.get('expiry') else None,
-            'T': (_calc_T_trading_days(_state['expiry'])
-                  if _state.get('expiry') else _state.get('T')),  # 交易日T
+            'T': curve_T,  # 交易日T
             'svi_params': svi,
+            'skew_audit': skew_audit,
+            'confidence_band': confidence_band,
             'curve': curve_data,
             'prev_timestamp': prev_ts_display,      # 格式: "09:30" 或 "昨收盘"
             'prev_interval_key': prev_key,          # 格式: "09:30"
@@ -3270,7 +3350,11 @@ def register_routes(app):
                     break
             # days_left 用日历天（自然日），更直观
             if expiry:
-                days_left = round((expiry - datetime.now()).total_seconds() / 86400, 1)
+                if hasattr(expiry, 'hour'):
+                    expiry_dt = expiry if expiry.hour or expiry.minute or expiry.second or expiry.microsecond else expiry.replace(hour=15, minute=0)
+                else:
+                    expiry_dt = datetime.combine(expiry, datetime.min.time()).replace(hour=15, minute=0)
+                days_left = round((expiry_dt - datetime.now()).total_seconds() / 86400, 1)
                 if days_left < 0:
                     days_left = 0
             else:

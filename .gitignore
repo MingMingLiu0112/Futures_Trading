@@ -66,3 +66,4 @@ futures_options/.git/
 vnpy_tqsdk_gateway/.git/
 dukascopy_k_line_chart_frontend/.git/
 pta_analysis/data/iv_snapshots/tmp*.tmp
+pta_analysis/data/iv_snapshots/*.bak_vol_*

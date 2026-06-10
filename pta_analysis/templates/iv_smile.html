@@ -44,7 +44,7 @@
   /* ===== 指标栏（1行5列）===== */
   .metric-grid {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(6, 1fr);
     gap: 8px;
     margin-bottom: 10px;
   }
@@ -338,7 +338,7 @@
   </div>
 </div>
 
-<!-- ===== 指标栏（1行5列）===== -->
+<!-- ===== 指标栏（1行6列）===== -->
 <div class="metric-grid">
   <div class="metric-box">
     <div class="metric-name">ATM 隐波</div>
@@ -364,6 +364,11 @@
     <div class="metric-name">拟合残差</div>
     <div class="metric-value" id="mFitErr" style="color:#888;">--</div>
     <div class="metric-sub">RMSE</div>
+  </div>
+  <div class="metric-box">
+    <div class="metric-name">价格置信区间</div>
+    <div class="metric-value" id="mConfBand" style="color:#00d4ff;font-size:13px;">--</div>
+    <div class="metric-sub" id="mConfBandSub">基于ATM IV</div>
   </div>
 </div>
 
@@ -906,6 +911,27 @@ function updateMetrics(data) {
       fitEl.textContent = rmse.toFixed(2) + '%';
       fitEl.style.color = rmse < 1 ? '#00ff88' : rmse < 3 ? '#ffaa00' : '#ff4444';
     }
+  }
+
+  // ⑥ 到期价格波动置信区间：使用后端期权链标的价 + ATM IV，同GEX/IV口径，不使用盘面TA609价。
+  const cb = data.confidence_band;
+  const cbEl = document.getElementById('mConfBand');
+  const cbSub = document.getElementById('mConfBandSub');
+  if (cb && cb.status === 'ok' && cb.bands && cb.bands['68']) {
+    const b68 = cb.bands['68'];
+    const b95 = cb.bands['95'];
+    cbEl.textContent = `${Number(b68.lower).toFixed(0)}-${Number(b68.upper).toFixed(0)}`;
+    cbEl.style.color = '#00d4ff';
+    const atmPct = cb.atm_iv != null ? (Number(cb.atm_iv) * 100).toFixed(1) + '%' : '--';
+    const moveText = b68.move != null ? `±${Number(b68.move).toFixed(0)}` : '';
+    const tail = b95 ? ` /95% ${Number(b95.lower).toFixed(0)}-${Number(b95.upper).toFixed(0)}` : '';
+    cbSub.textContent = `68% ${moveText} · ATM ${atmPct}${tail}`;
+    cbSub.title = `${cb.formula || ''}；源=${cb.source || 'curve'}`;
+  } else {
+    cbEl.textContent = '--';
+    cbEl.style.color = '#555';
+    cbSub.textContent = '基于ATM IV';
+    cbSub.title = '';
   }
 }
 
