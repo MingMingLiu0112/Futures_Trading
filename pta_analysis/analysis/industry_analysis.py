@@ -82,7 +82,8 @@ def get_pta_industry_data():
             "has": {
                 "原油布伦特/美油": "futures_global_spot_em（新浪财经，布伦特主力 USD/桶）",
                 "PX现货": "futures_spot_price 郑商所每日现货参考价",
-                "PTA及下游现货": "futures_spot_price 郑商所每日现货参考价",
+                "PTA现货": "生意社PTA每日基准价（同花顺goodsfu汇聚页）",
+                "PTA合约/辅助基差": "futures_spot_price / futures_spot_price_daily 郑商所每日现货参考价",
                 "PTA库存": "futures_inventory_em 隆众资讯 PTA社会库存",
                 "MEG/SM库存": "futures_inventory_em 隆众资讯 MEG乙二醇/SM苯乙烯库存",
                 "PTA期货": "get_czce_daily 郑商所日行情（结算价/成交量/持仓量）",
@@ -676,13 +677,43 @@ def _calc_naphtha_pxn(upstream_data):
 
 def _load_pta_spot_and_future(pta_data):
     """
-    PTA现货 + 期货：futures_spot_price(date) + get_czce_daily(date)
-    现货参考价来自郑商所每日现货表，期货来自CZCE日行情
+    PTA现货 + 期货：现货优先生意社PTA每日基准价；期货来自CZCE日行情。
+    郑商所/akshare现货表仅作合约、辅助基差字段fallback，避免到期/换月时盘面快照现货价滞后。
     """
     try:
         date_str, date_disp = _get_latest_trading_date()
 
-        # 方法A：用郑商所每日现货表（快且全）
+        # 方法A：先抓生意社PTA每日基准价（与页面产业链同源：同花顺goodsfu汇聚）
+        shengyishe_spot = None
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': 'http://stock.10jqka.com.cn/',
+            }
+            rr = requests.get('http://stock.10jqka.com.cn/getListPage.php?listid=cl_008002014&page=1', headers=headers, timeout=10)
+            if rr.status_code == 200:
+                import re as _re
+                mm = _re.search(r'(\d{8})/c(\d{9})\.shtml"[^>]*>(?:\d{1,2}月\d{1,2}日)?生意社PTA基准价为([\d.]+)元/吨', _re.sub(r'\s+', ' ', rr.text))
+                if mm:
+                    shengyishe_spot = {
+                        "price": float(mm.group(3)),
+                        "date": mm.group(1),
+                        "source": "生意社PTA基准价（同花顺goodsfu汇聚）",
+                        "article_url": f"http://goodsfu.10jqka.com.cn/{mm.group(1)}/c{mm.group(2)}.shtml"
+                    }
+                else:
+                    mm2 = _re.search(r'生意社PTA基准价为([\d.]+)元/吨', rr.text)
+                    if mm2:
+                        shengyishe_spot = {
+                            "price": float(mm2.group(1)),
+                            "date": date_str,
+                            "source": "生意社PTA基准价（同花顺goodsfu汇聚）",
+                            "article_url": 'http://stock.10jqka.com.cn/getListPage.php?listid=cl_008002014&page=1'
+                        }
+        except Exception as e:
+            print(f"生意社PTA基准价加载错误: {e}")
+
+        # 方法B：用郑商所每日现货表补充近月/主力合约与辅助基差
         df_spot = ak.futures_spot_price(date=date_str, vars_list=["TA"])
         if df_spot is None or df_spot.empty:
             for delta in range(1, 5):
@@ -692,7 +723,14 @@ def _load_pta_spot_and_future(pta_data):
                     date_disp = prev.strftime("%Y-%m-%d")
                     break
 
-        if df_spot is not None and not df_spot.empty:
+        if shengyishe_spot:
+            pta_data["spot"] = {
+                "price": float(shengyishe_spot["price"]),
+                "date": str(shengyishe_spot.get("date", date_str)),
+                "source": str(shengyishe_spot.get("source", "生意社PTA基准价")),
+                "article_url": shengyishe_spot.get("article_url"),
+            }
+        elif df_spot is not None and not df_spot.empty:
             r = df_spot[df_spot['symbol'] == 'TA'].iloc[0]
             pta_data["spot"] = {
                 "price": float(r['spot_price']),                   # PTA现货参考价（郑商所发布）

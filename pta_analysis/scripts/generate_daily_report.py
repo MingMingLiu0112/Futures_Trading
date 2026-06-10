@@ -33,12 +33,25 @@ USD_CNY = 7.2
 
 
 def _is_pta_trading_session(now: Optional[datetime] = None) -> bool:
-    """PTA交易时段：9:00-11:30, 13:30-15:00, 21:00-23:00；仅交易时段产生日内快照。"""
+    """PTA交易时段：9:00-11:30, 13:30-15:00, 21:00-23:00；整15分钟快照允许收盘边界入档。"""
     now = now or datetime.now()
     if now.weekday() >= 5:
         return False
     minutes = now.hour * 60 + now.minute
-    return (9*60 <= minutes < 11*60 + 30) or (13*60 + 30 <= minutes < 15*60) or (21*60 <= minutes < 23*60)
+    return _pta_session_minute_allowed(minutes)
+
+
+def _pta_session_minute_allowed(minutes: int) -> bool:
+    """快照槽位判定：包含 09:00、11:30、13:30、15:00、21:00、23:00 边界。
+
+    生成任务通常按15分钟触发；若用半开区间 `<11:30`/`<15:00`，会漏掉 11:30 和 15:00
+    这种关键整点/半点收盘快照，导致全天复盘缺少 XX:00/XX:30 节点。
+    """
+    return (
+        9*60 <= minutes <= 11*60 + 30
+        or 13*60 + 30 <= minutes <= 15*60
+        or 21*60 <= minutes <= 23*60
+    )
 
 
 def _slot_is_pta_trading_session(slot: str) -> bool:
@@ -47,7 +60,7 @@ def _slot_is_pta_trading_session(slot: str) -> bool:
         minutes = int(text[:2]) * 60 + int(text[2:4])
     except Exception:
         return False
-    return (9*60 <= minutes < 11*60 + 30) or (13*60 + 30 <= minutes < 15*60) or (21*60 <= minutes < 23*60)
+    return _pta_session_minute_allowed(minutes)
 
 
 def _clean_news_text(text: str, max_len: int = 240) -> str:
@@ -201,6 +214,155 @@ def get_spot_daily(symbols: List[str], days: int = 5) -> Dict[str, Dict]:
     return result
 
 
+def _parse_px_asia_price_from_text(text: str) -> Optional[float]:
+    """从宏观/生意社快讯文本中提取亚洲PX CFR中国美元价。"""
+    if not text:
+        return None
+    s = str(text).replace(',', '')
+    patterns = [
+        r'亚洲\s*PX[^\d]{0,20}(\d{3,4}(?:\.\d+)?)\s*美元\s*/?吨\s*CFR\s*中国',
+        r'PX[^\d]{0,20}(\d{3,4}(?:\.\d+)?)\s*美元\s*/?吨\s*CFR\s*中国',
+        r'CFR\s*中国[^\d]{0,20}PX[^\d]{0,20}(\d{3,4}(?:\.\d+)?)\s*美元',
+        r'PX[^\d]{0,20}收(?:于|盘|报)?\s*(\d{3,4}(?:\.\d+)?)\s*美元',
+    ]
+    for pat in patterns:
+        m = re.search(pat, s, re.I)
+        if m:
+            try:
+                val = float(m.group(1))
+                if 500 <= val <= 2000:
+                    return val
+            except Exception:
+                pass
+    return None
+
+
+def get_pta_shengyishe_benchmark() -> Dict:
+    """获取生意社PTA每日基准价（同花顺goodsfu汇聚页）。
+
+    用于研报/盘面快照的PTA现货锚。郑商所futures_spot_price_daily在到期/换月附近可能滞后，
+    因此只作为合约/基差字段fallback；现货价优先采用生意社当日基准价。
+    """
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'http://stock.10jqka.com.cn/',
+        }
+        url = 'http://stock.10jqka.com.cn/getListPage.php?listid=cl_008002014&page=1'
+        r = requests.get(url, headers=headers, timeout=10)
+        if r.status_code != 200:
+            return {}
+        text = re.sub(r'\s+', ' ', r.text)
+        m = re.search(r'(\d{8})/c(\d{9})\.shtml"[^>]*>(?:\d{1,2}月\d{1,2}日)?生意社PTA基准价为([\d.]+)元/吨', text)
+        if not m:
+            m2 = re.search(r'生意社PTA基准价为([\d.]+)元/吨', text)
+            if not m2:
+                return {}
+            return {
+                'spot_price': float(m2.group(1)),
+                'date': datetime.now().strftime('%Y%m%d'),
+                'source': '生意社PTA基准价（同花顺goodsfu汇聚）',
+                'article_url': url,
+            }
+        date_str, cid, price = m.group(1), m.group(2), float(m.group(3))
+        return {
+            'spot_price': price,
+            'date': date_str,
+            'source': '生意社PTA基准价（同花顺goodsfu汇聚）',
+            'article_url': f'http://goodsfu.10jqka.com.cn/{date_str}/c{cid}.shtml',
+        }
+    except Exception as e:
+        print(f"生意社PTA基准价获取失败: {e}")
+    return {}
+
+
+def get_usd_cny_rate() -> Dict:
+    """获取美元人民币汇率。优先央行中间价，若新浪接口过旧则用即期报价兜底。"""
+    data = {'rate': USD_CNY, 'source': '默认兜底', 'date': '', 'warning': '汇率接口不可用，使用默认USD_CNY'}
+    try:
+        df = ak.currency_boc_sina()
+        if df is not None and not df.empty and '央行中间价' in df.columns:
+            r = df.dropna(subset=['央行中间价']).iloc[-1]
+            rate = float(r['央行中间价']) / 100.0
+            date = str(r.get('日期', ''))
+            stale = False
+            try:
+                stale = (datetime.now() - pd.to_datetime(date).to_pydatetime()).days > 7
+            except Exception:
+                stale = True
+            if 5.0 <= rate <= 9.0 and not stale:
+                return {'rate': round(rate, 4), 'source': '央行中间价/中行新浪', 'date': date, 'warning': ''}
+            if 5.0 <= rate <= 9.0:
+                data = {'rate': round(rate, 4), 'source': '央行中间价/中行新浪', 'date': date, 'warning': '央行中间价接口日期偏旧'}
+    except Exception as e:
+        data['warning'] = f'央行中间价获取失败: {e}'
+
+    try:
+        df = ak.fx_spot_quote()
+        if df is not None and not df.empty:
+            row = df[df['货币对'].astype(str).str.upper().eq('USD/CNY')]
+            if not row.empty:
+                r = row.iloc[0]
+                vals = [float(r.get(c)) for c in ['买报价', '卖报价'] if pd.notna(r.get(c)) and float(r.get(c)) > 0]
+                if vals:
+                    rate = sum(vals) / len(vals)
+                    if 5.0 <= rate <= 9.0:
+                        return {'rate': round(rate, 4), 'source': 'USD/CNY即期报价 fallback', 'date': datetime.now().strftime('%Y-%m-%d'), 'warning': data.get('warning', '')}
+    except Exception as e:
+        data['warning'] = (data.get('warning') or '') + f'; 即期汇率获取失败: {e}'
+    return data
+
+
+def get_px_external_data(macro_news: Dict = None, manual_macro: Dict = None) -> Dict:
+    """获取/提取PX亚洲收盘价，并按用户公式计算外盘PTA动态成本。"""
+    macro_news = macro_news or {}
+    manual_macro = manual_macro or {}
+    candidates = []
+
+    def _collect_texts(label: str, obj):
+        if isinstance(obj, str):
+            candidates.append((label, obj))
+        elif isinstance(obj, list):
+            for item in obj:
+                _collect_texts(label, item)
+        elif isinstance(obj, dict):
+            for item in obj.values():
+                _collect_texts(label, item)
+
+    _collect_texts('人工宏观基本面', manual_macro)
+    _collect_texts('自动宏观快讯', macro_news)
+
+    px_price = None
+    px_source = ''
+    source_text = ''
+    for src, text in candidates:
+        val = _parse_px_asia_price_from_text(text)
+        if val:
+            px_price = val
+            px_source = src
+            source_text = _clean_news_text(text, 180)
+            break
+
+    rate_info = get_usd_cny_rate()
+    result = {
+        'px_asia_close_usd': px_price,
+        'currency': 'USD/吨',
+        'source': px_source or '待更新',
+        'source_text': source_text,
+        'usd_cny': rate_info.get('rate'),
+        'usd_cny_source': rate_info.get('source'),
+        'usd_cny_date': rate_info.get('date'),
+        'formula': 'PX亚洲收盘价 * 0.655 * 1.01 * 1.13 * USD/CNY',
+        'pta_external_cost': None,
+        'warning': rate_info.get('warning') or '',
+    }
+    if px_price and result.get('usd_cny'):
+        result['pta_external_cost'] = round(px_price * 0.655 * 1.01 * 1.13 * float(result['usd_cny']), 0)
+    else:
+        result['warning'] = (result.get('warning') or 'PX亚洲收盘价暂未提取，外盘成本待更新')
+    return result
+
+
 def get_px_data() -> Dict:
     """获取PX数据"""
     data = {}
@@ -248,31 +410,53 @@ def get_px_data() -> Dict:
 
 
 def get_pta_data() -> Dict:
-    """获取PTA数据"""
+    """获取PTA数据。
+
+    盘面快照里的PTA现货价优先采用生意社每日基准价；郑商所/akshare现货表只保留合约、
+    基差等辅助字段，并在生意社不可用时兜底，避免到期/换月时显示滞后的参考价。
+    """
     data = {}
     date_str, date_disp = get_latest_trading_date()
 
-    # 优先使用 futures_spot_price_daily（含近月基差）
+    # 先取郑商所/akshare表作为合约与基差辅助字段（不是主现货口径）
+    spot_aux = {}
     spot_data = get_spot_daily(['TA'], days=5)
     if 'TA' in spot_data:
-        data = spot_data['TA']
+        spot_aux = spot_data['TA']
     else:
-        # Fallback: 郑商所每日现货表
         try:
             df = ak.futures_spot_price(date=date_str, vars_list=["PTA"])
             if df is not None and not df.empty:
                 ta_rows = df[df['symbol'] == 'TA']
                 if not ta_rows.empty:
                     r = ta_rows.iloc[0]
-                    data['spot_price'] = float(r['spot_price'])
-                    data['near_contract'] = str(r['near_contract'])
-                    data['near_price'] = float(r['near_contract_price'])
-                    data['dominant_contract'] = str(r['dominant_contract'])
-                    data['dominant_price'] = float(r['dominant_contract_price'])
-                    data['dom_basis'] = float(r['dom_basis'])
-                    data['date'] = str(r['date'])
+                    spot_aux = {
+                        'spot_price': float(r['spot_price']),
+                        'near_contract': str(r['near_contract']),
+                        'near_price': float(r['near_contract_price']),
+                        'dominant_contract': str(r['dominant_contract']),
+                        'dominant_price': float(r['dominant_contract_price']),
+                        'dom_basis': float(r['dom_basis']),
+                        'date': str(r['date']),
+                        'source': '郑商所每日现货参考价格表',
+                    }
         except Exception as e:
-            print(f"PTA现货数据错误: {e}")
+            print(f"PTA现货辅助数据错误: {e}")
+
+    if spot_aux:
+        data.update(spot_aux)
+
+    shengyishe = get_pta_shengyishe_benchmark()
+    if shengyishe:
+        old_spot = float(data.get('spot_price') or 0)
+        data.update(shengyishe)
+        data['spot_price_shengyishe'] = shengyishe['spot_price']
+        data['spot_price_aux'] = old_spot or None
+        if old_spot:
+            data['aux_spot_diff'] = round(shengyishe['spot_price'] - old_spot, 2)
+        data['spot_source_note'] = 'PTA现货价=生意社每日基准价；郑商所现货表仅作合约/基差辅助'
+    elif not data:
+        data = {'spot_price': None, 'date': date_disp, 'source': 'PTA现货暂缺'}
 
     # PTA期货日行情（CZCE日行情，英文列名：symbol/settle/close/volume/open_interest/pre_settle/variety）
     try:
@@ -768,7 +952,7 @@ def generate_report(report_type: str = 'intraday') -> Dict:
     manual_macro = load_manual_macro_input()
     if manual_macro:
         report['manual_macro_input'] = manual_macro
-        # 用户盘前/休盘后手工输入优先，自动抓取只作补充。
+        # 用户盘前/休盘后手工输入优先，自动快讯只作补充。
         manual_news = manual_macro.get('news') or manual_macro.get('macro_news') or {}
         if isinstance(manual_news, dict):
             for k, vals in manual_news.items():
@@ -781,10 +965,17 @@ def generate_report(report_type: str = 'intraday') -> Dict:
             macro_news.setdefault('macro', [])
             macro_news['macro'] = [_clean_news_text(x) for x in manual_news if _clean_news_text(x)] + macro_news.get('macro', [])
 
+    # 外盘PX/汇率/外盘动态成本：用户指定公式
+    px_external = get_px_external_data(macro_news, manual_macro)
+
     # 计算成本利润
     cost_data = {}
     if px.get('spot_price') and px.get('spot_price') > 0:
         cost_data['pta_cost'] = round(px['spot_price'] * 0.655, 0)
+    if px_external.get('pta_external_cost'):
+        cost_data['pta_external_cost'] = px_external.get('pta_external_cost')
+        cost_data['px_asia_close_usd'] = px_external.get('px_asia_close_usd')
+        cost_data['usd_cny'] = px_external.get('usd_cny')
     if pta.get('spot_price') and cost_data.get('pta_cost'):
         cost_data['profit'] = round(pta['spot_price'] - cost_data['pta_cost'], 0)
         cost_data['profit_pct'] = round((cost_data['profit'] / cost_data['pta_cost']) * 100, 1) if cost_data['pta_cost'] else 0
@@ -800,6 +991,7 @@ def generate_report(report_type: str = 'intraday') -> Dict:
     report['macro_news'] = macro_news
     report['crude'] = crude
     report['px'] = px
+    report['px_external'] = px_external
     report['pta'] = pta
     report['inventory'] = inventory
     report['downstream'] = downstream
@@ -1817,35 +2009,37 @@ def _table(headers, rows) -> str:
     return '\n'.join(lines)
 
 
-def get_main_futures_price() -> Dict:
-    """读取首页K线主力合约价，必须与期权链/期权服务标的价分开。"""
-    out = {'price': None, 'change_pct': None, 'symbol': None, 'source': '首页K线主力合约价'}
+def get_main_futures_price(symbol: str = 'TA609') -> Dict:
+    """读取首页K线主力合约价，必须与期权链/期权服务标的价分开。默认与首页K线当前主力TA609一致。"""
+    out = {'price': None, 'change_pct': None, 'symbol': symbol, 'source': '首页K线主力合约价'}
     for period in ('1min', '15min'):
         try:
-            resp = requests.get(f'http://127.0.0.1:8424/api/kline/data?period={period}', timeout=5)
-            if resp.ok:
-                data = resp.json()
-                out['price'] = data.get('current_price')
-                out['change_pct'] = data.get('change_pct')
-                out['symbol'] = data.get('symbol') or data.get('contract') or 'TA主力'
-                out['period'] = period
-                out['source_detail'] = data.get('source')
-                out['fallback_warning'] = data.get('fallback_warning')
-                bars = data.get('data') or []
-                if (not out['price']) and bars:
-                    out['price'] = bars[-1].get('close')
-                if bars:
-                    last = bars[-1] or {}
-                    prev = bars[-2] if len(bars) >= 2 else {}
-                    out['last_close'] = last.get('close')
-                    out['last_open'] = last.get('open')
-                    out['last_time'] = last.get('time') or last.get('datetime')
-                    if last.get('close') is not None and prev.get('close') is not None:
-                        out['last_bar_change'] = last.get('close') - prev.get('close')
-                    if len(bars) >= 21 and bars[-21].get('close') is not None and last.get('close') is not None:
-                        out['change_20_bars'] = last.get('close') - bars[-21].get('close')
-                if out.get('price') is not None:
-                    break
+            # 只需要最新价/最近20根变化，限制count避免K线接口默认取1000根导致研报生成超时。
+            resp = requests.get(f'http://127.0.0.1:8424/api/kline/data?symbol={symbol}&period={period}&count=30', timeout=15)
+            if not resp.ok:
+                continue
+            data = resp.json()
+            out['price'] = data.get('current_price')
+            out['change_pct'] = data.get('change_pct')
+            out['symbol'] = data.get('symbol') or data.get('contract') or symbol
+            out['period'] = period
+            out['source_detail'] = data.get('source')
+            out['fallback_warning'] = data.get('fallback_warning')
+            bars = data.get('data') or []
+            if out['price'] is None and bars:
+                out['price'] = bars[-1].get('close')
+            if bars:
+                last = bars[-1] or {}
+                prev = bars[-2] if len(bars) >= 2 else {}
+                out['last_close'] = last.get('close')
+                out['last_open'] = last.get('open')
+                out['last_time'] = last.get('time') or last.get('datetime')
+                if last.get('close') is not None and prev.get('close') is not None:
+                    out['last_bar_change'] = last.get('close') - prev.get('close')
+                if len(bars) >= 21 and bars[-21].get('close') is not None and last.get('close') is not None:
+                    out['change_20_bars'] = last.get('close') - bars[-21].get('close')
+            if out.get('price') is not None:
+                break
         except Exception as e:
             out['error'] = str(e)
     return out
@@ -1877,6 +2071,7 @@ def generate_intraday_analysis(report: Dict) -> Dict:
     iv_analysis = s1.get('iv_analysis') or {}
     pta = report.get('pta') or {}
     px = report.get('px') or {}
+    px_external = report.get('px_external') or {}
     crude = report.get('crude') or {}
     cost = report.get('cost') or {}
     news = report.get('macro_news') or {}
@@ -1914,6 +2109,9 @@ def generate_intraday_analysis(report: Dict) -> Dict:
     main_futures_display_price = main_futures_price
     near_basis = pta.get('near_basis')
     px_price = px.get('spot_price') or px.get('price')
+    px_asia_close = px_external.get('px_asia_close_usd')
+    pta_external_cost = px_external.get('pta_external_cost') or (cost.get('pta_external_cost') if isinstance(cost, dict) else None)
+    usd_cny = px_external.get('usd_cny')
     profit = cost.get('profit') if isinstance(cost, dict) else None
     profit_pct = cost.get('profit_pct') if isinstance(cost, dict) else None
     pta_cost = cost.get('pta_cost') if isinstance(cost, dict) else None
@@ -2009,8 +2207,10 @@ def generate_intraday_analysis(report: Dict) -> Dict:
     macro_table = [
         ['Brent', f"{_fmt_num(brent.get('price'),2,'$')}，{_pct_desc(brent.get('change_pct'))}", '原油宏观成本'],
         ['WTI', f"{_fmt_num(wti.get('price'),2,'$')}，{_pct_desc(wti.get('change_pct'))}", '原油宏观成本'],
-        ['PX现货', _fmt_num(px_price), '成本端'],
-        ['PTA估算成本', _fmt_num(pta_cost), '成本支撑区'],
+        ['PX现货', _fmt_num(px_price), '内盘成本端'],
+        ['PX外盘现货价', f"{_fmt_num(px_asia_close,2,'$')}/吨" if px_asia_close else '--', f"{px_external.get('source','')}；汇率{_fmt_num(usd_cny,4)}" if px_asia_close else 'CFR中国/亚洲收盘价待更新'],
+        ['PTA估算成本', _fmt_num(pta_cost), '内盘成本支撑区'],
+        ['外盘PTA动态成本', _fmt_num(pta_external_cost), 'PX亚洲收盘价*0.655*1.01*1.13*USD/CNY'],
         ['PTA利润', f"{_fmt_num(profit)}，{_fmt_num(profit_pct,1)}%", '利润高则供应压力偏空'],
     ]
 
@@ -2039,9 +2239,10 @@ def generate_intraday_analysis(report: Dict) -> Dict:
     gex_interpretation = f"GEX处在{gamma_desc}。因此交易上先盯两条线：{_fmt_num(max_pain)}若失守，负Gamma容易放大顺势波动；{_fmt_num(gex_flip)}若被重新收复，追涨杀跌压力会减轻。"
     oi_interpretation = f"持仓给出的不是单边方向，而是边界：Put集中区对应下方防线，Call集中区对应上方压力。当前更适合把{_fmt_num(max_pain)}—{_fmt_num(max_call)}当作区间框架，再等跌破或站回触发。"
     iv_interpretation = f"ATM隐波约{_fmt_num(atm_iv,1)}%，{skew_desc or '偏度待确认'}。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。"
-    macro_hint = '；'.join(macro_news_items[:2]) if macro_news_items else '暂无高质量宏观快讯'
-    macro_interpretation = f"宏观与成本端只采用完整可读的消息和人工补充材料，自动快讯只作补充。当前可参考：{macro_hint}。盘中策略仍以价格结构触发为主，宏观材料用于解释成本弹性和隔夜风险。"
-    strategy_logic = f"策略依据：先用盘面主力判断追单节奏，再用GEX/Pain确定触发位，用OI确认支撑压力，用IV决定买方还是卖方更占优。当前重点是{_fmt_num(max_pain)}是否跌破、{_fmt_num(gex_flip)}是否收复；未触发前以区间和风控为主，触发后再顺势加速。"
+    macro_hint = '；'.join(macro_news_items[:3]) if macro_news_items else '暂无高质量宏观快讯'
+    external_cost_hint = f"外盘PX{_fmt_num(px_asia_close,2,'$')}/吨，对应外盘PTA动态成本约{_fmt_num(pta_external_cost)}元/吨" if px_asia_close and pta_external_cost else "外盘PX/外盘PTA动态成本等待最新有效报价"
+    macro_interpretation = f"宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：{macro_hint}。{external_cost_hint}；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。"
+    strategy_logic = f"策略依据：先用盘面主力判断追单节奏，再用GEX/Pain确定触发位，用OI确认支撑压力，用IV决定买方还是卖方更占优，同时用原油/PX外盘成本确认顺势信号质量。当前重点是{_fmt_num(max_pain)}是否跌破、{_fmt_num(gex_flip)}是否收复；未触发前以区间和风控为主，触发后再顺势加速。"
 
     upper_zone = _fmt_num(max_call) if max_call else '6550-6600'
     support_zone = _fmt_num(max_put) if max_put else '6200'
@@ -2242,15 +2443,42 @@ def load_previous_trading_day_close_report(date_text: Optional[str] = None) -> O
 
 
 def build_daily_comparison(current_report: Dict, previous_report: Optional[Dict], intraday_snapshots: List[Dict]) -> Dict:
-    """生成全天总研报的日内变化和前日对比，并明确数据覆盖度。"""
+    """生成全天总研报的日内变化和前日对比，并明确数据覆盖度。
+
+    15:00收盘研报不能只给“归档了几份”；需要把盘中15分钟快照串成走势回顾，
+    并和前一交易日收盘研报做动态对比。
+    """
     def pick_price(r):
         ia = (r or {}).get('intraday_analysis') or {}
-        return _as_float(ia.get('option_underlying_price')) or _as_float(ia.get('main_futures_price'))
+        # 收盘复盘优先看盘面主力节奏；若历史快照缺主力字段再退回期权链标的价。
+        return _as_float(ia.get('main_futures_price')) or _as_float(ia.get('option_underlying_price'))
+
+    def pick_bias(r):
+        ia = (r or {}).get('intraday_analysis') or {}
+        text = ' '.join(str(x or '') for x in [
+            ia.get('summary'), ia.get('market_snapshot_interpretation'), ia.get('strategy_logic')
+        ])
+        if any(x in text for x in ['偏强', '反弹', '上行', '多头', '利多']):
+            return '偏强'
+        if any(x in text for x in ['偏弱', '回落', '下行', '空头', '利空']):
+            return '偏弱'
+        return '震荡'
 
     snapshot_count = len(intraday_snapshots)
     slots = [x.get('snapshot_slot') for x in intraday_snapshots if x.get('snapshot_slot')]
-    prices = [pick_price(x) for x in intraday_snapshots]
-    prices = [x for x in prices if x is not None]
+    points = []
+    for x in intraday_snapshots:
+        price = pick_price(x)
+        if price is None:
+            continue
+        points.append({
+            'slot': x.get('snapshot_slot'),
+            'time': x.get('snapshot_time') or x.get('timestamp'),
+            'price': price,
+            'bias': pick_bias(x),
+            'summary': _clean_report_text(((x.get('intraday_analysis') or {}).get('summary') or x.get('narrative_report') or ''))[:160],
+        })
+    prices = [x['price'] for x in points]
     cur_price = pick_price(current_report)
     prev_price = pick_price(previous_report) if previous_report else None
     previous_day_available = previous_report is not None
@@ -2265,13 +2493,52 @@ def build_daily_comparison(current_report: Dict, previous_report: Optional[Dict]
         intraday_coverage_status = '样本不足'
         intraday_note = f'仅归档{snapshot_count}份整15分钟盘中研报，日内动态对比样本不足。'
 
+    intraday_review = {
+        'points': points,
+        'open_slot': points[0]['slot'] if points else None,
+        'close_slot': points[-1]['slot'] if points else None,
+        'open_price': points[0]['price'] if points else None,
+        'close_price': points[-1]['price'] if points else cur_price,
+        'high': max(prices) if prices else None,
+        'low': min(prices) if prices else None,
+        'change': (points[-1]['price'] - points[0]['price']) if len(points) >= 2 else None,
+    }
+    if intraday_review['change'] is not None:
+        chg = intraday_review['change']
+        direction = '走强' if chg > 0 else ('走弱' if chg < 0 else '横盘')
+        intraday_review['summary'] = (
+            f"盘中从{intraday_review['open_slot']}的{intraday_review['open_price']:.0f}"
+            f"到{intraday_review['close_slot']}的{intraday_review['close_price']:.0f}，"
+            f"日内{direction}{chg:+.0f}点，区间{intraday_review['low']:.0f}-{intraday_review['high']:.0f}。"
+        )
+    else:
+        intraday_review['summary'] = intraday_note
+
     if previous_day_available and prev_price is not None and cur_price is not None:
-        day_note = f'相对前一交易日参考价变化{cur_price - prev_price:+.0f}点。'
+        day_change = cur_price - prev_price
+        day_note = f'相对前一交易日参考价变化{day_change:+.0f}点。'
+        previous_day_dynamic = {
+            'previous_close_price': prev_price,
+            'current_price': cur_price,
+            'change': day_change,
+            'bias_yesterday': pick_bias(previous_report),
+            'bias_today': pick_bias(current_report),
+            'summary': f"今日收盘参考价较前一交易日{day_change:+.0f}点；昨日结构{pick_bias(previous_report)}，今日结构{pick_bias(current_report)}。"
+        }
     else:
         day_note = '前一交易日收盘研报暂缺，日间动态对比暂不能完整展开。'
+        previous_day_dynamic = {
+            'previous_close_price': prev_price,
+            'current_price': cur_price,
+            'change': None,
+            'bias_yesterday': None,
+            'bias_today': pick_bias(current_report),
+            'summary': day_note,
+        }
 
     comparison_quality = '完整' if intraday_coverage_status == '完整' and previous_day_available else ('部分' if snapshot_count >= 3 or previous_day_available else '样本不足')
     data_limitation_note = '' if comparison_quality == '完整' else f'{intraday_note}{day_note}'
+    full_summary = f"全天共归档{snapshot_count}份15分钟研报；{intraday_review.get('summary')}{day_note}"
 
     return {
         'snapshot_count': snapshot_count,
@@ -2282,7 +2549,9 @@ def build_daily_comparison(current_report: Dict, previous_report: Optional[Dict]
         'data_limitation_note': data_limitation_note,
         'intraday_price_range': {'low': min(prices) if prices else None, 'high': max(prices) if prices else None},
         'current_vs_previous_price_change': (cur_price - prev_price) if cur_price is not None and prev_price is not None else None,
-        'summary': f"全天共归档{snapshot_count}份15分钟研报；{intraday_note}{day_note}"
+        'intraday_review': intraday_review,
+        'previous_day_dynamic': previous_day_dynamic,
+        'summary': full_summary,
     }
 
 
