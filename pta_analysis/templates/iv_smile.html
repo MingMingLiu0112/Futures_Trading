@@ -428,7 +428,10 @@
 <!-- ===== T型表格 ===== -->
 <div class="t-table-wrap">
   <div class="t-table-toolbar">
-    <div class="card-title">分档隐波明细</div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <div class="card-title">分档隐波明细</div>
+      <span style="font-size:10px;color:#666;">SVI 拟合仅覆盖 ATM ±15%；范围外 IV 显示 <b style="color:#555">--</b>（外推不可信）</span>
+    </div>
     <button class="btn" onclick="exportTTableExcel()">📥 Excel导出</button>
   </div>
   <table class="t-table" id="tTable">
@@ -950,18 +953,18 @@ function updateGexCharts(gexData, alertData) {
 
   // ---- 指标栏 ----
   // 持仓PCR：Put持仓合计 / Call持仓合计。
-  // 使用T型表同源“存量显示口径”：当前持仓非0用当前；当前为0且前次有值时，用前次存量兜底。
-  // 只用于持仓PCR指标，避免GEX接口21档OI影响PCR显示。
+  // T表 oi_call/oi_put 来自 TqSdk open_interest，已经是**存量**（绝对值，非变化量），无需 prev 兜底。
+  // 之前 cur=0 时用 prev 兜底会污染 PCR：把合约切日后已不存在的行权价
+  // （如 TA608 没有的 4450~5300/7500~8100 档，prev 是 6/10 TA607 末值）错误地算入分子分母。
+  // 修复：直接累加存量 OI，cur 为 null/0/负数时跳过该档（该档没有真实持仓，不计入）。
   const pcrEl = document.getElementById('mPcr');
   const volRows = (alertData && alertData.rows) || [];
   let totalCallOi = 0, totalPutOi = 0;
   volRows.forEach(r => {
-    const curCall = Number(r.oi_call || 0);
-    const curPut = Number(r.oi_put || 0);
-    const prevCall = Number(r.oi_call_prev || 0);
-    const prevPut = Number(r.oi_put_prev || 0);
-    totalCallOi += curCall !== 0 ? curCall : prevCall;
-    totalPutOi += curPut !== 0 ? curPut : prevPut;
+    const curCall = Number(r.oi_call);
+    const curPut = Number(r.oi_put);
+    if (Number.isFinite(curCall) && curCall > 0) totalCallOi += curCall;
+    if (Number.isFinite(curPut) && curPut > 0) totalPutOi += curPut;
   });
   if (totalCallOi > 0) {
     const oiPcr = totalPutOi / totalCallOi;

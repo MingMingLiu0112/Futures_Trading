@@ -1,193 +1,185 @@
 {
-  "timestamp": "2026-06-11 22:45:12",
-  "report_type": "intraday",
-  "market_session": "夜盘",
+  "timestamp": "2026-06-11 15:06:52",
+  "report_type": "close",
+  "market_session": "收盘后",
   "refresh_interval_minutes": 15,
   "section1": {
     "title": "一、 期权数据解读",
-    "subtitle": "GEX正Gamma·压制波动",
+    "subtitle": "GEX负Gamma·放大波动",
     "summary": "",
     "highlights": [
       {
         "type": "P",
-        "strike": 4200,
-        "change": "+7,772手",
-        "iv": "38.0700",
+        "strike": 5800,
+        "change": "+11,957手",
+        "iv": "78.6100",
         "signal": "底部防线"
       },
       {
         "type": "P",
-        "strike": 5000,
-        "change": "+7,241手",
-        "iv": "33.3000",
+        "strike": 6000,
+        "change": "+28,994手",
+        "iv": "67.2100",
         "signal": "底部防线"
       },
       {
         "type": "P",
-        "strike": 5900,
-        "change": "+9,418手",
-        "iv": "29.8800",
-        "signal": "底部防线"
-      },
-      {
-        "type": "P",
-        "strike": 6100,
-        "change": "+8,245手",
-        "iv": "29.6900",
+        "strike": 6200,
+        "change": "+23,173手",
+        "iv": "54.5600",
         "signal": "底部防线"
       },
       {
         "type": "P",
         "strike": 6300,
-        "change": "+7,000手",
-        "iv": "29.7800",
+        "change": "+28,051手",
+        "iv": "47.9000",
+        "signal": "底部防线"
+      },
+      {
+        "type": "P",
+        "strike": 6400,
+        "change": "+21,036手",
+        "iv": "41.8300",
         "signal": "底部防线"
       },
       {
         "type": "C",
-        "strike": 6300,
-        "change": "+4,562手",
-        "iv": "29.7800",
+        "strike": 6500,
+        "change": "+9,575手",
+        "iv": "38.7200",
         "signal": "阻力位"
       },
       {
         "type": "C",
+        "strike": 6600,
+        "change": "+15,907手",
+        "iv": "40.9800",
+        "signal": "上行压制"
+      },
+      {
+        "type": "C",
         "strike": 6700,
-        "change": "+4,078手",
-        "iv": "30.8100",
+        "change": "+16,073手",
+        "iv": "46.5400",
+        "signal": "上行压制"
+      },
+      {
+        "type": "C",
+        "strike": 6800,
+        "change": "+10,845手",
+        "iv": "52.7600",
         "signal": "上行压制"
       },
       {
         "type": "C",
         "strike": 7000,
-        "change": "+5,084手",
-        "iv": "33.4800",
-        "signal": "上行压制"
-      },
-      {
-        "type": "C",
-        "strike": 7000,
-        "change": "+4,354手",
-        "iv": "32.0400",
-        "signal": "上行压制"
-      },
-      {
-        "type": "C",
-        "strike": 8000,
-        "change": "+5,664手",
-        "iv": "37.1600",
+        "change": "+20,848手",
+        "iv": "64.3300",
         "signal": "上行压制"
       }
     ],
     "conclusions": [
-      "🛡️ 净GEX为正(+10.9M)：做市商对冲流倾向涨了卖、跌了买，压制波动，更偏震荡/均值回归；这不是看涨信号",
-      "🎯 痛点收敛(中高): 距到期31.7天时间充裕，偏差108点(1.7%)，大概率区间震荡回归，价格偏高于痛点→下行引力",
-      "📍 GEX翻转6420，当前价6508在上方88点：处于正Gamma状态；若回落接近/有效跌破翻转线，震荡假设减弱、波动放大风险上升",
-      "📈 PCR=0.748<0.8，看涨持仓偏重，多头力量偏强",
-      "📌 有效博弈区间【6100,6700】(宽度600点)，外沿支撑6000(4,014手) / 压力7000(5,441手)",
-      "📈 隐波: ATM IV 31.3%(高波动率)，Skew 0.1802 右偏(看涨溢价偏高)，上行博弈需求旺盛",
-      "🌊 曲率=6.2: 中等曲率，隐波曲线形态正常",
-      "⏰ 距到期31.7天(2026-07-13)"
+      "⚡ 净GEX为负(-32.9M)：做市商对冲流倾向涨了买、跌了卖，放大波动，突破后趋势延续风险更高；这不是看跌信号",
+      "📉 PCR=1.282>1.2，看跌持仓偏重，空头力量偏强",
+      "📌 有效博弈区间【6300,6600】(宽度300点)，外沿支撑6000(28,623手) / 压力7000(18,259手)",
+      "📈 隐波: ATM IV 16.4%(低波动率)，Skew -5.7068 深度左偏(看跌保护溢价极高)，市场恐慌情绪浓厚",
+      "🌊 曲率=4789.4: 极高曲率(尾部风险定价极高)，市场预期可能出现剧烈波动"
     ],
     "key_levels": {
       "bottom": "6000",
       "top": "7000",
-      "pcr_spot": "0.7777",
-      "pcr_hold": "0.7485"
+      "pcr_spot": "0.9052",
+      "pcr_hold": "1.2823"
     },
     "gex_summary": {
-      "net_gex": 10917394.0,
-      "gex_direction": "positive",
-      "gex_flip": 6420,
+      "net_gex": -32855629.0,
+      "gex_direction": "negative",
+      "gex_flip": null,
       "max_pain": 6400,
-      "futures_price": 6508,
-      "days_left": 31.7,
-      "expiry": "2026-07-13",
-      "total_call_oi": 35183,
-      "total_put_oi": 26333,
-      "pcr": 0.7484580621322798,
+      "futures_price": 6506,
+      "days_left": -0.0,
+      "expiry": "2026-06-11",
+      "total_call_oi": 120541,
+      "total_put_oi": 154569,
+      "pcr": 1.2822939912560871,
       "pcr_source": "T表显示口径：当前持仓非0用当前，当前为0用前次兜底",
-      "gex_total_call_oi": 31287,
-      "gex_total_put_oi": 23926,
-      "gex_pcr": 0.765,
+      "gex_total_call_oi": 108201,
+      "gex_total_put_oi": 138368,
+      "gex_pcr": 1.279,
       "max_call_strike": 7000,
-      "max_call_oi": 5441,
+      "max_call_oi": 18259,
       "max_put_strike": 6000,
-      "max_put_oi": 4014,
-      "effective_support": 6100,
-      "effective_resistance": 6700,
-      "oi_concentration": 56.3
+      "max_put_oi": 28623,
+      "effective_support": 6300,
+      "effective_resistance": 6600,
+      "oi_concentration": 68.6
     },
     "pain_highlights": [
       {
         "strike": 6400,
-        "pain": 8631000.0,
+        "pain": 32289000.0,
         "is_min": true
       },
       {
         "strike": 6500,
-        "pain": 8741500.0,
+        "pain": 32553500.0,
         "is_min": false
       },
       {
         "strike": 6300,
-        "pain": 9830500.0,
+        "pain": 43925500.0,
         "is_min": false
       },
       {
         "strike": 6600,
-        "pain": 10613500.0,
+        "pain": 47649500.0,
         "is_min": false
       },
       {
         "strike": 6200,
-        "pain": 12292500.0,
+        "pain": 68963500.0,
         "is_min": false
       }
     ],
-    "pain_convergence": {
-      "probability": "中高",
-      "desc": "距到期31.7天时间充裕，偏差108点(1.7%)，大概率区间震荡回归",
-      "deviation_pct": 1.7,
-      "days_left": 31.7
-    },
+    "pain_convergence": null,
     "iv_analysis": {
-      "atm_vol": 31.3,
-      "skew": 0.1802,
-      "curvature": 6.25,
-      "skew_desc": "右偏(看涨溢价偏高)，上行博弈需求旺盛",
-      "skew_level": "right",
-      "curv_desc": "中等曲率，隐波曲线形态正常",
-      "curv_level": "normal",
-      "vol_level": "高波动率",
-      "vol_regime": "high"
+      "atm_vol": 16.4,
+      "skew": -5.7068,
+      "curvature": 4789.37,
+      "skew_desc": "深度左偏(看跌保护溢价极高)，市场恐慌情绪浓厚",
+      "skew_level": "extreme_left",
+      "curv_desc": "极高曲率(尾部风险定价极高)，市场预期可能出现剧烈波动",
+      "curv_level": "extreme",
+      "vol_level": "低波动率",
+      "vol_regime": "low"
     },
     "iv_changes": [
       {
-        "strike": 6400,
-        "call_iv": 31.1,
-        "put_iv": 31.1,
-        "call_change": 2.37,
-        "put_change": 0.24,
-        "change": 2.37,
-        "is_atm": false
-      },
-      {
         "strike": 6200,
-        "call_iv": 31.1,
-        "put_iv": 31.1,
-        "call_change": 1.97,
-        "put_change": -0.55,
-        "change": 1.97,
+        "call_iv": 74.9,
+        "put_iv": 139.7,
+        "call_change": 32.12,
+        "put_change": 97.59,
+        "change": 32.12,
         "is_atm": false
       },
       {
-        "strike": 6600,
-        "call_iv": 31.6,
-        "put_iv": 31.6,
-        "call_change": 1.96,
-        "put_change": -0.83,
-        "change": 1.96,
+        "strike": 6800,
+        "call_iv": 119.1,
+        "put_iv": 103.6,
+        "call_change": 77.52,
+        "put_change": 62.64,
+        "change": 77.52,
+        "is_atm": false
+      },
+      {
+        "strike": 6300,
+        "call_iv": 95.2,
+        "put_iv": 95.2,
+        "call_change": 58.89,
+        "put_change": 58.92,
+        "change": 58.89,
         "is_atm": false
       }
     ]
@@ -198,16 +190,16 @@
     "chain_prices": [
       {
         "name": "布伦特原油",
-        "price": 92.89,
+        "price": 93.54,
         "unit": "USD/桶",
-        "change": "-0.23%",
+        "change": "+0.47%",
         "signal": "中性"
       },
       {
         "name": "WTI原油",
-        "price": 90.25,
+        "price": 90.62,
         "unit": "USD/桶",
-        "change": "+0.24%",
+        "change": "+0.66%",
         "signal": "中性"
       },
       {
@@ -223,13 +215,6 @@
         "unit": "CNY/吨",
         "change": "—",
         "signal": "中性"
-      },
-      {
-        "name": "TA609",
-        "price": 6358.0,
-        "unit": "CNY/吨",
-        "change": "+0.32%",
-        "signal": "中性"
       }
     ],
     "cost_profit": {
@@ -244,21 +229,21 @@
     "inventory": [
       {
         "name": "MEG乙二醇库存",
-        "stock": 9379.0,
+        "stock": 9579.0,
         "unit": "吨",
-        "change": -200.0,
-        "change_str": "-200.0",
+        "change": -34.0,
+        "change_str": "-34.0",
         "level": "中性",
-        "date": "2026-06-11"
+        "date": "2026-06-10"
       },
       {
         "name": "SM苯乙烯库存",
-        "stock": 2000.0,
+        "stock": 1000.0,
         "unit": "吨",
         "change": 1000.0,
         "change_str": "+1000.0",
         "level": "中性",
-        "date": "2026-06-11"
+        "date": "2026-06-10"
       }
     ],
     "downstream": [
@@ -301,18 +286,15 @@
     ],
     "news": {
       "geo": [
-        "伊朗议会国家安全委员会负责人回应美国总统特朗普对伊朗的威胁：他将面临更强烈和更痛苦的反击。",
-        "“逃离霍尔木兹”？日本政府宣布：7月原油进口将“100%绕开海峡”"
+        "特朗普自曝摸黑运出22艘伊朗油轮，称“我爱通胀”"
       ],
       "macro": [
-        "伊朗战争推高通胀压力，欧洲央行近三年来首次加息06-11 20:150评",
-        "加拿大央行如期维持利率不变，经济疲软与油价飙升形成政策两难06-10 22:490评"
+        "加拿大央行如期维持利率不变，经济疲软与油价飙升形成政策两难06-10 22:490评",
+        "全线拉升，美联储，利好突现06-10 22:270评"
       ],
-      "industry": [
-        "“逃离霍尔木兹”？日本政府宣布：7月原油进口将“100%绕开海峡”"
-      ]
+      "industry": []
     },
-    "narrative": "原油高位运行($92.9,-0.2%)，成本支撑坚挺；PTA盈利708元(+12.0%)。",
+    "narrative": "原油高位运行($93.5,+0.5%)，成本支撑坚挺；PTA盈利708元(+12.0%)。",
     "ai_rating": null
   },
   "section3": {
@@ -320,13 +302,13 @@
     "subtitle": "三维研判·震荡",
     "strategies": [
       {
-        "action": "🛡️ 正Gamma波动环境",
-        "detail": "净GEX=+10.9M，做市商对冲流倾向涨了卖、跌了买；Flip=6420，当前价6508高于642088点",
-        "suggestion": "偏波动抑制/震荡回归，追突破谨慎；若价格接近或跌破Flip，波动放大风险上升。GEX不是方向预测"
+        "action": "⚡ 负Gamma波动环境",
+        "detail": "净GEX=-32.9M，做市商对冲流倾向涨了买、跌了卖",
+        "suggestion": "偏波动放大/趋势延续，卖方需控制尾部风险；若重新站上Flip，波动可能重新受抑。GEX不是方向预测"
       },
       {
         "action": "🎯 痛点参考",
-        "detail": "期权链/期权服务标的价6508 vs 痛点6400，偏差+108",
+        "detail": "期权链/期权服务标的价6506 vs 痛点6400，偏差+106",
         "suggestion": "关注标的价向痛点6400的回归倾向"
       },
       {
@@ -336,13 +318,13 @@
       },
       {
         "action": "📊 OI支撑压力区间",
-        "detail": "Put支撑6000(4,014手) ↔ Call压力7000(5,441手)",
+        "detail": "Put支撑6000(28,623手) ↔ Call压力7000(18,259手)",
         "suggestion": "区间【6000,7000】内震荡概率高"
       }
     ],
-    "core_idea": "综合研判：三维综合评分-0.15，方向【震荡】；宏观·成本(利空): 高利润708元，供应释放压力大；产业·供需(中性): 维度评分+0.00，中性；期权·微观(中性): 正Gamma(净GEX+10.9M)，对冲流压制波动，偏震荡/均值回归；期权链/期权服务标的价6508在【6000,7000】区间偏上。",
+    "core_idea": "综合研判：三维综合评分-0.07，方向【震荡】；宏观·成本(利空): 高利润708元，供应释放压力大；产业·供需(中性): 维度评分+0.00，中性；期权·微观(中性): 负Gamma(净GEX-32.9M)，对冲流放大波动，趋势延续风险更高；期权链/期权服务标的价6506在【6000,7000】区间偏上。",
     "direction": "震荡",
-    "total_score": -0.15,
+    "total_score": -0.07,
     "dimensions": {
       "macro": {
         "name": "宏观·成本",
@@ -362,12 +344,12 @@
       },
       "option": {
         "name": "期权·微观",
-        "score": 0,
+        "score": 0.2,
         "weight": 0.4,
         "label": "中性",
         "reasons": [
-          "正Gamma(净GEX+10.9M)，对冲流压制波动，偏震荡/均值回归",
-          "价格6508在翻转点6420上方88点(正Gamma状态)"
+          "负Gamma(净GEX-32.9M)，对冲流放大波动，趋势延续风险更高",
+          "PCR=1.279(偏空)，有保护性看跌"
         ]
       }
     }
@@ -420,17 +402,14 @@
   },
   "macro_news": {
     "geo": [
-      "伊朗议会国家安全委员会负责人回应美国总统特朗普对伊朗的威胁：他将面临更强烈和更痛苦的反击。",
-      "“逃离霍尔木兹”？日本政府宣布：7月原油进口将“100%绕开海峡”",
-      "伊朗战争推高通胀压力，欧洲央行近三年来首次加息06-11 20:150评"
+      "特朗普自曝摸黑运出22艘伊朗油轮，称“我爱通胀”"
     ],
     "fed": [
-      "伊朗战争推高通胀压力，欧洲央行近三年来首次加息06-11 20:150评",
-      "加拿大央行如期维持利率不变，经济疲软与油价飙升形成政策两难06-10 22:490评"
+      "加拿大央行如期维持利率不变，经济疲软与油价飙升形成政策两难06-10 22:490评",
+      "全线拉升，美联储，利好突现06-10 22:270评",
+      "美国5月CPI同比上涨4.2% 美联储年内加息25个基点预期概率上升06-10 20:380评"
     ],
-    "industry": [
-      "“逃离霍尔木兹”？日本政府宣布：7月原油进口将“100%绕开海峡”"
-    ],
+    "industry": [],
     "macro": []
   },
   "manual_macro_input": {
@@ -445,15 +424,15 @@
   },
   "crude": {
     "brent": {
-      "price": 92.89,
-      "change_pct": -0.23,
-      "volume": 199919,
+      "price": 93.54,
+      "change_pct": 0.47,
+      "volume": 31125,
       "contract": "布伦特原油当月连续"
     },
     "wti": {
-      "price": 90.25,
-      "change_pct": 0.24,
-      "volume": 135155,
+      "price": 90.62,
+      "change_pct": 0.66,
+      "volume": 37819,
       "contract": "NYMEX原油"
     }
   },
@@ -499,7 +478,7 @@
     "spot_price": 6603.16,
     "near_contract": "TA606",
     "near_price": 6450.0,
-    "dominant_contract": "TA609",
+    "dominant_contract": "",
     "dominant_price": 6290.0,
     "near_basis": -107.67000000000007,
     "dom_basis": -267.6700000000001,
@@ -511,28 +490,18 @@
     "spot_price_shengyishe": 6603.16,
     "spot_price_aux": 6557.67,
     "aux_spot_diff": 45.49,
-    "spot_source_note": "PTA现货价=生意社每日基准价；郑商所现货表仅作合约/基差辅助",
-    "future": {
-      "symbol": "TA609",
-      "settle": 6358.0,
-      "close": 6350.0,
-      "volume": 932837,
-      "open_interest": 1154711,
-      "pre_settle": 6330.0,
-      "change": 20.0,
-      "change_pct": 0.32
-    }
+    "spot_source_note": "PTA现货价=生意社每日基准价；郑商所现货表仅作合约/基差辅助"
   },
   "inventory": {
     "sm": {
-      "stock": 2000.0,
+      "stock": 1000.0,
       "change": 1000.0,
-      "date": "2026-06-11"
+      "date": "2026-06-10"
     },
     "meg": {
-      "stock": 9379.0,
-      "change": -200.0,
-      "date": "2026-06-11"
+      "stock": 9579.0,
+      "change": -34.0,
+      "date": "2026-06-10"
     }
   },
   "downstream": {
@@ -593,416 +562,416 @@
     "highlights": [
       {
         "type": "P",
-        "strike": 5900,
-        "change": "+9,418手",
-        "iv": "29.8800",
-        "signal": "底部防线"
-      },
-      {
-        "type": "P",
-        "strike": 6100,
-        "change": "+8,245手",
-        "iv": "29.6900",
-        "signal": "底部防线"
-      },
-      {
-        "type": "P",
-        "strike": 4200,
-        "change": "+7,772手",
-        "iv": "38.0700",
-        "signal": "底部防线"
-      },
-      {
-        "type": "P",
-        "strike": 5000,
-        "change": "+7,241手",
-        "iv": "33.3000",
+        "strike": 6000,
+        "change": "+28,994手",
+        "iv": "67.2100",
         "signal": "底部防线"
       },
       {
         "type": "P",
         "strike": 6300,
-        "change": "+7,000手",
-        "iv": "29.7800",
+        "change": "+28,051手",
+        "iv": "47.9000",
+        "signal": "底部防线"
+      },
+      {
+        "type": "P",
+        "strike": 6200,
+        "change": "+23,173手",
+        "iv": "54.5600",
+        "signal": "底部防线"
+      },
+      {
+        "type": "P",
+        "strike": 6400,
+        "change": "+21,036手",
+        "iv": "41.8300",
+        "signal": "底部防线"
+      },
+      {
+        "type": "P",
+        "strike": 5800,
+        "change": "+11,957手",
+        "iv": "78.6100",
         "signal": "底部防线"
       },
       {
         "type": "C",
-        "strike": 8000,
-        "change": "+5,664手",
-        "iv": "37.1600",
-        "signal": "上行压制"
-      },
-      {
-        "type": "C",
         "strike": 7000,
-        "change": "+5,084手",
-        "iv": "33.4800",
-        "signal": "上行压制"
-      },
-      {
-        "type": "C",
-        "strike": 6300,
-        "change": "+4,562手",
-        "iv": "29.7800",
-        "signal": "阻力位"
-      },
-      {
-        "type": "C",
-        "strike": 7000,
-        "change": "+4,354手",
-        "iv": "32.0400",
+        "change": "+20,848手",
+        "iv": "64.3300",
         "signal": "上行压制"
       },
       {
         "type": "C",
         "strike": 6700,
-        "change": "+4,078手",
-        "iv": "30.8100",
+        "change": "+16,073手",
+        "iv": "46.5400",
         "signal": "上行压制"
+      },
+      {
+        "type": "C",
+        "strike": 6600,
+        "change": "+15,907手",
+        "iv": "40.9800",
+        "signal": "上行压制"
+      },
+      {
+        "type": "C",
+        "strike": 6800,
+        "change": "+10,845手",
+        "iv": "52.7600",
+        "signal": "上行压制"
+      },
+      {
+        "type": "C",
+        "strike": 6500,
+        "change": "+9,575手",
+        "iv": "38.7200",
+        "signal": "阻力位"
       }
     ],
-    "pcr_spot": 0.7777,
-    "pcr_hold": 1.2374,
+    "pcr_spot": 0.9052,
+    "pcr_hold": 1.2695,
     "key_levels": {
-      "bottom": 5900,
-      "top": 8000
+      "bottom": 6000,
+      "top": 7000
     },
-    "trade_date": "20260611"
+    "trade_date": "20260610"
   },
   "gex": {
     "summary": {
-      "T": 0.083041,
-      "days_left": 31.7,
-      "expiry": "2026-07-13T00:00:00",
-      "futures_price": 6508,
-      "gex_direction": "positive",
-      "gex_flip": 6420,
-      "last_update": "2026-06-11T22:45:41.846346",
+      "T": 1.2e-05,
+      "days_left": -0.0,
+      "expiry": "2026-06-11T00:00:00",
+      "futures_price": 6506,
+      "gex_direction": "negative",
+      "gex_flip": null,
+      "last_update": "2026-06-11T14:35:13.618579",
       "max_pain": 6400,
-      "net_gex": 10917394.0,
-      "pcr": 0.765,
-      "total_call_oi": 31287,
-      "total_put_oi": 23926
+      "net_gex": -32855629.0,
+      "pcr": 1.279,
+      "total_call_oi": 108201,
+      "total_put_oi": 138368
     },
     "gex_bars": [
       {
-        "call_gex": 2125.0,
-        "net_gex": -214909.0,
-        "put_gex": -217033.0,
+        "call_gex": 0,
+        "net_gex": 0,
+        "put_gex": 0,
         "strike": 5500
       },
       {
-        "call_gex": 9336.0,
-        "net_gex": -702567.0,
-        "put_gex": -711904.0,
+        "call_gex": 0,
+        "net_gex": 0,
+        "put_gex": 0,
         "strike": 5600
       },
       {
-        "call_gex": 63180.0,
-        "net_gex": -986701.0,
-        "put_gex": -1049882.0,
+        "call_gex": 0,
+        "net_gex": 0,
+        "put_gex": 0,
         "strike": 5700
       },
       {
-        "call_gex": 172421.0,
-        "net_gex": -1202623.0,
-        "put_gex": -1375044.0,
+        "call_gex": 0,
+        "net_gex": 0,
+        "put_gex": 0,
         "strike": 5800
       },
       {
-        "call_gex": 202263.0,
-        "net_gex": -1413559.0,
-        "put_gex": -1615822.0,
+        "call_gex": 0,
+        "net_gex": 0,
+        "put_gex": 0,
         "strike": 5900
       },
       {
-        "call_gex": 375200.0,
-        "net_gex": -3298097.0,
-        "put_gex": -3673297.0,
+        "call_gex": 0.0,
+        "net_gex": -0.0,
+        "put_gex": -0.0,
         "strike": 6000
       },
       {
-        "call_gex": 367690.0,
-        "net_gex": -2000321.0,
-        "put_gex": -2368012.0,
+        "call_gex": 0.0,
+        "net_gex": -0.0,
+        "put_gex": -0.0,
         "strike": 6100
       },
       {
-        "call_gex": 642443.0,
-        "net_gex": -1513634.0,
-        "put_gex": -2156076.0,
+        "call_gex": 0.0,
+        "net_gex": -0.0,
+        "put_gex": -0.0,
         "strike": 6200
       },
       {
-        "call_gex": 725494.0,
-        "net_gex": -1916425.0,
-        "put_gex": -2641920.0,
+        "call_gex": 0.0,
+        "net_gex": -0.0,
+        "put_gex": -0.0,
         "strike": 6300
       },
       {
-        "call_gex": 1681172.0,
-        "net_gex": -329752.0,
-        "put_gex": -2010924.0,
+        "call_gex": 0.0,
+        "net_gex": -0.0,
+        "put_gex": -0.0,
         "strike": 6400
       },
       {
-        "call_gex": 3156637.0,
-        "net_gex": 1253751.0,
-        "put_gex": -1902886.0,
+        "call_gex": 937189134.0,
+        "net_gex": -32855629.0,
+        "put_gex": -970044763.0,
         "strike": 6500
       },
       {
-        "call_gex": 2965900.0,
-        "net_gex": 2115468.0,
-        "put_gex": -850432.0,
+        "call_gex": 0.0,
+        "net_gex": 0.0,
+        "put_gex": -0.0,
         "strike": 6600
       },
       {
-        "call_gex": 5705486.0,
-        "net_gex": 5046432.0,
-        "put_gex": -659054.0,
+        "call_gex": 0.0,
+        "net_gex": 0.0,
+        "put_gex": -0.0,
         "strike": 6700
       },
       {
-        "call_gex": 2140851.0,
-        "net_gex": 1392310.0,
-        "put_gex": -748540.0,
+        "call_gex": 0.0,
+        "net_gex": 0.0,
+        "put_gex": -0.0,
         "strike": 6800
       },
       {
-        "call_gex": 2220441.0,
-        "net_gex": 1652636.0,
-        "put_gex": -567805.0,
+        "call_gex": 0.0,
+        "net_gex": 0.0,
+        "put_gex": -0.0,
         "strike": 6900
       },
       {
-        "call_gex": 5653522.0,
-        "net_gex": 5650405.0,
-        "put_gex": -3117.0,
+        "call_gex": 0.0,
+        "net_gex": 0.0,
+        "put_gex": -0.0,
         "strike": 7000
       },
       {
-        "call_gex": 1906438.0,
-        "net_gex": 1906438.0,
-        "put_gex": 0.0,
+        "call_gex": 0.0,
+        "net_gex": 0.0,
+        "put_gex": -0.0,
         "strike": 7100
       },
       {
-        "call_gex": 1807948.0,
-        "net_gex": 1807948.0,
-        "put_gex": 0.0,
+        "call_gex": 0.0,
+        "net_gex": 0.0,
+        "put_gex": -0.0,
         "strike": 7200
       },
       {
-        "call_gex": 1368038.0,
-        "net_gex": 1368038.0,
-        "put_gex": 0.0,
+        "call_gex": 0.0,
+        "net_gex": 0.0,
+        "put_gex": -0.0,
         "strike": 7300
       },
       {
-        "call_gex": 1643681.0,
-        "net_gex": 1643681.0,
-        "put_gex": 0.0,
+        "call_gex": 0.0,
+        "net_gex": 0.0,
+        "put_gex": -0.0,
         "strike": 7400
       },
       {
-        "call_gex": 658875.0,
-        "net_gex": 658875.0,
-        "put_gex": 0.0,
+        "call_gex": 0,
+        "net_gex": 0,
+        "put_gex": 0,
         "strike": 7500
       }
     ],
     "pain_curve": [
       {
-        "pain": 68012500.0,
+        "pain": 442805000.0,
         "strike": 5500
       },
       {
-        "pain": 56410500.0,
+        "pain": 377256500.0,
         "strike": 5600
       },
       {
-        "pain": 45735500.0,
+        "pain": 313355000.0,
         "strike": 5700
       },
       {
-        "pain": 36188000.0,
+        "pain": 251441500.0,
         "strike": 5800
       },
       {
-        "pain": 27892500.0,
+        "pain": 195579500.0,
         "strike": 5900
       },
       {
-        "pain": 20792500.0,
+        "pain": 141886500.0,
         "strike": 6000
       },
       {
-        "pain": 15904500.0,
+        "pain": 103899000.0,
         "strike": 6100
       },
       {
-        "pain": 12292500.0,
+        "pain": 68963500.0,
         "strike": 6200
       },
       {
-        "pain": 9830500.0,
+        "pain": 43925500.0,
         "strike": 6300
       },
       {
-        "pain": 8631000.0,
+        "pain": 32289000.0,
         "strike": 6400
       },
       {
-        "pain": 8741500.0,
+        "pain": 32553500.0,
         "strike": 6500
       },
       {
-        "pain": 10613500.0,
+        "pain": 47649500.0,
         "strike": 6600
       },
       {
-        "pain": 13834000.0,
+        "pain": 71437500.0,
         "strike": 6700
       },
       {
-        "pain": 19406000.0,
+        "pain": 102247500.0,
         "strike": 6800
       },
       {
-        "pain": 26122500.0,
+        "pain": 137149500.0,
         "strike": 6900
       },
       {
-        "pain": 34047000.0,
+        "pain": 174284000.0,
         "strike": 7000
       },
       {
-        "pain": 44693500.0,
+        "pain": 220813000.0,
         "strike": 7100
       },
       {
-        "pain": 56370500.0,
+        "pain": 269025500.0,
         "strike": 7200
       },
       {
-        "pain": 69154000.0,
+        "pain": 318956000.0,
         "strike": 7300
       },
       {
-        "pain": 82890500.0,
+        "pain": 371032500.0,
         "strike": 7400
       },
       {
-        "pain": 97934500.0,
+        "pain": 424016500.0,
         "strike": 7500
       }
     ],
     "oi_dist": [
       {
-        "call_oi": 7,
-        "put_oi": 715,
+        "call_oi": 15,
+        "put_oi": 7256,
         "strike": 5500
       },
       {
-        "call_oi": 24,
-        "put_oi": 1830,
+        "call_oi": 29,
+        "put_oi": 3265,
         "strike": 5600
       },
       {
-        "call_oi": 128,
-        "put_oi": 2127,
+        "call_oi": 201,
+        "put_oi": 3775,
         "strike": 5700
       },
       {
-        "call_oi": 279,
-        "put_oi": 2225,
+        "call_oi": 360,
+        "put_oi": 11743,
         "strike": 5800
       },
       {
-        "call_oi": 266,
-        "put_oi": 2125,
+        "call_oi": 393,
+        "put_oi": 3945,
         "strike": 5900
       },
       {
-        "call_oi": 410,
-        "put_oi": 4014,
+        "call_oi": 2788,
+        "put_oi": 28623,
         "strike": 6000
       },
       {
-        "call_oi": 343,
-        "put_oi": 2209,
+        "call_oi": 1203,
+        "put_oi": 4901,
         "strike": 6100
       },
       {
-        "call_oi": 528,
-        "put_oi": 1772,
+        "call_oi": 1772,
+        "put_oi": 18023,
         "strike": 6200
       },
       {
-        "call_oi": 544,
-        "put_oi": 1981,
+        "call_oi": 7591,
+        "put_oi": 19212,
         "strike": 6300
       },
       {
-        "call_oi": 1193,
-        "put_oi": 1427,
+        "call_oi": 6946,
+        "put_oi": 16856,
         "strike": 6400
       },
       {
-        "call_oi": 2198,
-        "put_oi": 1325,
+        "call_oi": 14576,
+        "put_oi": 15087,
         "strike": 6500
       },
       {
-        "call_oi": 2096,
-        "put_oi": 601,
+        "call_oi": 14135,
+        "put_oi": 3249,
         "strike": 6600
       },
       {
-        "call_oi": 4216,
-        "put_oi": 487,
+        "call_oi": 13240,
+        "put_oi": 804,
         "strike": 6700
       },
       {
-        "call_oi": 1696,
-        "put_oi": 593,
+        "call_oi": 7656,
+        "put_oi": 528,
         "strike": 6800
       },
       {
-        "call_oi": 1924,
-        "put_oi": 492,
+        "call_oi": 4117,
+        "put_oi": 348,
         "strike": 6900
       },
       {
-        "call_oi": 5441,
-        "put_oi": 3,
+        "call_oi": 18259,
+        "put_oi": 530,
         "strike": 7000
       },
       {
-        "call_oi": 2061,
-        "put_oi": 0,
+        "call_oi": 3276,
+        "put_oi": 91,
         "strike": 7100
       },
       {
-        "call_oi": 2213,
-        "put_oi": 0,
+        "call_oi": 3349,
+        "put_oi": 87,
         "strike": 7200
       },
       {
-        "call_oi": 1906,
-        "put_oi": 0,
+        "call_oi": 4257,
+        "put_oi": 35,
         "strike": 7300
       },
       {
-        "call_oi": 2615,
-        "put_oi": 0,
+        "call_oi": 1811,
+        "put_oi": 4,
         "strike": 7400
       },
       {
-        "call_oi": 1199,
-        "put_oi": 0,
+        "call_oi": 2227,
+        "put_oi": 6,
         "strike": 7500
       }
     ],
@@ -1010,689 +979,272 @@
   },
   "iv_curve": {
     "available": true,
-    "T": 0.0830405205560485,
+    "T": 1.1830819284235433e-05,
     "atm_strike": 6500,
     "confidence_band": {
-      "T": 0.0830405205560485,
-      "atm_iv": 0.3128366049005791,
+      "T": 1.1830819284235433e-05,
+      "atm_iv": 0.1635944652593285,
       "bands": {
         "68": {
           "level": "约68%/1σ",
-          "lower": 5921.3,
-          "move": 586.7,
-          "move_pct": 9.01,
-          "upper": 7094.7,
+          "lower": 6502.3,
+          "move": 3.7,
+          "move_pct": 0.06,
+          "upper": 6509.7,
           "z": 1.0
         },
         "95": {
           "level": "约95%/1.96σ",
-          "lower": 5358.1,
-          "move": 1149.9,
-          "move_pct": 17.67,
-          "upper": 7657.9,
+          "lower": 6498.8,
+          "move": 7.2,
+          "move_pct": 0.11,
+          "upper": 6513.2,
           "z": 1.96
         }
       },
-      "expiry": "2026-07-13T00:00:00",
+      "expiry": "2026-06-11T00:00:00",
       "formula": "S ± z * S * ATM_IV * sqrt(T)",
       "horizon": "to_expiry",
       "source": "iv_smile_curve.option_underlying_price + svi_params.atm_vol",
       "status": "ok",
-      "underlying_price": 6508.0
+      "underlying_price": 6506.0
     },
-    "current_interval_key": "22:45",
+    "current_interval_key": "15:00",
     "curve": [
       {
-        "call_oi": 7,
-        "iv_change": 0.0573,
-        "prev_avg": 0.35411494355988415,
-        "put_oi": 441,
-        "raw_C": null,
-        "raw_P": 0.41437100534064947,
-        "raw_avg": 0.41437100534064947,
-        "smooth": 0.41145194097484394,
-        "smooth_prev": 0.35411494355988415,
-        "strike": 5000
-      },
-      {
-        "call_oi": 14,
-        "iv_change": 0.0458,
-        "prev_avg": 0.35411494355988415,
-        "put_oi": 269,
-        "raw_C": null,
-        "raw_P": 0.4019597274615228,
-        "raw_avg": 0.4019597274615228,
-        "smooth": 0.3999247939218833,
-        "smooth_prev": 0.35411494355988415,
-        "strike": 5100
-      },
-      {
-        "call_oi": 3,
-        "iv_change": 0.0345,
-        "prev_avg": 0.35411494355988415,
-        "put_oi": 317,
-        "raw_C": 0.2601826598986365,
-        "raw_P": 0.3917431408241518,
-        "raw_avg": 0.32596290036139414,
-        "smooth": 0.3886520899657672,
-        "smooth_prev": 0.35411494355988415,
-        "strike": 5200
-      },
-      {
-        "iv_change": 0.029,
-        "prev_avg": 0.35411494355988415,
-        "smooth": 0.3831295565543585,
-        "smooth_prev": 0.35411494355988415,
-        "strike": 5250
-      },
-      {
-        "call_oi": 6,
-        "iv_change": 0.0236,
-        "prev_avg": 0.35411494355988415,
-        "put_oi": 419,
-        "raw_C": 0.35512264007425043,
-        "raw_P": 0.37725069003253825,
-        "raw_avg": 0.36618666505339437,
-        "smooth": 0.37769454372865446,
-        "smooth_prev": 0.35411494355988415,
-        "strike": 5300
-      },
-      {
-        "iv_change": 0.0182,
-        "prev_avg": 0.35411494355988415,
-        "smooth": 0.37235705514884454,
-        "smooth_prev": 0.35411494355988415,
-        "strike": 5350
-      },
-      {
-        "call_oi": 4,
-        "iv_change": 0.013,
-        "prev_avg": 0.35411494355988415,
-        "put_oi": 958,
-        "raw_C": 0.3254584854698816,
-        "raw_C_prev": null,
-        "raw_P": 0.36697758331190916,
-        "raw_P_prev": 0.35411494355988415,
-        "raw_avg": 0.3462180343908954,
-        "smooth": 0.36712819814306086,
-        "smooth_prev": 0.35411494355988415,
-        "strike": 5400
-      },
-      {
-        "iv_change": 0.0117,
-        "prev_avg": 0.3503526538539607,
-        "smooth": 0.3620202469662683,
-        "smooth_prev": 0.3503526538539607,
-        "strike": 5450
-      },
-      {
-        "call_oi": 7,
-        "iv_change": 0.0105,
-        "prev_avg": 0.34659036414803723,
-        "put_oi": 715,
-        "raw_C": 0.34111975589040433,
-        "raw_C_prev": null,
-        "raw_P": 0.35777286366542527,
-        "raw_P_prev": 0.34659036414803723,
-        "raw_avg": 0.3494463097779148,
-        "smooth": 0.3570466935902818,
-        "smooth_prev": 0.34659036414803723,
-        "strike": 5500
-      },
-      {
-        "iv_change": 0.0113,
-        "prev_avg": 0.3409521878947452,
-        "smooth": 0.3522222798521782,
-        "smooth_prev": 0.3409521878947452,
-        "strike": 5550
-      },
-      {
-        "call_oi": 24,
-        "iv_change": 0.0122,
-        "prev_avg": 0.33531401164145314,
-        "put_oi": 1830,
-        "raw_C": 0.3170673216021486,
-        "raw_C_prev": null,
-        "raw_P": 0.3479291056651918,
-        "raw_P_prev": 0.33531401164145314,
-        "raw_avg": 0.3324982136336702,
-        "smooth": 0.347563003511339,
-        "smooth_prev": 0.33531401164145314,
-        "strike": 5600
-      },
-      {
-        "iv_change": 0.0115,
-        "prev_avg": 0.33156900142548107,
-        "smooth": 0.34308608954517666,
-        "smooth_prev": 0.33156900142548107,
-        "strike": 5650
-      },
-      {
-        "call_oi": 128,
-        "iv_change": 0.011,
-        "prev_avg": 0.327823991209509,
-        "put_oi": 2127,
-        "raw_C": 0.35178952652301976,
-        "raw_C_prev": null,
-        "raw_P": 0.33841354328016443,
-        "raw_P_prev": 0.327823991209509,
-        "raw_avg": 0.3451015349015921,
-        "smooth": 0.33880991702241464,
-        "smooth_prev": 0.327823991209509,
-        "strike": 5700
-      },
-      {
-        "iv_change": 0.0118,
-        "prev_avg": 0.3229984794239039,
-        "smooth": 0.3347538913696296,
-        "smooth_prev": 0.3229984794239039,
-        "strike": 5750
-      },
-      {
-        "call_oi": 279,
-        "iv_change": 0.0128,
-        "prev_avg": 0.31817296763829883,
-        "put_oi": 2225,
-        "raw_C": 0.23251241896549296,
-        "raw_C_prev": null,
-        "raw_P": 0.3308386219067634,
-        "raw_P_prev": 0.31817296763829883,
-        "raw_avg": 0.2816755204361282,
-        "smooth": 0.3309382520948866,
-        "smooth_prev": 0.31817296763829883,
-        "strike": 5800
-      },
-      {
-        "iv_change": 0.0095,
-        "prev_avg": 0.3178801249780305,
-        "smooth": 0.3273838073986543,
-        "smooth_prev": 0.3178801249780305,
-        "strike": 5850
-      },
-      {
-        "call_oi": 266,
-        "iv_change": 0.0065,
-        "prev_avg": 0.3175872823177621,
-        "put_oi": 2125,
-        "raw_C": 0.3092231435993909,
-        "raw_C_prev": null,
-        "raw_P": 0.32363412414957354,
-        "raw_P_prev": 0.3175872823177621,
-        "raw_avg": 0.3164286338744822,
-        "smooth": 0.32411158993123423,
-        "smooth_prev": 0.3175872823177621,
-        "strike": 5900
-      },
-      {
-        "iv_change": 0.0073,
-        "prev_avg": 0.31379531152499096,
-        "smooth": 0.32114243251243346,
-        "smooth_prev": 0.31379531152499096,
-        "strike": 5950
-      },
-      {
-        "call_oi": 410,
-        "iv_change": 0.0085,
-        "prev_avg": 0.3100033407322198,
-        "put_oi": 4014,
-        "raw_C": 0.2995997969987278,
-        "raw_C_prev": 0.29294002945449227,
-        "raw_P": 0.3189721683218982,
-        "raw_P_prev": 0.3100033407322198,
-        "raw_avg": 0.309285982660313,
-        "smooth": 0.3184964689920798,
-        "smooth_prev": 0.3100033407322198,
+        "call_oi": 2788,
+        "iv_change": 1.7444,
+        "prev_avg": 0.5572867843122091,
+        "put_oi": 28623,
+        "raw_C": 2.6986468913412303,
+        "raw_C_prev": 0.6508081899597211,
+        "raw_P": null,
+        "raw_P_prev": 0.5667383831800601,
+        "raw_avg": 2.6986468913412303,
+        "smooth": 2.3017195045238523,
+        "smooth_prev": 0.5572867843122091,
         "strike": 6000
       },
       {
-        "iv_change": 0.0077,
-        "prev_avg": 0.30851621331094786,
-        "smooth": 0.3161925733723208,
-        "smooth_prev": 0.30851621331094786,
-        "strike": 6050
-      },
-      {
-        "call_oi": 343,
-        "iv_change": 0.0072,
-        "prev_avg": 0.3070290858896759,
-        "put_oi": 2209,
-        "raw_C": 0.3140071160175523,
-        "raw_C_prev": 0.2581302340812696,
-        "raw_P": 0.3145840783750824,
-        "raw_P_prev": 0.3070290858896759,
-        "raw_avg": 0.3142955971963174,
-        "smooth": 0.31424775919964737,
-        "smooth_prev": 0.3070290858896759,
+        "call_oi": 1203,
+        "iv_change": 1.3638,
+        "prev_avg": 0.4846442987036334,
+        "put_oi": 4901,
+        "raw_C_prev": 0.476502833415249,
+        "raw_P_prev": 0.46204132817277077,
+        "smooth": 1.8484073892532893,
+        "smooth_prev": 0.4846442987036334,
         "strike": 6100
       },
       {
-        "iv_change": 0.0008,
-        "prev_avg": 0.31184628651602625,
-        "smooth": 0.31267656998602344,
-        "smooth_prev": 0.31184628651602625,
-        "strike": 6150
-      },
-      {
-        "call_oi": 528,
-        "iv_change": -0.0052,
-        "prev_avg": 0.3166634871423766,
-        "put_oi": 1772,
-        "raw_C": 0.3112501685817273,
-        "raw_C_prev": 0.291617048910555,
-        "raw_P": 0.31123240817630987,
-        "raw_P_prev": 0.3166634871423766,
-        "raw_avg": 0.3112412883790186,
-        "smooth": 0.31149049858597966,
-        "smooth_prev": 0.3166634871423766,
+        "call_oi": 1772,
+        "iv_change": 0.9845,
+        "prev_avg": 0.41285461211232466,
+        "put_oi": 18023,
+        "raw_C": 0.7493868145785091,
+        "raw_C_prev": 0.428222044621816,
+        "raw_P": null,
+        "raw_P_prev": 0.42139924352445035,
+        "raw_avg": 0.7493868145785091,
+        "smooth": 1.397317542514805,
+        "smooth_prev": 0.41285461211232466,
         "strike": 6200
       },
       {
-        "iv_change": -0.0012,
-        "prev_avg": 0.3119319203140749,
-        "smooth": 0.31069747744657067,
-        "smooth_prev": 0.3119319203140749,
-        "strike": 6250
-      },
-      {
-        "call_oi": 544,
-        "iv_change": 0.0031,
-        "prev_avg": 0.3072003534857732,
-        "put_oi": 1981,
-        "raw_C": 0.31000280767912003,
-        "raw_C_prev": 0.2914884616815162,
-        "raw_P": 0.31059172674593305,
-        "raw_P_prev": 0.3072003534857732,
-        "raw_avg": 0.31029726721252654,
-        "smooth": 0.310301481076182,
-        "smooth_prev": 0.3072003534857732,
+        "call_oi": 7591,
+        "iv_change": 0.6044,
+        "prev_avg": 0.3475697292940543,
+        "put_oi": 19212,
+        "raw_C_prev": 0.36305363162044413,
+        "raw_P_prev": 0.3628433377056559,
+        "smooth": 0.9519748162050361,
+        "smooth_prev": 0.3475697292940543,
         "strike": 6300
       },
       {
-        "iv_change": 0.0079,
-        "prev_avg": 0.3024518024373809,
-        "smooth": 0.31030227618330913,
-        "smooth_prev": 0.3024518024373809,
-        "strike": 6350
-      },
-      {
-        "call_oi": 1193,
-        "iv_change": 0.013,
-        "prev_avg": 0.2977032513889887,
-        "put_oi": 1427,
-        "raw_C": 0.31070005990156224,
-        "raw_C_prev": 0.28702021715693016,
-        "raw_P": 0.3107973573299859,
-        "raw_P_prev": 0.3083862856210472,
-        "raw_avg": 0.3107487086157741,
-        "smooth": 0.31069534391109804,
-        "smooth_prev": 0.2977032513889887,
+        "call_oi": 6946,
+        "iv_change": 0.2203,
+        "prev_avg": 0.299620267902764,
+        "put_oi": 16856,
+        "raw_C": null,
+        "raw_C_prev": 0.29154602771599103,
+        "raw_P": 0.5199495393273962,
+        "raw_P_prev": 0.29544969127885556,
+        "raw_avg": 0.5199495393273962,
+        "smooth": 0.5199699970343002,
+        "smooth_prev": 0.299620267902764,
         "strike": 6400
       },
       {
-        "iv_change": 0.0161,
-        "prev_avg": 0.2953225738737574,
-        "smooth": 0.31147198370829815,
-        "smooth_prev": 0.2953225738737574,
-        "strike": 6450
-      },
-      {
-        "call_oi": 2198,
-        "iv_change": 0.0197,
-        "prev_avg": 0.29294189635852613,
-        "put_oi": 1325,
-        "raw_C": 0.31219721213843443,
-        "raw_C_prev": 0.29294189635852613,
-        "raw_P": 0.3131851740893514,
-        "raw_P_prev": 0.3029204172245636,
-        "raw_avg": 0.31269119311389293,
-        "smooth": 0.3126195917978526,
-        "smooth_prev": 0.29294189635852613,
+        "call_oi": 14576,
+        "iv_change": -0.1122,
+        "prev_avg": 0.28294568199596065,
+        "put_oi": 15087,
+        "raw_C": 0.14121893028777086,
+        "raw_C_prev": 0.27148053295318875,
+        "raw_P": 0.20017410046717943,
+        "raw_P_prev": 0.2699694590461854,
+        "raw_avg": 0.17069651537747516,
+        "smooth": 0.17074328086363452,
+        "smooth_prev": 0.28294568199596065,
         "strike": 6500
       },
       {
-        "iv_change": 0.0196,
-        "prev_avg": 0.2944722532757241,
-        "smooth": 0.3141220915256702,
-        "smooth_prev": 0.2944722532757241,
-        "strike": 6550
-      },
-      {
-        "call_oi": 2096,
-        "iv_change": 0.02,
-        "prev_avg": 0.2960026101929221,
-        "put_oi": 601,
-        "raw_C": 0.31562882333454023,
-        "raw_C_prev": 0.2960026101929221,
-        "raw_P": 0.3158344438405974,
-        "raw_P_prev": 0.32414042179865493,
-        "raw_avg": 0.31573163358756884,
-        "smooth": 0.3159604805058889,
-        "smooth_prev": 0.2960026101929221,
+        "call_oi": 14135,
+        "iv_change": 0.0969,
+        "prev_avg": 0.3027217803204634,
+        "put_oi": 3249,
+        "raw_C": null,
+        "raw_C_prev": 0.30832292455599364,
+        "raw_P": 0.6124380742996355,
+        "raw_P_prev": 0.2995832226324211,
+        "raw_avg": 0.6124380742996355,
+        "smooth": 0.3996246765207764,
+        "smooth_prev": 0.3027217803204634,
         "strike": 6600
       },
       {
-        "iv_change": 0.0177,
-        "prev_avg": 0.30036901743856037,
-        "smooth": 0.318113452094267,
-        "smooth_prev": 0.30036901743856037,
-        "strike": 6650
-      },
-      {
-        "call_oi": 4216,
-        "iv_change": 0.0158,
-        "prev_avg": 0.3047354246841986,
-        "put_oi": 487,
-        "raw_C": 0.31989202844986786,
-        "raw_C_prev": 0.3047354246841986,
-        "raw_P": 0.32068131182275406,
-        "raw_P_prev": 0.3321949371752626,
-        "raw_avg": 0.32028667013631096,
-        "smooth": 0.32055804691919176,
-        "smooth_prev": 0.3047354246841986,
+        "call_oi": 13240,
+        "iv_change": 0.4472,
+        "prev_avg": 0.3486852851026578,
+        "put_oi": 804,
+        "raw_C": null,
+        "raw_C_prev": 0.33700910664107064,
+        "raw_P": 0.7931586797462805,
+        "raw_P_prev": 0.3502964654767336,
+        "raw_avg": 0.7931586797462805,
+        "smooth": 0.7959262943266474,
+        "smooth_prev": 0.3486852851026578,
         "strike": 6700
       },
       {
-        "iv_change": 0.0156,
-        "prev_avg": 0.3077027415921164,
-        "smooth": 0.32327029350410275,
-        "smooth_prev": 0.3077027415921164,
-        "strike": 6750
-      },
-      {
-        "call_oi": 1696,
-        "iv_change": 0.0156,
-        "prev_avg": 0.3106700585000342,
-        "put_oi": 593,
-        "raw_C": 0.32668325905789175,
-        "raw_C_prev": 0.3106700585000342,
-        "raw_P": 0.3270261486377029,
-        "raw_P_prev": 0.3258569386739294,
-        "raw_avg": 0.32685470384779736,
-        "smooth": 0.3262258041414712,
-        "smooth_prev": 0.3106700585000342,
+        "call_oi": 7656,
+        "iv_change": 0.7841,
+        "prev_avg": 0.40685293066446443,
+        "put_oi": 528,
+        "raw_C": 1.190969346051126,
+        "raw_C_prev": 0.41581623746911434,
+        "raw_P": 1.0358086670904922,
+        "raw_P_prev": 0.40936901055272484,
+        "raw_avg": 1.113389006570809,
+        "smooth": 1.1909786309933754,
+        "smooth_prev": 0.40685293066446443,
         "strike": 6800
       },
       {
-        "iv_change": 0.0139,
-        "prev_avg": 0.315530025436106,
-        "smooth": 0.32940030145252375,
-        "smooth_prev": 0.315530025436106,
-        "strike": 6850
-      },
-      {
-        "call_oi": 1924,
-        "iv_change": 0.0124,
-        "prev_avg": 0.32038999237217775,
-        "put_oi": 492,
-        "raw_C": 0.3328967986055617,
-        "raw_C_prev": 0.32038999237217775,
-        "raw_P": 0.3335244914324289,
-        "raw_P_prev": null,
-        "raw_avg": 0.33321064501899533,
-        "smooth": 0.3327700608419944,
-        "smooth_prev": 0.32038999237217775,
+        "call_oi": 4117,
+        "iv_change": 1.1067,
+        "prev_avg": 0.4683349619203768,
+        "put_oi": 348,
+        "raw_C": null,
+        "raw_C_prev": 0.4812067168605107,
+        "raw_P": 0.914603912864706,
+        "raw_P_prev": 0.4590305284920311,
+        "raw_avg": 0.914603912864706,
+        "smooth": 1.5750446010240162,
+        "smooth_prev": 0.4683349619203768,
         "strike": 6900
       },
       {
-        "iv_change": 0.0134,
-        "prev_avg": 0.3228984113194879,
-        "smooth": 0.3363122630186427,
-        "smooth_prev": 0.3228984113194879,
-        "strike": 6950
-      },
-      {
-        "call_oi": 5441,
-        "iv_change": 0.0146,
-        "prev_avg": 0.325406830266798,
-        "put_oi": 3,
-        "raw_C": 0.33961236131959444,
-        "raw_C_prev": 0.325406830266798,
-        "raw_P": 0.35447336256303474,
+        "call_oi": 18259,
+        "iv_change": 1.4171,
+        "prev_avg": 0.5289462900931217,
+        "put_oi": 530,
+        "raw_C_prev": 0.5107106688245557,
         "raw_P_prev": null,
-        "raw_avg": 0.3470428619413146,
-        "smooth": 0.34000525806215837,
-        "smooth_prev": 0.325406830266798,
+        "smooth": 1.9459965565445894,
+        "smooth_prev": 0.5289462900931217,
         "strike": 7000
       },
       {
-        "iv_change": 0.0117,
-        "prev_avg": 0.3321299266689363,
-        "smooth": 0.3438287478144227,
-        "smooth_prev": 0.3321299266689363,
-        "strike": 7050
-      },
-      {
-        "call_oi": 2061,
-        "iv_change": 0.0089,
-        "prev_avg": 0.3388530230710746,
-        "put_oi": 0,
-        "raw_C": 0.34821535259164327,
-        "raw_C_prev": 0.3388530230710746,
-        "raw_P": 0.36967773038865726,
-        "raw_P_prev": null,
-        "raw_avg": 0.35894654149015026,
-        "smooth": 0.34776389667911584,
-        "smooth_prev": 0.3388530230710746,
+        "call_oi": 3276,
+        "iv_change": 1.7162,
+        "prev_avg": 0.5870200060753462,
+        "put_oi": 91,
+        "raw_C": null,
+        "raw_C_prev": 0.5927045685019457,
+        "raw_P": 3.2413033481638927,
+        "raw_P_prev": 0.45258511719227157,
+        "raw_avg": 3.2413033481638927,
+        "smooth": 2.30319071743036,
+        "smooth_prev": 0.5870200060753462,
         "strike": 7100
       },
       {
-        "iv_change": 0.0084,
-        "prev_avg": 0.34339378386640484,
-        "smooth": 0.3517933824979403,
-        "smooth_prev": 0.34339378386640484,
-        "strike": 7150
-      },
-      {
-        "call_oi": 2213,
-        "iv_change": 0.008,
-        "prev_avg": 0.347934544661735,
-        "put_oi": 0,
-        "raw_C": 0.3558753204832425,
-        "raw_C_prev": 0.347934544661735,
-        "raw_P": 0.37584951373181447,
-        "raw_P_prev": null,
-        "raw_avg": 0.3658624171075285,
-        "smooth": 0.35590139942336774,
-        "smooth_prev": 0.347934544661735,
+        "call_oi": 3349,
+        "prev_avg": 0.6420382118838468,
+        "put_oi": 87,
+        "raw_C": null,
+        "raw_C_prev": null,
+        "raw_P": 3.3011601811620874,
+        "raw_P_prev": 0.7383319236828059,
+        "raw_avg": 3.3011601811620874,
+        "smooth_prev": 0.6420382118838468,
         "strike": 7200
       },
       {
-        "iv_change": 0.0087,
-        "prev_avg": 0.3513262446841828,
-        "smooth": 0.360073624035653,
-        "smooth_prev": 0.3513262446841828,
-        "strike": 7250
-      },
-      {
-        "call_oi": 1906,
-        "iv_change": 0.0096,
-        "prev_avg": 0.35471794470663054,
-        "put_oi": 0,
-        "raw_C": 0.36457242305914733,
-        "raw_C_prev": 0.35471794470663054,
-        "raw_P": 0.38639776274659066,
-        "raw_P_prev": null,
-        "raw_avg": 0.375485092902869,
-        "smooth": 0.36429715472134333,
-        "smooth_prev": 0.35471794470663054,
+        "call_oi": 4257,
+        "prev_avg": 0.6939732733734006,
+        "put_oi": 35,
+        "raw_C": null,
+        "raw_P": 3.9582993472784054,
+        "raw_avg": 3.9582993472784054,
+        "smooth_prev": 0.6939732733734006,
         "strike": 7300
       },
       {
-        "iv_change": 0.0079,
-        "prev_avg": 0.3606474760702521,
-        "smooth": 0.368560432833084,
-        "smooth_prev": 0.3606474760702521,
-        "strike": 7350
-      },
-      {
-        "call_oi": 2615,
-        "iv_change": 0.0063,
-        "prev_avg": 0.36657700743387367,
-        "put_oi": 0,
-        "raw_C": 0.37254505766372364,
-        "raw_C_prev": 0.36657700743387367,
-        "raw_P": 0.3905352510766983,
-        "raw_P_prev": null,
-        "raw_avg": 0.38154015437021094,
-        "smooth": 0.3728531525968369,
-        "smooth_prev": 0.36657700743387367,
+        "call_oi": 1811,
+        "prev_avg": 0.7429923570761483,
+        "put_oi": 4,
+        "raw_C": null,
+        "raw_P": 4.278352659626166,
+        "raw_avg": 4.278352659626166,
+        "smooth_prev": 0.7429923570761483,
         "strike": 7400
-      },
-      {
-        "iv_change": 0.0106,
-        "prev_avg": 0.36657700743387367,
-        "smooth": 0.3771661652600379,
-        "smooth_prev": 0.36657700743387367,
-        "strike": 7450
-      },
-      {
-        "call_oi": 1199,
-        "iv_change": 0.0149,
-        "prev_avg": 0.36657700743387367,
-        "put_oi": 0,
-        "raw_C": 0.38194598542701985,
-        "raw_P": 0.40358611046779874,
-        "raw_avg": 0.3927660479474093,
-        "smooth": 0.3814913816610004,
-        "smooth_prev": 0.36657700743387367,
-        "strike": 7500
-      },
-      {
-        "iv_change": 0.0192,
-        "prev_avg": 0.36657700743387367,
-        "smooth": 0.38582167628086644,
-        "smooth_prev": 0.36657700743387367,
-        "strike": 7550
-      },
-      {
-        "call_oi": 328,
-        "iv_change": 0.0236,
-        "prev_avg": 0.36657700743387367,
-        "put_oi": 0,
-        "raw_C": 0.38937835326253956,
-        "raw_P": 0.41466290123265925,
-        "raw_avg": 0.4020206272475994,
-        "smooth": 0.3901507949201801,
-        "smooth_prev": 0.36657700743387367,
-        "strike": 7600
-      },
-      {
-        "iv_change": 0.0279,
-        "prev_avg": 0.36657700743387367,
-        "smooth": 0.39447326741046523,
-        "smooth_prev": 0.36657700743387367,
-        "strike": 7650
-      },
-      {
-        "call_oi": 1324,
-        "iv_change": 0.0322,
-        "prev_avg": 0.36657700743387367,
-        "put_oi": 0,
-        "raw_C": 0.3966992530038834,
-        "raw_P": 0.41566278771034465,
-        "raw_avg": 0.406181020357114,
-        "smooth": 0.3987843262053283,
-        "smooth_prev": 0.36657700743387367,
-        "strike": 7700
-      },
-      {
-        "iv_change": 0.0365,
-        "prev_avg": 0.36657700743387367,
-        "smooth": 0.40307983127024244,
-        "smooth_prev": 0.36657700743387367,
-        "strike": 7750
-      },
-      {
-        "call_oi": 224,
-        "iv_change": 0.0408,
-        "prev_avg": 0.36657700743387367,
-        "put_oi": 0,
-        "raw_C": 0.4056787811646147,
-        "raw_P": 0.42453648398195426,
-        "raw_avg": 0.4151076325732845,
-        "smooth": 0.40735620137988166,
-        "smooth_prev": 0.36657700743387367,
-        "strike": 7800
-      },
-      {
-        "call_oi": 231,
-        "iv_change": 0.0493,
-        "prev_avg": 0.36657700743387367,
-        "put_oi": 0,
-        "raw_C": 0.4119247832334779,
-        "raw_P": 0.46371571676042894,
-        "raw_avg": 0.43782024999695346,
-        "smooth": 0.41583963748980246,
-        "smooth_prev": 0.36657700743387367,
-        "strike": 7900
-      },
-      {
-        "call_oi": 380,
-        "iv_change": 0.0576,
-        "prev_avg": 0.36657700743387367,
-        "put_oi": 3,
-        "raw_C": 0.4201635331604728,
-        "raw_P": 0.4608994561985851,
-        "raw_avg": 0.4405314946795289,
-        "smooth": 0.4242149376987809,
-        "smooth_prev": 0.36657700743387367,
-        "strike": 8000
-      },
-      {
-        "call_oi": 1375,
-        "iv_change": 0.0659,
-        "prev_avg": 0.36657700743387367,
-        "put_oi": 0,
-        "raw_C": 0.4229900703874062,
-        "raw_P": 0.4617719803670284,
-        "raw_avg": 0.4423810253772173,
-        "smooth": 0.4324679477558223,
-        "smooth_prev": 0.36657700743387367,
-        "strike": 8100
       }
     ],
-    "expiry": "2026-07-13T00:00:00",
-    "futures_price": 6508,
+    "expiry": "2026-06-11T00:00:00",
+    "futures_price": 6506,
     "is_cold_start_fallback": false,
-    "is_trading_hours": true,
-    "last_update": "2026-06-11T22:45:41.846346",
+    "is_trading_hours": false,
+    "last_update": "2026-06-11T14:35:13.618579",
     "max_pain": 6400,
-    "prev_atm_strike": 6400,
+    "prev_atm_strike": 6500,
     "prev_interval_key": "15:00收盘",
-    "prev_timestamp": "06/11 15:00",
+    "prev_timestamp": "06/10 15:00",
     "ref_strike": 6400,
     "skew_audit": {
-      "current_curvature": 6.252047037323714,
-      "current_rho": 0.08257659910601967,
-      "current_skew": 0.1802182817476361,
+      "current_curvature": 4789.370127892625,
+      "current_rho": -0.10793742792688198,
+      "current_skew": -5.706841942017506,
       "formula": "skew = dσ/dk|ATM = dw/dk / (2*sqrt(w*T)), k=ln(K/F)",
-      "interpretation": "当前skew=0.180，rho=0.083，口径判断为轻微偏斜；负值表示左侧/低行权价方向隐波相对更高。",
-      "label": "轻微偏斜",
+      "interpretation": "当前skew=-5.707，rho=-0.108，口径判断为显著偏斜；负值表示左侧/低行权价方向隐波相对更高。",
+      "label": "显著偏斜",
       "meaning": "展示的 skew 是ATM附近隐含波动率曲线一阶斜率，不是SVI原始参数rho；rho只控制左右偏斜方向。",
       "recommendation": "保留当前公式；前端/研报展示时标注为“ATM偏度(dσ/dlnK)”以避免与rho或翼部偏斜混淆。",
       "status": "ok"
     },
     "svi_params": {
-      "a": -0.0002962289962399315,
-      "atm_vol": 0.3128366049005791,
-      "b": 0.05235171448168901,
-      "curvature": 6.252047037323714,
-      "m": -0.015374977770108622,
+      "a": -0.015616409918576702,
+      "atm_vol": 0.1635944652593285,
+      "b": 0.08601189494285881,
+      "curvature": 4789.370127892625,
+      "m": -0.01864510648786382,
       "metric_note": {
         "curvature": "curvature = ATM附近二阶凸性近似值，数值越大表示微笑越弯。",
         "rho": "rho 是 SVI 原始参数中的偏斜控制项，通常为负表示左偏，但与展示层 skew 不是同一数值。",
         "rmse": "rmse 表示拟合误差，越小越好。",
         "skew": "ATM skew = dσ/dk|0，表示ATM附近隐波对数价差的一阶斜率；不是rho本身，也不是翼部斜率。"
       },
-      "min_var": 0.007994336087029399,
-      "rho": 0.08257659910601967,
-      "rmse": 0.0003511852039744376,
-      "sigma": 0.15890552574356417,
-      "skew": 0.1802182817476361,
+      "min_var": 7.586498258126129e-06,
+      "rho": -0.10793742792688198,
+      "rmse": 2.9954068282795252e-05,
+      "sigma": 0.18271674035954513,
+      "skew": -5.706841942017506,
       "success": true
     },
-    "underlying_price": 6508,
-    "using_night_fallback": true
+    "underlying_price": 6506,
+    "using_night_fallback": false
   },
   "industry_analysis": {
     "timestamp": "2026-06-11 10:25:34",
@@ -2249,7 +1801,7 @@
       "spot_price": 6603.16,
       "near_contract": "TA606",
       "near_price": 6450.0,
-      "dominant_contract": "TA609",
+      "dominant_contract": "",
       "dominant_price": 6290.0,
       "near_basis": -107.67000000000007,
       "dom_basis": -267.6700000000001,
@@ -3159,7 +2711,7 @@
       "option_structure": "负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动",
       "macro_fundamental": "宏观基本面：以宏观财经快讯和成本链为主，暂不展示周频供需项。",
       "strategy_judgement": "",
-      "narrative": "当前市场判断：短线“偏弱震荡”，但不是单边空头。\n\n1. 期货价格层面（期货盘面）：短线节奏看盘面主力，期权结构看期权链标的参考价。\n| 项目 | 当前值 | 交易含义 |\n| --- | --- | --- |\n| 期权链标的参考价 | 6488 | 用于GEX、Pain、OI和IV结构判断 |\n| 盘面主力参考价 | TA 6388 | K线短线节奏：短线偏弱 |\n| 最近20根K线 | -2 | 观察日内强弱和追单风险 |\n| PTA现货 | 6603 | 现货/成本锚 |\n| 现货-近月基差 | -108 | 升水偏强、贴水偏弱 |\n盘面短线短线偏弱，期权链标的参考价6488负责GEX、Pain和持仓压力判断，盘面主力参考价6388负责入场节奏判断；两者不混用，避免把结构位和短线K线信号揉成一个价格。\n盘面主力参考价显示短线偏弱，最近一根变化+4点，过去20根累计-2点。期权链标的参考价6488用于判断GEX、Pain和持仓压力，不与盘面价混在一起下结论。\n\n2. GEX结构：价格所处Gamma区决定波动是否容易被放大。\n| 指标 | 当前值 |\n| --- | --- |\n| 标的价F | 6488 |\n| GEX Flip | 6494 |\n| 净GEX | -6.7M |\n| Gamma方向 | negative |\n| Max Pain | 6400 |\n| PCR | 1.252 |\n| 剩余到期 | 32.2天 |\nGEX处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。因此交易上先盯两条线：6400若失守，负Gamma容易放大顺势波动；6494若被重新收复，追涨杀跌压力会减轻。\n核心含义：F=6488 低于 GEX Flip=6494，当前处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。若价格重新站回6494/6600上方，负Gamma压力会缓和；若跌破6400附近，波动可能更顺。\n\n3. Max Pain：临近到期关注痛点收敛，而不是简单看多看空。\n| 行权价 | Pain | 备注 |\n| --- | --- | --- |\n| 6400 | 30,382,500 | 最低 |\n| 6300 | 43,689,500 |  |\n| 6500 | 33,999,500 |  |\n| 6200 | 74,424,500 |  |\n| 6600 | 48,313,000 |  |\n当前Max Pain=6400。当前期权标的价距离Max Pain约+88点，临近到期存在向6400收敛的引力。 因此期权维度不是极端单边，而是上方Call压力、下方痛点/Put防线共同约束。\n\n4. 持仓结构：Put持仓偏多时要区分保护盘和主动空头。\n当前总持仓：Call OI=136,089，Put OI=170,318，PCR=1.252。\nPut持仓集中：\n| Put行权价 | Put OI |\n| --- | --- |\n| 6000 | 28,897 |\n| 6300 | 26,869 |\n| 6400 | 25,093 |\n| 6200 | 21,903 |\n| 5800 | 11,743 |\nCall持仓集中：\n| Call行权价 | Call OI |\n| --- | --- |\n| 6600 | 21,015 |\n| 7000 | 20,296 |\n| 6700 | 16,341 |\n| 6500 | 11,125 |\n| 6800 | 11,061 |\n解读：Put集中在6000, 6300, 6400，Call压力集中在6600, 7000, 6700, 6500。大致结构是：6400为痛点锚，6494为波动分界，6600及以上为压力带。\n\n5. IV结构：看ATM隐波是否够高，也看左侧保护溢价。\n| K | C IV | P IV | SVI/平滑IV | OI结构 |\n| --- | --- | --- | --- | --- |\n| 6300 | 40.69% | 39.94% | 39.19% | C 7,987 / P 26,869 |\n| 6400 | 29.04% | 32.65% | 32.30% | C 8,755 / P 25,093 |\n| 6500 | 28.17% | 28.36% | 29.57% | C 11,125 / P 10,268 |\n| 6600 | 32.15% | 31.91% | 31.72% | C 21,015 / P 3,368 |\n| 6700 | 38.01% | 57.17% | 37.34% | C 16,341 / P 1,015 |\nATM隐波约29.6%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。\nATM附近隐波约29.6%，属于中等波动率；右偏(看涨溢价偏高)，上行博弈需求旺盛；极高曲率(尾部风险定价极高)，市场预期可能出现剧烈波动。左侧Put IV若显著高于ATM，说明市场对下跌尾部风险有定价。\n\n6. 基本面与宏观：先看宏观快讯和成本链，周频供需项暂不放入盘中主研判。\n| 项目 | 当前值 | 解读 |\n| --- | --- | --- |\n| Brent | $94.57，+1.58% | 原油宏观成本 |\n| WTI | $91.71，+1.87% | 原油宏观成本 |\n| PX现货 | 9000 | 内盘成本端 |\n| PX外盘现货价 | -- | CFR中国/亚洲收盘价待更新 |\n| PTA估算成本 | 5895 | 内盘成本支撑区 |\n| 外盘PTA动态成本 | -- | PX亚洲收盘价*0.655*1.01*1.13*USD/CNY |\n| PTA利润 | 708，12.0% | 利润高则供应压力偏空 |\n宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：【人工宏观基本面】美伊谈判从积极信号突现戏剧性恶化（6月10日美军直升机被击落后第三轮空袭），布伦特/WTI 保持高位去库韧性（Brent周均93.09、年内+55.14%）；PX开工低位（国内75.11% / 79.84%周度利用）成本支撑延续；PTA开工回升至66.7%、加工费维持500-600元/吨高位，社会库存335.5万吨周去库19.57万吨，去库节奏放缓；聚酯负荷80.21%低位、终端织造小幅改善但有限，瓶片出口1-4月累计+1.67%。机构分歧：偏空（中信期货/中信建投、申万）、短期偏多（华泰、广州、华安）、中性区间（国信）。核心矛盾已切换。；截至6月5日当周Brent周均93.09美元/桶（环比+2.16%）、WTI 90.54（+3.64%）、俄罗斯ESPO现货82.38（-1.67%）。；美国原油总库存7.9亿桶（-1597万桶），商业库存4.3亿桶（-797万桶），战略储备3.6亿桶（-799万桶），库欣0.2亿桶（-58万桶），去库持续。。外盘PX/外盘PTA动态成本等待最新有效报价；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。\n宏观快讯：【人工宏观基本面】美伊谈判从积极信号突现戏剧性恶化（6月10日美军直升机被击落后第三轮空袭），布伦特/WTI 保持高位去库韧性（Brent周均93.09、年内+55.14%）；PX；截至6月5日当周Brent周均93.09美元/桶（环比+2.16%）、WTI 90.54（+3.64%）、俄罗斯ESPO现货82.38（-1.67%）。；美国原油总库存7.9亿桶（-1597万桶），商业库存4.3亿桶（-797万桶），战略储备3.6亿桶（-799万桶），库欣0.2亿桶（-58万桶），去库持续。；年初至6月8日Brent +55.14%、WTI +59.28%、ESPO +76.26%。。\n基本面不是单边空：现货/成本可能提供下方支撑；但加工利润708元若处在偏高区域，容易限制上方弹性。\n\n综合结论\n当前主线：偏弱震荡，核心区间关注6400—6600。期货短线短线偏弱，期权结构处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动，真正的方向触发在6400跌破或6494/6600重新站上。\n\n关键价位\n| 位置 | 含义 |\n| --- | --- |\n| 6494 | GEX Flip，重新站上后负Gamma压力缓和 |\n| 6400 | Max Pain + 临近到期收敛锚 |\n| 6000 | 近端Put防线/有效支撑 |\n| 6600 | 近端Call压力/有效压力 |\n| 6600 | 上方最大Call持仓压力带 |\n| 6000 | 下方最大Put保护盘区域 |\n\n操作思路，仅按结构说\n如果偏交易期货：\n• 6494 / 6600下方不宜追多，先按反抽压力处理。\n• 跌破6400并放量增仓，负Gamma可能放大下跌，下一目标看6000。\n• 重新站回6494，空头动能减弱，回到区间震荡。\n如果偏期权卖方：\n• 临近到期Theta衰减快，震荡时卖方有时间价值优势。\n• 负Gamma环境不裸卖近端Put，尤其是6400失守后。\n• 若站回6494，可考虑更稳健的宽跨/价差结构。\n如果偏买方：\n• 买Put触发点优先看6400有效跌破。\n• 买Call触发点看重新站回6494或压力位后的修复。\n• 夹在痛点和压力之间横盘时，买方容易被时间价值消耗。\n\n一句话总结：现在不是强多盘，短线短线偏弱；看6400是否守住，守住就是临近到期向6400—6600收敛，跌破则负Gamma会让下跌更顺。",
+      "narrative": "当前市场判断：短线“偏弱震荡”，但不是单边空头。\n\n1. 期货价格层面（期货盘面）：短线节奏看盘面主力，期权结构看期权链标的参考价。\n| 项目 | 当前值 | 交易含义 |\n| --- | --- | --- |\n| 期权链标的参考价 | 6488 | 用于GEX、Pain、OI和IV结构判断 |\n| 盘面主力参考价 | TA 6388 | K线短线节奏：短线偏弱 |\n| 最近20根K线 | -2 | 观察日内强弱和追单风险 |\n| PTA现货 | 6603 | 现货/成本锚 |\n| 现货-近月基差 | -108 | 升水偏强、贴水偏弱 |\n盘面短线短线偏弱，期权链标的参考价6488负责GEX、Pain和持仓压力判断，盘面主力参考价6388负责入场节奏判断；两者不混用，避免把结构位和短线K线信号揉成一个价格。\n盘面主力参考价显示短线偏弱，最近一根变化+4点，过去20根累计-2点。期权链标的参考价6488用于判断GEX、Pain和持仓压力，不与盘面价混在一起下结论。\n\n2. GEX结构：价格所处Gamma区决定波动是否容易被放大。\n| 指标 | 当前值 |\n| --- | --- |\n| 标的价F | 6488 |\n| GEX Flip | 6494 |\n| 净GEX | -6.7M |\n| Gamma方向 | negative |\n| Max Pain | 6400 |\n| PCR | 1.252 |\n| 剩余到期 | 32.2天 |\nGEX处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。因此交易上先盯两条线：6400若失守，负Gamma容易放大顺势波动；6494若被重新收复，追涨杀跌压力会减轻。\n核心含义：F=6488 低于 GEX Flip=6494，当前处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。若价格重新站回6494/6600上方，负Gamma压力会缓和；若跌破6400附近，波动可能更顺。\n\n3. Max Pain：临近到期关注痛点收敛，而不是简单看多看空。\n| 行权价 | Pain | 备注 |\n| --- | --- | --- |\n| 6400 | 30,382,500 | 最低 |\n| 6300 | 43,689,500 | |\n| 6500 | 33,999,500 | |\n| 6200 | 74,424,500 | |\n| 6600 | 48,313,000 | |\n当前Max Pain=6400。当前期权标的价距离Max Pain约+88点，临近到期存在向6400收敛的引力。 因此期权维度不是极端单边，而是上方Call压力、下方痛点/Put防线共同约束。\n\n4. 持仓结构：Put持仓偏多时要区分保护盘和主动空头。\n当前总持仓：Call OI=136,089，Put OI=170,318，PCR=1.252。\nPut持仓集中：\n| Put行权价 | Put OI |\n| --- | --- |\n| 6000 | 28,897 |\n| 6300 | 26,869 |\n| 6400 | 25,093 |\n| 6200 | 21,903 |\n| 5800 | 11,743 |\nCall持仓集中：\n| Call行权价 | Call OI |\n| --- | --- |\n| 6600 | 21,015 |\n| 7000 | 20,296 |\n| 6700 | 16,341 |\n| 6500 | 11,125 |\n| 6800 | 11,061 |\n解读：Put集中在6000, 6300, 6400，Call压力集中在6600, 7000, 6700, 6500。大致结构是：6400为痛点锚，6494为波动分界，6600及以上为压力带。\n\n5. IV结构：看ATM隐波是否够高，也看左侧保护溢价。\n| K | C IV | P IV | SVI/平滑IV | OI结构 |\n| --- | --- | --- | --- | --- |\n| 6300 | 40.69% | 39.94% | 39.19% | C 7,987 / P 26,869 |\n| 6400 | 29.04% | 32.65% | 32.30% | C 8,755 / P 25,093 |\n| 6500 | 28.17% | 28.36% | 29.57% | C 11,125 / P 10,268 |\n| 6600 | 32.15% | 31.91% | 31.72% | C 21,015 / P 3,368 |\n| 6700 | 38.01% | 57.17% | 37.34% | C 16,341 / P 1,015 |\nATM隐波约29.6%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。\nATM附近隐波约29.6%，属于中等波动率；右偏(看涨溢价偏高)，上行博弈需求旺盛；极高曲率(尾部风险定价极高)，市场预期可能出现剧烈波动。左侧Put IV若显著高于ATM，说明市场对下跌尾部风险有定价。\n\n6. 基本面与宏观：先看宏观快讯和成本链，周频供需项暂不放入盘中主研判。\n| 项目 | 当前值 | 解读 |\n| --- | --- | --- |\n| Brent | $94.57，+1.58% | 原油宏观成本 |\n| WTI | $91.71，+1.87% | 原油宏观成本 |\n| PX现货 | 9000 | 内盘成本端 |\n| PX外盘现货价 | -- | CFR中国/亚洲收盘价待更新 |\n| PTA估算成本 | 5895 | 内盘成本支撑区 |\n| 外盘PTA动态成本 | -- | PX亚洲收盘价*0.655*1.01*1.13*USD/CNY |\n| PTA利润 | 708，12.0% | 利润高则供应压力偏空 |\n宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：【人工宏观基本面】美伊谈判从积极信号突现戏剧性恶化（6月10日美军直升机被击落后第三轮空袭），布伦特/WTI 保持高位去库韧性（Brent周均93.09、年内+55.14%）；PX开工低位（国内75.11% / 79.84%周度利用）成本支撑延续；PTA开工回升至66.7%、加工费维持500-600元/吨高位，社会库存335.5万吨周去库19.57万吨，去库节奏放缓；聚酯负荷80.21%低位、终端织造小幅改善但有限，瓶片出口1-4月累计+1.67%。机构分歧：偏空（中信期货/中信建投、申万）、短期偏多（华泰、广州、华安）、中性区间（国信）。核心矛盾已切换。；截至6月5日当周Brent周均93.09美元/桶（环比+2.16%）、WTI 90.54（+3.64%）、俄罗斯ESPO现货82.38（-1.67%）。；美国原油总库存7.9亿桶（-1597万桶），商业库存4.3亿桶（-797万桶），战略储备3.6亿桶（-799万桶），库欣0.2亿桶（-58万桶），去库持续。。外盘PX/外盘PTA动态成本等待最新有效报价；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。\n宏观快讯：【人工宏观基本面】美伊谈判从积极信号突现戏剧性恶化（6月10日美军直升机被击落后第三轮空袭），布伦特/WTI 保持高位去库韧性（Brent周均93.09、年内+55.14%）；PX；截至6月5日当周Brent周均93.09美元/桶（环比+2.16%）、WTI 90.54（+3.64%）、俄罗斯ESPO现货82.38（-1.67%）。；美国原油总库存7.9亿桶（-1597万桶），商业库存4.3亿桶（-797万桶），战略储备3.6亿桶（-799万桶），库欣0.2亿桶（-58万桶），去库持续。；年初至6月8日Brent +55.14%、WTI +59.28%、ESPO +76.26%。。\n基本面不是单边空：现货/成本可能提供下方支撑；但加工利润708元若处在偏高区域，容易限制上方弹性。\n\n综合结论\n当前主线：偏弱震荡，核心区间关注6400—6600。期货短线短线偏弱，期权结构处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动，真正的方向触发在6400跌破或6494/6600重新站上。\n\n关键价位\n| 位置 | 含义 |\n| --- | --- |\n| 6494 | GEX Flip，重新站上后负Gamma压力缓和 |\n| 6400 | Max Pain + 临近到期收敛锚 |\n| 6000 | 近端Put防线/有效支撑 |\n| 6600 | 近端Call压力/有效压力 |\n| 6600 | 上方最大Call持仓压力带 |\n| 6000 | 下方最大Put保护盘区域 |\n\n操作思路，仅按结构说\n如果偏交易期货：\n• 6494 / 6600下方不宜追多，先按反抽压力处理。\n• 跌破6400并放量增仓，负Gamma可能放大下跌，下一目标看6000。\n• 重新站回6494，空头动能减弱，回到区间震荡。\n如果偏期权卖方：\n• 临近到期Theta衰减快，震荡时卖方有时间价值优势。\n• 负Gamma环境不裸卖近端Put，尤其是6400失守后。\n• 若站回6494，可考虑更稳健的宽跨/价差结构。\n如果偏买方：\n• 买Put触发点优先看6400有效跌破。\n• 买Call触发点看重新站回6494或压力位后的修复。\n• 夹在痛点和压力之间横盘时，买方容易被时间价值消耗。\n\n一句话总结：现在不是强多盘，短线短线偏弱；看6400是否守住，守住就是临近到期向6400—6600收敛，跌破则负Gamma会让下跌更顺。",
       "bullets": [
         "GEX：负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动",
         "Pain：当前期权标的价距离Max Pain约+88点，临近到期存在向6400收敛的引力。",
@@ -3469,7 +3021,7 @@
       "option_structure": "负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动",
       "macro_fundamental": "宏观基本面：以宏观财经快讯和成本链为主，暂不展示周频供需项。",
       "strategy_judgement": "",
-      "narrative": "当前市场判断：短线“偏弱震荡”，但不是单边空头。\n\n1. 期货价格层面（期货盘面）：短线节奏看盘面主力，期权结构看期权链标的参考价。\n| 项目 | 当前值 | 交易含义 |\n| --- | --- | --- |\n| 期权链标的参考价 | 6488 | 用于GEX、Pain、OI和IV结构判断 |\n| 盘面主力参考价 | TA 6388 | K线短线节奏：短线偏弱 |\n| 最近20根K线 | -2 | 观察日内强弱和追单风险 |\n| PTA现货 | 6603 | 现货/成本锚 |\n| 现货-近月基差 | -108 | 升水偏强、贴水偏弱 |\n盘面短线短线偏弱，期权链标的参考价6488负责GEX、Pain和持仓压力判断，盘面主力参考价6388负责入场节奏判断；两者不混用，避免把结构位和短线K线信号揉成一个价格。\n盘面主力参考价显示短线偏弱，最近一根变化+4点，过去20根累计-2点。期权链标的参考价6488用于判断GEX、Pain和持仓压力，不与盘面价混在一起下结论。\n\n2. GEX结构：价格所处Gamma区决定波动是否容易被放大。\n| 指标 | 当前值 |\n| --- | --- |\n| 标的价F | 6488 |\n| GEX Flip | 6494 |\n| 净GEX | -6.7M |\n| Gamma方向 | negative |\n| Max Pain | 6400 |\n| PCR | 1.252 |\n| 剩余到期 | 32.2天 |\nGEX处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。因此交易上先盯两条线：6400若失守，负Gamma容易放大顺势波动；6494若被重新收复，追涨杀跌压力会减轻。\n核心含义：F=6488 低于 GEX Flip=6494，当前处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。若价格重新站回6494/6600上方，负Gamma压力会缓和；若跌破6400附近，波动可能更顺。\n\n3. Max Pain：临近到期关注痛点收敛，而不是简单看多看空。\n| 行权价 | Pain | 备注 |\n| --- | --- | --- |\n| 6400 | 30,382,500 | 最低 |\n| 6300 | 43,689,500 |  |\n| 6500 | 33,999,500 |  |\n| 6200 | 74,424,500 |  |\n| 6600 | 48,313,000 |  |\n当前Max Pain=6400。当前期权标的价距离Max Pain约+88点，临近到期存在向6400收敛的引力。 因此期权维度不是极端单边，而是上方Call压力、下方痛点/Put防线共同约束。\n\n4. 持仓结构：Put持仓偏多时要区分保护盘和主动空头。\n当前总持仓：Call OI=136,089，Put OI=170,318，PCR=1.252。\nPut持仓集中：\n| Put行权价 | Put OI |\n| --- | --- |\n| 6000 | 28,897 |\n| 6300 | 26,869 |\n| 6400 | 25,093 |\n| 6200 | 21,903 |\n| 5800 | 11,743 |\nCall持仓集中：\n| Call行权价 | Call OI |\n| --- | --- |\n| 6600 | 21,015 |\n| 7000 | 20,296 |\n| 6700 | 16,341 |\n| 6500 | 11,125 |\n| 6800 | 11,061 |\n解读：Put集中在6000, 6300, 6400，Call压力集中在6600, 7000, 6700, 6500。大致结构是：6400为痛点锚，6494为波动分界，6600及以上为压力带。\n\n5. IV结构：看ATM隐波是否够高，也看左侧保护溢价。\n| K | C IV | P IV | SVI/平滑IV | OI结构 |\n| --- | --- | --- | --- | --- |\n| 6300 | 40.69% | 39.94% | 39.19% | C 7,987 / P 26,869 |\n| 6400 | 29.04% | 32.65% | 32.30% | C 8,755 / P 25,093 |\n| 6500 | 28.17% | 28.36% | 29.57% | C 11,125 / P 10,268 |\n| 6600 | 32.15% | 31.91% | 31.72% | C 21,015 / P 3,368 |\n| 6700 | 38.01% | 57.17% | 37.34% | C 16,341 / P 1,015 |\nATM隐波约29.6%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。\nATM附近隐波约29.6%，属于中等波动率；右偏(看涨溢价偏高)，上行博弈需求旺盛；极高曲率(尾部风险定价极高)，市场预期可能出现剧烈波动。左侧Put IV若显著高于ATM，说明市场对下跌尾部风险有定价。\n\n6. 基本面与宏观：先看宏观快讯和成本链，周频供需项暂不放入盘中主研判。\n| 项目 | 当前值 | 解读 |\n| --- | --- | --- |\n| Brent | $94.57，+1.58% | 原油宏观成本 |\n| WTI | $91.71，+1.87% | 原油宏观成本 |\n| PX现货 | 9000 | 内盘成本端 |\n| PX外盘现货价 | -- | CFR中国/亚洲收盘价待更新 |\n| PTA估算成本 | 5895 | 内盘成本支撑区 |\n| 外盘PTA动态成本 | -- | PX亚洲收盘价*0.655*1.01*1.13*USD/CNY |\n| PTA利润 | 708，12.0% | 利润高则供应压力偏空 |\n宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：【人工宏观基本面】美伊谈判从积极信号突现戏剧性恶化（6月10日美军直升机被击落后第三轮空袭），布伦特/WTI 保持高位去库韧性（Brent周均93.09、年内+55.14%）；PX开工低位（国内75.11% / 79.84%周度利用）成本支撑延续；PTA开工回升至66.7%、加工费维持500-600元/吨高位，社会库存335.5万吨周去库19.57万吨，去库节奏放缓；聚酯负荷80.21%低位、终端织造小幅改善但有限，瓶片出口1-4月累计+1.67%。机构分歧：偏空（中信期货/中信建投、申万）、短期偏多（华泰、广州、华安）、中性区间（国信）。核心矛盾已切换。；截至6月5日当周Brent周均93.09美元/桶（环比+2.16%）、WTI 90.54（+3.64%）、俄罗斯ESPO现货82.38（-1.67%）。；美国原油总库存7.9亿桶（-1597万桶），商业库存4.3亿桶（-797万桶），战略储备3.6亿桶（-799万桶），库欣0.2亿桶（-58万桶），去库持续。。外盘PX/外盘PTA动态成本等待最新有效报价；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。\n宏观快讯：【人工宏观基本面】美伊谈判从积极信号突现戏剧性恶化（6月10日美军直升机被击落后第三轮空袭），布伦特/WTI 保持高位去库韧性（Brent周均93.09、年内+55.14%）；PX；截至6月5日当周Brent周均93.09美元/桶（环比+2.16%）、WTI 90.54（+3.64%）、俄罗斯ESPO现货82.38（-1.67%）。；美国原油总库存7.9亿桶（-1597万桶），商业库存4.3亿桶（-797万桶），战略储备3.6亿桶（-799万桶），库欣0.2亿桶（-58万桶），去库持续。；年初至6月8日Brent +55.14%、WTI +59.28%、ESPO +76.26%。。\n基本面不是单边空：现货/成本可能提供下方支撑；但加工利润708元若处在偏高区域，容易限制上方弹性。\n\n综合结论\n当前主线：偏弱震荡，核心区间关注6400—6600。期货短线短线偏弱，期权结构处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动，真正的方向触发在6400跌破或6494/6600重新站上。\n\n关键价位\n| 位置 | 含义 |\n| --- | --- |\n| 6494 | GEX Flip，重新站上后负Gamma压力缓和 |\n| 6400 | Max Pain + 临近到期收敛锚 |\n| 6000 | 近端Put防线/有效支撑 |\n| 6600 | 近端Call压力/有效压力 |\n| 6600 | 上方最大Call持仓压力带 |\n| 6000 | 下方最大Put保护盘区域 |\n\n操作思路，仅按结构说\n如果偏交易期货：\n• 6494 / 6600下方不宜追多，先按反抽压力处理。\n• 跌破6400并放量增仓，负Gamma可能放大下跌，下一目标看6000。\n• 重新站回6494，空头动能减弱，回到区间震荡。\n如果偏期权卖方：\n• 临近到期Theta衰减快，震荡时卖方有时间价值优势。\n• 负Gamma环境不裸卖近端Put，尤其是6400失守后。\n• 若站回6494，可考虑更稳健的宽跨/价差结构。\n如果偏买方：\n• 买Put触发点优先看6400有效跌破。\n• 买Call触发点看重新站回6494或压力位后的修复。\n• 夹在痛点和压力之间横盘时，买方容易被时间价值消耗。\n\n一句话总结：现在不是强多盘，短线短线偏弱；看6400是否守住，守住就是临近到期向6400—6600收敛，跌破则负Gamma会让下跌更顺。",
+      "narrative": "当前市场判断：短线“偏弱震荡”，但不是单边空头。\n\n1. 期货价格层面（期货盘面）：短线节奏看盘面主力，期权结构看期权链标的参考价。\n| 项目 | 当前值 | 交易含义 |\n| --- | --- | --- |\n| 期权链标的参考价 | 6488 | 用于GEX、Pain、OI和IV结构判断 |\n| 盘面主力参考价 | TA 6388 | K线短线节奏：短线偏弱 |\n| 最近20根K线 | -2 | 观察日内强弱和追单风险 |\n| PTA现货 | 6603 | 现货/成本锚 |\n| 现货-近月基差 | -108 | 升水偏强、贴水偏弱 |\n盘面短线短线偏弱，期权链标的参考价6488负责GEX、Pain和持仓压力判断，盘面主力参考价6388负责入场节奏判断；两者不混用，避免把结构位和短线K线信号揉成一个价格。\n盘面主力参考价显示短线偏弱，最近一根变化+4点，过去20根累计-2点。期权链标的参考价6488用于判断GEX、Pain和持仓压力，不与盘面价混在一起下结论。\n\n2. GEX结构：价格所处Gamma区决定波动是否容易被放大。\n| 指标 | 当前值 |\n| --- | --- |\n| 标的价F | 6488 |\n| GEX Flip | 6494 |\n| 净GEX | -6.7M |\n| Gamma方向 | negative |\n| Max Pain | 6400 |\n| PCR | 1.252 |\n| 剩余到期 | 32.2天 |\nGEX处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。因此交易上先盯两条线：6400若失守，负Gamma容易放大顺势波动；6494若被重新收复，追涨杀跌压力会减轻。\n核心含义：F=6488 低于 GEX Flip=6494，当前处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。若价格重新站回6494/6600上方，负Gamma压力会缓和；若跌破6400附近，波动可能更顺。\n\n3. Max Pain：临近到期关注痛点收敛，而不是简单看多看空。\n| 行权价 | Pain | 备注 |\n| --- | --- | --- |\n| 6400 | 30,382,500 | 最低 |\n| 6300 | 43,689,500 | |\n| 6500 | 33,999,500 | |\n| 6200 | 74,424,500 | |\n| 6600 | 48,313,000 | |\n当前Max Pain=6400。当前期权标的价距离Max Pain约+88点，临近到期存在向6400收敛的引力。 因此期权维度不是极端单边，而是上方Call压力、下方痛点/Put防线共同约束。\n\n4. 持仓结构：Put持仓偏多时要区分保护盘和主动空头。\n当前总持仓：Call OI=136,089，Put OI=170,318，PCR=1.252。\nPut持仓集中：\n| Put行权价 | Put OI |\n| --- | --- |\n| 6000 | 28,897 |\n| 6300 | 26,869 |\n| 6400 | 25,093 |\n| 6200 | 21,903 |\n| 5800 | 11,743 |\nCall持仓集中：\n| Call行权价 | Call OI |\n| --- | --- |\n| 6600 | 21,015 |\n| 7000 | 20,296 |\n| 6700 | 16,341 |\n| 6500 | 11,125 |\n| 6800 | 11,061 |\n解读：Put集中在6000, 6300, 6400，Call压力集中在6600, 7000, 6700, 6500。大致结构是：6400为痛点锚，6494为波动分界，6600及以上为压力带。\n\n5. IV结构：看ATM隐波是否够高，也看左侧保护溢价。\n| K | C IV | P IV | SVI/平滑IV | OI结构 |\n| --- | --- | --- | --- | --- |\n| 6300 | 40.69% | 39.94% | 39.19% | C 7,987 / P 26,869 |\n| 6400 | 29.04% | 32.65% | 32.30% | C 8,755 / P 25,093 |\n| 6500 | 28.17% | 28.36% | 29.57% | C 11,125 / P 10,268 |\n| 6600 | 32.15% | 31.91% | 31.72% | C 21,015 / P 3,368 |\n| 6700 | 38.01% | 57.17% | 37.34% | C 16,341 / P 1,015 |\nATM隐波约29.6%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。\nATM附近隐波约29.6%，属于中等波动率；右偏(看涨溢价偏高)，上行博弈需求旺盛；极高曲率(尾部风险定价极高)，市场预期可能出现剧烈波动。左侧Put IV若显著高于ATM，说明市场对下跌尾部风险有定价。\n\n6. 基本面与宏观：先看宏观快讯和成本链，周频供需项暂不放入盘中主研判。\n| 项目 | 当前值 | 解读 |\n| --- | --- | --- |\n| Brent | $94.57，+1.58% | 原油宏观成本 |\n| WTI | $91.71，+1.87% | 原油宏观成本 |\n| PX现货 | 9000 | 内盘成本端 |\n| PX外盘现货价 | -- | CFR中国/亚洲收盘价待更新 |\n| PTA估算成本 | 5895 | 内盘成本支撑区 |\n| 外盘PTA动态成本 | -- | PX亚洲收盘价*0.655*1.01*1.13*USD/CNY |\n| PTA利润 | 708，12.0% | 利润高则供应压力偏空 |\n宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：【人工宏观基本面】美伊谈判从积极信号突现戏剧性恶化（6月10日美军直升机被击落后第三轮空袭），布伦特/WTI 保持高位去库韧性（Brent周均93.09、年内+55.14%）；PX开工低位（国内75.11% / 79.84%周度利用）成本支撑延续；PTA开工回升至66.7%、加工费维持500-600元/吨高位，社会库存335.5万吨周去库19.57万吨，去库节奏放缓；聚酯负荷80.21%低位、终端织造小幅改善但有限，瓶片出口1-4月累计+1.67%。机构分歧：偏空（中信期货/中信建投、申万）、短期偏多（华泰、广州、华安）、中性区间（国信）。核心矛盾已切换。；截至6月5日当周Brent周均93.09美元/桶（环比+2.16%）、WTI 90.54（+3.64%）、俄罗斯ESPO现货82.38（-1.67%）。；美国原油总库存7.9亿桶（-1597万桶），商业库存4.3亿桶（-797万桶），战略储备3.6亿桶（-799万桶），库欣0.2亿桶（-58万桶），去库持续。。外盘PX/外盘PTA动态成本等待最新有效报价；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。\n宏观快讯：【人工宏观基本面】美伊谈判从积极信号突现戏剧性恶化（6月10日美军直升机被击落后第三轮空袭），布伦特/WTI 保持高位去库韧性（Brent周均93.09、年内+55.14%）；PX；截至6月5日当周Brent周均93.09美元/桶（环比+2.16%）、WTI 90.54（+3.64%）、俄罗斯ESPO现货82.38（-1.67%）。；美国原油总库存7.9亿桶（-1597万桶），商业库存4.3亿桶（-797万桶），战略储备3.6亿桶（-799万桶），库欣0.2亿桶（-58万桶），去库持续。；年初至6月8日Brent +55.14%、WTI +59.28%、ESPO +76.26%。。\n基本面不是单边空：现货/成本可能提供下方支撑；但加工利润708元若处在偏高区域，容易限制上方弹性。\n\n综合结论\n当前主线：偏弱震荡，核心区间关注6400—6600。期货短线短线偏弱，期权结构处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动，真正的方向触发在6400跌破或6494/6600重新站上。\n\n关键价位\n| 位置 | 含义 |\n| --- | --- |\n| 6494 | GEX Flip，重新站上后负Gamma压力缓和 |\n| 6400 | Max Pain + 临近到期收敛锚 |\n| 6000 | 近端Put防线/有效支撑 |\n| 6600 | 近端Call压力/有效压力 |\n| 6600 | 上方最大Call持仓压力带 |\n| 6000 | 下方最大Put保护盘区域 |\n\n操作思路，仅按结构说\n如果偏交易期货：\n• 6494 / 6600下方不宜追多，先按反抽压力处理。\n• 跌破6400并放量增仓，负Gamma可能放大下跌，下一目标看6000。\n• 重新站回6494，空头动能减弱，回到区间震荡。\n如果偏期权卖方：\n• 临近到期Theta衰减快，震荡时卖方有时间价值优势。\n• 负Gamma环境不裸卖近端Put，尤其是6400失守后。\n• 若站回6494，可考虑更稳健的宽跨/价差结构。\n如果偏买方：\n• 买Put触发点优先看6400有效跌破。\n• 买Call触发点看重新站回6494或压力位后的修复。\n• 夹在痛点和压力之间横盘时，买方容易被时间价值消耗。\n\n一句话总结：现在不是强多盘，短线短线偏弱；看6400是否守住，守住就是临近到期向6400—6600收敛，跌破则负Gamma会让下跌更顺。",
       "bullets": [
         "GEX：负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动",
         "Pain：当前期权标的价距离Max Pain约+88点，临近到期存在向6400收敛的引力。",
@@ -3770,64 +3322,64 @@
       "main_futures_price": 6388.0,
       "main_futures_symbol": "TA"
     },
-    "narrative_report": "当前市场判断：短线“偏弱震荡”，但不是单边空头。\n\n1. 期货价格层面（期货盘面）：短线节奏看盘面主力，期权结构看期权链标的参考价。\n| 项目 | 当前值 | 交易含义 |\n| --- | --- | --- |\n| 期权链标的参考价 | 6488 | 用于GEX、Pain、OI和IV结构判断 |\n| 盘面主力参考价 | TA 6388 | K线短线节奏：短线偏弱 |\n| 最近20根K线 | -2 | 观察日内强弱和追单风险 |\n| PTA现货 | 6603 | 现货/成本锚 |\n| 现货-近月基差 | -108 | 升水偏强、贴水偏弱 |\n盘面短线短线偏弱，期权链标的参考价6488负责GEX、Pain和持仓压力判断，盘面主力参考价6388负责入场节奏判断；两者不混用，避免把结构位和短线K线信号揉成一个价格。\n盘面主力参考价显示短线偏弱，最近一根变化+4点，过去20根累计-2点。期权链标的参考价6488用于判断GEX、Pain和持仓压力，不与盘面价混在一起下结论。\n\n2. GEX结构：价格所处Gamma区决定波动是否容易被放大。\n| 指标 | 当前值 |\n| --- | --- |\n| 标的价F | 6488 |\n| GEX Flip | 6494 |\n| 净GEX | -6.7M |\n| Gamma方向 | negative |\n| Max Pain | 6400 |\n| PCR | 1.252 |\n| 剩余到期 | 32.2天 |\nGEX处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。因此交易上先盯两条线：6400若失守，负Gamma容易放大顺势波动；6494若被重新收复，追涨杀跌压力会减轻。\n核心含义：F=6488 低于 GEX Flip=6494，当前处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。若价格重新站回6494/6600上方，负Gamma压力会缓和；若跌破6400附近，波动可能更顺。\n\n3. Max Pain：临近到期关注痛点收敛，而不是简单看多看空。\n| 行权价 | Pain | 备注 |\n| --- | --- | --- |\n| 6400 | 30,382,500 | 最低 |\n| 6300 | 43,689,500 |  |\n| 6500 | 33,999,500 |  |\n| 6200 | 74,424,500 |  |\n| 6600 | 48,313,000 |  |\n当前Max Pain=6400。当前期权标的价距离Max Pain约+88点，临近到期存在向6400收敛的引力。 因此期权维度不是极端单边，而是上方Call压力、下方痛点/Put防线共同约束。\n\n4. 持仓结构：Put持仓偏多时要区分保护盘和主动空头。\n当前总持仓：Call OI=136,089，Put OI=170,318，PCR=1.252。\nPut持仓集中：\n| Put行权价 | Put OI |\n| --- | --- |\n| 6000 | 28,897 |\n| 6300 | 26,869 |\n| 6400 | 25,093 |\n| 6200 | 21,903 |\n| 5800 | 11,743 |\nCall持仓集中：\n| Call行权价 | Call OI |\n| --- | --- |\n| 6600 | 21,015 |\n| 7000 | 20,296 |\n| 6700 | 16,341 |\n| 6500 | 11,125 |\n| 6800 | 11,061 |\n解读：Put集中在6000, 6300, 6400，Call压力集中在6600, 7000, 6700, 6500。大致结构是：6400为痛点锚，6494为波动分界，6600及以上为压力带。\n\n5. IV结构：看ATM隐波是否够高，也看左侧保护溢价。\n| K | C IV | P IV | SVI/平滑IV | OI结构 |\n| --- | --- | --- | --- | --- |\n| 6300 | 40.69% | 39.94% | 39.19% | C 7,987 / P 26,869 |\n| 6400 | 29.04% | 32.65% | 32.30% | C 8,755 / P 25,093 |\n| 6500 | 28.17% | 28.36% | 29.57% | C 11,125 / P 10,268 |\n| 6600 | 32.15% | 31.91% | 31.72% | C 21,015 / P 3,368 |\n| 6700 | 38.01% | 57.17% | 37.34% | C 16,341 / P 1,015 |\nATM隐波约29.6%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。\nATM附近隐波约29.6%，属于中等波动率；右偏(看涨溢价偏高)，上行博弈需求旺盛；极高曲率(尾部风险定价极高)，市场预期可能出现剧烈波动。左侧Put IV若显著高于ATM，说明市场对下跌尾部风险有定价。\n\n6. 基本面与宏观：先看宏观快讯和成本链，周频供需项暂不放入盘中主研判。\n| 项目 | 当前值 | 解读 |\n| --- | --- | --- |\n| Brent | $94.57，+1.58% | 原油宏观成本 |\n| WTI | $91.71，+1.87% | 原油宏观成本 |\n| PX现货 | 9000 | 内盘成本端 |\n| PX外盘现货价 | -- | CFR中国/亚洲收盘价待更新 |\n| PTA估算成本 | 5895 | 内盘成本支撑区 |\n| 外盘PTA动态成本 | -- | PX亚洲收盘价*0.655*1.01*1.13*USD/CNY |\n| PTA利润 | 708，12.0% | 利润高则供应压力偏空 |\n宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：【人工宏观基本面】美伊谈判从积极信号突现戏剧性恶化（6月10日美军直升机被击落后第三轮空袭），布伦特/WTI 保持高位去库韧性（Brent周均93.09、年内+55.14%）；PX开工低位（国内75.11% / 79.84%周度利用）成本支撑延续；PTA开工回升至66.7%、加工费维持500-600元/吨高位，社会库存335.5万吨周去库19.57万吨，去库节奏放缓；聚酯负荷80.21%低位、终端织造小幅改善但有限，瓶片出口1-4月累计+1.67%。机构分歧：偏空（中信期货/中信建投、申万）、短期偏多（华泰、广州、华安）、中性区间（国信）。核心矛盾已切换。；截至6月5日当周Brent周均93.09美元/桶（环比+2.16%）、WTI 90.54（+3.64%）、俄罗斯ESPO现货82.38（-1.67%）。；美国原油总库存7.9亿桶（-1597万桶），商业库存4.3亿桶（-797万桶），战略储备3.6亿桶（-799万桶），库欣0.2亿桶（-58万桶），去库持续。。外盘PX/外盘PTA动态成本等待最新有效报价；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。\n宏观快讯：【人工宏观基本面】美伊谈判从积极信号突现戏剧性恶化（6月10日美军直升机被击落后第三轮空袭），布伦特/WTI 保持高位去库韧性（Brent周均93.09、年内+55.14%）；PX；截至6月5日当周Brent周均93.09美元/桶（环比+2.16%）、WTI 90.54（+3.64%）、俄罗斯ESPO现货82.38（-1.67%）。；美国原油总库存7.9亿桶（-1597万桶），商业库存4.3亿桶（-797万桶），战略储备3.6亿桶（-799万桶），库欣0.2亿桶（-58万桶），去库持续。；年初至6月8日Brent +55.14%、WTI +59.28%、ESPO +76.26%。。\n基本面不是单边空：现货/成本可能提供下方支撑；但加工利润708元若处在偏高区域，容易限制上方弹性。\n\n综合结论\n当前主线：偏弱震荡，核心区间关注6400—6600。期货短线短线偏弱，期权结构处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动，真正的方向触发在6400跌破或6494/6600重新站上。\n\n关键价位\n| 位置 | 含义 |\n| --- | --- |\n| 6494 | GEX Flip，重新站上后负Gamma压力缓和 |\n| 6400 | Max Pain + 临近到期收敛锚 |\n| 6000 | 近端Put防线/有效支撑 |\n| 6600 | 近端Call压力/有效压力 |\n| 6600 | 上方最大Call持仓压力带 |\n| 6000 | 下方最大Put保护盘区域 |\n\n操作思路，仅按结构说\n如果偏交易期货：\n• 6494 / 6600下方不宜追多，先按反抽压力处理。\n• 跌破6400并放量增仓，负Gamma可能放大下跌，下一目标看6000。\n• 重新站回6494，空头动能减弱，回到区间震荡。\n如果偏期权卖方：\n• 临近到期Theta衰减快，震荡时卖方有时间价值优势。\n• 负Gamma环境不裸卖近端Put，尤其是6400失守后。\n• 若站回6494，可考虑更稳健的宽跨/价差结构。\n如果偏买方：\n• 买Put触发点优先看6400有效跌破。\n• 买Call触发点看重新站回6494或压力位后的修复。\n• 夹在痛点和压力之间横盘时，买方容易被时间价值消耗。\n\n一句话总结：现在不是强多盘，短线短线偏弱；看6400是否守住，守住就是临近到期向6400—6600收敛，跌破则负Gamma会让下跌更顺。"
+    "narrative_report": "当前市场判断：短线“偏弱震荡”，但不是单边空头。\n\n1. 期货价格层面（期货盘面）：短线节奏看盘面主力，期权结构看期权链标的参考价。\n| 项目 | 当前值 | 交易含义 |\n| --- | --- | --- |\n| 期权链标的参考价 | 6488 | 用于GEX、Pain、OI和IV结构判断 |\n| 盘面主力参考价 | TA 6388 | K线短线节奏：短线偏弱 |\n| 最近20根K线 | -2 | 观察日内强弱和追单风险 |\n| PTA现货 | 6603 | 现货/成本锚 |\n| 现货-近月基差 | -108 | 升水偏强、贴水偏弱 |\n盘面短线短线偏弱，期权链标的参考价6488负责GEX、Pain和持仓压力判断，盘面主力参考价6388负责入场节奏判断；两者不混用，避免把结构位和短线K线信号揉成一个价格。\n盘面主力参考价显示短线偏弱，最近一根变化+4点，过去20根累计-2点。期权链标的参考价6488用于判断GEX、Pain和持仓压力，不与盘面价混在一起下结论。\n\n2. GEX结构：价格所处Gamma区决定波动是否容易被放大。\n| 指标 | 当前值 |\n| --- | --- |\n| 标的价F | 6488 |\n| GEX Flip | 6494 |\n| 净GEX | -6.7M |\n| Gamma方向 | negative |\n| Max Pain | 6400 |\n| PCR | 1.252 |\n| 剩余到期 | 32.2天 |\nGEX处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。因此交易上先盯两条线：6400若失守，负Gamma容易放大顺势波动；6494若被重新收复，追涨杀跌压力会减轻。\n核心含义：F=6488 低于 GEX Flip=6494，当前处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。若价格重新站回6494/6600上方，负Gamma压力会缓和；若跌破6400附近，波动可能更顺。\n\n3. Max Pain：临近到期关注痛点收敛，而不是简单看多看空。\n| 行权价 | Pain | 备注 |\n| --- | --- | --- |\n| 6400 | 30,382,500 | 最低 |\n| 6300 | 43,689,500 | |\n| 6500 | 33,999,500 | |\n| 6200 | 74,424,500 | |\n| 6600 | 48,313,000 | |\n当前Max Pain=6400。当前期权标的价距离Max Pain约+88点，临近到期存在向6400收敛的引力。 因此期权维度不是极端单边，而是上方Call压力、下方痛点/Put防线共同约束。\n\n4. 持仓结构：Put持仓偏多时要区分保护盘和主动空头。\n当前总持仓：Call OI=136,089，Put OI=170,318，PCR=1.252。\nPut持仓集中：\n| Put行权价 | Put OI |\n| --- | --- |\n| 6000 | 28,897 |\n| 6300 | 26,869 |\n| 6400 | 25,093 |\n| 6200 | 21,903 |\n| 5800 | 11,743 |\nCall持仓集中：\n| Call行权价 | Call OI |\n| --- | --- |\n| 6600 | 21,015 |\n| 7000 | 20,296 |\n| 6700 | 16,341 |\n| 6500 | 11,125 |\n| 6800 | 11,061 |\n解读：Put集中在6000, 6300, 6400，Call压力集中在6600, 7000, 6700, 6500。大致结构是：6400为痛点锚，6494为波动分界，6600及以上为压力带。\n\n5. IV结构：看ATM隐波是否够高，也看左侧保护溢价。\n| K | C IV | P IV | SVI/平滑IV | OI结构 |\n| --- | --- | --- | --- | --- |\n| 6300 | 40.69% | 39.94% | 39.19% | C 7,987 / P 26,869 |\n| 6400 | 29.04% | 32.65% | 32.30% | C 8,755 / P 25,093 |\n| 6500 | 28.17% | 28.36% | 29.57% | C 11,125 / P 10,268 |\n| 6600 | 32.15% | 31.91% | 31.72% | C 21,015 / P 3,368 |\n| 6700 | 38.01% | 57.17% | 37.34% | C 16,341 / P 1,015 |\nATM隐波约29.6%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。\nATM附近隐波约29.6%，属于中等波动率；右偏(看涨溢价偏高)，上行博弈需求旺盛；极高曲率(尾部风险定价极高)，市场预期可能出现剧烈波动。左侧Put IV若显著高于ATM，说明市场对下跌尾部风险有定价。\n\n6. 基本面与宏观：先看宏观快讯和成本链，周频供需项暂不放入盘中主研判。\n| 项目 | 当前值 | 解读 |\n| --- | --- | --- |\n| Brent | $94.57，+1.58% | 原油宏观成本 |\n| WTI | $91.71，+1.87% | 原油宏观成本 |\n| PX现货 | 9000 | 内盘成本端 |\n| PX外盘现货价 | -- | CFR中国/亚洲收盘价待更新 |\n| PTA估算成本 | 5895 | 内盘成本支撑区 |\n| 外盘PTA动态成本 | -- | PX亚洲收盘价*0.655*1.01*1.13*USD/CNY |\n| PTA利润 | 708，12.0% | 利润高则供应压力偏空 |\n宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：【人工宏观基本面】美伊谈判从积极信号突现戏剧性恶化（6月10日美军直升机被击落后第三轮空袭），布伦特/WTI 保持高位去库韧性（Brent周均93.09、年内+55.14%）；PX开工低位（国内75.11% / 79.84%周度利用）成本支撑延续；PTA开工回升至66.7%、加工费维持500-600元/吨高位，社会库存335.5万吨周去库19.57万吨，去库节奏放缓；聚酯负荷80.21%低位、终端织造小幅改善但有限，瓶片出口1-4月累计+1.67%。机构分歧：偏空（中信期货/中信建投、申万）、短期偏多（华泰、广州、华安）、中性区间（国信）。核心矛盾已切换。；截至6月5日当周Brent周均93.09美元/桶（环比+2.16%）、WTI 90.54（+3.64%）、俄罗斯ESPO现货82.38（-1.67%）。；美国原油总库存7.9亿桶（-1597万桶），商业库存4.3亿桶（-797万桶），战略储备3.6亿桶（-799万桶），库欣0.2亿桶（-58万桶），去库持续。。外盘PX/外盘PTA动态成本等待最新有效报价；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。\n宏观快讯：【人工宏观基本面】美伊谈判从积极信号突现戏剧性恶化（6月10日美军直升机被击落后第三轮空袭），布伦特/WTI 保持高位去库韧性（Brent周均93.09、年内+55.14%）；PX；截至6月5日当周Brent周均93.09美元/桶（环比+2.16%）、WTI 90.54（+3.64%）、俄罗斯ESPO现货82.38（-1.67%）。；美国原油总库存7.9亿桶（-1597万桶），商业库存4.3亿桶（-797万桶），战略储备3.6亿桶（-799万桶），库欣0.2亿桶（-58万桶），去库持续。；年初至6月8日Brent +55.14%、WTI +59.28%、ESPO +76.26%。。\n基本面不是单边空：现货/成本可能提供下方支撑；但加工利润708元若处在偏高区域，容易限制上方弹性。\n\n综合结论\n当前主线：偏弱震荡，核心区间关注6400—6600。期货短线短线偏弱，期权结构处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动，真正的方向触发在6400跌破或6494/6600重新站上。\n\n关键价位\n| 位置 | 含义 |\n| --- | --- |\n| 6494 | GEX Flip，重新站上后负Gamma压力缓和 |\n| 6400 | Max Pain + 临近到期收敛锚 |\n| 6000 | 近端Put防线/有效支撑 |\n| 6600 | 近端Call压力/有效压力 |\n| 6600 | 上方最大Call持仓压力带 |\n| 6000 | 下方最大Put保护盘区域 |\n\n操作思路，仅按结构说\n如果偏交易期货：\n• 6494 / 6600下方不宜追多，先按反抽压力处理。\n• 跌破6400并放量增仓，负Gamma可能放大下跌，下一目标看6000。\n• 重新站回6494，空头动能减弱，回到区间震荡。\n如果偏期权卖方：\n• 临近到期Theta衰减快，震荡时卖方有时间价值优势。\n• 负Gamma环境不裸卖近端Put，尤其是6400失守后。\n• 若站回6494，可考虑更稳健的宽跨/价差结构。\n如果偏买方：\n• 买Put触发点优先看6400有效跌破。\n• 买Call触发点看重新站回6494或压力位后的修复。\n• 夹在痛点和压力之间横盘时，买方容易被时间价值消耗。\n\n一句话总结：现在不是强多盘，短线短线偏弱；看6400是否守住，守住就是临近到期向6400—6600收敛，跌破则负Gamma会让下跌更顺。"
   },
   "intraday_analysis": {
     "title": "盘中综合研判",
     "summary": "当前 PTA 不适合简单看空。",
     "conclusion": "当前市场判断：短线“震荡”，但不是单边空头。",
-    "trader_report": "PTA 最新综合研判\n\n一、核心结论\n当前 PTA 不适合简单看空。\n产业链给出的底色是偏强震荡、有支撑但上方也有压制。当前核心区间先看6400—6700，不是无脑追多，也不是在6400上方主动追空。\n期权结构上，当前价格处于正 Gamma 区，做市商对冲倾向抑制波动，这意味着一旦关键位置被突破，波动容易被放大。\n\n二、宏观与成本端\n日内基本面不做机械重复改写，作为背景锚处理：伊朗议会国家安全委员会负责人回应美国总统特朗普对伊朗的威胁：他将面临更强烈和更痛苦的反击。\n原油/PX若继续偏强，会给PTA下方托底；如果中东缓和、原油回落或PX转弱，则多头会受压。当前PTA利润约708元，加工费偏高会限制上方持续单边拉涨空间。\n\n三、PTA自身基本面\n现货参考6603，基差-108，PX参考9000，PTA估算成本5895。现货/成本仍提供支撑，但高加工费和装置重启预期会压制追多空间。\n\n四、当前期权结构\n期权链标的参考价：6508；Max Pain：6400；GEX Flip：6420；净GEX：10.9M；Gamma方向：positive；PCR：0.748；剩余到期：约31.7天。\n临近到期，6400对价格有明显吸引力；站回6420后负Gamma压力缓和，跌破6400则负Gamma可能放大下跌。\n\n五、持仓压力与支撑\n下方Put防线重点看6400、6100；上方Call压力重点看6700以及更高Call集中区。持仓给出的不是单边方向，而是区间边界。\n\n六、隐波与风险情绪\nATM隐波约31.3%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果Put保护溢价继续高于Call，说明市场仍在为下跌尾部风险付费；临近到期买方不能在中间位置随意追。\n\n七、交易策略\n1. 期货操作\n6400上方不追空；6420下方不盲目追多；站回6420才考虑短多延续；跌破6400才考虑顺势空头，下一层关注6100。\n2. 期权卖方策略\n临近到期Theta衰减快，但负Gamma环境下不裸卖近端Put。若价格维持在6400上方，可优先考虑有保护的价差结构；若跌破6400，卖Put风险快速上升。\n3. 期权买方策略\n买Put触发点看有效跌破6400，最好伴随原油/PX走弱或盘面放量；买Call触发点看重新站回6420，否则容易被时间价值消耗。\n\n八、最终判断\n基本面偏强支撑，期权结构偏震荡拉扯，短线处于负Gamma敏感区。6400不破，短期仍以偏强震荡对待；站上6420，价格有机会继续试探6700；跌破6400，负Gamma可能放大下跌，回看6100。",
-    "futures_panel": "| 项目 | 当前值 | 交易含义 |\n| --- | --- | --- |\n| 期权链标的参考价 | 6508 | 用于GEX、Pain、OI和IV结构判断 |\n| 盘面主力参考价 | TA 6416 | K线短线节奏：短线偏强 |\n| 最近20根K线 | +24 | 观察日内强弱和追单风险 |\n| PTA现货 | 6603 | 现货/成本锚 |\n| 现货-近月基差 | -108 | 升水偏强、贴水偏弱 |",
-    "option_structure": "正 Gamma 区，做市商对冲倾向抑制波动",
+    "trader_report": "PTA 最新综合研判\n\n一、核心结论\n当前 PTA 不适合简单看空。\n产业链给出的底色是偏强震荡、有支撑但上方也有压制。当前核心区间先看6400—6600，不是无脑追多，也不是在6400上方主动追空。\n期权结构上，当前价格处于负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动，这意味着一旦关键位置被突破，波动容易被放大。\n\n二、宏观与成本端\n日内基本面不做机械重复改写，作为背景锚处理：特朗普自曝摸黑运出22艘伊朗油轮，称“我爱通胀”\n原油/PX若继续偏强，会给PTA下方托底；如果中东缓和、原油回落或PX转弱，则多头会受压。当前PTA利润约708元，加工费偏高会限制上方持续单边拉涨空间。\n\n三、PTA自身基本面\n现货参考6603，基差-108，PX参考9000，PTA估算成本5895。现货/成本仍提供支撑，但高加工费和装置重启预期会压制追多空间。\n\n四、当前期权结构\n期权链标的参考价：6506；Max Pain：6400；GEX Flip：--；净GEX：-32.9M；Gamma方向：negative；PCR：1.282；剩余到期：约-0.0天。\n临近到期，6400对价格有明显吸引力；站回--后负Gamma压力缓和，跌破6400则负Gamma可能放大下跌。\n\n五、持仓压力与支撑\n下方Put防线重点看6400、6300；上方Call压力重点看6600以及更高Call集中区。持仓给出的不是单边方向，而是区间边界。\n\n六、隐波与风险情绪\nATM隐波约16.4%，深度左偏(看跌保护溢价极高)，市场恐慌情绪浓厚。如果Put保护溢价继续高于Call，说明市场仍在为下跌尾部风险付费；临近到期买方不能在中间位置随意追。\n\n七、交易策略\n1. 期货操作\n6400上方不追空；--下方不盲目追多；站回--才考虑短多延续；跌破6400才考虑顺势空头，下一层关注6300。\n2. 期权卖方策略\n临近到期Theta衰减快，但负Gamma环境下不裸卖近端Put。若价格维持在6400上方，可优先考虑有保护的价差结构；若跌破6400，卖Put风险快速上升。\n3. 期权买方策略\n买Put触发点看有效跌破6400，最好伴随原油/PX走弱或盘面放量；买Call触发点看重新站回--，否则容易被时间价值消耗。\n\n八、最终判断\n基本面偏强支撑，期权结构偏震荡拉扯，短线处于负Gamma敏感区。6400不破，短期仍以偏强震荡对待；站上--，价格有机会继续试探6600；跌破6400，负Gamma可能放大下跌，回看6300。",
+    "futures_panel": "| 项目 | 当前值 | 交易含义 |\n| --- | --- | --- |\n| 期权链标的参考价 | 6506 | 用于GEX、Pain、OI和IV结构判断 |\n| 盘面主力参考价 | TA 6350 | K线短线节奏：短线偏强 |\n| 最近20根K线 | +10 | 观察日内强弱和追单风险 |\n| PTA现货 | 6603 | 现货/成本锚 |\n| 现货-近月基差 | -108 | 升水偏强、贴水偏弱 |",
+    "option_structure": "负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动",
     "macro_fundamental": "宏观基本面：以宏观财经快讯和成本链为主，暂不展示周频供需项。",
     "strategy_judgement": "",
-    "narrative": "当前市场判断：短线“震荡”，但不是单边空头。\n\n1. 期货价格层面（期货盘面）：短线节奏看盘面主力，期权结构看期权链标的参考价。\n| 项目 | 当前值 | 交易含义 |\n| --- | --- | --- |\n| 期权链标的参考价 | 6508 | 用于GEX、Pain、OI和IV结构判断 |\n| 盘面主力参考价 | TA 6416 | K线短线节奏：短线偏强 |\n| 最近20根K线 | +24 | 观察日内强弱和追单风险 |\n| PTA现货 | 6603 | 现货/成本锚 |\n| 现货-近月基差 | -108 | 升水偏强、贴水偏弱 |\n期权链标的参考价6508用于GEX、Pain、OI与IV等结构判断，盘面主力参考价 TA 6416负责K线节奏；两者各管一段，不要把结构位和短线信号混为一个价格。\n盘面主力参考价 TA 6416：最近一根变化+4点，过去20根累计+24点，节奏判定为短线偏强。期权链标的参考价6508用于判断GEX、Pain和持仓压力，不与盘面价混在一起下结论。\n\n2. GEX结构：价格所处Gamma区决定波动是否容易被放大。\n| 指标 | 当前值 |\n| --- | --- |\n| 标的价F | 6508 |\n| GEX Flip | 6420 |\n| 净GEX | 10.9M |\n| Gamma方向 | positive |\n| Max Pain | 6400 |\n| PCR | 0.748 |\n| 剩余到期 | 31.7天 |\nGEX处在正 Gamma 区，做市商对冲倾向抑制波动。交易上先盯两条线：6400若失守，负Gamma容易放大顺势波动；6420若被重新收复，追涨杀跌压力会减轻。\n核心含义：F=6508 高于或接近 GEX Flip=6420，当前处在正 Gamma 区，做市商对冲倾向抑制波动。若价格重新站回6420/6700上方，负Gamma压力会缓和；若跌破6400附近，波动可能更顺。\n\n3. Max Pain：临近到期关注痛点收敛，而不是简单看多看空。\n| 行权价 | Pain | 备注 |\n| --- | --- | --- |\n| 6400 | 8,631,000 | 最低 |\n| 6300 | 9,830,500 |  |\n| 6500 | 8,741,500 |  |\n| 6200 | 12,292,500 |  |\n| 6600 | 10,613,500 |  |\n当前Max Pain=6400。当前期权标的价距离Max Pain约+108点，临近到期存在向6400收敛的引力。 因此期权维度不是极端单边，而是上方Call压力、下方痛点/Put防线共同约束。\n\n4. 持仓结构：Put持仓偏多时要区分保护盘和主动空头。\n当前总持仓：Call OI=35,183，Put OI=26,333，PCR=0.748。\nPut持仓集中：\n| Put行权价 | Put OI |\n| --- | --- |\n| 6000 | 4,014 |\n| 5800 | 2,225 |\n| 6100 | 2,209 |\n| 5700 | 2,127 |\n| 5900 | 2,125 |\nCall持仓集中：\n| Call行权价 | Call OI |\n| --- | --- |\n| 7000 | 5,441 |\n| 6700 | 4,216 |\n| 7400 | 2,615 |\n| 7200 | 2,213 |\n| 6500 | 2,198 |\n解读：Put集中在6000, 5800, 6100，Call压力集中在7000, 6700, 7400, 7200。大致结构是：6400为痛点锚，6420为波动分界，6700及以上为压力带。\n\n5. IV结构：看ATM隐波是否够高，也看左侧保护溢价。\n| K | C IV | P IV | SVI/平滑IV | OI结构 |\n| --- | --- | --- | --- | --- |\n| 6400 | 31.07% | 31.08% | 31.07% | C 1,193 / P 1,427 |\n| 6450 | --% | --% | 31.15% | C -- / P -- |\n| 6500 | 31.22% | 31.32% | 31.26% | C 2,198 / P 1,325 |\n| 6550 | --% | --% | 31.41% | C -- / P -- |\n| 6600 | 31.56% | 31.58% | 31.60% | C 2,096 / P 601 |\nATM隐波约31.3%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。\nATM附近隐波约31.3%，属于高波动率；右偏(看涨溢价偏高)，上行博弈需求旺盛；中等曲率，隐波曲线形态正常。左侧Put IV若显著高于ATM，说明市场对下跌尾部风险有定价。\n\n6. 基本面与宏观：先看宏观快讯和成本链，周频供需项暂不放入盘中主研判。\n| 项目 | 当前值 | 解读 |\n| --- | --- | --- |\n| Brent | $92.89，-0.23% | 原油宏观成本 |\n| WTI | $90.25，+0.24% | 原油宏观成本 |\n| PX现货 | 9000 | 内盘成本端 |\n| PX外盘现货价 | $1166.33/吨 | manual:生意社；汇率6.8150 |\n| PTA估算成本 | 5895 | 内盘成本支撑区 |\n| 外盘PTA动态成本 | 5942 | PX亚洲收盘价*0.655*1.01*1.13*USD/CNY |\n| PTA利润 | 708，12.0% | 利润高则供应压力偏空 |\n宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：伊朗议会国家安全委员会负责人回应美国总统特朗普对伊朗的威胁：他将面临更强烈和更痛苦的反击。；“逃离霍尔木兹”？日本政府宣布：7月原油进口将“100%绕开海峡”；伊朗战争推高通胀压力，欧洲央行近三年来首次加息06-11 20:150评。外盘PX$1166.33/吨，对应外盘PTA动态成本约5942元/吨；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。\n自动快讯（去重人工摘要）：伊朗议会国家安全委员会负责人回应美国总统特朗普对伊朗的威胁：他将面临更强烈和更痛苦的反击；“逃离霍尔木兹”？日本政府宣布：7月原油进口将“100%绕开海峡”；伊朗战争推高通胀压力，欧洲央行近三年来首次加息06-11 20:150评；加拿大央行如期维持利率不变，经济疲软与油价飙升形成政策两难06-10 22:490评。\n基本面不是单边空：现货/成本可能提供下方支撑；但加工利润708元若处在偏高区域，容易限制上方弹性。\n\n综合结论\n当前主线：震荡，核心区间关注6400—6700。期权结构处在正 Gamma 区，做市商对冲倾向抑制波动，真正的方向触发在6400跌破或6420/6700重新站上。\n\n关键价位\n| 位置 | 含义 |\n| --- | --- |\n| 6420 | GEX Flip，跌破后波动可能放大 |\n| 6400 | Max Pain + 临近到期收敛锚 |\n| 6100 | 近端Put防线/有效支撑 |\n| 6700 | 近端Call压力/有效压力 |\n| 7000 | 上方最大Call持仓压力带 |\n| 6000 | 下方最大Put保护盘区域 |\n\n操作思路，仅按结构说\n如果偏交易期货：\n• 6420 / 6700下方不宜追多，先按反抽压力处理。\n• 跌破6400并放量增仓，负Gamma可能放大下跌，下一目标看6100。\n• 重新站回6420，空头动能减弱，回到区间震荡。\n如果偏期权卖方：\n• 临近到期Theta衰减快，震荡时卖方有时间价值优势。\n• 负Gamma环境不裸卖近端Put，尤其是6400失守后。\n• 若站回6420，可考虑更稳健的宽跨/价差结构。\n如果偏买方：\n• 买Put触发点优先看6400有效跌破。\n• 买Call触发点看重新站回6420或压力位后的修复。\n• 夹在痛点和压力之间横盘时，买方容易被时间价值消耗。\n\n一句话总结：当前不是强多盘，主线短线偏强；看6400是否守住——守住则向6400—6700区间收敛，跌破则负Gamma会放大下跌。",
+    "narrative": "当前市场判断：短线“震荡”，但不是单边空头。\n\n1. 期货价格层面（期货盘面）：短线节奏看盘面主力，期权结构看期权链标的参考价。\n| 项目 | 当前值 | 交易含义 |\n| --- | --- | --- |\n| 期权链标的参考价 | 6506 | 用于GEX、Pain、OI和IV结构判断 |\n| 盘面主力参考价 | TA 6350 | K线短线节奏：短线偏强 |\n| 最近20根K线 | +10 | 观察日内强弱和追单风险 |\n| PTA现货 | 6603 | 现货/成本锚 |\n| 现货-近月基差 | -108 | 升水偏强、贴水偏弱 |\n期权链标的参考价6506用于GEX、Pain、OI与IV等结构判断，盘面主力参考价 TA 6350负责K线节奏；两者各管一段，不要把结构位和短线信号混为一个价格。\n盘面主力参考价 TA 6350：最近一根变化+0点，过去20根累计+10点，节奏判定为短线偏强。期权链标的参考价6506用于判断GEX、Pain和持仓压力，不与盘面价混在一起下结论。\n\n2. GEX结构：价格所处Gamma区决定波动是否容易被放大。\n| 指标 | 当前值 |\n| --- | --- |\n| 标的价F | 6506 |\n| GEX Flip | -- |\n| 净GEX | -32.9M |\n| Gamma方向 | negative |\n| Max Pain | 6400 |\n| PCR | 1.282 |\n| 剩余到期 | -0.0天 |\nGEX处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。交易上先盯两条线：6400若失守，负Gamma容易放大顺势波动；--若被重新收复，追涨杀跌压力会减轻。\n核心含义：F=6506 高于或接近 GEX Flip=--，当前处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。若价格重新站回--/6600上方，负Gamma压力会缓和；若跌破6400附近，波动可能更顺。\n\n3. Max Pain：临近到期关注痛点收敛，而不是简单看多看空。\n| 行权价 | Pain | 备注 |\n| --- | --- | --- |\n| 6400 | 32,289,000 | 最低 |\n| 6300 | 43,925,500 | |\n| 6500 | 32,553,500 | |\n| 6200 | 68,963,500 | |\n| 6600 | 47,649,500 | |\n当前Max Pain=6400。当前期权标的价距离Max Pain约+106点，临近到期存在向6400收敛的引力。 因此期权维度不是极端单边，而是上方Call压力、下方痛点/Put防线共同约束。\n\n4. 持仓结构：Put持仓偏多时要区分保护盘和主动空头。\n当前总持仓：Call OI=120,541，Put OI=154,569，PCR=1.282。\nPut持仓集中：\n| Put行权价 | Put OI |\n| --- | --- |\n| 6000 | 28,623 |\n| 6300 | 19,212 |\n| 6200 | 18,023 |\n| 6400 | 16,856 |\n| 6500 | 15,087 |\nCall持仓集中：\n| Call行权价 | Call OI |\n| --- | --- |\n| 7000 | 18,259 |\n| 6500 | 14,576 |\n| 6600 | 14,135 |\n| 6700 | 13,240 |\n| 6800 | 7,656 |\n解读：Put集中在6000, 6300, 6200，Call压力集中在7000, 6500, 6600, 6700。大致结构是：6400为痛点锚，--为波动分界，6600及以上为压力带。\n\n5. IV结构：看ATM隐波是否够高，也看左侧保护溢价。\n| K | C IV | P IV | SVI/平滑IV | OI结构 |\n| --- | --- | --- | --- | --- |\n| 6300 | --% | --% | 95.20% | C 7,591 / P 19,212 |\n| 6400 | --% | 51.99% | 52.00% | C 6,946 / P 16,856 |\n| 6500 | 14.12% | 20.02% | 17.07% | C 14,576 / P 15,087 |\n| 6600 | --% | 61.24% | 39.96% | C 14,135 / P 3,249 |\n| 6700 | --% | 79.32% | 79.59% | C 13,240 / P 804 |\nATM隐波约16.4%，深度左偏(看跌保护溢价极高)，市场恐慌情绪浓厚。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。\nATM附近隐波约16.4%，属于低波动率；深度左偏(看跌保护溢价极高)，市场恐慌情绪浓厚；极高曲率(尾部风险定价极高)，市场预期可能出现剧烈波动。左侧Put IV若显著高于ATM，说明市场对下跌尾部风险有定价。\n\n6. 基本面与宏观：先看宏观快讯和成本链，周频供需项暂不放入盘中主研判。\n| 项目 | 当前值 | 解读 |\n| --- | --- | --- |\n| Brent | $93.54，+0.47% | 原油宏观成本 |\n| WTI | $90.62，+0.66% | 原油宏观成本 |\n| PX现货 | 9000 | 内盘成本端 |\n| PX外盘现货价 | $1166.33/吨 | manual:生意社；汇率6.8150 |\n| PTA估算成本 | 5895 | 内盘成本支撑区 |\n| 外盘PTA动态成本 | 5942 | PX亚洲收盘价*0.655*1.01*1.13*USD/CNY |\n| PTA利润 | 708，12.0% | 利润高则供应压力偏空 |\n宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：特朗普自曝摸黑运出22艘伊朗油轮，称“我爱通胀”；加拿大央行如期维持利率不变，经济疲软与油价飙升形成政策两难06-10 22:490评；全线拉升，美联储，利好突现06-10 22:270评。外盘PX$1166.33/吨，对应外盘PTA动态成本约5942元/吨；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。\n自动快讯（去重人工摘要）：特朗普自曝摸黑运出22艘伊朗油轮，称“我爱通胀”；加拿大央行如期维持利率不变，经济疲软与油价飙升形成政策两难06-10 22:490评；全线拉升，美联储，利好突现06-10 22:270评；美国5月CPI同比上涨4.2% 美联储年内加息25个基点预期概率上升06-10 20:380评。\n基本面不是单边空：现货/成本可能提供下方支撑；但加工利润708元若处在偏高区域，容易限制上方弹性。\n\n综合结论\n当前主线：震荡，核心区间关注6400—6600。期权结构处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动，真正的方向触发在6400跌破或--/6600重新站上。\n\n关键价位\n| 位置 | 含义 |\n| --- | --- |\n| 6400 | Max Pain + 临近到期收敛锚 |\n| 6300 | 近端Put防线/有效支撑 |\n| 6600 | 近端Call压力/有效压力 |\n| 7000 | 上方最大Call持仓压力带 |\n| 6000 | 下方最大Put保护盘区域 |\n\n操作思路，仅按结构说\n如果偏交易期货：\n• -- / 6600下方不宜追多，先按反抽压力处理。\n• 跌破6400并放量增仓，负Gamma可能放大下跌，下一目标看6300。\n• 重新站回--，空头动能减弱，回到区间震荡。\n如果偏期权卖方：\n• 临近到期Theta衰减快，震荡时卖方有时间价值优势。\n• 负Gamma环境不裸卖近端Put，尤其是6400失守后。\n• 若站回--，可考虑更稳健的宽跨/价差结构。\n如果偏买方：\n• 买Put触发点优先看6400有效跌破。\n• 买Call触发点看重新站回--或压力位后的修复。\n• 夹在痛点和压力之间横盘时，买方容易被时间价值消耗。\n\n一句话总结：当前不是强多盘，主线短线偏强；看6400是否守住——守住则向6400—6600区间收敛，跌破则负Gamma会放大下跌。",
     "bullets": [
-      "GEX：正 Gamma 区，做市商对冲倾向抑制波动",
-      "Pain：当前期权标的价距离Max Pain约+108点，临近到期存在向6400收敛的引力。",
-      "宏观：Brent$92.89"
+      "GEX：负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动",
+      "Pain：当前期权标的价距离Max Pain约+106点，临近到期存在向6400收敛的引力。",
+      "宏观：Brent$93.54"
     ],
     "narrative_notes": {
       "market": [
-        "期权链标的参考价6508用于GEX、Pain、OI与IV等结构判断，盘面主力参考价6416负责K线节奏；两者各管一段，不要把结构位和短线信号混为一个价格。"
+        "期权链标的参考价6506用于GEX、Pain、OI与IV等结构判断，盘面主力参考价6350负责K线节奏；两者各管一段，不要把结构位和短线信号混为一个价格。"
       ],
       "gex": [
-        "GEX处在正 Gamma 区，做市商对冲倾向抑制波动。交易上先盯两条线：6400若失守，负Gamma容易放大顺势波动；6420若被重新收复，追涨杀跌压力会减轻。"
+        "GEX处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。交易上先盯两条线：6400若失守，负Gamma容易放大顺势波动；--若被重新收复，追涨杀跌压力会减轻。"
       ],
       "oi": [
-        "持仓给出的不是单边方向，而是边界：Put集中区对应下方防线，Call集中区对应上方压力。当前更适合把6400—6700当作区间框架，再等跌破或站回触发。"
+        "持仓给出的不是单边方向，而是边界：Put集中区对应下方防线，Call集中区对应上方压力。当前更适合把6400—6600当作区间框架，再等跌破或站回触发。"
       ],
       "iv": [
-        "ATM隐波约31.3%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。"
+        "ATM隐波约16.4%，深度左偏(看跌保护溢价极高)，市场恐慌情绪浓厚。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。"
       ],
       "macro": [
-        "宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：伊朗议会国家安全委员会负责人回应美国总统特朗普对伊朗的威胁：他将面临更强烈和更痛苦的反击。；“逃离霍尔木兹”？日本政府宣布：7月原油进口将“100%绕开海峡”；伊朗战争推高通胀压力，欧洲央行近三年来首次加息06-11 20:150评。外盘PX$1166.33/吨，对应外盘PTA动态成本约5942元/吨；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。"
+        "宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：特朗普自曝摸黑运出22艘伊朗油轮，称“我爱通胀”；加拿大央行如期维持利率不变，经济疲软与油价飙升形成政策两难06-10 22:490评；全线拉升，美联储，利好突现06-10 22:270评。外盘PX$1166.33/吨，对应外盘PTA动态成本约5942元/吨；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。"
       ],
       "strategy": [
-        "策略依据：先用盘面主力判断追单节奏，再用GEX/Pain确定触发位，用OI确认支撑压力，用IV决定买方还是卖方更占优，同时用原油/PX外盘成本确认顺势信号质量。当前重点是6400是否跌破、6420是否收复；未触发前以区间和风控为主，触发后再顺势加速。"
+        "策略依据：先用盘面主力判断追单节奏，再用GEX/Pain确定触发位，用OI确认支撑压力，用IV决定买方还是卖方更占优，同时用原油/PX外盘成本确认顺势信号质量。当前重点是6400是否跌破、--是否收复；未触发前以区间和风控为主，触发后再顺势加速。"
       ],
       "other": []
     },
-    "market_snapshot_interpretation": "期权链标的参考价6508用于GEX、Pain、OI与IV等结构判断，盘面主力参考价 TA 6416负责K线节奏；两者各管一段，不要把结构位和短线信号混为一个价格。",
-    "gex_interpretation": "GEX处在正 Gamma 区，做市商对冲倾向抑制波动。交易上先盯两条线：6400若失守，负Gamma容易放大顺势波动；6420若被重新收复，追涨杀跌压力会减轻。",
-    "oi_interpretation": "持仓给出的不是单边方向，而是边界：Put集中区对应下方防线，Call集中区对应上方压力。当前更适合把6400—6700当作区间框架，再等跌破或站回触发。",
-    "iv_interpretation": "ATM隐波约31.3%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。",
-    "macro_interpretation": "宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：伊朗议会国家安全委员会负责人回应美国总统特朗普对伊朗的威胁：他将面临更强烈和更痛苦的反击。；“逃离霍尔木兹”？日本政府宣布：7月原油进口将“100%绕开海峡”；伊朗战争推高通胀压力，欧洲央行近三年来首次加息06-11 20:150评。外盘PX$1166.33/吨，对应外盘PTA动态成本约5942元/吨；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。",
-    "strategy_logic": "策略依据：先用盘面主力判断追单节奏，再用GEX/Pain确定触发位，用OI确认支撑压力，用IV决定买方还是卖方更占优，同时用原油/PX外盘成本确认顺势信号质量。当前重点是6400是否跌破、6420是否收复；未触发前以区间和风控为主，触发后再顺势加速。",
+    "market_snapshot_interpretation": "期权链标的参考价6506用于GEX、Pain、OI与IV等结构判断，盘面主力参考价 TA 6350负责K线节奏；两者各管一段，不要把结构位和短线信号混为一个价格。",
+    "gex_interpretation": "GEX处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。交易上先盯两条线：6400若失守，负Gamma容易放大顺势波动；--若被重新收复，追涨杀跌压力会减轻。",
+    "oi_interpretation": "持仓给出的不是单边方向，而是边界：Put集中区对应下方防线，Call集中区对应上方压力。当前更适合把6400—6600当作区间框架，再等跌破或站回触发。",
+    "iv_interpretation": "ATM隐波约16.4%，深度左偏(看跌保护溢价极高)，市场恐慌情绪浓厚。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。",
+    "macro_interpretation": "宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：特朗普自曝摸黑运出22艘伊朗油轮，称“我爱通胀”；加拿大央行如期维持利率不变，经济疲软与油价飙升形成政策两难06-10 22:490评；全线拉升，美联储，利好突现06-10 22:270评。外盘PX$1166.33/吨，对应外盘PTA动态成本约5942元/吨；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。",
+    "strategy_logic": "策略依据：先用盘面主力判断追单节奏，再用GEX/Pain确定触发位，用OI确认支撑压力，用IV决定买方还是卖方更占优，同时用原油/PX外盘成本确认顺势信号质量。当前重点是6400是否跌破、--是否收复；未触发前以区间和风控为主，触发后再顺势加速。",
     "market_snapshot_table": [
       [
         "期权链标的参考价",
-        "6508",
+        "6506",
         "用于GEX、Pain、OI和IV结构判断"
       ],
       [
         "盘面主力参考价",
-        "TA 6416",
+        "TA 6350",
         "K线短线节奏：短线偏强"
       ],
       [
         "最近20根K线",
-        "+24",
+        "+10",
         "观察日内强弱和追单风险"
       ],
       [
@@ -3844,19 +3396,19 @@
     "gex_table": [
       [
         "标的价F",
-        "6508"
+        "6506"
       ],
       [
         "GEX Flip",
-        "6420"
+        "--"
       ],
       [
         "净GEX",
-        "10.9M"
+        "-32.9M"
       ],
       [
         "Gamma方向",
-        "positive"
+        "negative"
       ],
       [
         "Max Pain",
@@ -3864,37 +3416,37 @@
       ],
       [
         "PCR",
-        "0.748"
+        "1.282"
       ],
       [
         "剩余到期",
-        "31.7天"
+        "-0.0天"
       ]
     ],
     "pain_table": [
       [
         "6400",
-        "8,631,000",
+        "32,289,000",
         "最低"
       ],
       [
         "6300",
-        "9,830,500",
+        "43,925,500",
         ""
       ],
       [
         "6500",
-        "8,741,500",
+        "32,553,500",
         ""
       ],
       [
         "6200",
-        "12,292,500",
+        "68,963,500",
         ""
       ],
       [
         "6600",
-        "10,613,500",
+        "47,649,500",
         ""
       ]
     ],
@@ -3902,94 +3454,94 @@
       "put": [
         [
           "6000",
-          "4,014"
+          "28,623"
         ],
         [
-          "5800",
-          "2,225"
+          "6300",
+          "19,212"
         ],
         [
-          "6100",
-          "2,209"
+          "6200",
+          "18,023"
         ],
         [
-          "5700",
-          "2,127"
+          "6400",
+          "16,856"
         ],
         [
-          "5900",
-          "2,125"
+          "6500",
+          "15,087"
         ]
       ],
       "call": [
         [
           "7000",
-          "5,441"
-        ],
-        [
-          "6700",
-          "4,216"
-        ],
-        [
-          "7400",
-          "2,615"
-        ],
-        [
-          "7200",
-          "2,213"
+          "18,259"
         ],
         [
           "6500",
-          "2,198"
+          "14,576"
+        ],
+        [
+          "6600",
+          "14,135"
+        ],
+        [
+          "6700",
+          "13,240"
+        ],
+        [
+          "6800",
+          "7,656"
         ]
       ]
     },
     "iv_table": [
       [
-        "6400",
-        "31.07%",
-        "31.08%",
-        "31.07%",
-        "C 1,193 / P 1,427"
+        "6300",
+        "--%",
+        "--%",
+        "95.20%",
+        "C 7,591 / P 19,212"
       ],
       [
-        "6450",
+        "6400",
         "--%",
-        "--%",
-        "31.15%",
-        "C -- / P --"
+        "51.99%",
+        "52.00%",
+        "C 6,946 / P 16,856"
       ],
       [
         "6500",
-        "31.22%",
-        "31.32%",
-        "31.26%",
-        "C 2,198 / P 1,325"
-      ],
-      [
-        "6550",
-        "--%",
-        "--%",
-        "31.41%",
-        "C -- / P --"
+        "14.12%",
+        "20.02%",
+        "17.07%",
+        "C 14,576 / P 15,087"
       ],
       [
         "6600",
-        "31.56%",
-        "31.58%",
-        "31.60%",
-        "C 2,096 / P 601"
+        "--%",
+        "61.24%",
+        "39.96%",
+        "C 14,135 / P 3,249"
+      ],
+      [
+        "6700",
+        "--%",
+        "79.32%",
+        "79.59%",
+        "C 13,240 / P 804"
       ]
     ],
     "macro_table": [
       [
         "Brent",
-        "$92.89，-0.23%",
+        "$93.54，+0.47%",
         "原油宏观成本"
       ],
       [
         "WTI",
-        "$90.25，+0.24%",
+        "$90.62，+0.66%",
         "原油宏观成本"
       ],
       [
@@ -4019,18 +3571,18 @@
       ]
     ],
     "macro_news_items": [
-      "伊朗议会国家安全委员会负责人回应美国总统特朗普对伊朗的威胁：他将面临更强烈和更痛苦的反击。",
-      "“逃离霍尔木兹”？日本政府宣布：7月原油进口将“100%绕开海峡”",
-      "伊朗战争推高通胀压力，欧洲央行近三年来首次加息06-11 20:150评",
-      "加拿大央行如期维持利率不变，经济疲软与油价飙升形成政策两难06-10 22:490评"
+      "特朗普自曝摸黑运出22艘伊朗油轮，称“我爱通胀”",
+      "加拿大央行如期维持利率不变，经济疲软与油价飙升形成政策两难06-10 22:490评",
+      "全线拉升，美联储，利好突现06-10 22:270评",
+      "美国5月CPI同比上涨4.2% 美联储年内加息25个基点预期概率上升06-10 20:380评"
     ],
     "strategy_blocks": {
       "futures_strategy": {
         "title": "期货操作",
         "items": [
-          "6420 / 6700下方不宜追多，先按反抽压力处理。",
-          "跌破6400并放量增仓，负Gamma可能放大下跌，下一目标看6100。",
-          "重新站回6420，空头动能减弱，回到区间震荡。"
+          "-- / 6600下方不宜追多，先按反抽压力处理。",
+          "跌破6400并放量增仓，负Gamma可能放大下跌，下一目标看6300。",
+          "重新站回--，空头动能减弱，回到区间震荡。"
         ]
       },
       "option_seller_strategy": {
@@ -4038,33 +3590,29 @@
         "items": [
           "临近到期Theta衰减快，震荡时卖方有时间价值优势。",
           "负Gamma环境不裸卖近端Put，尤其是6400失守后。",
-          "若站回6420，可考虑更稳健的宽跨/价差结构。"
+          "若站回--，可考虑更稳健的宽跨/价差结构。"
         ]
       },
       "option_buyer_strategy": {
         "title": "期权买方策略",
         "items": [
           "买Put触发点优先看6400有效跌破。",
-          "买Call触发点看重新站回6420或压力位后的修复。",
+          "买Call触发点看重新站回--或压力位后的修复。",
           "夹在痛点和压力之间横盘时，买方容易被时间价值消耗。"
         ]
       }
     },
     "key_levels": [
       [
-        "6420",
-        "GEX Flip，跌破后波动可能放大"
-      ],
-      [
         "6400",
         "Max Pain + 临近到期收敛锚"
       ],
       [
-        "6100",
+        "6300",
         "近端Put防线/有效支撑"
       ],
       [
-        "6700",
+        "6600",
         "近端Call压力/有效压力"
       ],
       [
@@ -4076,66 +3624,66 @@
         "下方最大Put保护盘区域"
       ]
     ],
-    "option_underlying_price": 6508,
-    "main_futures_price": 6416.0,
+    "option_underlying_price": 6506,
+    "main_futures_price": 6350.0,
     "main_futures_symbol": "TA"
   },
   "market_brief": {
     "title": "盘中综合研判",
     "summary": "当前 PTA 不适合简单看空。",
     "conclusion": "当前市场判断：短线“震荡”，但不是单边空头。",
-    "trader_report": "PTA 最新综合研判\n\n一、核心结论\n当前 PTA 不适合简单看空。\n产业链给出的底色是偏强震荡、有支撑但上方也有压制。当前核心区间先看6400—6700，不是无脑追多，也不是在6400上方主动追空。\n期权结构上，当前价格处于正 Gamma 区，做市商对冲倾向抑制波动，这意味着一旦关键位置被突破，波动容易被放大。\n\n二、宏观与成本端\n日内基本面不做机械重复改写，作为背景锚处理：伊朗议会国家安全委员会负责人回应美国总统特朗普对伊朗的威胁：他将面临更强烈和更痛苦的反击。\n原油/PX若继续偏强，会给PTA下方托底；如果中东缓和、原油回落或PX转弱，则多头会受压。当前PTA利润约708元，加工费偏高会限制上方持续单边拉涨空间。\n\n三、PTA自身基本面\n现货参考6603，基差-108，PX参考9000，PTA估算成本5895。现货/成本仍提供支撑，但高加工费和装置重启预期会压制追多空间。\n\n四、当前期权结构\n期权链标的参考价：6508；Max Pain：6400；GEX Flip：6420；净GEX：10.9M；Gamma方向：positive；PCR：0.748；剩余到期：约31.7天。\n临近到期，6400对价格有明显吸引力；站回6420后负Gamma压力缓和，跌破6400则负Gamma可能放大下跌。\n\n五、持仓压力与支撑\n下方Put防线重点看6400、6100；上方Call压力重点看6700以及更高Call集中区。持仓给出的不是单边方向，而是区间边界。\n\n六、隐波与风险情绪\nATM隐波约31.3%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果Put保护溢价继续高于Call，说明市场仍在为下跌尾部风险付费；临近到期买方不能在中间位置随意追。\n\n七、交易策略\n1. 期货操作\n6400上方不追空；6420下方不盲目追多；站回6420才考虑短多延续；跌破6400才考虑顺势空头，下一层关注6100。\n2. 期权卖方策略\n临近到期Theta衰减快，但负Gamma环境下不裸卖近端Put。若价格维持在6400上方，可优先考虑有保护的价差结构；若跌破6400，卖Put风险快速上升。\n3. 期权买方策略\n买Put触发点看有效跌破6400，最好伴随原油/PX走弱或盘面放量；买Call触发点看重新站回6420，否则容易被时间价值消耗。\n\n八、最终判断\n基本面偏强支撑，期权结构偏震荡拉扯，短线处于负Gamma敏感区。6400不破，短期仍以偏强震荡对待；站上6420，价格有机会继续试探6700；跌破6400，负Gamma可能放大下跌，回看6100。",
-    "futures_panel": "| 项目 | 当前值 | 交易含义 |\n| --- | --- | --- |\n| 期权链标的参考价 | 6508 | 用于GEX、Pain、OI和IV结构判断 |\n| 盘面主力参考价 | TA 6416 | K线短线节奏：短线偏强 |\n| 最近20根K线 | +24 | 观察日内强弱和追单风险 |\n| PTA现货 | 6603 | 现货/成本锚 |\n| 现货-近月基差 | -108 | 升水偏强、贴水偏弱 |",
-    "option_structure": "正 Gamma 区，做市商对冲倾向抑制波动",
+    "trader_report": "PTA 最新综合研判\n\n一、核心结论\n当前 PTA 不适合简单看空。\n产业链给出的底色是偏强震荡、有支撑但上方也有压制。当前核心区间先看6400—6600，不是无脑追多，也不是在6400上方主动追空。\n期权结构上，当前价格处于负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动，这意味着一旦关键位置被突破，波动容易被放大。\n\n二、宏观与成本端\n日内基本面不做机械重复改写，作为背景锚处理：特朗普自曝摸黑运出22艘伊朗油轮，称“我爱通胀”\n原油/PX若继续偏强，会给PTA下方托底；如果中东缓和、原油回落或PX转弱，则多头会受压。当前PTA利润约708元，加工费偏高会限制上方持续单边拉涨空间。\n\n三、PTA自身基本面\n现货参考6603，基差-108，PX参考9000，PTA估算成本5895。现货/成本仍提供支撑，但高加工费和装置重启预期会压制追多空间。\n\n四、当前期权结构\n期权链标的参考价：6506；Max Pain：6400；GEX Flip：--；净GEX：-32.9M；Gamma方向：negative；PCR：1.282；剩余到期：约-0.0天。\n临近到期，6400对价格有明显吸引力；站回--后负Gamma压力缓和，跌破6400则负Gamma可能放大下跌。\n\n五、持仓压力与支撑\n下方Put防线重点看6400、6300；上方Call压力重点看6600以及更高Call集中区。持仓给出的不是单边方向，而是区间边界。\n\n六、隐波与风险情绪\nATM隐波约16.4%，深度左偏(看跌保护溢价极高)，市场恐慌情绪浓厚。如果Put保护溢价继续高于Call，说明市场仍在为下跌尾部风险付费；临近到期买方不能在中间位置随意追。\n\n七、交易策略\n1. 期货操作\n6400上方不追空；--下方不盲目追多；站回--才考虑短多延续；跌破6400才考虑顺势空头，下一层关注6300。\n2. 期权卖方策略\n临近到期Theta衰减快，但负Gamma环境下不裸卖近端Put。若价格维持在6400上方，可优先考虑有保护的价差结构；若跌破6400，卖Put风险快速上升。\n3. 期权买方策略\n买Put触发点看有效跌破6400，最好伴随原油/PX走弱或盘面放量；买Call触发点看重新站回--，否则容易被时间价值消耗。\n\n八、最终判断\n基本面偏强支撑，期权结构偏震荡拉扯，短线处于负Gamma敏感区。6400不破，短期仍以偏强震荡对待；站上--，价格有机会继续试探6600；跌破6400，负Gamma可能放大下跌，回看6300。",
+    "futures_panel": "| 项目 | 当前值 | 交易含义 |\n| --- | --- | --- |\n| 期权链标的参考价 | 6506 | 用于GEX、Pain、OI和IV结构判断 |\n| 盘面主力参考价 | TA 6350 | K线短线节奏：短线偏强 |\n| 最近20根K线 | +10 | 观察日内强弱和追单风险 |\n| PTA现货 | 6603 | 现货/成本锚 |\n| 现货-近月基差 | -108 | 升水偏强、贴水偏弱 |",
+    "option_structure": "负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动",
     "macro_fundamental": "宏观基本面：以宏观财经快讯和成本链为主，暂不展示周频供需项。",
     "strategy_judgement": "",
-    "narrative": "当前市场判断：短线“震荡”，但不是单边空头。\n\n1. 期货价格层面（期货盘面）：短线节奏看盘面主力，期权结构看期权链标的参考价。\n| 项目 | 当前值 | 交易含义 |\n| --- | --- | --- |\n| 期权链标的参考价 | 6508 | 用于GEX、Pain、OI和IV结构判断 |\n| 盘面主力参考价 | TA 6416 | K线短线节奏：短线偏强 |\n| 最近20根K线 | +24 | 观察日内强弱和追单风险 |\n| PTA现货 | 6603 | 现货/成本锚 |\n| 现货-近月基差 | -108 | 升水偏强、贴水偏弱 |\n期权链标的参考价6508用于GEX、Pain、OI与IV等结构判断，盘面主力参考价 TA 6416负责K线节奏；两者各管一段，不要把结构位和短线信号混为一个价格。\n盘面主力参考价 TA 6416：最近一根变化+4点，过去20根累计+24点，节奏判定为短线偏强。期权链标的参考价6508用于判断GEX、Pain和持仓压力，不与盘面价混在一起下结论。\n\n2. GEX结构：价格所处Gamma区决定波动是否容易被放大。\n| 指标 | 当前值 |\n| --- | --- |\n| 标的价F | 6508 |\n| GEX Flip | 6420 |\n| 净GEX | 10.9M |\n| Gamma方向 | positive |\n| Max Pain | 6400 |\n| PCR | 0.748 |\n| 剩余到期 | 31.7天 |\nGEX处在正 Gamma 区，做市商对冲倾向抑制波动。交易上先盯两条线：6400若失守，负Gamma容易放大顺势波动；6420若被重新收复，追涨杀跌压力会减轻。\n核心含义：F=6508 高于或接近 GEX Flip=6420，当前处在正 Gamma 区，做市商对冲倾向抑制波动。若价格重新站回6420/6700上方，负Gamma压力会缓和；若跌破6400附近，波动可能更顺。\n\n3. Max Pain：临近到期关注痛点收敛，而不是简单看多看空。\n| 行权价 | Pain | 备注 |\n| --- | --- | --- |\n| 6400 | 8,631,000 | 最低 |\n| 6300 | 9,830,500 |  |\n| 6500 | 8,741,500 |  |\n| 6200 | 12,292,500 |  |\n| 6600 | 10,613,500 |  |\n当前Max Pain=6400。当前期权标的价距离Max Pain约+108点，临近到期存在向6400收敛的引力。 因此期权维度不是极端单边，而是上方Call压力、下方痛点/Put防线共同约束。\n\n4. 持仓结构：Put持仓偏多时要区分保护盘和主动空头。\n当前总持仓：Call OI=35,183，Put OI=26,333，PCR=0.748。\nPut持仓集中：\n| Put行权价 | Put OI |\n| --- | --- |\n| 6000 | 4,014 |\n| 5800 | 2,225 |\n| 6100 | 2,209 |\n| 5700 | 2,127 |\n| 5900 | 2,125 |\nCall持仓集中：\n| Call行权价 | Call OI |\n| --- | --- |\n| 7000 | 5,441 |\n| 6700 | 4,216 |\n| 7400 | 2,615 |\n| 7200 | 2,213 |\n| 6500 | 2,198 |\n解读：Put集中在6000, 5800, 6100，Call压力集中在7000, 6700, 7400, 7200。大致结构是：6400为痛点锚，6420为波动分界，6700及以上为压力带。\n\n5. IV结构：看ATM隐波是否够高，也看左侧保护溢价。\n| K | C IV | P IV | SVI/平滑IV | OI结构 |\n| --- | --- | --- | --- | --- |\n| 6400 | 31.07% | 31.08% | 31.07% | C 1,193 / P 1,427 |\n| 6450 | --% | --% | 31.15% | C -- / P -- |\n| 6500 | 31.22% | 31.32% | 31.26% | C 2,198 / P 1,325 |\n| 6550 | --% | --% | 31.41% | C -- / P -- |\n| 6600 | 31.56% | 31.58% | 31.60% | C 2,096 / P 601 |\nATM隐波约31.3%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。\nATM附近隐波约31.3%，属于高波动率；右偏(看涨溢价偏高)，上行博弈需求旺盛；中等曲率，隐波曲线形态正常。左侧Put IV若显著高于ATM，说明市场对下跌尾部风险有定价。\n\n6. 基本面与宏观：先看宏观快讯和成本链，周频供需项暂不放入盘中主研判。\n| 项目 | 当前值 | 解读 |\n| --- | --- | --- |\n| Brent | $92.89，-0.23% | 原油宏观成本 |\n| WTI | $90.25，+0.24% | 原油宏观成本 |\n| PX现货 | 9000 | 内盘成本端 |\n| PX外盘现货价 | $1166.33/吨 | manual:生意社；汇率6.8150 |\n| PTA估算成本 | 5895 | 内盘成本支撑区 |\n| 外盘PTA动态成本 | 5942 | PX亚洲收盘价*0.655*1.01*1.13*USD/CNY |\n| PTA利润 | 708，12.0% | 利润高则供应压力偏空 |\n宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：伊朗议会国家安全委员会负责人回应美国总统特朗普对伊朗的威胁：他将面临更强烈和更痛苦的反击。；“逃离霍尔木兹”？日本政府宣布：7月原油进口将“100%绕开海峡”；伊朗战争推高通胀压力，欧洲央行近三年来首次加息06-11 20:150评。外盘PX$1166.33/吨，对应外盘PTA动态成本约5942元/吨；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。\n自动快讯（去重人工摘要）：伊朗议会国家安全委员会负责人回应美国总统特朗普对伊朗的威胁：他将面临更强烈和更痛苦的反击；“逃离霍尔木兹”？日本政府宣布：7月原油进口将“100%绕开海峡”；伊朗战争推高通胀压力，欧洲央行近三年来首次加息06-11 20:150评；加拿大央行如期维持利率不变，经济疲软与油价飙升形成政策两难06-10 22:490评。\n基本面不是单边空：现货/成本可能提供下方支撑；但加工利润708元若处在偏高区域，容易限制上方弹性。\n\n综合结论\n当前主线：震荡，核心区间关注6400—6700。期权结构处在正 Gamma 区，做市商对冲倾向抑制波动，真正的方向触发在6400跌破或6420/6700重新站上。\n\n关键价位\n| 位置 | 含义 |\n| --- | --- |\n| 6420 | GEX Flip，跌破后波动可能放大 |\n| 6400 | Max Pain + 临近到期收敛锚 |\n| 6100 | 近端Put防线/有效支撑 |\n| 6700 | 近端Call压力/有效压力 |\n| 7000 | 上方最大Call持仓压力带 |\n| 6000 | 下方最大Put保护盘区域 |\n\n操作思路，仅按结构说\n如果偏交易期货：\n• 6420 / 6700下方不宜追多，先按反抽压力处理。\n• 跌破6400并放量增仓，负Gamma可能放大下跌，下一目标看6100。\n• 重新站回6420，空头动能减弱，回到区间震荡。\n如果偏期权卖方：\n• 临近到期Theta衰减快，震荡时卖方有时间价值优势。\n• 负Gamma环境不裸卖近端Put，尤其是6400失守后。\n• 若站回6420，可考虑更稳健的宽跨/价差结构。\n如果偏买方：\n• 买Put触发点优先看6400有效跌破。\n• 买Call触发点看重新站回6420或压力位后的修复。\n• 夹在痛点和压力之间横盘时，买方容易被时间价值消耗。\n\n一句话总结：当前不是强多盘，主线短线偏强；看6400是否守住——守住则向6400—6700区间收敛，跌破则负Gamma会放大下跌。",
+    "narrative": "当前市场判断：短线“震荡”，但不是单边空头。\n\n1. 期货价格层面（期货盘面）：短线节奏看盘面主力，期权结构看期权链标的参考价。\n| 项目 | 当前值 | 交易含义 |\n| --- | --- | --- |\n| 期权链标的参考价 | 6506 | 用于GEX、Pain、OI和IV结构判断 |\n| 盘面主力参考价 | TA 6350 | K线短线节奏：短线偏强 |\n| 最近20根K线 | +10 | 观察日内强弱和追单风险 |\n| PTA现货 | 6603 | 现货/成本锚 |\n| 现货-近月基差 | -108 | 升水偏强、贴水偏弱 |\n期权链标的参考价6506用于GEX、Pain、OI与IV等结构判断，盘面主力参考价 TA 6350负责K线节奏；两者各管一段，不要把结构位和短线信号混为一个价格。\n盘面主力参考价 TA 6350：最近一根变化+0点，过去20根累计+10点，节奏判定为短线偏强。期权链标的参考价6506用于判断GEX、Pain和持仓压力，不与盘面价混在一起下结论。\n\n2. GEX结构：价格所处Gamma区决定波动是否容易被放大。\n| 指标 | 当前值 |\n| --- | --- |\n| 标的价F | 6506 |\n| GEX Flip | -- |\n| 净GEX | -32.9M |\n| Gamma方向 | negative |\n| Max Pain | 6400 |\n| PCR | 1.282 |\n| 剩余到期 | -0.0天 |\nGEX处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。交易上先盯两条线：6400若失守，负Gamma容易放大顺势波动；--若被重新收复，追涨杀跌压力会减轻。\n核心含义：F=6506 高于或接近 GEX Flip=--，当前处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。若价格重新站回--/6600上方，负Gamma压力会缓和；若跌破6400附近，波动可能更顺。\n\n3. Max Pain：临近到期关注痛点收敛，而不是简单看多看空。\n| 行权价 | Pain | 备注 |\n| --- | --- | --- |\n| 6400 | 32,289,000 | 最低 |\n| 6300 | 43,925,500 | |\n| 6500 | 32,553,500 | |\n| 6200 | 68,963,500 | |\n| 6600 | 47,649,500 | |\n当前Max Pain=6400。当前期权标的价距离Max Pain约+106点，临近到期存在向6400收敛的引力。 因此期权维度不是极端单边，而是上方Call压力、下方痛点/Put防线共同约束。\n\n4. 持仓结构：Put持仓偏多时要区分保护盘和主动空头。\n当前总持仓：Call OI=120,541，Put OI=154,569，PCR=1.282。\nPut持仓集中：\n| Put行权价 | Put OI |\n| --- | --- |\n| 6000 | 28,623 |\n| 6300 | 19,212 |\n| 6200 | 18,023 |\n| 6400 | 16,856 |\n| 6500 | 15,087 |\nCall持仓集中：\n| Call行权价 | Call OI |\n| --- | --- |\n| 7000 | 18,259 |\n| 6500 | 14,576 |\n| 6600 | 14,135 |\n| 6700 | 13,240 |\n| 6800 | 7,656 |\n解读：Put集中在6000, 6300, 6200，Call压力集中在7000, 6500, 6600, 6700。大致结构是：6400为痛点锚，--为波动分界，6600及以上为压力带。\n\n5. IV结构：看ATM隐波是否够高，也看左侧保护溢价。\n| K | C IV | P IV | SVI/平滑IV | OI结构 |\n| --- | --- | --- | --- | --- |\n| 6300 | --% | --% | 95.20% | C 7,591 / P 19,212 |\n| 6400 | --% | 51.99% | 52.00% | C 6,946 / P 16,856 |\n| 6500 | 14.12% | 20.02% | 17.07% | C 14,576 / P 15,087 |\n| 6600 | --% | 61.24% | 39.96% | C 14,135 / P 3,249 |\n| 6700 | --% | 79.32% | 79.59% | C 13,240 / P 804 |\nATM隐波约16.4%，深度左偏(看跌保护溢价极高)，市场恐慌情绪浓厚。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。\nATM附近隐波约16.4%，属于低波动率；深度左偏(看跌保护溢价极高)，市场恐慌情绪浓厚；极高曲率(尾部风险定价极高)，市场预期可能出现剧烈波动。左侧Put IV若显著高于ATM，说明市场对下跌尾部风险有定价。\n\n6. 基本面与宏观：先看宏观快讯和成本链，周频供需项暂不放入盘中主研判。\n| 项目 | 当前值 | 解读 |\n| --- | --- | --- |\n| Brent | $93.54，+0.47% | 原油宏观成本 |\n| WTI | $90.62，+0.66% | 原油宏观成本 |\n| PX现货 | 9000 | 内盘成本端 |\n| PX外盘现货价 | $1166.33/吨 | manual:生意社；汇率6.8150 |\n| PTA估算成本 | 5895 | 内盘成本支撑区 |\n| 外盘PTA动态成本 | 5942 | PX亚洲收盘价*0.655*1.01*1.13*USD/CNY |\n| PTA利润 | 708，12.0% | 利润高则供应压力偏空 |\n宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：特朗普自曝摸黑运出22艘伊朗油轮，称“我爱通胀”；加拿大央行如期维持利率不变，经济疲软与油价飙升形成政策两难06-10 22:490评；全线拉升，美联储，利好突现06-10 22:270评。外盘PX$1166.33/吨，对应外盘PTA动态成本约5942元/吨；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。\n自动快讯（去重人工摘要）：特朗普自曝摸黑运出22艘伊朗油轮，称“我爱通胀”；加拿大央行如期维持利率不变，经济疲软与油价飙升形成政策两难06-10 22:490评；全线拉升，美联储，利好突现06-10 22:270评；美国5月CPI同比上涨4.2% 美联储年内加息25个基点预期概率上升06-10 20:380评。\n基本面不是单边空：现货/成本可能提供下方支撑；但加工利润708元若处在偏高区域，容易限制上方弹性。\n\n综合结论\n当前主线：震荡，核心区间关注6400—6600。期权结构处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动，真正的方向触发在6400跌破或--/6600重新站上。\n\n关键价位\n| 位置 | 含义 |\n| --- | --- |\n| 6400 | Max Pain + 临近到期收敛锚 |\n| 6300 | 近端Put防线/有效支撑 |\n| 6600 | 近端Call压力/有效压力 |\n| 7000 | 上方最大Call持仓压力带 |\n| 6000 | 下方最大Put保护盘区域 |\n\n操作思路，仅按结构说\n如果偏交易期货：\n• -- / 6600下方不宜追多，先按反抽压力处理。\n• 跌破6400并放量增仓，负Gamma可能放大下跌，下一目标看6300。\n• 重新站回--，空头动能减弱，回到区间震荡。\n如果偏期权卖方：\n• 临近到期Theta衰减快，震荡时卖方有时间价值优势。\n• 负Gamma环境不裸卖近端Put，尤其是6400失守后。\n• 若站回--，可考虑更稳健的宽跨/价差结构。\n如果偏买方：\n• 买Put触发点优先看6400有效跌破。\n• 买Call触发点看重新站回--或压力位后的修复。\n• 夹在痛点和压力之间横盘时，买方容易被时间价值消耗。\n\n一句话总结：当前不是强多盘，主线短线偏强；看6400是否守住——守住则向6400—6600区间收敛，跌破则负Gamma会放大下跌。",
     "bullets": [
-      "GEX：正 Gamma 区，做市商对冲倾向抑制波动",
-      "Pain：当前期权标的价距离Max Pain约+108点，临近到期存在向6400收敛的引力。",
-      "宏观：Brent$92.89"
+      "GEX：负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动",
+      "Pain：当前期权标的价距离Max Pain约+106点，临近到期存在向6400收敛的引力。",
+      "宏观：Brent$93.54"
     ],
     "narrative_notes": {
       "market": [
-        "期权链标的参考价6508用于GEX、Pain、OI与IV等结构判断，盘面主力参考价6416负责K线节奏；两者各管一段，不要把结构位和短线信号混为一个价格。"
+        "期权链标的参考价6506用于GEX、Pain、OI与IV等结构判断，盘面主力参考价6350负责K线节奏；两者各管一段，不要把结构位和短线信号混为一个价格。"
       ],
       "gex": [
-        "GEX处在正 Gamma 区，做市商对冲倾向抑制波动。交易上先盯两条线：6400若失守，负Gamma容易放大顺势波动；6420若被重新收复，追涨杀跌压力会减轻。"
+        "GEX处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。交易上先盯两条线：6400若失守，负Gamma容易放大顺势波动；--若被重新收复，追涨杀跌压力会减轻。"
       ],
       "oi": [
-        "持仓给出的不是单边方向，而是边界：Put集中区对应下方防线，Call集中区对应上方压力。当前更适合把6400—6700当作区间框架，再等跌破或站回触发。"
+        "持仓给出的不是单边方向，而是边界：Put集中区对应下方防线，Call集中区对应上方压力。当前更适合把6400—6600当作区间框架，再等跌破或站回触发。"
       ],
       "iv": [
-        "ATM隐波约31.3%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。"
+        "ATM隐波约16.4%，深度左偏(看跌保护溢价极高)，市场恐慌情绪浓厚。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。"
       ],
       "macro": [
-        "宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：伊朗议会国家安全委员会负责人回应美国总统特朗普对伊朗的威胁：他将面临更强烈和更痛苦的反击。；“逃离霍尔木兹”？日本政府宣布：7月原油进口将“100%绕开海峡”；伊朗战争推高通胀压力，欧洲央行近三年来首次加息06-11 20:150评。外盘PX$1166.33/吨，对应外盘PTA动态成本约5942元/吨；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。"
+        "宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：特朗普自曝摸黑运出22艘伊朗油轮，称“我爱通胀”；加拿大央行如期维持利率不变，经济疲软与油价飙升形成政策两难06-10 22:490评；全线拉升，美联储，利好突现06-10 22:270评。外盘PX$1166.33/吨，对应外盘PTA动态成本约5942元/吨；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。"
       ],
       "strategy": [
-        "策略依据：先用盘面主力判断追单节奏，再用GEX/Pain确定触发位，用OI确认支撑压力，用IV决定买方还是卖方更占优，同时用原油/PX外盘成本确认顺势信号质量。当前重点是6400是否跌破、6420是否收复；未触发前以区间和风控为主，触发后再顺势加速。"
+        "策略依据：先用盘面主力判断追单节奏，再用GEX/Pain确定触发位，用OI确认支撑压力，用IV决定买方还是卖方更占优，同时用原油/PX外盘成本确认顺势信号质量。当前重点是6400是否跌破、--是否收复；未触发前以区间和风控为主，触发后再顺势加速。"
       ],
       "other": []
     },
-    "market_snapshot_interpretation": "期权链标的参考价6508用于GEX、Pain、OI与IV等结构判断，盘面主力参考价 TA 6416负责K线节奏；两者各管一段，不要把结构位和短线信号混为一个价格。",
-    "gex_interpretation": "GEX处在正 Gamma 区，做市商对冲倾向抑制波动。交易上先盯两条线：6400若失守，负Gamma容易放大顺势波动；6420若被重新收复，追涨杀跌压力会减轻。",
-    "oi_interpretation": "持仓给出的不是单边方向，而是边界：Put集中区对应下方防线，Call集中区对应上方压力。当前更适合把6400—6700当作区间框架，再等跌破或站回触发。",
-    "iv_interpretation": "ATM隐波约31.3%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。",
-    "macro_interpretation": "宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：伊朗议会国家安全委员会负责人回应美国总统特朗普对伊朗的威胁：他将面临更强烈和更痛苦的反击。；“逃离霍尔木兹”？日本政府宣布：7月原油进口将“100%绕开海峡”；伊朗战争推高通胀压力，欧洲央行近三年来首次加息06-11 20:150评。外盘PX$1166.33/吨，对应外盘PTA动态成本约5942元/吨；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。",
-    "strategy_logic": "策略依据：先用盘面主力判断追单节奏，再用GEX/Pain确定触发位，用OI确认支撑压力，用IV决定买方还是卖方更占优，同时用原油/PX外盘成本确认顺势信号质量。当前重点是6400是否跌破、6420是否收复；未触发前以区间和风控为主，触发后再顺势加速。",
+    "market_snapshot_interpretation": "期权链标的参考价6506用于GEX、Pain、OI与IV等结构判断，盘面主力参考价 TA 6350负责K线节奏；两者各管一段，不要把结构位和短线信号混为一个价格。",
+    "gex_interpretation": "GEX处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。交易上先盯两条线：6400若失守，负Gamma容易放大顺势波动；--若被重新收复，追涨杀跌压力会减轻。",
+    "oi_interpretation": "持仓给出的不是单边方向，而是边界：Put集中区对应下方防线，Call集中区对应上方压力。当前更适合把6400—6600当作区间框架，再等跌破或站回触发。",
+    "iv_interpretation": "ATM隐波约16.4%，深度左偏(看跌保护溢价极高)，市场恐慌情绪浓厚。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。",
+    "macro_interpretation": "宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：特朗普自曝摸黑运出22艘伊朗油轮，称“我爱通胀”；加拿大央行如期维持利率不变，经济疲软与油价飙升形成政策两难06-10 22:490评；全线拉升，美联储，利好突现06-10 22:270评。外盘PX$1166.33/吨，对应外盘PTA动态成本约5942元/吨；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。",
+    "strategy_logic": "策略依据：先用盘面主力判断追单节奏，再用GEX/Pain确定触发位，用OI确认支撑压力，用IV决定买方还是卖方更占优，同时用原油/PX外盘成本确认顺势信号质量。当前重点是6400是否跌破、--是否收复；未触发前以区间和风控为主，触发后再顺势加速。",
     "market_snapshot_table": [
       [
         "期权链标的参考价",
-        "6508",
+        "6506",
         "用于GEX、Pain、OI和IV结构判断"
       ],
       [
         "盘面主力参考价",
-        "TA 6416",
+        "TA 6350",
         "K线短线节奏：短线偏强"
       ],
       [
         "最近20根K线",
-        "+24",
+        "+10",
         "观察日内强弱和追单风险"
       ],
       [
@@ -4152,19 +3700,19 @@
     "gex_table": [
       [
         "标的价F",
-        "6508"
+        "6506"
       ],
       [
         "GEX Flip",
-        "6420"
+        "--"
       ],
       [
         "净GEX",
-        "10.9M"
+        "-32.9M"
       ],
       [
         "Gamma方向",
-        "positive"
+        "negative"
       ],
       [
         "Max Pain",
@@ -4172,37 +3720,37 @@
       ],
       [
         "PCR",
-        "0.748"
+        "1.282"
       ],
       [
         "剩余到期",
-        "31.7天"
+        "-0.0天"
       ]
     ],
     "pain_table": [
       [
         "6400",
-        "8,631,000",
+        "32,289,000",
         "最低"
       ],
       [
         "6300",
-        "9,830,500",
+        "43,925,500",
         ""
       ],
       [
         "6500",
-        "8,741,500",
+        "32,553,500",
         ""
       ],
       [
         "6200",
-        "12,292,500",
+        "68,963,500",
         ""
       ],
       [
         "6600",
-        "10,613,500",
+        "47,649,500",
         ""
       ]
     ],
@@ -4210,94 +3758,94 @@
       "put": [
         [
           "6000",
-          "4,014"
+          "28,623"
         ],
         [
-          "5800",
-          "2,225"
+          "6300",
+          "19,212"
         ],
         [
-          "6100",
-          "2,209"
+          "6200",
+          "18,023"
         ],
         [
-          "5700",
-          "2,127"
+          "6400",
+          "16,856"
         ],
         [
-          "5900",
-          "2,125"
+          "6500",
+          "15,087"
         ]
       ],
       "call": [
         [
           "7000",
-          "5,441"
-        ],
-        [
-          "6700",
-          "4,216"
-        ],
-        [
-          "7400",
-          "2,615"
-        ],
-        [
-          "7200",
-          "2,213"
+          "18,259"
         ],
         [
           "6500",
-          "2,198"
+          "14,576"
+        ],
+        [
+          "6600",
+          "14,135"
+        ],
+        [
+          "6700",
+          "13,240"
+        ],
+        [
+          "6800",
+          "7,656"
         ]
       ]
     },
     "iv_table": [
       [
-        "6400",
-        "31.07%",
-        "31.08%",
-        "31.07%",
-        "C 1,193 / P 1,427"
+        "6300",
+        "--%",
+        "--%",
+        "95.20%",
+        "C 7,591 / P 19,212"
       ],
       [
-        "6450",
+        "6400",
         "--%",
-        "--%",
-        "31.15%",
-        "C -- / P --"
+        "51.99%",
+        "52.00%",
+        "C 6,946 / P 16,856"
       ],
       [
         "6500",
-        "31.22%",
-        "31.32%",
-        "31.26%",
-        "C 2,198 / P 1,325"
-      ],
-      [
-        "6550",
-        "--%",
-        "--%",
-        "31.41%",
-        "C -- / P --"
+        "14.12%",
+        "20.02%",
+        "17.07%",
+        "C 14,576 / P 15,087"
       ],
       [
         "6600",
-        "31.56%",
-        "31.58%",
-        "31.60%",
-        "C 2,096 / P 601"
+        "--%",
+        "61.24%",
+        "39.96%",
+        "C 14,135 / P 3,249"
+      ],
+      [
+        "6700",
+        "--%",
+        "79.32%",
+        "79.59%",
+        "C 13,240 / P 804"
       ]
     ],
     "macro_table": [
       [
         "Brent",
-        "$92.89，-0.23%",
+        "$93.54，+0.47%",
         "原油宏观成本"
       ],
       [
         "WTI",
-        "$90.25，+0.24%",
+        "$90.62，+0.66%",
         "原油宏观成本"
       ],
       [
@@ -4327,18 +3875,18 @@
       ]
     ],
     "macro_news_items": [
-      "伊朗议会国家安全委员会负责人回应美国总统特朗普对伊朗的威胁：他将面临更强烈和更痛苦的反击。",
-      "“逃离霍尔木兹”？日本政府宣布：7月原油进口将“100%绕开海峡”",
-      "伊朗战争推高通胀压力，欧洲央行近三年来首次加息06-11 20:150评",
-      "加拿大央行如期维持利率不变，经济疲软与油价飙升形成政策两难06-10 22:490评"
+      "特朗普自曝摸黑运出22艘伊朗油轮，称“我爱通胀”",
+      "加拿大央行如期维持利率不变，经济疲软与油价飙升形成政策两难06-10 22:490评",
+      "全线拉升，美联储，利好突现06-10 22:270评",
+      "美国5月CPI同比上涨4.2% 美联储年内加息25个基点预期概率上升06-10 20:380评"
     ],
     "strategy_blocks": {
       "futures_strategy": {
         "title": "期货操作",
         "items": [
-          "6420 / 6700下方不宜追多，先按反抽压力处理。",
-          "跌破6400并放量增仓，负Gamma可能放大下跌，下一目标看6100。",
-          "重新站回6420，空头动能减弱，回到区间震荡。"
+          "-- / 6600下方不宜追多，先按反抽压力处理。",
+          "跌破6400并放量增仓，负Gamma可能放大下跌，下一目标看6300。",
+          "重新站回--，空头动能减弱，回到区间震荡。"
         ]
       },
       "option_seller_strategy": {
@@ -4346,33 +3894,29 @@
         "items": [
           "临近到期Theta衰减快，震荡时卖方有时间价值优势。",
           "负Gamma环境不裸卖近端Put，尤其是6400失守后。",
-          "若站回6420，可考虑更稳健的宽跨/价差结构。"
+          "若站回--，可考虑更稳健的宽跨/价差结构。"
         ]
       },
       "option_buyer_strategy": {
         "title": "期权买方策略",
         "items": [
           "买Put触发点优先看6400有效跌破。",
-          "买Call触发点看重新站回6420或压力位后的修复。",
+          "买Call触发点看重新站回--或压力位后的修复。",
           "夹在痛点和压力之间横盘时，买方容易被时间价值消耗。"
         ]
       }
     },
     "key_levels": [
       [
-        "6420",
-        "GEX Flip，跌破后波动可能放大"
-      ],
-      [
         "6400",
         "Max Pain + 临近到期收敛锚"
       ],
       [
-        "6100",
+        "6300",
         "近端Put防线/有效支撑"
       ],
       [
-        "6700",
+        "6600",
         "近端Call压力/有效压力"
       ],
       [
@@ -4384,9 +3928,237 @@
         "下方最大Put保护盘区域"
       ]
     ],
-    "option_underlying_price": 6508,
-    "main_futures_price": 6416.0,
+    "option_underlying_price": 6506,
+    "main_futures_price": 6350.0,
     "main_futures_symbol": "TA"
   },
-  "narrative_report": "当前市场判断：短线“震荡”，但不是单边空头。\n\n1. 期货价格层面（期货盘面）：短线节奏看盘面主力，期权结构看期权链标的参考价。\n| 项目 | 当前值 | 交易含义 |\n| --- | --- | --- |\n| 期权链标的参考价 | 6508 | 用于GEX、Pain、OI和IV结构判断 |\n| 盘面主力参考价 | TA 6416 | K线短线节奏：短线偏强 |\n| 最近20根K线 | +24 | 观察日内强弱和追单风险 |\n| PTA现货 | 6603 | 现货/成本锚 |\n| 现货-近月基差 | -108 | 升水偏强、贴水偏弱 |\n期权链标的参考价6508用于GEX、Pain、OI与IV等结构判断，盘面主力参考价6416负责K线节奏；两者各管一段，不要把结构位和短线信号混为一个价格。\n盘面主力参考价6416：最近一根变化+4点，过去20根累计+24点，节奏判定为短线偏强。期权链标的参考价6508用于判断GEX、Pain和持仓压力，不与盘面价混在一起下结论。\n\n2. GEX结构：价格所处Gamma区决定波动是否容易被放大。\n| 指标 | 当前值 |\n| --- | --- |\n| 标的价F | 6508 |\n| GEX Flip | 6420 |\n| 净GEX | 10.9M |\n| Gamma方向 | positive |\n| Max Pain | 6400 |\n| PCR | 0.748 |\n| 剩余到期 | 31.7天 |\nGEX处在正 Gamma 区，做市商对冲倾向抑制波动。交易上先盯两条线：6400若失守，负Gamma容易放大顺势波动；6420若被重新收复，追涨杀跌压力会减轻。\n核心含义：F=6508 高于或接近 GEX Flip=6420，当前处在正 Gamma 区，做市商对冲倾向抑制波动。若价格重新站回6420/6700上方，负Gamma压力会缓和；若跌破6400附近，波动可能更顺。\n\n3. Max Pain：临近到期关注痛点收敛，而不是简单看多看空。\n| 行权价 | Pain | 备注 |\n| --- | --- | --- |\n| 6400 | 8,631,000 | 最低 |\n| 6300 | 9,830,500 |  |\n| 6500 | 8,741,500 |  |\n| 6200 | 12,292,500 |  |\n| 6600 | 10,613,500 |  |\n当前Max Pain=6400。当前期权标的价距离Max Pain约+108点，临近到期存在向6400收敛的引力。 因此期权维度不是极端单边，而是上方Call压力、下方痛点/Put防线共同约束。\n\n4. 持仓结构：Put持仓偏多时要区分保护盘和主动空头。\n当前总持仓：Call OI=35,183，Put OI=26,333，PCR=0.748。\nPut持仓集中：\n| Put行权价 | Put OI |\n| --- | --- |\n| 6000 | 4,014 |\n| 5800 | 2,225 |\n| 6100 | 2,209 |\n| 5700 | 2,127 |\n| 5900 | 2,125 |\nCall持仓集中：\n| Call行权价 | Call OI |\n| --- | --- |\n| 7000 | 5,441 |\n| 6700 | 4,216 |\n| 7400 | 2,615 |\n| 7200 | 2,213 |\n| 6500 | 2,198 |\n解读：Put集中在6000, 5800, 6100，Call压力集中在7000, 6700, 7400, 7200。大致结构是：6400为痛点锚，6420为波动分界，6700及以上为压力带。\n\n5. IV结构：看ATM隐波是否够高，也看左侧保护溢价。\n| K | C IV | P IV | SVI/平滑IV | OI结构 |\n| --- | --- | --- | --- | --- |\n| 6400 | 31.07% | 31.08% | 31.07% | C 1,193 / P 1,427 |\n| 6450 | --% | --% | 31.15% | C -- / P -- |\n| 6500 | 31.22% | 31.32% | 31.26% | C 2,198 / P 1,325 |\n| 6550 | --% | --% | 31.41% | C -- / P -- |\n| 6600 | 31.56% | 31.58% | 31.60% | C 2,096 / P 601 |\nATM隐波约31.3%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。\nATM附近隐波约31.3%，属于高波动率；右偏(看涨溢价偏高)，上行博弈需求旺盛；中等曲率，隐波曲线形态正常。左侧Put IV若显著高于ATM，说明市场对下跌尾部风险有定价。\n\n6. 基本面与宏观：先看宏观快讯和成本链，周频供需项暂不放入盘中主研判。\n| 项目 | 当前值 | 解读 |\n| --- | --- | --- |\n| Brent | $92.89，-0.23% | 原油宏观成本 |\n| WTI | $90.25，+0.24% | 原油宏观成本 |\n| PX现货 | 9000 | 内盘成本端 |\n| PX外盘现货价 | $1166.33/吨 | manual:生意社；汇率6.8150 |\n| PTA估算成本 | 5895 | 内盘成本支撑区 |\n| 外盘PTA动态成本 | 5942 | PX亚洲收盘价*0.655*1.01*1.13*USD/CNY |\n| PTA利润 | 708，12.0% | 利润高则供应压力偏空 |\n宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：伊朗议会国家安全委员会负责人回应美国总统特朗普对伊朗的威胁：他将面临更强烈和更痛苦的反击。；“逃离霍尔木兹”？日本政府宣布：7月原油进口将“100%绕开海峡”；伊朗战争推高通胀压力，欧洲央行近三年来首次加息06-11 20:150评。外盘PX$1166.33/吨，对应外盘PTA动态成本约5942元/吨；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。\n自动快讯（去重人工摘要）：伊朗议会国家安全委员会负责人回应美国总统特朗普对伊朗的威胁：他将面临更强烈和更痛苦的反击；“逃离霍尔木兹”？日本政府宣布：7月原油进口将“100%绕开海峡”；伊朗战争推高通胀压力，欧洲央行近三年来首次加息06-11 20:150评；加拿大央行如期维持利率不变，经济疲软与油价飙升形成政策两难06-10 22:490评。\n基本面不是单边空：现货/成本可能提供下方支撑；但加工利润708元若处在偏高区域，容易限制上方弹性。\n\n综合结论\n当前主线：震荡，核心区间关注6400—6700。期权结构处在正 Gamma 区，做市商对冲倾向抑制波动，真正的方向触发在6400跌破或6420/6700重新站上。\n\n关键价位\n| 位置 | 含义 |\n| --- | --- |\n| 6420 | GEX Flip，跌破后波动可能放大 |\n| 6400 | Max Pain + 临近到期收敛锚 |\n| 6100 | 近端Put防线/有效支撑 |\n| 6700 | 近端Call压力/有效压力 |\n| 7000 | 上方最大Call持仓压力带 |\n| 6000 | 下方最大Put保护盘区域 |\n\n操作思路，仅按结构说\n如果偏交易期货：\n• 6420 / 6700下方不宜追多，先按反抽压力处理。\n• 跌破6400并放量增仓，负Gamma可能放大下跌，下一目标看6100。\n• 重新站回6420，空头动能减弱，回到区间震荡。\n如果偏期权卖方：\n• 临近到期Theta衰减快，震荡时卖方有时间价值优势。\n• 负Gamma环境不裸卖近端Put，尤其是6400失守后。\n• 若站回6420，可考虑更稳健的宽跨/价差结构。\n如果偏买方：\n• 买Put触发点优先看6400有效跌破。\n• 买Call触发点看重新站回6420或压力位后的修复。\n• 夹在痛点和压力之间横盘时，买方容易被时间价值消耗。\n\n一句话总结：当前不是强多盘，主线短线偏强；看6400是否守住——守住则向6400—6700区间收敛，跌破则负Gamma会放大下跌。"
+  "narrative_report": "当前市场判断：短线“震荡”，但不是单边空头。\n\n1. 期货价格层面（期货盘面）：短线节奏看盘面主力，期权结构看期权链标的参考价。\n| 项目 | 当前值 | 交易含义 |\n| --- | --- | --- |\n| 期权链标的参考价 | 6506 | 用于GEX、Pain、OI和IV结构判断 |\n| 盘面主力参考价 | TA 6350 | K线短线节奏：短线偏强 |\n| 最近20根K线 | +10 | 观察日内强弱和追单风险 |\n| PTA现货 | 6603 | 现货/成本锚 |\n| 现货-近月基差 | -108 | 升水偏强、贴水偏弱 |\n期权链标的参考价6506用于GEX、Pain、OI与IV等结构判断，盘面主力参考价6350负责K线节奏；两者各管一段，不要把结构位和短线信号混为一个价格。\n盘面主力参考价6350：最近一根变化+0点，过去20根累计+10点，节奏判定为短线偏强。期权链标的参考价6506用于判断GEX、Pain和持仓压力，不与盘面价混在一起下结论。\n\n2. GEX结构：价格所处Gamma区决定波动是否容易被放大。\n| 指标 | 当前值 |\n| --- | --- |\n| 标的价F | 6506 |\n| GEX Flip | -- |\n| 净GEX | -32.9M |\n| Gamma方向 | negative |\n| Max Pain | 6400 |\n| PCR | 1.282 |\n| 剩余到期 | -0.0天 |\nGEX处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。交易上先盯两条线：6400若失守，负Gamma容易放大顺势波动；--若被重新收复，追涨杀跌压力会减轻。\n核心含义：F=6506 高于或接近 GEX Flip=--，当前处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。若价格重新站回--/6600上方，负Gamma压力会缓和；若跌破6400附近，波动可能更顺。\n\n3. Max Pain：临近到期关注痛点收敛，而不是简单看多看空。\n| 行权价 | Pain | 备注 |\n| --- | --- | --- |\n| 6400 | 32,289,000 | 最低 |\n| 6300 | 43,925,500 | |\n| 6500 | 32,553,500 | |\n| 6200 | 68,963,500 | |\n| 6600 | 47,649,500 | |\n当前Max Pain=6400。当前期权标的价距离Max Pain约+106点，临近到期存在向6400收敛的引力。 因此期权维度不是极端单边，而是上方Call压力、下方痛点/Put防线共同约束。\n\n4. 持仓结构：Put持仓偏多时要区分保护盘和主动空头。\n当前总持仓：Call OI=120,541，Put OI=154,569，PCR=1.282。\nPut持仓集中：\n| Put行权价 | Put OI |\n| --- | --- |\n| 6000 | 28,623 |\n| 6300 | 19,212 |\n| 6200 | 18,023 |\n| 6400 | 16,856 |\n| 6500 | 15,087 |\nCall持仓集中：\n| Call行权价 | Call OI |\n| --- | --- |\n| 7000 | 18,259 |\n| 6500 | 14,576 |\n| 6600 | 14,135 |\n| 6700 | 13,240 |\n| 6800 | 7,656 |\n解读：Put集中在6000, 6300, 6200，Call压力集中在7000, 6500, 6600, 6700。大致结构是：6400为痛点锚，--为波动分界，6600及以上为压力带。\n\n5. IV结构：看ATM隐波是否够高，也看左侧保护溢价。\n| K | C IV | P IV | SVI/平滑IV | OI结构 |\n| --- | --- | --- | --- | --- |\n| 6300 | --% | --% | 95.20% | C 7,591 / P 19,212 |\n| 6400 | --% | 51.99% | 52.00% | C 6,946 / P 16,856 |\n| 6500 | 14.12% | 20.02% | 17.07% | C 14,576 / P 15,087 |\n| 6600 | --% | 61.24% | 39.96% | C 14,135 / P 3,249 |\n| 6700 | --% | 79.32% | 79.59% | C 13,240 / P 804 |\nATM隐波约16.4%，深度左偏(看跌保护溢价极高)，市场恐慌情绪浓厚。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。\nATM附近隐波约16.4%，属于低波动率；深度左偏(看跌保护溢价极高)，市场恐慌情绪浓厚；极高曲率(尾部风险定价极高)，市场预期可能出现剧烈波动。左侧Put IV若显著高于ATM，说明市场对下跌尾部风险有定价。\n\n6. 基本面与宏观：先看宏观快讯和成本链，周频供需项暂不放入盘中主研判。\n| 项目 | 当前值 | 解读 |\n| --- | --- | --- |\n| Brent | $93.54，+0.47% | 原油宏观成本 |\n| WTI | $90.62，+0.66% | 原油宏观成本 |\n| PX现货 | 9000 | 内盘成本端 |\n| PX外盘现货价 | $1166.33/吨 | manual:生意社；汇率6.8150 |\n| PTA估算成本 | 5895 | 内盘成本支撑区 |\n| 外盘PTA动态成本 | 5942 | PX亚洲收盘价*0.655*1.01*1.13*USD/CNY |\n| PTA利润 | 708，12.0% | 利润高则供应压力偏空 |\n宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：特朗普自曝摸黑运出22艘伊朗油轮，称“我爱通胀”；加拿大央行如期维持利率不变，经济疲软与油价飙升形成政策两难06-10 22:490评；全线拉升，美联储，利好突现06-10 22:270评。外盘PX$1166.33/吨，对应外盘PTA动态成本约5942元/吨；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。\n自动快讯（去重人工摘要）：特朗普自曝摸黑运出22艘伊朗油轮，称“我爱通胀”；加拿大央行如期维持利率不变，经济疲软与油价飙升形成政策两难06-10 22:490评；全线拉升，美联储，利好突现06-10 22:270评；美国5月CPI同比上涨4.2% 美联储年内加息25个基点预期概率上升06-10 20:380评。\n基本面不是单边空：现货/成本可能提供下方支撑；但加工利润708元若处在偏高区域，容易限制上方弹性。\n\n综合结论\n当前主线：震荡，核心区间关注6400—6600。期权结构处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动，真正的方向触发在6400跌破或--/6600重新站上。\n\n关键价位\n| 位置 | 含义 |\n| --- | --- |\n| 6400 | Max Pain + 临近到期收敛锚 |\n| 6300 | 近端Put防线/有效支撑 |\n| 6600 | 近端Call压力/有效压力 |\n| 7000 | 上方最大Call持仓压力带 |\n| 6000 | 下方最大Put保护盘区域 |\n\n操作思路，仅按结构说\n如果偏交易期货：\n• -- / 6600下方不宜追多，先按反抽压力处理。\n• 跌破6400并放量增仓，负Gamma可能放大下跌，下一目标看6300。\n• 重新站回--，空头动能减弱，回到区间震荡。\n如果偏期权卖方：\n• 临近到期Theta衰减快，震荡时卖方有时间价值优势。\n• 负Gamma环境不裸卖近端Put，尤其是6400失守后。\n• 若站回--，可考虑更稳健的宽跨/价差结构。\n如果偏买方：\n• 买Put触发点优先看6400有效跌破。\n• 买Call触发点看重新站回--或压力位后的修复。\n• 夹在痛点和压力之间横盘时，买方容易被时间价值消耗。\n\n一句话总结：当前不是强多盘，主线短线偏强；看6400是否守住——守住则向6400—6600区间收敛，跌破则负Gamma会放大下跌。",
+  "intraday_snapshots": [
+    {
+      "slot": "0900",
+      "time": "2026-06-11 09:07:42",
+      "summary": "当前 PTA 不适合简单看空。",
+      "option_underlying_price": 6498,
+      "main_futures_price": 6394.0
+    },
+    {
+      "slot": "0930",
+      "time": "2026-06-11 09:32:50",
+      "summary": "当前 PTA 不适合简单看空。",
+      "option_underlying_price": 6480,
+      "main_futures_price": 6370.0
+    },
+    {
+      "slot": "0945",
+      "time": "2026-06-11 09:53:56",
+      "summary": "当前 PTA 不适合简单看空。",
+      "option_underlying_price": 6496,
+      "main_futures_price": 6392.0
+    },
+    {
+      "slot": "1000",
+      "time": "2026-06-11 10:11:14",
+      "summary": "当前 PTA 不适合简单看空。",
+      "option_underlying_price": 6490,
+      "main_futures_price": 6386.0
+    },
+    {
+      "slot": "1015",
+      "time": "2026-06-11 10:15:53",
+      "summary": "当前 PTA 不适合简单看空。",
+      "option_underlying_price": 6488.0,
+      "main_futures_price": 6388.0
+    },
+    {
+      "slot": "1045",
+      "time": "2026-06-11 10:46:12",
+      "summary": "当前 PTA 不适合简单看空。",
+      "option_underlying_price": 6488.0,
+      "main_futures_price": 6406.0
+    },
+    {
+      "slot": "1100",
+      "time": "2026-06-11 11:09:41",
+      "summary": "当前 PTA 不适合简单看空。",
+      "option_underlying_price": 6550,
+      "main_futures_price": 6376.0
+    },
+    {
+      "slot": "1345",
+      "time": "2026-06-11 13:47:16",
+      "summary": "当前 PTA 不适合简单看空。",
+      "option_underlying_price": 6470,
+      "main_futures_price": 6292.0
+    },
+    {
+      "slot": "1415",
+      "time": "2026-06-11 14:15:41",
+      "summary": "当前 PTA 不适合简单看空。",
+      "option_underlying_price": 6470,
+      "main_futures_price": 6330.0
+    },
+    {
+      "slot": "1430",
+      "time": "2026-06-11 14:32:05",
+      "summary": "当前 PTA 不适合简单看空。",
+      "option_underlying_price": 6504,
+      "main_futures_price": 6340.0
+    }
+  ],
+  "previous_day_comparison": {
+    "snapshot_count": 10,
+    "intraday_slots": [
+      "0900",
+      "0930",
+      "0945",
+      "1000",
+      "1015",
+      "1045",
+      "1100",
+      "1345",
+      "1415",
+      "1430"
+    ],
+    "intraday_coverage_status": "部分",
+    "previous_day_available": true,
+    "comparison_quality": "部分",
+    "data_limitation_note": "已归档10份整15分钟盘中研报，只能做阶段性日内对比。相对前一交易日参考价变化+60点。",
+    "intraday_price_range": {
+      "low": 6292.0,
+      "high": 6406.0
+    },
+    "current_vs_previous_price_change": 60.0,
+    "intraday_review": {
+      "points": [
+        {
+          "slot": "0900",
+          "time": "2026-06-11 09:07:42",
+          "price": 6394.0,
+          "bias": "偏强",
+          "summary": "当前 PTA 不适合简单看空。"
+        },
+        {
+          "slot": "0930",
+          "time": "2026-06-11 09:32:50",
+          "price": 6370.0,
+          "bias": "偏弱",
+          "summary": "当前 PTA 不适合简单看空。"
+        },
+        {
+          "slot": "0945",
+          "time": "2026-06-11 09:53:56",
+          "price": 6392.0,
+          "bias": "偏强",
+          "summary": "当前 PTA 不适合简单看空。"
+        },
+        {
+          "slot": "1000",
+          "time": "2026-06-11 10:11:14",
+          "price": 6386.0,
+          "bias": "偏弱",
+          "summary": "当前 PTA 不适合简单看空。"
+        },
+        {
+          "slot": "1015",
+          "time": "2026-06-11 10:15:53",
+          "price": 6388.0,
+          "bias": "偏弱",
+          "summary": "当前 PTA 不适合简单看空。"
+        },
+        {
+          "slot": "1045",
+          "time": "2026-06-11 10:46:12",
+          "price": 6406.0,
+          "bias": "偏强",
+          "summary": "当前 PTA 不适合简单看空。"
+        },
+        {
+          "slot": "1100",
+          "time": "2026-06-11 11:09:41",
+          "price": 6376.0,
+          "bias": "偏弱",
+          "summary": "当前 PTA 不适合简单看空。"
+        },
+        {
+          "slot": "1345",
+          "time": "2026-06-11 13:47:16",
+          "price": 6292.0,
+          "bias": "震荡",
+          "summary": "当前 PTA 不适合简单看空。"
+        },
+        {
+          "slot": "1415",
+          "time": "2026-06-11 14:15:41",
+          "price": 6330.0,
+          "bias": "震荡",
+          "summary": "当前 PTA 不适合简单看空。"
+        },
+        {
+          "slot": "1430",
+          "time": "2026-06-11 14:32:05",
+          "price": 6340.0,
+          "bias": "震荡",
+          "summary": "当前 PTA 不适合简单看空。"
+        }
+      ],
+      "open_slot": "0900",
+      "close_slot": "1430",
+      "open_price": 6394.0,
+      "close_price": 6340.0,
+      "high": 6406.0,
+      "low": 6292.0,
+      "change": -54.0,
+      "segments": [
+        {
+          "from_slot": "1000",
+          "to_slot": "1015",
+          "from_price": 6386.0,
+          "to_price": 6388.0,
+          "change": 2.0,
+          "bias": "偏弱",
+          "high": 6388.0,
+          "low": 6386.0
+        },
+        {
+          "from_slot": "1345",
+          "to_slot": "1430",
+          "from_price": 6292.0,
+          "to_price": 6340.0,
+          "change": 48.0,
+          "bias": "震荡",
+          "high": 6340.0,
+          "low": 6292.0
+        }
+      ],
+      "peak": {
+        "slot": "1045",
+        "price": 6406.0
+      },
+      "trough": {
+        "slot": "1345",
+        "price": 6292.0
+      },
+      "summary": "盘中从0900的6394到1430的6340，日内走弱-54点，区间6292-6406。走势分桶：1000→1015偏弱走强+2；1345→1430震荡走强+48；高点1045 6406，低点1345 6292。"
+    },
+    "previous_day_dynamic": {
+      "previous_close_price": 6290.0,
+      "current_price": 6350.0,
+      "change": 60.0,
+      "bias_yesterday": "震荡",
+      "bias_today": "震荡",
+      "summary": "今日收盘参考价较前一交易日+60点；昨日结构震荡，今日结构震荡。"
+    },
+    "summary": "全天共归档10份15分钟研报；盘中从0900的6394到1430的6340，日内走弱-54点，区间6292-6406。走势分桶：1000→1015偏弱走强+2；1345→1430震荡走强+48；高点1045 6406，低点1345 6292。相对前一交易日参考价变化+60点。"
+  },
+  "close_summary": {
+    "title": "15:00收盘后全天总研报",
+    "generated_at": "2026-06-11 15:06:52",
+    "summary": "全天共归档10份15分钟研报；盘中从0900的6394到1430的6340，日内走弱-54点，区间6292-6406。走势分桶：1000→1015偏弱走强+2；1345→1430震荡走强+48；高点1045 6406，低点1345 6292。相对前一交易日参考价变化+60点。",
+    "source_sections": [
+      "日内15分钟研报快照",
+      "期权GEX/OI/IV结构",
+      "宏观财经快讯",
+      "前一交易日收盘研报"
+    ]
+  }
 }

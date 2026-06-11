@@ -29,7 +29,13 @@ OUTPUT_PATH = os.path.join(WORKSPACE, 'data', 'fundamental', 'daily_report.json'
 INTRADAY_REPORT_DIR = os.path.join(WORKSPACE, 'data', 'reports', 'intraday')
 CLOSE_REPORT_DIR = os.path.join(WORKSPACE, 'data', 'reports')
 MANUAL_MACRO_INPUT_PATH = os.path.join(WORKSPACE, 'data', 'fundamental', 'manual_macro_input.json')
+PX_EXTERNAL_SCRAPE_PATH = os.path.join(WORKSPACE, 'data', 'fundamental', 'px_external_scrape.json')
 USD_CNY = 7.2
+
+# 引入 PX 外盘双路径合并（人工 + 抓取，谁最新用谁）
+from macro.px_external_source import (
+    merge_pick_winner, format_winner, load_scrape as _load_px_scrape,
+)
 
 
 def _is_pta_trading_session(now: Optional[datetime] = None) -> bool:
@@ -359,44 +365,24 @@ def get_usd_cny_rate() -> Dict:
 def get_px_external_data(macro_news: Dict = None, manual_macro: Dict = None) -> Dict:
     """获取/提取PX亚洲收盘价，并按用户公式计算外盘PTA动态成本。
 
-    数据源优先级：
-    1) manual_macro.px_external（人工填入的生意社/同花顺PX亚洲收盘价 USD/吨）
-    2) macro_news / manual_macro 文本中正则匹配
+    数据源（三路双路径，谁最新用谁）：
+      1) 人工 dict：manual_macro.px_external（人工填入的生意社/同花顺PX亚洲收盘价 USD/吨）
+      2) 抓取 dict：data/fundamental/px_external_scrape.json（macro/px_external_scraper.py 写入）
+      3) 文本正则：macro_news / manual_macro 文本中正则匹配（无明确日期，20h 闸门）
+
+    合并策略由 macro.px_external_source.merge_pick_winner 统一处理：
+      过滤价格 500-2000，按 date DESC / fetched_at DESC 排序，manual 优先于并列。
     """
     macro_news = macro_news or {}
     manual_macro = manual_macro or {}
-    candidates = []
-    px_warning = ''
-    px_price = None
-    px_source = ''
-    source_text = ''
 
-    # ---- 0) 人工直接录入（最高优先级） ----
-    if isinstance(manual_macro.get('px_external'), dict):
-        pe = manual_macro['px_external']
-        try:
-            manual_px = float(pe.get('px_asia_close_usd') or pe.get('price') or 0)
-        except Exception:
-            manual_px = 0
-        if manual_px and 500 <= manual_px <= 2000:
-            manual_date = pe.get('date') or manual_macro.get('as_of_date') or ''
-            try:
-                age_hours = (datetime.now() - pd.to_datetime(str(manual_date)).to_pydatetime()).total_seconds() / 3600
-                manual_fresh = 0 <= age_hours <= 72  # 外盘PX人工录入可放宽到3天
-            except Exception:
-                manual_fresh = True  # 无法解析时按可信对待
-            if manual_fresh:
-                px_price = manual_px
-                px_source = f"人工录入·{pe.get('source','生意社/同花顺')}"
-                source_text = f"日期:{manual_date} 价:{manual_px}USD/吨 {pe.get('note','')}".strip()
-            else:
-                px_warning = f'人工PX外盘价日期偏旧({manual_date})，已拒绝用于外盘成本'
-        elif manual_px:
-            px_warning = f'人工PX外盘价{manual_px}超出合理区间(500-2000)，已忽略'
+    # 文本正则候选（仅当 manual / scrape 都没拿到时使用）
+    text_extracted: Dict = {}
+    candidates_text = []
 
     def _collect_texts(label: str, obj):
         if isinstance(obj, str):
-            candidates.append((label, obj))
+            candidates_text.append((label, obj))
         elif isinstance(obj, list):
             for item in obj:
                 _collect_texts(label, item)
@@ -404,34 +390,49 @@ def get_px_external_data(macro_news: Dict = None, manual_macro: Dict = None) -> 
             for item in obj.values():
                 _collect_texts(label, item)
 
-    if not px_price:
-        _collect_texts('人工宏观基本面', manual_macro)
-        _collect_texts('自动宏观快讯', macro_news)
+    _collect_texts('人工宏观基本面', manual_macro)
+    _collect_texts('自动宏观快讯', macro_news)
+    for src, text in candidates_text:
+        val = _parse_px_asia_price_from_text(text)
+        if val:
+            text_extracted = {
+                'px_asia_close_usd': val,
+                'date': manual_macro.get('as_of_date') or datetime.now().strftime('%Y-%m-%d'),
+                'fetched_at': manual_macro.get('updated_at') or datetime.now().strftime('%Y-%m-%dT%H:%M:%S'),
+                'source': src,
+                'source_text': _clean_news_text(text, 180),
+            }
+            break
 
-        for src, text in candidates:
-            val = _parse_px_asia_price_from_text(text)
-            if val:
-                px_price = val
-                px_source = src
-                source_text = _clean_news_text(text, 180)
-                break
+    # 读抓取文件
+    scrape = _load_px_scrape(PX_EXTERNAL_SCRAPE_PATH)
 
-        # PX外盘是日频外盘价，不能让几天前人工宏观材料里的PX价格继续冒充"当前外盘"。
-        # 人工宏观仍可进入宏观/策略文本；这里只对外盘PX数值和外盘成本做日期闸门。
-        if px_price and px_source == '人工宏观基本面':
-            manual_dt = manual_macro.get('updated_at') or manual_macro.get('date') or manual_macro.get('timestamp')
-            manual_fresh = False
-            try:
-                manual_age_hours = (datetime.now() - pd.to_datetime(str(manual_dt)).to_pydatetime()).total_seconds() / 3600
-                # 外盘PX人工录入只允许当天/上一夜盘附近材料参与成本；超过20小时视为过期。
-                manual_fresh = 0 <= manual_age_hours <= 20
-            except Exception:
-                manual_fresh = False
-            if not manual_fresh:
-                px_warning = f'人工宏观PX外盘价日期偏旧({manual_dt or "未知"})，已拒绝用于外盘成本'
-                px_price = None
-                px_source = ''
-                source_text = ''
+    # 三路合并
+    winner, all_valid = merge_pick_winner(
+        manual_macro=manual_macro,
+        scrape=scrape,
+        text_extracted=text_extracted,
+    )
+
+    px_price = None
+    px_source = ''
+    source_text = ''
+    px_warning = ''
+    if winner is None:
+        # 候选都被新鲜度/价格区间筛掉
+        reasons = []
+        if isinstance(scrape, dict) and scrape.get('status') == 'failed':
+            reasons.append(f"抓取未成功({scrape.get('error','')[:60]})")
+        if manual_macro.get('px_external', {}).get('px_asia_close_usd'):
+            reasons.append('人工PX外盘价超出合理区间或日期偏旧')
+        if not reasons:
+            reasons.append('无任何 PX 外盘数据')
+        px_warning = '; '.join(reasons)
+    else:
+        px_price = float(winner['px_asia_close_usd'])
+        px_source = winner.get('source', '')
+        source_text = winner.get('source_text', '')
+        # 若用的是文本正则，文本路径有 20h 闸门；赢家已被 _is_valid_record 过滤过
 
     rate_info = get_usd_cny_rate()
     result = {
@@ -444,6 +445,14 @@ def get_px_external_data(macro_news: Dict = None, manual_macro: Dict = None) -> 
         'usd_cny_date': rate_info.get('date'),
         'formula': 'PX亚洲收盘价 * 0.655 * 1.01 * 1.13 * USD/CNY',
         'pta_external_cost': None,
+        'candidate_count': len(all_valid),
+        'candidates': [
+            {
+                'source_kind': c.get('source_kind'),
+                'date': c.get('date'),
+                'px_asia_close_usd': c.get('px_asia_close_usd'),
+            } for c in all_valid
+        ],
         'warning': '; '.join([x for x in [rate_info.get('warning') or '', px_warning] if x]),
     }
     if px_price and result.get('usd_cny'):

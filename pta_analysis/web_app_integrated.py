@@ -409,32 +409,53 @@ def api_option_chain():
 @app.route('/api/pta/ta606_price')
 @app.route('/api/pta/underlying_price')
 def api_underlying_price():
-    """近月期货实时价格 - 自动切换到最近未到期合约。
+    """近月期货实时价格 - 主页 T 型报价 24h 提前切换版本。
 
-    HTTP接口不能同步新建TqSdk连接：休盘/连接竞争时 get_nearest_underlying_price() 内部线程
-    join(timeout+2) 会把页面60秒轮询拖挂。优先返回 iv_smile 长连接维护的共享价，
-    不可用时再走akshare fallback。
+    主页期权链 T 型报价板块要比动态监控提前 24h 切最近月合约：
+      - 动态监控 (iv_smile_service) 用的是 15:00 切日规则（盘中保留当日到期合约）
+      - 主页 T 型报价 用的是 24h 提前切换（到期日 <= 今天就视为已到期）
+
+    本接口为 24h 提前切换版本，合约选择和 T 型报价表头同源
+    （get_homepage_near_expiry / get_full_chain 都是用同一函数）。
+
+    价格获取：
+      - 若 iv_smile_service 监控的合约 == 主页合约，复用 iv_smile 的 TqSdk 共享价（最快最准）
+      - 否则（24h 提前切换生效时，如 TA607→TA608 当天），用 TqSdk/akshare 直连该合约
+        （否则会用 TA607 的价当 TA608 的价显示 — 这是 v2.11.x 之前卡在 TA607 价格的根因）
     """
     try:
         price = 0
-        expiry_code = None
+        expiry_code = oca.get_homepage_near_expiry()
         try:
-            shared = iv_smile_service.get_shared_futures_price()
-            if isinstance(shared, (tuple, list)):
-                price = float(shared[0] or 0)
-            else:
-                price = float(shared or 0)
-            expiry_code = iv_smile_service._state.get('active_contract')
+            shared_contract = iv_smile_service._state.get('active_contract')
         except Exception:
-            price = 0
+            shared_contract = None
+        # 1) 合约一致 → 复用 iv_smile 共享 TqSdk 价
+        if shared_contract == expiry_code:
+            try:
+                shared = iv_smile_service.get_shared_futures_price()
+                if isinstance(shared, (tuple, list)):
+                    price = float(shared[0] or 0)
+                else:
+                    price = float(shared or 0)
+            except Exception:
+                price = 0
+        # 2) 合约不一致（24h 提前生效时）→ 用 TqSdk/akshare 直连该合约
         if price <= 0:
             try:
-                expiry_code = oca.get_nearest_active_expiry()
-                price = oca._get_akshare_latest_price(expiry_code)
+                from analysis.option_chain_api import get_tq_futures_price_by_expiry
+                tq_price, _ = get_tq_futures_price_by_expiry(expiry_code, timeout=2.0)
+                if tq_price and tq_price > 0:
+                    price = float(tq_price)
             except Exception:
                 pass
         if price <= 0:
-            # 最后回退到akshare主力合约，避免接口阻塞/超时。
+            try:
+                price = oca._get_akshare_latest_price(expiry_code)
+            except Exception:
+                pass
+        # 3) 兜底到 akshare 主力合约，避免接口阻塞/超时
+        if price <= 0:
             try:
                 df = ak.futures_zh_realtime(symbol="TA")
                 if df is not None and not df.empty:
@@ -447,7 +468,7 @@ def api_underlying_price():
             'underlying_price': price,
             'symbol': expiry_code,
             'timestamp': dt_datetime.now().isoformat(),
-            'source': 'iv_smile_shared' if price and expiry_code else 'fallback'
+            'source': 'homepage_24h_advance' if price and expiry_code else 'fallback'
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
@@ -862,6 +883,102 @@ def api_strategy_report_manual_macro():
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
     return jsonify({'success': True, 'data': payload})
+
+
+@app.route('/api/px_external/scrape', methods=['GET', 'POST'])
+def api_px_external_scrape():
+    """PX 外盘抓取文件读写端点。
+
+    GET：返回当前 data/fundamental/px_external_scrape.json 内容。
+    POST：覆盖写入（带 status=failed 也允许，用于人工标注抓取失败）。
+    """
+    try:
+        from macro.px_external_source import load_scrape, save_scrape, SCRAPE_PATH
+        if request.method == 'GET':
+            data = load_scrape(SCRAPE_PATH) or {}
+            return jsonify({'success': True, 'data': data, 'path': SCRAPE_PATH})
+        payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict):
+            return jsonify({'success': False, 'error': '内容必须是JSON对象'}), 400
+        data = save_scrape(payload, SCRAPE_PATH)
+        return jsonify({'success': True, 'data': data})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/px_external/fetch', methods=['GET', 'POST'])
+def api_px_external_fetch():
+    """触发一次 PX 外盘抓取（best-effort）；用于前端"立即抓取"按钮。"""
+    try:
+        from macro.px_external_scraper import fetch
+        rec = fetch()
+        return jsonify({'success': True, 'data': rec})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/px_external/merge', methods=['GET'])
+def api_px_external_merge():
+    """返回三路合并的赢家 + 所有有效候选（人工 / 抓取 / 文本），方便前端展示。
+
+    注：本端点不调 get_px_external_data，避免顺带触发 USD/CNY 远程拉取；
+    pta_external_cost 留给研报面板在用 rate 缓存后算。
+    """
+    try:
+        from macro.px_external_source import load_scrape, merge_pick_winner, format_winner
+        from scripts.generate_daily_report import _parse_px_asia_price_from_text, _clean_news_text
+        from datetime import datetime
+
+        manual_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'fundamental', 'manual_macro_input.json')
+        manual = {}
+        if os.path.exists(manual_path):
+            with open(manual_path, 'r', encoding='utf-8') as f:
+                manual = json.load(f)
+
+        scrape = load_scrape()
+
+        # 文本正则（无 network，毫秒级）
+        text_extracted: Dict = {}
+        candidates_text = []
+        def _collect(label, obj):
+            if isinstance(obj, str):
+                candidates_text.append((label, obj))
+            elif isinstance(obj, list):
+                for it in obj: _collect(label, it)
+            elif isinstance(obj, dict):
+                for it in obj.values(): _collect(label, it)
+        _collect('人工宏观基本面', manual)
+        for src, text in candidates_text:
+            val = _parse_px_asia_price_from_text(text)
+            if val:
+                text_extracted = {
+                    'px_asia_close_usd': val,
+                    'date': manual.get('as_of_date') or datetime.now().strftime('%Y-%m-%d'),
+                    'fetched_at': manual.get('updated_at') or datetime.now().strftime('%Y-%m-%dT%H:%M:%S'),
+                    'source': src,
+                    'source_text': _clean_news_text(text, 180),
+                }
+                break
+
+        winner, all_valid = merge_pick_winner(
+            manual_macro=manual, scrape=scrape, text_extracted=text_extracted,
+        )
+        return jsonify({
+            'success': True,
+            'winner': format_winner(winner) if winner else None,
+            'candidate_count': len(all_valid),
+            'candidates': [
+                {
+                    'source_kind': c.get('source_kind'),
+                    'date': c.get('date'),
+                    'fetched_at': c.get('fetched_at'),
+                    'px_asia_close_usd': c.get('px_asia_close_usd'),
+                    'source': c.get('source'),
+                } for c in all_valid
+            ],
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/strategy_report/realtime')

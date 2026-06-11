@@ -200,6 +200,32 @@ def get_all_current_expiry_codes() -> List[str]:
     return sorted(result.keys(), key=lambda x: result[x])
 
 
+def get_homepage_near_expiry() -> str:
+    """
+    主页 T 型报价用的前月合约：到期日 > 今天的最近月合约（24h 提前切换）。
+
+    与 get_nearest_active_expiry / iv_smile_service.get_active_ta_contract 的 15:00 切日规则不同：
+      - 动态监控 (iv_smile_service)：15:00 后才切，盘中保留当日到期合约
+      - 主页 T 型报价 (homepage)：到期日 <= 今天的就视为已到期，全天使用下一月合约
+                        ⇒ 实际上是比动态监控提前 24h 切换
+
+    例：今天是 TA607 的最后交易日 (2026-06-11)：
+      - 动态监控在 15:00 前仍用 TA607
+      - 主页 T 型报价全天使用 TA608（提前展示）
+
+    返回: 合约代码如 'TA608'，失败时兜底 'TA607'
+    """
+    expiry_map = refresh_expiry_map_from_akshare()
+    if expiry_map:
+        today_str = datetime.now().strftime('%Y%m%d')
+        active = {k: v for k, v in expiry_map.items() if v > today_str}
+        if active:
+            return sorted(active.items(), key=lambda x: x[1])[0][0]
+        # 所有合约都已到期（极端情况）：取最晚到期的
+        return sorted(expiry_map.items(), key=lambda x: x[1])[-1][0]
+    return 'TA607'
+
+
 def get_nearest_active_expiry() -> str:
     """
     获取最近的未到期期权合约代码。
@@ -1315,24 +1341,10 @@ class OptionChainAPI:
                 # 按实际到期日排序
                 temp_expiry_list.sort(key=lambda x: x['actual_expiry_date'])
 
-                # 自动切换合约：
-                # 规则：如果最近的合约到期日 > 今天，切换到该合约
-                # 到期日 = 今天或更早 → 切换到下月合约
-                # 原因：到期日当天近月合约已结算/退市，数据应显示下月合约
-                # 适用于：收盘后近月合约到期、夜盘开盘前（交易所更新数据时）
-                near_expiry_code = None
-                for item in temp_expiry_list:
-                    if item['actual_expiry_date'] > today_str:
-                        near_expiry_code = item['expiry']
-                        break
-
-                # 所有合约都已到期（极端情况）：使用成交量最大的合约
-                if near_expiry_code is None:
-                    if temp_expiry_list:
-                        # 取最后一个（已过期但最接近的）
-                        near_expiry_code = temp_expiry_list[-1]['expiry']
-                    else:
-                        near_expiry_code = 'TA607'  # 保底默认近月
+                # 自动切换合约（与 T 型报价表头/到期日同源 — 24h 提前切换）：
+                # 主页 T 型报价：到期日 > 今天的最近月合约（比动态监控提前 24h）
+                # 动态监控 (iv_smile_service)：15:00 切日规则
+                near_expiry_code = get_homepage_near_expiry()
 
                 # 第二步：获取近月期货标的的真实价格
                 # 优先级：iv_smile共享TqSdk价格 > iv_smile缓存价格 > TqSdk实时(未过期) > 保留上一次值 > PC Parity估算 > akshare > 默认值
@@ -1340,17 +1352,27 @@ class OptionChainAPI:
                 prev_S = self.analyzer.underlying_price if self.analyzer.underlying_price > 0 else None
 
                 # 方法0：优先使用 iv_smile_service 共享的实时价格（独立TqSdk连接，更稳定）
-                shared_price, shared_source = iv_smile_service.get_shared_futures_price()
-                if shared_price and shared_price > 0:
-                    # 合理性检查：偏离上次值不超过15%
-                    if prev_S and prev_S > 0:
-                        ratio = shared_price / prev_S
-                        if 0.85 <= ratio <= 1.15:
+                # 但只在该价格对应的合约 == 主页 T 型报价合约 (near_expiry_code) 时才用
+                # 否则 iv_smile 监控的是 TA607（15:00 切日），而主页要 TA608（24h 提前），
+                # 此时用 TA607 的价当 TA608 的价会污染表格/ATM/隐波/微笑曲线。
+                try:
+                    shared_contract = iv_smile_service._state.get('active_contract')
+                except Exception:
+                    shared_contract = None
+                if shared_contract == near_expiry_code:
+                    shared_price, shared_source = iv_smile_service.get_shared_futures_price()
+                    if shared_price and shared_price > 0:
+                        # 合理性检查：偏离上次值不超过15%
+                        if prev_S and prev_S > 0:
+                            ratio = shared_price / prev_S
+                            if 0.85 <= ratio <= 1.15:
+                                S = shared_price
+                                print(f"[get_full_chain] 使用共享期货价格: {S} (source={shared_source}, contract={shared_contract})")
+                        else:
                             S = shared_price
-                            print(f"[get_full_chain] 使用共享期货价格: {S} (source={shared_source})")
-                    else:
-                        S = shared_price
-                        print(f"[get_full_chain] 使用共享期货价格: {S} (source={shared_source})")
+                            print(f"[get_full_chain] 使用共享期货价格: {S} (source={shared_source}, contract={shared_contract})")
+                else:
+                    print(f"[get_full_chain] ⏭ 跳过共享价: shared_contract={shared_contract} ≠ near_expiry_code={near_expiry_code} (24h 提前切换) → 改用 TqSdk/{near_expiry_code} 直连")
 
                 # 方法1：TqSdk获取近月期货实时价格（最快最准）
                 # 超时2秒：避免TqSdk网络抖动时阻塞整个API（最长等2秒）

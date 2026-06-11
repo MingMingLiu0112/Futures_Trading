@@ -9,6 +9,8 @@
 
 
 
+
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -47,7 +49,8 @@ _state = {
     'smile_smooth': {},
     'svi_params': None,
     'expiry': None,
-    'rate': 0.02,
+    'rate': 0.0225,
+    'rate_src': 'default(2.25%)',
     'running': False,
     'lock': Lock(),
     'active_contract': None,
@@ -128,6 +131,8 @@ def _record_close_baseline(smile_smooth, smile_raw, strike_oi, S, strike_vol=Non
         'strike_vol': {k: dict(v) for k, v in (strike_vol or {}).items()},
         'S': float(S),
         'ts': datetime.now().isoformat(),
+        'contract': _state.get('active_contract'),
+        'expiry': _state.get('expiry').isoformat() if _state.get('expiry') else None,
     }
     # 新基准生效，清空所有报警追踪状态
     _iv_alert_sent_today.clear()
@@ -444,7 +449,7 @@ def _load_close_state():
     启动时加载收盘快照恢复 _state 和 _last_valid。
     返回 True 表示成功恢复，False 表示无可用数据。
     """
-    global _state, _last_valid
+    global _state, _last_valid, _close_baseline
     if not os.path.exists(_CLOSE_STATE_FILE):
         return False
     try:
@@ -472,6 +477,31 @@ def _load_close_state():
             val = saved_valid.get(key)
             if val is not None:
                 _last_valid[key] = val
+
+        # === 关键：恢复 _close_baseline 内存变量 ===
+        # 不然 alert_data 拿不到今日基准 (会回退到 _prev_day_baseline)
+        # active_contract 加载时还没设置 (tqsdk_loop 启动后才设)，
+        # 用 close_state.json 里的 strike_oi 第一个 key 反推 TA 前缀，或从 svi_params / S 推断
+        recovered_contract = _state.get('active_contract')
+        if not recovered_contract:
+            # 兜底：svi_params.note 里通常有 contract；或者从 expiry 字段反推
+            note = (saved_state.get('svi_params') or {}).get('note', '')
+            if 'TA' in note:
+                import re as _re
+                m = _re.search(r'TA\d{3}', note)
+                if m: recovered_contract = m.group(0)
+        _close_baseline = {
+            'smooth': saved_state.get('smile_smooth', {}),
+            'raw': saved_state.get('smile_raw', {}),
+            'strike_oi': saved_state.get('strike_oi', {}),
+            'strike_vol': saved_state.get('strike_vol', {}),
+            'S': saved_state.get('futures_price'),
+            'ts': ts,
+            'contract': recovered_contract,
+            'expiry': _state.get('expiry').isoformat() if _state.get('expiry') else None,
+        }
+        print(f"[iv_smile] 💾 _close_baseline 已恢复 contract={_close_baseline.get('contract')} "
+              f"ts={ts[:19]} oi={len(_close_baseline.get('strike_oi') or {})}档")
 
         # === 补齐 svi_params 中缺少的 skew/curvature ===
         cur_svi = _state.get('svi_params')
@@ -1354,6 +1384,66 @@ def get_active_ta_contract():
         return 'TA607', datetime(2026, 6, 11)
 
 
+# ===================== 无风险利率（akshare 国债收益率，1h 缓存） =====================
+
+_rate_cache = {'value': None, 'src': None, 'ts': 0.0}
+_RATE_TTL = 3600  # 1 小时刷新一次（日内国债波动 < 5bp）
+
+
+def _get_risk_free_rate_cached(T=None, force=False):
+    """
+    拉取无风险利率 r，三层降级：
+      1) 优先 .env  IV_RISK_FREE_RATE（手动覆盖）
+      2) akshare.bond_zh_us_rate() 按 T 选 2Y/5Y/10Y/30Y
+      3) 兜底 0.0225
+
+    T: 标的到期时间（年），用于期限匹配
+       T<=0.15 (≤1.5月) → 2Y; 0.15<T<=0.6 (1.5-7月) → 5Y;
+       0.6<T<=2.0 (7-24月) → 10Y; T>2.0 → 30Y
+    """
+    import os, time
+    now_ts = time.time()
+    if not force and _rate_cache['value'] is not None and (now_ts - _rate_cache['ts']) < _RATE_TTL:
+        return _rate_cache['value'], _rate_cache['src']
+
+    default_r = 0.0225
+    default_src = 'default(2.25%)'
+
+    # 1) .env 覆盖
+    env_r = os.getenv('IV_RISK_FREE_RATE')
+    if env_r:
+        try:
+            r = float(env_r)
+            _rate_cache.update({'value': r, 'src': f'env({r:.4f})', 'ts': now_ts})
+            return r, f'env({r:.4f})'
+        except ValueError:
+            pass
+
+    # 2) akshare 拉国债收益率
+    try:
+        import akshare as ak
+        df = ak.bond_zh_us_rate()
+        if df is None or len(df) == 0:
+            raise ValueError('akshare 返回空数据')
+        last = df.iloc[-1]
+        if T is None or T <= 0.15:
+            col, tenor = '中国国债收益率2年', '2Y'
+        elif T <= 0.6:
+            col, tenor = '中国国债收益率5年', '5Y'
+        elif T <= 2.0:
+            col, tenor = '中国国债收益率10年', '10Y'
+        else:
+            col, tenor = '中国国债收益率30年', '30Y'
+        r = float(last[col]) / 100.0
+        date_str = str(last.get('日期', ''))
+        src = f'akshare({tenor} {date_str}={r*100:.3f}%)'
+        _rate_cache.update({'value': r, 'src': src, 'ts': now_ts})
+        return r, src
+    except Exception as e:
+        _rate_cache.update({'value': default_r, 'src': f'{default_src} akshare失败:{type(e).__name__}', 'ts': now_ts})
+        return default_r, f'{default_src} akshare失败:{type(e).__name__}'
+
+
 # ===================== Black76 (期货期权定价) =====================
 
 def black76_price(F, K, T, r, sigma, option_type='C'):
@@ -1601,24 +1691,32 @@ def fit_svi(K_list, IV_list, F, T):
 
 
 def smooth_smile(K_list, IV_list, F, T):
-    """SVI拟合 → 重建平滑曲线（全行权价范围外推）"""
+    """
+    SVI拟合 → 重建平滑曲线。
+
+    设计原则（用户指定）：
+    1. 平滑：SVI 在全 moneyness 范围连续光滑
+    2. 与隐波 raw 差值不能太大：SVI 拟合时直接用 raw 的 OTM 端 IV
+    3. 输出键**只覆盖真实存在的行权价**（从 K_list 推导，不外推伪造中间点）：
+       真实 PTA 期权只有 32 档（5000/5100/.../8100，100 步长），
+       不应塞入 5250/5350/.../7750 等 SVI 外推出来的、不存在的合约。
+       横坐标只展示真实合约 → SVI 曲线在真实 strike 上仍有数据点，
+       曲线本身的连续性由 SVI 模型在 moneyness 范围 ±20% 内保证。
+    """
     svi = fit_svi(K_list, IV_list, F, T)
     if svi is None:
         return {}, None
 
     a, b, rho, m, sigma = svi['a'], svi['b'], svi['rho'], svi['m'], svi['sigma']
 
-    # 生成平滑曲线：覆盖输入行权价范围，并向两端适度外推
-    K_min = min(K_list)
-    K_max = max(K_list)
-    # 向两端外推（但不超过合理范围）
-    # 关键修复：K_range_low 必须 <= K_min，否则深度OTM行权价没有smooth IV
-    K_range_low = max(int(F * 0.7), K_min - 500)
-    K_range_high = min(int(F * 1.3), K_max + 500)
+    # moneyness 硬限：拟合在 ±20% 范围内才有意义；超过此范围的翼部外推不可信
+    K_low_cap  = int(round(F * 0.80))
+    K_high_cap = int(round(F * 1.20))
 
-    # 用输入的行权价 + 外推范围生成平滑点
-    # 100步长外推 + 原始K_list去重合并
-    all_strikes = sorted(set(K_list) | set(range(K_range_low, K_range_high + 1, 100)))
+    # 只输出真实存在的行权价（CZCE PTA 实际合约是 100 步长，如 5000/5100/.../8100）
+    real_strikes = sorted(set(int(k) for k in K_list))
+    # 真实 strike 可能超出 moneyness 范围（深度虚值），裁剪到 [K_low_cap, K_high_cap]
+    all_strikes = [k for k in real_strikes if K_low_cap <= k <= K_high_cap]
 
     smooth_iv = {}
     for k_strike in all_strikes:
@@ -1760,18 +1858,21 @@ def tqsdk_loop():
                         if bid > 0 or ask > 0 or last > 0 or oi > 0 or vol > 0:
                             count += 1
                 elapsed = time.time() - wait_start
-                # 全档链深档可能长期无报价；T表/PCR只需要能拿到OI/volume的主体合约。
-                # 不再用80%硬门槛，否则 TA607 64/86 会一直卡住。
-                min_ready = max(int(len(option_symbols) * 0.6), min(20, len(option_symbols)))
+                # 全档链深档可能长期无报价（深度虚值/实值档休盘期间 TqSdk 也会推 OI/volume，但需要更多连接次数）。
+                # 不再用 0.6/21 的过早硬门槛（否则 64 档只凑齐 21 档就 break，丢 11 档深档数据）。
+                # 新策略：目标凑齐 95% 全档（akshare 合约表动态拉取，不硬编码具体档数）。
+                # 兜底：60s 后还没到 95% 但已有 60%，先 break 进入主循环持续接收深档。
+                target_ready = int(len(option_symbols) * 0.95)
+                fallback_ready = int(len(option_symbols) * 0.60)
                 if count > data_ready_count:
                     data_ready_count = count
-                    print(f"  [{elapsed:.0f}s] {count}/{len(option_symbols)} 个期权字段已到达")
-                    if count >= min_ready:
-                        print(f"[iv_smile] ✅ 期权字段已就位 ({data_ready_count}/{len(option_symbols)})，继续...")
+                    print(f"  [{elapsed:.0f}s] {count}/{len(option_symbols)} 个期权字段已到达（目标 {target_ready}）")
+                    if count >= target_ready:
+                        print(f"[iv_smile] ✅ 期权字段全档就位 ({data_ready_count}/{len(option_symbols)})，继续...")
                         break
-                # 全档链中无报价深档不应阻塞服务：30秒后只要已有足够字段，先进入主循环持续更新
-                if elapsed >= 30 and data_ready_count >= min_ready:
-                    print(f"[iv_smile] ✅ 等待30秒后已有足够字段 ({data_ready_count}/{len(option_symbols)})，继续...")
+                # 60s 兜底：超时后即使没到 95%，也先进入主循环，剩余深档在主循环中继续接收
+                if elapsed >= 60 and data_ready_count >= fallback_ready:
+                    print(f"[iv_smile] ⏱️ 60s 已到但未凑齐 {target_ready}（当前 {data_ready_count}/{len(option_symbols)}），先进入主循环继续接收深档")
                     break
                 # 每5秒报告一次进度（持续等待，不放弃）
                 if time.time() - last_progress_time >= 5:
@@ -1785,14 +1886,14 @@ def tqsdk_loop():
                 loop.close()
                 continue
 
-            # 即使没到80%，只要有数据就继续（不做重启，继续等待）
-            if data_ready_count < min_ready:
+            # 即使没到 95%，只要 fallback_ready (60%) 就绪就继续
+            if data_ready_count < fallback_ready:
                 if data_ready_count > 0:
-                    print(f"[iv_smile] ⚠️ 只有 {data_ready_count}/{len(option_symbols)} 期权有报价，持续等待（模拟账户数据可能延迟）")
+                    print(f"[iv_smile] ⚠️ 只有 {data_ready_count}/{len(option_symbols)} 期权有报价（fallback={fallback_ready}），持续等待（模拟账户数据可能延迟）")
                 else:
                     print(f"[iv_smile] ⚠️ 期权数据暂未到达，持续等待（模拟账户数据可能延迟）...")
             else:
-                print(f"[iv_smile] ✅ 数据就绪，{data_ready_count}/{len(option_symbols)} 个期权有有效报价")
+                print(f"[iv_smile] ✅ 数据就绪，{data_ready_count}/{len(option_symbols)} 个期权有有效报价（目标 95%={target_ready}）")
 
             _state['data_ready'] = True
             _tqsdk_ready = True
@@ -1801,6 +1902,12 @@ def tqsdk_loop():
             # === 主事件循环 ===
             counter = 0
             last_log_time = time.time()
+            _last_integrity_check_time = time.time()
+            _last_integrity_restart_time = 0.0
+            # 期望档数（行权价数）= option_symbols 去重后的 strike 数
+            _expected_strike_count = len(set(s[1] for s in option_symbols))
+            # 档数不达标起始时间（持续低于 80% 才报警，避免误报）
+            _integrity_alert_start = None
             while _state['running'] and not _tqsdk_restart_requested:
                 try:
                     api.wait_update(deadline=loop.time() + 1.0)
@@ -1836,6 +1943,31 @@ def tqsdk_loop():
                             print(f"[iv_smile] ⚠️ 数据超时 {stale:.0f}秒，触发重启")
                             _request_tqsdk_restart(f"data stale {stale:.0f}s")
                         last_log_time = time.time()
+
+                    # 每30秒检查档数完整性（防止 TqSdk 推送档数减少导致 T表/PCR 算错）
+                    if time.time() - _last_integrity_check_time >= 30:
+                        _last_integrity_check_time = time.time()
+                        # 实际档数 = smile_raw 收到的行权价数（每个行权价同时有 C 和 P）
+                        with _state['lock']:
+                            _actual_strike_count = len(_state.get('smile_raw', {}))
+                        ratio = _actual_strike_count / _expected_strike_count if _expected_strike_count else 0
+                        if ratio < 0.80:
+                            if _integrity_alert_start is None:
+                                _integrity_alert_start = time.time()
+                            else:
+                                _alert_dur = time.time() - _integrity_alert_start
+                                if _alert_dur >= 180:  # 持续 3 分钟
+                                    # 最小重连间隔 5 分钟（避免重连风暴）
+                                    if time.time() - _last_integrity_restart_time >= 300:
+                                        print(f"[iv_smile] ⚠️ 档数不达标 {_actual_strike_count}/{_expected_strike_count}={ratio:.1%} 持续 {_alert_dur:.0f}s，触发 TqSdk 重连")
+                                        _request_tqsdk_restart(f"integrity {ratio:.1%}")
+                                        _last_integrity_restart_time = time.time()
+                                        _integrity_alert_start = None
+                        else:
+                            # 档数达标，重置报警计时
+                            if _integrity_alert_start is not None:
+                                print(f"[iv_smile] ✅ 档数恢复 {_actual_strike_count}/{_expected_strike_count}={ratio:.1%}")
+                                _integrity_alert_start = None
 
                 except Exception as e:
                     if _state['running']:
@@ -1961,21 +2093,22 @@ def compute_once(force=False):
     # 2. 持仓量/成交量数据 + 计算最大痛点
     opt_snap = snap.get('options', {})
 
-    # 构建 {strike: {C/P: oi}} / {strike: {C/P: volume}} 结构（仅用有报价的档位）
+    # 构建 {strike: {C/P: oi}} / {strike: {C/P: volume}} 结构
+    # 修复：原本用 `if oi > 0` 过滤，导致 TqSdk 推送的深度虚值/实值档（OI=0）被丢弃，
+    # strike_oi 永远只有 ATM±10 档（21 档）。改为全档填充（OI/Vol=0 也保留），
+    # T 表/PCR/Max Pain 才能遍历 akshare 合约表的全档（动态档数，跟 _get_option_strikes_for_contract 保持一致）。
     strike_oi = {}
     strike_vol = {}
     for sym, strike, opt_type in _option_symbols:
         q = opt_snap.get(sym, {})
         oi = q.get('open_interest') or q.get('oi') or 0
         vol = q.get('volume') or q.get('vol') or 0
-        if oi > 0:
-            if strike not in strike_oi:
-                strike_oi[strike] = {'C': 0, 'P': 0}
-            strike_oi[strike][opt_type] = oi
-        if vol > 0:
-            if strike not in strike_vol:
-                strike_vol[strike] = {'C': 0, 'P': 0}
-            strike_vol[strike][opt_type] = vol
+        if strike not in strike_oi:
+            strike_oi[strike] = {'C': 0, 'P': 0}
+        if strike not in strike_vol:
+            strike_vol[strike] = {'C': 0, 'P': 0}
+        strike_oi[strike][opt_type] = oi
+        strike_vol[strike][opt_type] = vol
 
     max_pain = calc_max_pain(strike_oi, S)
     if max_pain is None:
@@ -1991,6 +2124,14 @@ def compute_once(force=False):
         print("[iv_smile] 到期日未设置")
         return False
     T = _calc_T_trading_days(expiry)
+
+    # 3.5 无风险利率：akshare 拉国债收益率（按 T 选期限），1h 缓存
+    r, r_src = _get_risk_free_rate_cached(T)
+    old_r = _state.get('rate', 0.0225)
+    if abs(r - old_r) > 1e-6 or _state.get('rate_src', '').startswith('default'):
+        print(f"[iv_smile] 💰 无风险利率 r 更新: {old_r*100:.3f}% → {r*100:.3f}% ({r_src}) T={T:.4f}y")
+    _state['rate'] = r
+    _state['rate_src'] = r_src
 
     # 4. 收集IV（用买卖价中点）
     raw_iv = {}
@@ -2240,6 +2381,7 @@ def register_routes(app):
                 'last_update': _state['last_update'],
                 'expiry': _state['expiry'].isoformat() if _state.get('expiry') else None,
                 'rate': _state['rate'],
+                'rate_src': _state.get('rate_src', 'unknown'),
                 'active_contract': _state.get('active_contract'),
                 'snapshot_times': snapshot_times,  # 格式: ["09:00","09:15",...]
                 'reconnect_count': _tqsdk_reconnect_count,
@@ -2733,9 +2875,30 @@ def register_routes(app):
             futures_price = _state.get('futures_price')
             max_pain = _state.get('max_pain')
 
-        # 前次基准：交易日21:00才切到今日15:00；21:00前仍用上一交易日15:00，便于盘后复盘
-        now_hour = datetime.now().hour
-        close_baseline = _close_baseline if now_hour >= 21 else {}
+        # 前次基准选择：
+        # 1) 若 _close_baseline 已是今日写入 + 合约匹配 → 立即用今日（合约切日日 6/11 等场景需要）
+        # 2) 21:00 之后 → 用今日 15:00 收盘
+        # 3) 21:00 之前 + _close_baseline 是今日 → 仍用今日（盘后场景）
+        # 4) 21:00 之前 + _close_baseline 是昨日/不匹配 → 用 _prev_day_baseline（盘后复盘）
+        cur_contract = _state.get('active_contract')
+        baseline_ts_str = _close_baseline.get('ts', '') if _close_baseline else ''
+        baseline_is_today = False
+        if baseline_ts_str:
+            try:
+                baseline_date = datetime.fromisoformat(baseline_ts_str).date()
+                baseline_is_today = (baseline_date == datetime.now().date())
+            except Exception:
+                pass
+        baseline_contract_match = (cur_contract and _close_baseline.get('contract') == cur_contract) if _close_baseline else False
+
+        if _close_baseline and baseline_is_today and baseline_contract_match:
+            close_baseline = _close_baseline
+        else:
+            now_hour = datetime.now().hour
+            if now_hour >= 21 and _close_baseline and baseline_is_today:
+                close_baseline = _close_baseline
+            else:
+                close_baseline = {}
         b_smooth = close_baseline.get('smooth', {}) if close_baseline else {}
         b_raw = close_baseline.get('raw', {}) if close_baseline else {}
         b_oi = close_baseline.get('strike_oi', {}) if close_baseline else {}
@@ -2794,6 +2957,15 @@ def register_routes(app):
             # IV（strike可能是str，但数据源key可能是int，双查找）
             raw = smile_raw.get(strike) or smile_raw.get(int(strike)) or {}
             sm = smile_smooth.get(strike) or smile_smooth.get(int(strike))
+
+            # B 方案：moneyness > 15% 时强制 IV = None（SVI 外推不可信）
+            # 仅过滤 IV，不影响 OI / 成交量 / 行权价显示
+            try:
+                _mp = abs(int(strike) - futures_price) / futures_price if futures_price else 0
+            except Exception:
+                _mp = 0
+            _iv_overshoot = _mp > 0.15  # 超过 ±15% 视为外推区
+
             if isinstance(raw, dict):
                 # 优先用raw C/P IV，缺失时用smooth IV兜底（深度OTM无成交的档位）
                 iv_c_raw = raw.get('C')
@@ -2806,9 +2978,16 @@ def register_routes(app):
                     iv_c = None
                 if iv_p_raw is None and sm is None:
                     iv_p = None
+                # 强制外推区置空（SVI 拟合范围仅 ATM±15%）
+                if _iv_overshoot:
+                    iv_c = None
+                    iv_p = None
             elif isinstance(raw, (int, float)):
                 iv_c = raw * 100
                 iv_p = raw * 100
+                if _iv_overshoot:
+                    iv_c = None
+                    iv_p = None
             else:
                 iv_c = None
                 iv_p = None
@@ -3085,6 +3264,9 @@ def register_routes(app):
             'max_pain': max_pain,
             'has_baseline': has_baseline,
             'close_ts': close_ts,
+            'close_expiry': _close_baseline.get('expiry') if _close_baseline else None,
+            'active_contract': cur_contract,
+            'baseline_contract_match': baseline_contract_match if _close_baseline else False,
             'avg_iv': round(atm_iv * 100, 2),
             'iv_thresholds': {k: round(v * 100, 1) for k, v in iv_t.items()},
             'iv_alerts': iv_alerts,
