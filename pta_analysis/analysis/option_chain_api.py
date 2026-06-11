@@ -203,17 +203,25 @@ def get_all_current_expiry_codes() -> List[str]:
 def get_nearest_active_expiry() -> str:
     """
     获取最近的未到期期权合约代码。
-    规则: 到期日 > 今天 的最近月合约。到期日当天视为已到期（期权到期日收盘后结算）。
+    统一规则（与 iv_smile_service.get_active_ta_contract / T表保持一致）：
+      - 到期日 >= 今天的：保留为当前合约（不切）
+      - 到期日 == 今天 且当前时间 >= 15:00：视为已到期，切换到下一月
+      - 其它情况：返回到期日最小的活跃合约
     返回: 合约代码如 'TA607'，失败时兜底 'TA607'
     """
-    today_str = datetime.now().strftime('%Y%m%d')
+    now = datetime.now()
+    today_str = now.strftime('%Y%m%d')
     expiry_map = refresh_expiry_map_from_akshare()
     if expiry_map:
-        # 找到期日 > 今天 的合约，按到期日排序取最近的
-        active = {k: v for k, v in expiry_map.items() if v > today_str}
+        boundary = today_str if now.strftime('%H%M') >= '1500' else '99999999'
+        # 1500 前：保留到期日 == today 的合约；1500 后：只看 > today
+        if now.strftime('%H%M') >= '1500':
+            active = {k: v for k, v in expiry_map.items() if v > today_str}
+        else:
+            active = {k: v for k, v in expiry_map.items() if v >= today_str}
         if active:
             return sorted(active.items(), key=lambda x: x[1])[0][0]
-        # 所有合约都已到期：取最晚到期的
+        # 所有合约都已到期：取最晚到期的（异常情况兜底）
         return sorted(expiry_map.items(), key=lambda x: x[1])[-1][0]
     # 兜底
     return 'TA607'

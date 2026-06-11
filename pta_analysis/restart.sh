@@ -1,10 +1,30 @@
 #!/bin/bash
 cd /home/admin/.openclaw/workspace/Futures_Trading/pta_analysis
 
-# 强制杀掉所有老进程
-pkill -9 -f web_app_integrated 2>/dev/null
-pkill -9 -f "iv_smile_service" 2>/dev/null
-sleep 2
+# 强制杀掉所有老进程（避免 pkill -f 匹配到当前shell/调用命令导致自杀）
+python3 - <<'PYKILL'
+import os, signal, subprocess, time
+me = os.getpid()
+out = subprocess.check_output(['ps', '-eo', 'pid,args'], text=True)
+patterns = ('web_app_integrated.py', 'iv_smile_service')
+for line in out.splitlines():
+    parts = line.strip().split(None, 1)
+    if len(parts) != 2:
+        continue
+    pid_s, args = parts
+    try:
+        pid = int(pid_s)
+    except ValueError:
+        continue
+    if pid == me:
+        continue
+    if any(p in args for p in patterns) and 'python' in args:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+time.sleep(2)
+PYKILL
 
 # 加载环境变量
 export $(cat .env | grep -v '^#' | xargs)
