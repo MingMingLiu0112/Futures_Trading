@@ -357,11 +357,42 @@ def get_usd_cny_rate() -> Dict:
 
 
 def get_px_external_data(macro_news: Dict = None, manual_macro: Dict = None) -> Dict:
-    """获取/提取PX亚洲收盘价，并按用户公式计算外盘PTA动态成本。"""
+    """获取/提取PX亚洲收盘价，并按用户公式计算外盘PTA动态成本。
+
+    数据源优先级：
+    1) manual_macro.px_external（人工填入的生意社/同花顺PX亚洲收盘价 USD/吨）
+    2) macro_news / manual_macro 文本中正则匹配
+    """
     macro_news = macro_news or {}
     manual_macro = manual_macro or {}
     candidates = []
     px_warning = ''
+    px_price = None
+    px_source = ''
+    source_text = ''
+
+    # ---- 0) 人工直接录入（最高优先级） ----
+    if isinstance(manual_macro.get('px_external'), dict):
+        pe = manual_macro['px_external']
+        try:
+            manual_px = float(pe.get('px_asia_close_usd') or pe.get('price') or 0)
+        except Exception:
+            manual_px = 0
+        if manual_px and 500 <= manual_px <= 2000:
+            manual_date = pe.get('date') or manual_macro.get('as_of_date') or ''
+            try:
+                age_hours = (datetime.now() - pd.to_datetime(str(manual_date)).to_pydatetime()).total_seconds() / 3600
+                manual_fresh = 0 <= age_hours <= 72  # 外盘PX人工录入可放宽到3天
+            except Exception:
+                manual_fresh = True  # 无法解析时按可信对待
+            if manual_fresh:
+                px_price = manual_px
+                px_source = f"人工录入·{pe.get('source','生意社/同花顺')}"
+                source_text = f"日期:{manual_date} 价:{manual_px}USD/吨 {pe.get('note','')}".strip()
+            else:
+                px_warning = f'人工PX外盘价日期偏旧({manual_date})，已拒绝用于外盘成本'
+        elif manual_px:
+            px_warning = f'人工PX外盘价{manual_px}超出合理区间(500-2000)，已忽略'
 
     def _collect_texts(label: str, obj):
         if isinstance(obj, str):
@@ -373,36 +404,34 @@ def get_px_external_data(macro_news: Dict = None, manual_macro: Dict = None) -> 
             for item in obj.values():
                 _collect_texts(label, item)
 
-    _collect_texts('人工宏观基本面', manual_macro)
-    _collect_texts('自动宏观快讯', macro_news)
+    if not px_price:
+        _collect_texts('人工宏观基本面', manual_macro)
+        _collect_texts('自动宏观快讯', macro_news)
 
-    px_price = None
-    px_source = ''
-    source_text = ''
-    for src, text in candidates:
-        val = _parse_px_asia_price_from_text(text)
-        if val:
-            px_price = val
-            px_source = src
-            source_text = _clean_news_text(text, 180)
-            break
+        for src, text in candidates:
+            val = _parse_px_asia_price_from_text(text)
+            if val:
+                px_price = val
+                px_source = src
+                source_text = _clean_news_text(text, 180)
+                break
 
-    # PX外盘是日频外盘价，不能让几天前人工宏观材料里的PX价格继续冒充“当前外盘”。
-    # 人工宏观仍可进入宏观/策略文本；这里只对外盘PX数值和外盘成本做日期闸门。
-    if px_price and px_source == '人工宏观基本面':
-        manual_dt = manual_macro.get('updated_at') or manual_macro.get('date') or manual_macro.get('timestamp')
-        manual_fresh = False
-        try:
-            manual_age_hours = (datetime.now() - pd.to_datetime(str(manual_dt)).to_pydatetime()).total_seconds() / 3600
-            # 外盘PX人工录入只允许当天/上一夜盘附近材料参与成本；超过20小时视为过期。
-            manual_fresh = 0 <= manual_age_hours <= 20
-        except Exception:
+        # PX外盘是日频外盘价，不能让几天前人工宏观材料里的PX价格继续冒充"当前外盘"。
+        # 人工宏观仍可进入宏观/策略文本；这里只对外盘PX数值和外盘成本做日期闸门。
+        if px_price and px_source == '人工宏观基本面':
+            manual_dt = manual_macro.get('updated_at') or manual_macro.get('date') or manual_macro.get('timestamp')
             manual_fresh = False
-        if not manual_fresh:
-            px_warning = f'人工宏观PX外盘价日期偏旧({manual_dt or "未知"})，已拒绝用于外盘成本'
-            px_price = None
-            px_source = ''
-            source_text = ''
+            try:
+                manual_age_hours = (datetime.now() - pd.to_datetime(str(manual_dt)).to_pydatetime()).total_seconds() / 3600
+                # 外盘PX人工录入只允许当天/上一夜盘附近材料参与成本；超过20小时视为过期。
+                manual_fresh = 0 <= manual_age_hours <= 20
+            except Exception:
+                manual_fresh = False
+            if not manual_fresh:
+                px_warning = f'人工宏观PX外盘价日期偏旧({manual_dt or "未知"})，已拒绝用于外盘成本'
+                px_price = None
+                px_source = ''
+                source_text = ''
 
     rate_info = get_usd_cny_rate()
     result = {
@@ -1715,7 +1744,12 @@ def generate_macro_analysis(crude, px, pta, rates, inventory, macro_news, cost_d
         if hint:
             narrative_parts.append(f"【DeepSeek综合】{hint}")
 
-    narrative = '；'.join(narrative_parts) + '。' if narrative_parts else '基本面数据获取中。'
+    # 拼接：避免末位 `。` 与句尾 `。` 拼出 `。。`
+    narrative = '；'.join(narrative_parts)
+    if narrative and not narrative.endswith('。'):
+        narrative += '。'
+    if not narrative:
+        narrative = '基本面数据获取中。'
 
     return {
         'title': '二、 宏观与基本面',
@@ -2044,11 +2078,11 @@ def generate_strategy_suggestions(opt: Dict, pta: Dict, cost_data: Dict, cost_lo
     # 方向判断
     core_parts.append(f'三维综合评分{total_score:+.2f}，方向【{overall_direction}】')
 
-    # 各维度概要
+    # 各维度概要（三维度都展示，缺理由时给中性占位）
     for key in ['macro', 'industry', 'option']:
         d = dim_scores[key]
-        if d['reasons']:
-            core_parts.append(f"{d['name']}({d['label']}): {d['reasons'][0]}")
+        reason_text = d['reasons'][0] if d.get('reasons') else f'维度评分{d["score"]:+.2f}，{d.get("label","中性")}'
+        core_parts.append(f"{d['name']}({d['label']}): {reason_text}")
 
     # AI评级参考
     if ai_rating:
@@ -2130,6 +2164,15 @@ def _table(headers, rows) -> str:
     for row in rows:
         lines.append('| ' + ' | '.join(str(x) for x in row) + ' |')
     return '\n'.join(lines)
+
+
+def _render_auto_news(macro_news_items):
+    """渲染宏观快讯区：去重人工摘要 + 清洗每条尾标点，避免与句尾 `。` 拼出 `。。`"""
+    auto_items = [m for m in (macro_news_items or [])[:6] if '【人工宏观基本面】' not in m]
+    if not auto_items:
+        return '宏观快讯：暂无独立自动快讯，人工基本面已在上方展示。'
+    cleaned = [re.sub(r'[。；\s]+$', '', x)[:90] for x in auto_items]
+    return '自动快讯（去重人工摘要）：' + '；'.join(cleaned) + '。'
 
 
 def get_main_futures_price(symbol: str = 'TA609') -> Dict:
@@ -2358,11 +2401,13 @@ def generate_intraday_analysis(report: Dict) -> Dict:
         'option_buyer_strategy': {'title': '期权买方策略', 'items': option_buyer_strategy},
     }
 
-    market_snapshot_interpretation = f"盘面短线{futures_bias}，期权链标的参考价{_fmt_num(option_underlying_price)}负责GEX、Pain和持仓压力判断，盘面主力参考价{_fmt_num(main_futures_display_price)}负责入场节奏判断；两者不混用，避免把结构位和短线K线信号揉成一个价格。"
-    gex_interpretation = f"GEX处在{gamma_desc}。因此交易上先盯两条线：{_fmt_num(max_pain)}若失守，负Gamma容易放大顺势波动；{_fmt_num(gex_flip)}若被重新收复，追涨杀跌压力会减轻。"
+    market_snapshot_interpretation = f"期权链标的参考价{_fmt_num(option_underlying_price)}用于GEX、Pain、OI与IV等结构判断，盘面主力参考价{_fmt_num(main_futures_display_price)}负责K线节奏；两者各管一段，不要把结构位和短线信号混为一个价格。"
+    gex_interpretation = f"GEX处在{gamma_desc}。交易上先盯两条线：{_fmt_num(max_pain)}若失守，负Gamma容易放大顺势波动；{_fmt_num(gex_flip)}若被重新收复，追涨杀跌压力会减轻。"
     oi_interpretation = f"持仓给出的不是单边方向，而是边界：Put集中区对应下方防线，Call集中区对应上方压力。当前更适合把{_fmt_num(max_pain)}—{_fmt_num(max_call)}当作区间框架，再等跌破或站回触发。"
     iv_interpretation = f"ATM隐波约{_fmt_num(atm_iv,1)}%，{skew_desc or '偏度待确认'}。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。"
     macro_hint = '；'.join(macro_news_items[:3]) if macro_news_items else '暂无高质量宏观快讯'
+    # 避免与外部句末 `。` 拼出 `。。`
+    macro_hint = re.sub(r'[。；]+$', '', macro_hint)
     external_cost_hint = f"外盘PX{_fmt_num(px_asia_close,2,'$')}/吨，对应外盘PTA动态成本约{_fmt_num(pta_external_cost)}元/吨" if px_asia_close and pta_external_cost else "外盘PX/外盘PTA动态成本等待最新有效报价"
     macro_interpretation = f"宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：{macro_hint}。{external_cost_hint}；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。"
     strategy_logic = f"策略依据：先用盘面主力判断追单节奏，再用GEX/Pain确定触发位，用OI确认支撑压力，用IV决定买方还是卖方更占优，同时用原油/PX外盘成本确认顺势信号质量。当前重点是{_fmt_num(max_pain)}是否跌破、{_fmt_num(gex_flip)}是否收复；未触发前以区间和风控为主，触发后再顺势加速。"
@@ -2385,7 +2430,7 @@ def generate_intraday_analysis(report: Dict) -> Dict:
         "",
         "一、核心结论",
         "当前 PTA 不适合简单看空。",
-        f"产业链给出的底色是偏强震荡、有支撑但上方也有压制。当前核心区间先看{max_pain_text}-{upper_zone}，不是无脑追多，也不是在{max_pain_text}上方主动追空。",
+        f"产业链给出的底色是偏强震荡、有支撑但上方也有压制。当前核心区间先看{max_pain_text}—{upper_zone}，不是无脑追多，也不是在{max_pain_text}上方主动追空。",
         f"期权结构上，当前价格处于{gamma_desc}，这意味着一旦关键位置被突破，波动容易被放大。",
         "",
         "二、宏观与成本端",
@@ -2433,7 +2478,7 @@ def generate_intraday_analysis(report: Dict) -> Dict:
         "1. 期货价格层面（期货盘面）：短线节奏看盘面主力，期权结构看期权链标的参考价。",
         _table(['项目','当前值','交易含义'], market_snapshot_table),
         market_snapshot_interpretation,
-        f"盘面主力参考价显示{futures_bias}，最近一根变化{_fmt_signed(main_px.get('last_bar_change'))}点，过去20根累计{_fmt_signed(main_px.get('change_20_bars'))}点。期权链标的参考价{_fmt_num(option_underlying_price)}用于判断GEX、Pain和持仓压力，不与盘面价混在一起下结论。",
+        f"盘面主力参考价{_fmt_num(main_futures_display_price)}：最近一根变化{_fmt_signed(main_px.get('last_bar_change'))}点，过去20根累计{_fmt_signed(main_px.get('change_20_bars'))}点，节奏判定为{futures_bias}。期权链标的参考价{_fmt_num(option_underlying_price)}用于判断GEX、Pain和持仓压力，不与盘面价混在一起下结论。",
         "",
         "2. GEX结构：价格所处Gamma区决定波动是否容易被放大。",
         _table(['指标','当前值'], gex_table),
@@ -2458,11 +2503,11 @@ def generate_intraday_analysis(report: Dict) -> Dict:
         "6. 基本面与宏观：先看宏观快讯和成本链，周频供需项暂不放入盘中主研判。",
         _table(['项目','当前值','解读'], macro_table),
         macro_interpretation,
-        ("宏观快讯：" + '；'.join(x[:90] for x in macro_news_items[:4]) + '。') if macro_news_items else '宏观快讯：暂无有效快讯。',
+        _render_auto_news(macro_news_items),
         f"基本面不是单边空：现货/成本可能提供下方支撑；但加工利润{_fmt_num(profit)}元若处在偏高区域，容易限制上方弹性。",
         "",
         "综合结论",
-        f"当前主线：{headline_dir}，核心区间关注{_fmt_num(max_pain)}—{_fmt_num(max_call)}。期货短线{futures_bias}，期权结构处在{gamma_desc}，真正的方向触发在{_fmt_num(max_pain)}跌破或{_fmt_num(gex_flip)}/{_fmt_num(max_call)}重新站上。",
+        f"当前主线：{headline_dir}，核心区间关注{_fmt_num(max_pain)}—{_fmt_num(max_call)}。期权结构处在{gamma_desc}，真正的方向触发在{_fmt_num(max_pain)}跌破或{_fmt_num(gex_flip)}/{_fmt_num(max_call)}重新站上。",
         "",
         "关键价位",
         _table(['位置','含义'], key_levels or [['--','--']]),
@@ -2472,7 +2517,7 @@ def generate_intraday_analysis(report: Dict) -> Dict:
         "如果偏期权卖方：\n• " + "\n• ".join(option_seller_strategy),
         "如果偏买方：\n• " + "\n• ".join(option_buyer_strategy),
         "",
-        f"一句话总结：现在不是强多盘，短线{futures_bias}；看{_fmt_num(max_pain)}是否守住，守住就是临近到期向{_fmt_num(max_pain)}—{_fmt_num(max_call)}收敛，跌破则负Gamma会让下跌更顺。",
+        f"一句话总结：当前不是强多盘，主线{futures_bias}；看{_fmt_num(max_pain)}是否守住——守住则向{_fmt_num(max_pain)}—{_fmt_num(max_call)}区间收敛，跌破则负Gamma会放大下跌。",
     ]
     narrative = '\n'.join(sections)
 
