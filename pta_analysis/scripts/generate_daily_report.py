@@ -276,27 +276,67 @@ def get_pta_shengyishe_benchmark() -> Dict:
     return {}
 
 
+def _is_recent_date(date_value, max_age_days: int = 10) -> bool:
+    """判断数据日期是否足够新。外盘/汇率日频数据允许周末和节假日自然滞后。"""
+    if not date_value:
+        return False
+    try:
+        dt = pd.to_datetime(str(date_value)).to_pydatetime()
+        return (datetime.now() - dt).days <= max_age_days
+    except Exception:
+        return False
+
+
+def _normalize_cny_middle_rate(value) -> Optional[float]:
+    """SAFE/中行中间价通常以100美元兑人民币报价(如681.50)，统一转成USD/CNY=6.8150。"""
+    try:
+        rate = float(value)
+    except Exception:
+        return None
+    if 100 <= rate <= 1000:
+        rate = rate / 100.0
+    if 5.0 <= rate <= 9.0:
+        return round(rate, 4)
+    return None
+
+
 def get_usd_cny_rate() -> Dict:
-    """获取美元人民币汇率。优先央行中间价，若新浪接口过旧则用即期报价兜底。"""
-    data = {'rate': USD_CNY, 'source': '默认兜底', 'date': '', 'warning': '汇率接口不可用，使用默认USD_CNY'}
+    """获取美元人民币中间价。优先外管局/SAFE日频中间价，拒绝使用日期明显陈旧的新浪中行数据。"""
+    warnings_seen = []
+
+    # Primary: 外管局/SAFE人民币汇率中间价。实测 ak.currency_boc_safe() 持续更新到当日/上一工作日。
+    try:
+        df = ak.currency_boc_safe()
+        if df is not None and not df.empty and '美元' in df.columns:
+            valid = df.dropna(subset=['美元'])
+            if not valid.empty:
+                r = valid.iloc[-1]
+                rate = _normalize_cny_middle_rate(r.get('美元'))
+                date = str(r.get('日期', ''))
+                if rate and _is_recent_date(date, max_age_days=10):
+                    return {'rate': rate, 'source': '外管局/SAFE人民币汇率中间价', 'date': date, 'warning': ''}
+                if rate:
+                    warnings_seen.append(f'SAFE中间价日期偏旧({date})')
+    except Exception as e:
+        warnings_seen.append(f'SAFE中间价获取失败: {e}')
+
+    # Fallback: 新浪中行接口。此前该接口停在2023-11-10；只在日期新鲜时采用。
     try:
         df = ak.currency_boc_sina()
         if df is not None and not df.empty and '央行中间价' in df.columns:
-            r = df.dropna(subset=['央行中间价']).iloc[-1]
-            rate = float(r['央行中间价']) / 100.0
-            date = str(r.get('日期', ''))
-            stale = False
-            try:
-                stale = (datetime.now() - pd.to_datetime(date).to_pydatetime()).days > 7
-            except Exception:
-                stale = True
-            if 5.0 <= rate <= 9.0 and not stale:
-                return {'rate': round(rate, 4), 'source': '央行中间价/中行新浪', 'date': date, 'warning': ''}
-            if 5.0 <= rate <= 9.0:
-                data = {'rate': round(rate, 4), 'source': '央行中间价/中行新浪', 'date': date, 'warning': '央行中间价接口日期偏旧'}
+            valid = df.dropna(subset=['央行中间价'])
+            if not valid.empty:
+                r = valid.iloc[-1]
+                rate = _normalize_cny_middle_rate(r.get('央行中间价'))
+                date = str(r.get('日期', ''))
+                if rate and _is_recent_date(date, max_age_days=10):
+                    return {'rate': rate, 'source': '央行中间价/中行新浪', 'date': date, 'warning': '; '.join(warnings_seen)}
+                if rate:
+                    warnings_seen.append(f'中行新浪中间价日期偏旧({date})，已拒绝')
     except Exception as e:
-        data['warning'] = f'央行中间价获取失败: {e}'
+        warnings_seen.append(f'中行新浪中间价获取失败: {e}')
 
+    # Last live fallback: 即期报价仅作兜底，保留warning提示它不是央行/SAFE中间价。
     try:
         df = ak.fx_spot_quote()
         if df is not None and not df.empty:
@@ -307,10 +347,13 @@ def get_usd_cny_rate() -> Dict:
                 if vals:
                     rate = sum(vals) / len(vals)
                     if 5.0 <= rate <= 9.0:
-                        return {'rate': round(rate, 4), 'source': 'USD/CNY即期报价 fallback', 'date': datetime.now().strftime('%Y-%m-%d'), 'warning': data.get('warning', '')}
+                        warnings_seen.append('使用USD/CNY即期报价兜底，非央行/SAFE中间价')
+                        return {'rate': round(rate, 4), 'source': 'USD/CNY即期报价 fallback', 'date': datetime.now().strftime('%Y-%m-%d'), 'warning': '; '.join(warnings_seen)}
     except Exception as e:
-        data['warning'] = (data.get('warning') or '') + f'; 即期汇率获取失败: {e}'
-    return data
+        warnings_seen.append(f'即期汇率获取失败: {e}')
+
+    warnings_seen.append('汇率接口不可用，使用默认USD_CNY')
+    return {'rate': USD_CNY, 'source': '默认兜底', 'date': '', 'warning': '; '.join(warnings_seen)}
 
 
 def get_px_external_data(macro_news: Dict = None, manual_macro: Dict = None) -> Dict:
@@ -318,6 +361,7 @@ def get_px_external_data(macro_news: Dict = None, manual_macro: Dict = None) -> 
     macro_news = macro_news or {}
     manual_macro = manual_macro or {}
     candidates = []
+    px_warning = ''
 
     def _collect_texts(label: str, obj):
         if isinstance(obj, str):
@@ -343,6 +387,23 @@ def get_px_external_data(macro_news: Dict = None, manual_macro: Dict = None) -> 
             source_text = _clean_news_text(text, 180)
             break
 
+    # PX外盘是日频外盘价，不能让几天前人工宏观材料里的PX价格继续冒充“当前外盘”。
+    # 人工宏观仍可进入宏观/策略文本；这里只对外盘PX数值和外盘成本做日期闸门。
+    if px_price and px_source == '人工宏观基本面':
+        manual_dt = manual_macro.get('updated_at') or manual_macro.get('date') or manual_macro.get('timestamp')
+        manual_fresh = False
+        try:
+            manual_age_hours = (datetime.now() - pd.to_datetime(str(manual_dt)).to_pydatetime()).total_seconds() / 3600
+            # 外盘PX人工录入只允许当天/上一夜盘附近材料参与成本；超过20小时视为过期。
+            manual_fresh = 0 <= manual_age_hours <= 20
+        except Exception:
+            manual_fresh = False
+        if not manual_fresh:
+            px_warning = f'人工宏观PX外盘价日期偏旧({manual_dt or "未知"})，已拒绝用于外盘成本'
+            px_price = None
+            px_source = ''
+            source_text = ''
+
     rate_info = get_usd_cny_rate()
     result = {
         'px_asia_close_usd': px_price,
@@ -354,12 +415,12 @@ def get_px_external_data(macro_news: Dict = None, manual_macro: Dict = None) -> 
         'usd_cny_date': rate_info.get('date'),
         'formula': 'PX亚洲收盘价 * 0.655 * 1.01 * 1.13 * USD/CNY',
         'pta_external_cost': None,
-        'warning': rate_info.get('warning') or '',
+        'warning': '; '.join([x for x in [rate_info.get('warning') or '', px_warning] if x]),
     }
     if px_price and result.get('usd_cny'):
         result['pta_external_cost'] = round(px_price * 0.655 * 1.01 * 1.13 * float(result['usd_cny']), 0)
     else:
-        result['warning'] = (result.get('warning') or 'PX亚洲收盘价暂未提取，外盘成本待更新')
+        result['warning'] = '; '.join([x for x in [result.get('warning') or '', 'PX亚洲收盘价暂未提取，外盘成本待更新'] if x])
     return result
 
 
@@ -888,15 +949,45 @@ def get_option_data() -> Dict:
 
 
 def get_industry_analysis_data() -> Dict:
-    """从 industry_analysis 获取产业链综合数据（含AI四维评分）"""
+    """从 industry_analysis 获取产业链综合数据（含AI四维评分）
+
+    HTTP 自调用本进程 /api/fundamental 风险极大：HTTP 工作线程有限，
+    在 K线/TqSdk 繁忙时容易 30 秒超时，并影响整个 generate_report 流程。
+    优先读取本地缓存文件（产业链综合分析总是会写到 daily_report.json 同目录），
+    都没有再 HTTP 兜底且用短超时。
+    """
+    # 1) 优先从本地缓存文件读
     try:
-        resp = requests.get('http://127.0.0.1:8424/api/fundamental', timeout=30)
+        from pathlib import Path as _P
+        import time as _t
+        import json as _j
+        candidates = [
+            _P('data/fundamental/daily_report.json'),
+            _P('data/industry_dynamic.json'),
+        ]
+        for fp in candidates:
+            if fp.exists() and (_t.time() - fp.stat().st_mtime) < 24 * 3600:
+                try:
+                    cached = _j.loads(fp.read_text(encoding='utf-8'))
+                except Exception:
+                    continue
+                # 取最里面的 industry_analysis 段；daily_report 自身通常也有
+                for key in ('industry_analysis', 'industry_dynamic', 'data'):
+                    inner = cached.get(key)
+                    if isinstance(inner, dict) and inner:
+                        return inner
+                if isinstance(cached, dict) and cached:
+                    return cached
+    except Exception:
+        pass
+    # 2) 短超时 HTTP 兜底
+    try:
+        resp = requests.get('http://127.0.0.1:8424/api/fundamental', timeout=5)
         if resp.status_code == 200:
             result = resp.json()
-            data = result.get('data', result)
-            return data
+            return result.get('data', result)
     except Exception as e:
-        print(f"  ⚠️ industry_analysis数据获取失败: {e}")
+        print(f"  ⚠️ industry_analysis数据获取失败(已降级): {e}")
     return {}
 
 
@@ -1569,11 +1660,37 @@ def generate_macro_analysis(crude, px, pta, rates, inventory, macro_news, cost_d
                 'basis_str': f"基差{dom_basis:+.0f}" if dom_basis else '—'
             })
 
-    # ===== 5. 宏观快讯 =====
-    geo_items = macro_news.get('geo', [])[:2]
-    macro_items = macro_news.get('macro', [])[:2]
-    fed_items = macro_news.get('fed', [])[:2]
-    industry_items = macro_news.get('industry', [])[:4]
+    # ===== 5. 宏观快讯（自动抓取 + 人工宏观补充） =====
+    geo_items = list(macro_news.get('geo', [])[:2])
+    macro_items = list(macro_news.get('macro', [])[:2])
+    fed_items = list(macro_news.get('fed', [])[:2])
+    industry_items = list(macro_news.get('industry', [])[:4])
+
+    # 人工宏观基本面：把核心矛盾 / 机构观点 / 关键变量 / 事件驱动 补到对应通道
+    manual_macro = load_manual_macro_input()
+    if manual_macro:
+        manual_core = _clean_news_text(manual_macro.get('core_takeaway') or manual_macro.get('summary') or '', 280)
+        if manual_core:
+            geo_items.insert(0, '【人工】' + manual_core)
+            geo_items = geo_items[:3]
+        for inst in (manual_macro.get('institutions') or [])[:3]:
+            if isinstance(inst, dict):
+                txt = f'【机构】{inst.get("name","?")}·{inst.get("view","?")}：{inst.get("logic","")}'
+                txt = _clean_news_text(txt, 220)
+                if txt:
+                    industry_items.append(txt)
+        for kv in (manual_macro.get('key_variables') or [])[:2]:
+            if isinstance(kv, dict):
+                txt = f'【关键变量】{kv.get("name","?")}（权重{kv.get("weight","")}）：{kv.get("desc","")}'
+                txt = _clean_news_text(txt, 200)
+                if txt:
+                    macro_items.append(txt)
+        for ev in (manual_macro.get('events') or [])[:2]:
+            txt = _clean_news_text('【事件】' + str(ev), 200)
+            if txt:
+                macro_items.append(txt)
+        industry_items = industry_items[:6]
+        macro_items = macro_items[:3]
 
     # ===== 6. 综合评估叙述 =====
     narrative_parts = []
@@ -1591,6 +1708,12 @@ def generate_macro_analysis(crude, px, pta, rates, inventory, macro_news, cost_d
     if pta_inv.get('stock'):
         inv_chg = pta_inv.get('change', 0)
         narrative_parts.append(f"PTA库存{pta_inv['stock']/10000:.1f}万吨({'去库' if inv_chg < 0 else '累库'}{abs(inv_chg)})")
+
+    # 人工宏观基本面：核心矛盾 + 策略提示
+    if manual_macro:
+        hint = _clean_news_text(manual_macro.get('strategy_hint') or manual_macro.get('core_takeaway') or '', 220)
+        if hint:
+            narrative_parts.append(f"【DeepSeek综合】{hint}")
 
     narrative = '；'.join(narrative_parts) + '。' if narrative_parts else '基本面数据获取中。'
 
@@ -2249,6 +2372,14 @@ def generate_intraday_analysis(report: Dict) -> Dict:
     gex_flip_text = _fmt_num(gex_flip)
     max_pain_text = _fmt_num(max_pain)
     macro_core = macro_news_items[0].replace('【人工宏观基本面】', '') if macro_news_items else '基本面日内变化不大，重点看原油/PX事件驱动与期权结构触发。'
+    # 若有更鲜明的核心矛盾（DeepSeek 综合），优先用其生成单句方向
+    try:
+        _mm = manual_macro or {}
+        _core = (_mm.get('core_takeaway') or _mm.get('strategy_hint') or '').strip()
+        if _core:
+            macro_core = _core[:200]
+    except Exception:
+        pass
     trader_report = "\n".join([
         "PTA 最新综合研判",
         "",
@@ -2493,6 +2624,44 @@ def build_daily_comparison(current_report: Dict, previous_report: Optional[Dict]
         intraday_coverage_status = '样本不足'
         intraday_note = f'仅归档{snapshot_count}份整15分钟盘中研报，日内动态对比样本不足。'
 
+    # 走势分桶：日内按 bias 切换点拆段；并定位 peak/trough
+    def _swing_segments(pts):
+        segs = []
+        if not pts:
+            return segs
+        cur = {'from_slot': pts[0]['slot'], 'from_price': pts[0]['price'], 'bias': pts[0]['bias'], 'points': [pts[0]]}
+        for p in pts[1:]:
+            if p['bias'] == cur['bias']:
+                cur['points'].append(p)
+            else:
+                cur['to_slot'] = cur['points'][-1]['slot']
+                cur['to_price'] = cur['points'][-1]['price']
+                cur['change'] = cur['to_price'] - cur['from_price']
+                segs.append(cur)
+                cur = {'from_slot': p['slot'], 'from_price': p['price'], 'bias': p['bias'], 'points': [p]}
+        cur['to_slot'] = cur['points'][-1]['slot']
+        cur['to_price'] = cur['points'][-1]['price']
+        cur['change'] = cur['to_price'] - cur['from_price']
+        segs.append(cur)
+        return segs
+
+    segments = _swing_segments(points)
+    segment_summaries = []
+    for seg in segments:
+        if seg['from_slot'] == seg['to_slot']:
+            continue
+        seg_high = max(x['price'] for x in seg['points'])
+        seg_low = min(x['price'] for x in seg['points'])
+        segment_summaries.append({
+            'from_slot': seg['from_slot'], 'to_slot': seg['to_slot'],
+            'from_price': seg['from_price'], 'to_price': seg['to_price'],
+            'change': seg['change'],
+            'bias': seg['bias'],
+            'high': seg_high, 'low': seg_low,
+        })
+    peak_pt = max(points, key=lambda x: x['price']) if points else None
+    trough_pt = min(points, key=lambda x: x['price']) if points else None
+
     intraday_review = {
         'points': points,
         'open_slot': points[0]['slot'] if points else None,
@@ -2502,15 +2671,34 @@ def build_daily_comparison(current_report: Dict, previous_report: Optional[Dict]
         'high': max(prices) if prices else None,
         'low': min(prices) if prices else None,
         'change': (points[-1]['price'] - points[0]['price']) if len(points) >= 2 else None,
+        'segments': segment_summaries,
+        'peak': {'slot': peak_pt['slot'], 'price': peak_pt['price']} if peak_pt else None,
+        'trough': {'slot': trough_pt['slot'], 'price': trough_pt['price']} if trough_pt else None,
     }
     if intraday_review['change'] is not None:
         chg = intraday_review['change']
         direction = '走强' if chg > 0 else ('走弱' if chg < 0 else '横盘')
-        intraday_review['summary'] = (
+        # 主体句：开收对比 + 区间
+        main = (
             f"盘中从{intraday_review['open_slot']}的{intraday_review['open_price']:.0f}"
             f"到{intraday_review['close_slot']}的{intraday_review['close_price']:.0f}，"
-            f"日内{direction}{chg:+.0f}点，区间{intraday_review['low']:.0f}-{intraday_review['high']:.0f}。"
+            f"日内{direction}{chg:+.0f}点，区间{intraday_review['low']:.0f}-{intraday_review['high']:.0f}"
         )
+        # 走势分桶：描述每一段的方向和幅度
+        seg_lines = []
+        for seg in segment_summaries:
+            seg_dir = '走强' if seg['change'] > 0 else ('走弱' if seg['change'] < 0 else '横盘')
+            seg_lines.append(
+                f"{seg['from_slot']}→{seg['to_slot']}{seg['bias']}{seg_dir}{seg['change']:+.0f}"
+            )
+        segments_text = '；'.join(seg_lines) if seg_lines else '未出现明显bias切换'
+        # 高低点
+        peak = intraday_review.get('peak') or {}
+        trough = intraday_review.get('trough') or {}
+        extreme_text = ''
+        if peak.get('slot') and trough.get('slot') and peak['slot'] != trough['slot']:
+            extreme_text = f"；高点{peak['slot']} {peak['price']:.0f}，低点{trough['slot']} {trough['price']:.0f}"
+        intraday_review['summary'] = f"{main}。走势分桶：{segments_text}{extreme_text}。"
     else:
         intraday_review['summary'] = intraday_note
 
@@ -2711,7 +2899,8 @@ def generate_feishu_message(report: Dict) -> str:
     ]
 
     # 库存
-    inv_summary = s2.get('inventory', {}).get('summary', '')
+    inv_raw = s2.get('inventory', {})
+    inv_summary = inv_raw.get('summary', '') if isinstance(inv_raw, dict) else ''
     if inv_summary:
         lines.append(f"📊 **库存：** {inv_summary}")
         lines.append("")

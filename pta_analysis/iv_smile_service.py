@@ -1305,9 +1305,11 @@ def _get_option_strikes_for_contract(opt_prefix):
 
 def get_active_ta_contract():
     """
-    从交易所实时数据获取最近未到期期权合约（与期权链T型报价逻辑一致）。
+    从交易所实时数据获取最近未到期期权合约（与期权链T型报价 / T表数据切换保持一致）。
     数据源: akshare option_contract_info_ctp()
-    规则: 选最后交易日 > 今天 的最近月合约
+    统一规则：
+      - 15:00 之前：选到期日 >= 今天的最近月合约（保留今天到期的合约，让其参与日内交易）
+      - 15:00 之后：选到期日 > 今天的最近月合约（到期日 15:00 收盘后切换）
     返回: (opt_prefix, expiry_date)
     """
     global _EXPIRY_CACHE
@@ -1316,35 +1318,38 @@ def get_active_ta_contract():
 
     now = datetime.now()
     today_str = now.strftime('%Y-%m-%d')
+    after_1500 = now.strftime('%H%M') >= '1500'
+
+    def _pick(expiry_dict):
+        if not expiry_dict:
+            return None, None
+        if after_1500:
+            active = {k: v for k, v in expiry_dict.items() if v > today_str}
+        else:
+            active = {k: v for k, v in expiry_dict.items() if v >= today_str}
+        if not active:
+            sorted_items = sorted(expiry_dict.items(), key=lambda x: x[1])
+            return sorted_items[-1]
+        nearest = sorted(active.items(), key=lambda x: x[1])[0]
+        return nearest[0], nearest[1]
 
     try:
         df = ak.option_contract_info_ctp()
-        # 找TA期权，取唯一标的合约
         mask = df['合约名称'].str.startswith('TA', na=False)
         ta_df = df[mask][['合约名称', '最后交易日', '标的合约ID']].copy()
-        # 按标的合约ID去重（同一合约多个行权价）
         ta_df = ta_df.drop_duplicates(subset=['标的合约ID'])
-
-        # 过滤未到期
-        active = ta_df[ta_df['最后交易日'] > today_str].sort_values('最后交易日')
-        if active.empty:
-            # 所有合约都过期了（极端情况），用最近的
-            active = ta_df.sort_values('最后交易日')
-
-        row = active.iloc[0]
-        contract_id = row['标的合约ID']  # e.g. 'TA607'
-        last_trade = row['最后交易日']
         _EXPIRY_CACHE = {r['标的合约ID']: r['最后交易日'] for _, r in ta_df.iterrows()}
+
+        contract_id, last_trade = _pick(_EXPIRY_CACHE)
+        if not contract_id:
+            return 'TA607', datetime(2026, 6, 11)
         return contract_id, datetime.strptime(last_trade, '%Y-%m-%d')
 
     except Exception as e:
-        # 网络失败时用缓存
         if _EXPIRY_CACHE:
-            active = {k: v for k, v in _EXPIRY_CACHE.items() if v > today_str}
-            if active:
-                nearest = sorted(active.items(), key=lambda x: x[1])[0]
-                return nearest[0], datetime.strptime(nearest[1], '%Y-%m-%d')
-        # 兜底
+            contract_id, last_trade = _pick(_EXPIRY_CACHE)
+            if contract_id:
+                return contract_id, datetime.strptime(last_trade, '%Y-%m-%d')
         return 'TA607', datetime(2026, 6, 11)
 
 

@@ -409,22 +409,45 @@ def api_option_chain():
 @app.route('/api/pta/ta606_price')
 @app.route('/api/pta/underlying_price')
 def api_underlying_price():
-    """近月期货实时价格 - 自动切换到最近未到期合约"""
+    """近月期货实时价格 - 自动切换到最近未到期合约。
+
+    HTTP接口不能同步新建TqSdk连接：休盘/连接竞争时 get_nearest_underlying_price() 内部线程
+    join(timeout+2) 会把页面60秒轮询拖挂。优先返回 iv_smile 长连接维护的共享价，
+    不可用时再走akshare fallback。
+    """
     try:
-        price, expiry_code = oca.get_nearest_underlying_price(timeout=5.0)
+        price = 0
+        expiry_code = None
+        try:
+            shared = iv_smile_service.get_shared_futures_price()
+            if isinstance(shared, (tuple, list)):
+                price = float(shared[0] or 0)
+            else:
+                price = float(shared or 0)
+            expiry_code = iv_smile_service._state.get('active_contract')
+        except Exception:
+            price = 0
         if price <= 0:
-            # 回退到akshare主力合约
+            try:
+                expiry_code = oca.get_nearest_active_expiry()
+                price = oca._get_akshare_latest_price(expiry_code)
+            except Exception:
+                pass
+        if price <= 0:
+            # 最后回退到akshare主力合约，避免接口阻塞/超时。
             try:
                 df = ak.futures_zh_realtime(symbol="TA")
                 if df is not None and not df.empty:
                     price = float(df.iloc[-1].get('trade', 0))
-            except:
+                    expiry_code = expiry_code or 'TA0'
+            except Exception:
                 pass
         return jsonify({
             'success': True,
             'underlying_price': price,
             'symbol': expiry_code,
-            'timestamp': dt_datetime.now().isoformat()
+            'timestamp': dt_datetime.now().isoformat(),
+            'source': 'iv_smile_shared' if price and expiry_code else 'fallback'
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
@@ -572,6 +595,8 @@ def _strategy_report_is_fresh(mtime, now=None):
 def _generate_strategy_report(force_close=False):
     from scripts.generate_daily_report import generate_report, save_report, generate_close_report, save_intraday_snapshot
     report = generate_close_report() if force_close else generate_report(report_type='intraday')
+    # 缓存写盘前就做一次后端口径覆盖；否则“接口返回值已覆盖、导出/下次读缓存又回到旧值”。
+    report = _override_report_with_kline_price(report)
     save_report(report)
     if not force_close:
         save_intraday_snapshot(report)
@@ -600,6 +625,7 @@ def _maybe_write_close_report(report):
         from scripts.generate_daily_report import generate_close_report, load_intraday_snapshots, load_previous_trading_day_close_report
         # load_intraday_snapshots / load_previous_trading_day_close_report 由 generate_close_report 聚合使用，显式保留在这里便于回归检查。
         close_report = generate_close_report(base_report=report)
+        close_report = _override_report_with_kline_price(close_report)
         with open(path, 'w', encoding='utf-8') as f:
             json.dump(close_report, f, ensure_ascii=False, indent=2)
     return path
@@ -636,9 +662,12 @@ _STRATEGY_KLINE_TTL = 3  # 短缓存，避免在同一次导出时把接口打�
 
 
 def _fetch_kline_ta609_for_report():
-    """从首页K线接口拿当前 TA2609 主力价。仅做研报覆盖用，失败返回 None。
+    """从进程内K线缓存拿当前 TA2609 主力价。仅做研报覆盖用，失败返回 None。
 
-    必须优先使用 1min K线实时接口，保持与首页主K线图一致；后端 1day 预热缓存只做兜底，避免盘面助理参考价慢一拍。
+    不能在 Flask 请求处理中再 HTTP 回调本进程 /api/kline/data：当 K线/TqSdk 请求阻塞或
+    dev server 工作线程耗尽时，会把 /strategy_report/realtime、导出、手动刷新一起拖死。
+    这里仅读取已预热/近期请求写入的内存缓存，保证研报接口快速返回；拿不到就不覆盖，
+    由前端实时覆盖兜底。
     """
     import time as _t
     now = _t.time()
@@ -662,33 +691,28 @@ def _fetch_kline_ta609_for_report():
             'symbol': d.get('symbol') or 'TA2609',
         }
 
-    # 1) HTTP 1min 接口：与首页主K线图同源，盘面助理参考价必须优先取它。
-    try:
-        import requests
-        r = requests.get('http://127.0.0.1:8424/api/kline/data?symbol=TA609&period=1min&count=2', timeout=10)
-        if r.ok:
-            d = r.json()
-            result = _parse(d)
-            if result:
-                _STRATEGY_KLINE_CACHE['ts'] = now
-                _STRATEGY_KLINE_CACHE['data'] = result
-                return result
-    except Exception:
-        pass
-
-    # 2) 后端进程内 _kline_tqsdk_cache（1day 周期）只做兜底，不能优先，否则盘面助理会显示日线缓存价。
     try:
         with _kline_tqsdk_lock:
-            cached = _kline_tqsdk_cache.get('KQ.m@CZCE.TA_86400_500')
-        if cached:
-            d = cached.get('result') or {}
-            result = _parse(d)
+            # 优先拿最近一次1min小样本；没有再退到其它TA缓存。只读内存，不触发TqSdk/HTTP。
+            items = list(_kline_tqsdk_cache.items())
+        preferred = []
+        fallback = []
+        for key, cached in items:
+            if 'CZCE.TA' not in key:
+                continue
+            if '_60_' in key or '_1min_' in key:
+                preferred.append(cached)
+            else:
+                fallback.append(cached)
+        candidates = sorted(preferred or fallback, key=lambda x: x.get('ts', 0), reverse=True)
+        for cached in candidates:
+            result = _parse((cached or {}).get('result') or {})
             if result:
                 _STRATEGY_KLINE_CACHE['ts'] = now
                 _STRATEGY_KLINE_CACHE['data'] = result
                 return result
-    except Exception:
-        pass
+    except Exception as e:
+        app.logger.warning('[覆盖] 读取K线内存缓存失败: %s', e)
 
     return None
 
@@ -1415,7 +1439,7 @@ def _fetch_kline_data(symbol='TA609', period='5min', count=500,
     }
     tqsdk_symbol_map = {
         'TA0': 'KQ.m@CZCE.TA', 'TA909': 'CZCE.TA609', 'TA609': 'CZCE.TA609',
-        'TA607': 'CZCE.TA607', 'TA610': 'CZCE.TA610',
+        'TA607': 'CZCE.TA607', 'TA608': 'CZCE.TA608', 'TA610': 'CZCE.TA610',
     }
     tqsdk_symbol = tqsdk_symbol_map.get(symbol, 'CZCE.TA609')
 
@@ -1588,9 +1612,12 @@ def api_kline_data():
     # 前端合约名 -> TqSdk合约名映射
     tqsdk_symbol_map = {
         'TA0': 'KQ.m@CZCE.TA',   # PTA主力连续（天勤自动跟随真实主力）
-        'TA909': 'CZCE.TA609', # PTA9月
-        'TA609': 'CZCE.TA609', # PTA9月
-        'TA0C': 'CZCE.TA609',  # 认购期权（占位）
+        'TA909': 'CZCE.TA609',
+        'TA609': 'CZCE.TA609',
+        'TA607': 'CZCE.TA607',
+        'TA608': 'CZCE.TA608',
+        'TA610': 'CZCE.TA610',
+        'TA0C': 'CZCE.TA609',
     }
     tqsdk_symbol = tqsdk_symbol_map.get(symbol, 'CZCE.TA609')
     # 周期配置
@@ -1733,6 +1760,7 @@ def api_kline_data():
 
 
 def _kline_warmup():
+    global _kline_tqsdk_failed, _kline_tqsdk_failed_at
     """启动时预热K线缓存：避免首页冷启动耗时18s+才拿到第一根K线。
     主流周期TA0 1min/5min/15min/30min/60min/1day各预热一次。"""
     global _kline_tqsdk_warmed
@@ -2850,7 +2878,7 @@ if __name__ == '__main__':
     pt = threading.Thread(target=prewarm_option_chain, daemon=True)
     pt.start()
 
-    app.run(host='0.0.0.0', port=8424, debug=False)
+    app.run(host='0.0.0.0', port=8424, debug=False, threaded=True)
 else:
     # gunicorn / uwsgi 等 WSGI 服务器启动时初始化数据库
     with app.app_context():
