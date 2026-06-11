@@ -8,6 +8,7 @@
 
 
 
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -2155,7 +2156,29 @@ def start_scheduler(interval_minutes=1):
         print(f"[iv_smile] 调度器启动，间隔={interval_minutes}分钟")
         counter = 0
         offhours_t_counter = 0  # 休盘T刷新计数器
+        _last_contract_roll_date = None  # 每日合约检查去重
         while _state['running']:
+            # 每日 14:55 强制合约切换（不依赖 TqSdk 自愈）
+            # 设计缺陷：get_active_ta_contract() 只在 tqsdk_loop 重连时被调用，
+            # 而 TqSdk 长连接不重启 → 进程永远锁死在启动时选中的合约。
+            # 5/29 启动后选 TA607，6/11 当日 14:35 后 iv_smile 一直显示旧值，
+            # 直到人工重启才发现问题。这里 14:55 主动请求重启 TqSdk 线程，
+            # 触发重新选合约 + 重新订阅。
+            now_check = datetime.now()
+            if (now_check.hour == 14 and now_check.minute == 55
+                    and _last_contract_roll_date != now_check.date()):
+                _last_contract_roll_date = now_check.date()
+                try:
+                    cur_active = _state.get('active_contract', '?')
+                    new_pref, new_expiry = get_active_ta_contract()
+                    if new_pref != cur_active:
+                        print(f"[iv_smile] 🔄 14:55 主力切换: {cur_active} → {new_pref} (到期 {new_expiry.date()})")
+                        _request_tqsdk_restart("daily 14:55 contract roll")
+                    else:
+                        print(f"[iv_smile] ✅ 14:55 合约检查通过: 仍为 {cur_active}")
+                except Exception as e:
+                    print(f"[iv_smile] ⚠️ 14:55 合约检查异常: {e}")
+
             # 休盘时段：跳过compute_once，避免用datetime.now()算T导致IV虚高
             if _is_trading_hours():
                 compute_once()
