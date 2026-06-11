@@ -11,6 +11,7 @@
 
 
 
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -317,6 +318,8 @@ _SAVED_DATES = set()   # 记录已写入磁盘的日期，避免重复保存
 # PTA 收盘时间点（小盘、午盘、日盘收盘、夜盘收盘）
 _PTA_CLOSE_TIMES = [(10, 15), (11, 30), (15, 0), (23, 0)]
 _CLOSE_STATE_FILE = os.path.join(_SNAPSHOT_DIR, 'close_state.json')
+_EOD_STATE_FILE = os.path.join(_SNAPSHOT_DIR, 'eod_state.json')  # 23:00 收盘完整状态（用于冷启动恢复 _state）
+_eod_state_loaded = False  # 全局标记：eod_state.json 是否已加载（避免被 close_state.json 覆盖）
 _close_state_saved_slots = set()  # 记录本次进程已保存的收盘时间槽，避免重复
 
 def _get_snapshot_path(date_str):
@@ -327,14 +330,16 @@ def _ensure_snapshot_dir():
     """确保快照目录存在"""
     os.makedirs(_SNAPSHOT_DIR, exist_ok=True)
 
-def _save_close_state():
+def _save_close_state(close_point='15:00'):
     """
     收盘快照：将当前 _state + _last_valid 完整写入 close_state.json。
-    在 PTA 四个收盘时间点自动调用，重启后可立即恢复全部数据，无需等 TqSdk。
+    **只在 15:00 收盘时**自动调用（10:15/11:30/23:00 不再写此文件，避免污染"前次基准=15:00"语义）。
+    `close_point` 字段标记语义用途，_load_close_state 加载时会校验。
     """
     _ensure_snapshot_dir()
     # 只保存可序列化的字段
     payload = {
+        'close_point': close_point,           # '15:00' = 真正的日内收盘基准；其他值视为污染
         'timestamp': datetime.now().isoformat(),
         'state': {
             'futures_price': _state.get('futures_price'),
@@ -438,35 +443,93 @@ def _check_and_save_close_state():
         if 0 <= diff <= 2:
             _close_state_saved_slots.add(slot_key)
             added_boundary_snapshot = _copy_close_state_to_interval_snapshot(hh, mm, now)
-            _save_close_state()
+            # 关键分工：
+            # - 15:00 收盘 → 写 close_state.json（语义=日内收盘基准，用于冷启动恢复 _close_baseline）
+            # - 23:00 收盘 → 写 eod_state.json（语义=当日最终状态，用于冷启动恢复 _state 的 OI/Vol/S/MP）
+            # 10:15/11:30 只写 _interval_snapshots，不污染基准文件
+            if hh == 15 and mm == 0:
+                _save_close_state(close_point='15:00')
+            elif hh == 23 and mm == 0:
+                _save_eod_state(eod_point='23:00')
             if added_boundary_snapshot:
                 _save_all_snapshots()
             break
 
 
-def _load_close_state():
-    """
-    启动时加载收盘快照恢复 _state 和 _last_valid。
-    返回 True 表示成功恢复，False 表示无可用数据。
-    """
-    global _state, _last_valid, _close_baseline
-    if not os.path.exists(_CLOSE_STATE_FILE):
+def _save_eod_state(eod_point='23:00'):
+    """把当前 _state / _last_valid 完整写到 eod_state.json。
+    用于：冷启动恢复 _state 的 OI/Vol/S/MP/ATM（盘后/夜盘时段启动后立即有数据）。"""
+    try:
+        payload = {
+            'eod_point': eod_point,
+            'timestamp': _state.get('last_update') or datetime.now().isoformat(),
+            'state': dict(_state),
+            'last_valid': dict(_last_valid),
+        }
+        # 清除不可序列化的 lock
+        payload['state'].pop('lock', None)
+        payload['state'].pop('running', None)
+        # svi_params 中含 numpy 类型，转换
+        if isinstance(payload['state'].get('svi_params'), dict):
+            for k, v in list(payload['state']['svi_params'].items()):
+                if hasattr(v, 'item'):
+                    try: payload['state']['svi_params'][k] = v.item()
+                    except Exception: pass
+        with open(_EOD_STATE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        print(f"[iv_smile] 💾 EOD 收盘快照已保存: eod_point={eod_point} "
+              f"ts={payload['timestamp'][:19]} OI={len(payload['state'].get('strike_oi') or {})}档 "
+              f"Vol={len(payload['state'].get('strike_vol') or {})}档 "
+              f"S={payload['state'].get('futures_price')}")
+    except Exception as e:
+        print(f"[iv_smile] ⚠️ EOD 收盘快照保存失败: {e}")
+
+
+def _load_eod_state():
+    """启动时加载 EOD 收盘快照恢复 _state 和 _last_valid。
+    语义：盘后/夜盘时段的"当前最新状态"，是 _state 的来源。
+    与 _load_close_state() 互不冲突：后者只设 _close_baseline。
+
+    返回 True 表示成功恢复，False 表示无可用数据。"""
+    global _state, _last_valid, _eod_state_loaded
+    if not os.path.exists(_EOD_STATE_FILE):
         return False
     try:
-        with open(_CLOSE_STATE_FILE, 'r', encoding='utf-8') as f:
+        with open(_EOD_STATE_FILE, 'r', encoding='utf-8') as f:
             payload = json.load(f)
         saved_state = payload.get('state', {})
         saved_valid = payload.get('last_valid', {})
+        eod_point = payload.get('eod_point', '')
         ts = payload.get('timestamp', '')
 
-        # 检查数据有效性
-        if not saved_state.get('smile_smooth') or not saved_state.get('futures_price'):
-            print(f"[iv_smile] ⚠️ 收盘快照数据不完整，跳过")
+        # 只接受"今天"或"盘后时段（00:00-09:00）昨天 23:00 收盘"的 eod 快照
+        # 6/12 00:30 启动时，6/11 23:00 收盘就是"当下最新"（夜盘后 → 次日 15:00 开盘前都是这个状态）
+        today = datetime.now().strftime('%Y-%m-%d')
+        now_hm = datetime.now().hour * 60 + datetime.now().minute
+        is_postclose = now_hm < 9 * 60   # 00:00-09:00 视为盘后
+        ts_date = ts[:10] if ts else ''
+        if ts_date != today:
+            if is_postclose and eod_point == '23:00':
+                # 盘后时段接受昨天 23:00 收盘
+                from datetime import timedelta
+                yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+                if ts_date != yesterday:
+                    print(f"[iv_smile] ⏭️ eod_state.json ts={ts_date} 既不是今天({today})也不是昨天({yesterday})，跳过")
+                    return False
+                print(f"[iv_smile] 📌 盘后时段，接受昨天 23:00 收盘的 eod_state.json（ts={ts_date}）")
+            else:
+                print(f"[iv_smile] ⏭️ eod_state.json ts={ts_date} 不是今天({today})，且非盘后时段，跳过")
+                return False
+
+        # 校验关键字段
+        if not saved_state.get('strike_oi') or not saved_state.get('futures_price'):
+            print(f"[iv_smile] ⚠️ eod_state.json 数据不完整，跳过")
             return False
 
-        # 恢复 _state
+        # 恢复 _state（盘后/夜盘的"当前最新"）
         for key in ('futures_price', 'atm_strike', 'max_pain', 'ref_strike',
-                     'smile_raw', 'smile_smooth', 'svi_params', 'last_update', 'strike_oi', 'strike_vol'):
+                     'smile_raw', 'smile_smooth', 'svi_params', 'last_update',
+                     'strike_oi', 'strike_vol', 'expiry'):
             val = saved_state.get(key)
             if val is not None:
                 _state[key] = val
@@ -477,6 +540,63 @@ def _load_close_state():
             val = saved_valid.get(key)
             if val is not None:
                 _last_valid[key] = val
+
+        _eod_state_loaded = True
+        print(f"[iv_smile] 💾 EOD 收盘快照已恢复（盘后当前值）: eod_point={eod_point} "
+              f"ts={ts[:19]} S={_state.get('futures_price')} "
+              f"MP={_state.get('max_pain')} OI={len(_state.get('strike_oi') or {})}档 "
+              f"Vol={len(_state.get('strike_vol') or {})}档")
+        return True
+    except Exception as e:
+        print(f"[iv_smile] ⚠️ EOD 收盘快照加载失败: {e}")
+        return False
+
+
+def _load_close_state():
+    """
+    启动时加载收盘快照恢复 _state 和 _last_valid。
+    返回 True 表示成功恢复，False 表示无可用数据。
+
+    如果 _eod_state_loaded=True（EOD 收盘快照已先恢复 _state），
+    本函数**只**设 _close_baseline（前次基准），不再覆盖 _state。
+    """
+    global _state, _last_valid, _close_baseline
+    if not os.path.exists(_CLOSE_STATE_FILE):
+        return False
+    try:
+        with open(_CLOSE_STATE_FILE, 'r', encoding='utf-8') as f:
+            payload = json.load(f)
+        saved_state = payload.get('state', {})
+        saved_valid = payload.get('last_valid', {})
+        ts = payload.get('timestamp', '')
+        # 校验 close_point：旧文件（无此字段）默认视为 15:00 兼容；新文件非 15:00 → 视为污染丢弃
+        close_point = payload.get('close_point', '15:00')
+        if close_point != '15:00':
+            print(f"[iv_smile] ⚠️ close_state.json 的 close_point={close_point!r}（非 15:00），视为污染数据，丢弃。")
+            print(f"             启动后改走 _prev_day_baseline 路径恢复前次基准。")
+            return False
+
+        # 检查数据有效性
+        if not saved_state.get('smile_smooth') or not saved_state.get('futures_price'):
+            print(f"[iv_smile] ⚠️ 收盘快照数据不完整，跳过")
+            return False
+
+        # 恢复 _state（仅在 EOD 未加载时；EOD 已加载则保留盘后最新值不动）
+        if not _eod_state_loaded:
+            for key in ('futures_price', 'atm_strike', 'max_pain', 'ref_strike',
+                         'smile_raw', 'smile_smooth', 'svi_params', 'last_update', 'strike_oi', 'strike_vol'):
+                val = saved_state.get(key)
+                if val is not None:
+                    _state[key] = val
+
+            # 恢复 _last_valid
+            for key in ('futures_price', 'atm_strike', 'max_pain', 'ref_strike',
+                         'smile_raw', 'smile_smooth', 'svi_params', 'strike_oi', 'strike_vol'):
+                val = saved_valid.get(key)
+                if val is not None:
+                    _last_valid[key] = val
+        else:
+            print(f"[iv_smile] 🔄 EOD 已先恢复 _state，close_state.json 跳过 _state 覆盖（保留盘后最新值）")
 
         # === 关键：恢复 _close_baseline 内存变量 ===
         # 不然 alert_data 拿不到今日基准 (会回退到 _prev_day_baseline)
@@ -496,12 +616,15 @@ def _load_close_state():
             'strike_oi': saved_state.get('strike_oi', {}),
             'strike_vol': saved_state.get('strike_vol', {}),
             'S': saved_state.get('futures_price'),
+            'max_pain': saved_state.get('max_pain'),  # 关键：注入的 max_pain 是用户自定义基准，不能用 OI 实时算
+            'atm_strike': saved_state.get('atm_strike'),
             'ts': ts,
+            'close_point': close_point,  # 标记这是 15:00 收盘基准
             'contract': recovered_contract,
             'expiry': _state.get('expiry').isoformat() if _state.get('expiry') else None,
         }
         print(f"[iv_smile] 💾 _close_baseline 已恢复 contract={_close_baseline.get('contract')} "
-              f"ts={ts[:19]} oi={len(_close_baseline.get('strike_oi') or {})}档")
+              f"close_point={close_point} ts={ts[:19]} oi={len(_close_baseline.get('strike_oi') or {})}档")
 
         # === 补齐 svi_params 中缺少的 skew/curvature ===
         cur_svi = _state.get('svi_params')
@@ -848,7 +971,10 @@ def _load_previous_day_snapshots():
     except Exception:
         pass
 
-    # === 0. 优先从收盘快照恢复 _state（重启后立即有数据） ===
+    # === 0a. 优先从 EOD 收盘快照恢复 _state（盘后/夜盘启动时立即有 OI/Vol/S/MP） ===
+    eod_restored = _load_eod_state()
+
+    # === 0b. 从日内收盘快照恢复 _state 和 _close_baseline（如果 EOD 未加载） ===
     close_restored = _load_close_state()
 
     today = datetime.now().strftime('%Y%m%d')
@@ -1157,7 +1283,15 @@ def _ensure_today_close_baseline_after_21():
 
     today = now.strftime('%Y%m%d')
     cur_ts = (_close_baseline or {}).get('ts') or (_close_baseline or {}).get('timestamp') or ''
-    if cur_ts[:10].replace('-', '') == today and (_close_baseline or {}).get('smooth'):
+    cur_close_point = (_close_baseline or {}).get('close_point', '')
+    # 严格判断：必须 close_point='15:00' 且 ts 属于今天 且 有 smooth 数据，才视为已就绪
+    # 旧版本（无 close_point 字段）的 15:00 收盘状态也兼容（cur_close_point=='' 时也允许）
+    is_valid_15_baseline = (
+        (cur_close_point == '' or cur_close_point == '15:00')
+        and cur_ts[:10].replace('-', '') == today
+        and bool((_close_baseline or {}).get('smooth'))
+    )
+    if is_valid_15_baseline:
         return True
 
     path = _get_snapshot_path(today)
@@ -1181,6 +1315,7 @@ def _ensure_today_close_baseline_after_21():
             'S': snap_15.get('S') or snap_15.get('futures_price'),
             'atm_strike': snap_15.get('atm_strike'),
             'ts': snap_ts,
+            'close_point': '15:00',  # 明确标记：这是 15:00 收盘基准
         }
         print(f"[iv_smile] 🔁 21:00基准自动切换: 今日15:00 ({today}) smooth={len(_close_baseline['smooth'])}档 oi={len(_close_baseline.get('strike_oi') or {})}档 ts={snap_ts[:19]}")
         return True
@@ -2225,6 +2360,17 @@ def compute_once(force=False):
         # 非交易时段且非force：不用实时计算的smile覆盖close_state恢复的数据
         # （因为非交易时段T用datetime.now()算会偏小，导致IV虚高）
 
+        # 盘后兜底：如果 TqSdk 拉到的 OI/Vol 全部为 0（夜盘后/盘后心跳特征），
+        # 保留 _last_valid 里的有效值（避免覆盖 23:00 收盘后的真实持仓）
+        lv_oi = _last_valid.get('strike_oi') or {}
+        lv_vol = _last_valid.get('strike_vol') or {}
+        if lv_oi and not any((v.get('C', 0) or 0) + (v.get('P', 0) or 0) for v in strike_oi.values()):
+            print(f"[iv_smile] ⚠️ TqSdk OI 全 0（盘后心跳），用 _last_valid 兜底 {len(lv_oi)}档")
+            strike_oi = {k: dict(v) for k, v in lv_oi.items()}
+        if lv_vol and not any((v.get('C', 0) or 0) + (v.get('P', 0) or 0) for v in strike_vol.values()):
+            print(f"[iv_smile] ⚠️ TqSdk Vol 全 0（盘后心跳），用 _last_valid 兜底 {len(lv_vol)}档")
+            strike_vol = {k: dict(v) for k, v in lv_vol.items()}
+
         # 更新缓存（价格/OI始终更新，smile视情况）
         _last_valid['futures_price'] = S
         _last_valid['ref_strike'] = ref_strike
@@ -2355,7 +2501,20 @@ def start_scheduler(interval_minutes=1):
 
 def register_routes(app):
     """将 iv_smile 路由注册到主 Flask app（避免独立进程）"""
-    from flask import render_template, jsonify
+    from flask import render_template, jsonify, request
+
+    @app.after_request
+    def _no_cache_iv_smile_apis(response):
+        """iv_smile 相关 API 永远不缓存：避免浏览器/代理保留过期 JSON
+        （如 prev_timestamp、基准合约等关键字段刷新不及时）"""
+        try:
+            if request.path.startswith('/api/iv_smile/') or request.path == '/api/iv_smile/curve':
+                response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+                response.headers['Pragma'] = 'no-cache'
+                response.headers['Expires'] = '0'
+        except Exception:
+            pass
+        return response
 
     @app.route('/iv_smile')
     def iv_smile_page():
@@ -2461,21 +2620,39 @@ def register_routes(app):
             # 从当前状态取 raw/smooth（compute_once 最新结果）
             raw = _state.get('smile_raw', {})
             smooth = _state.get('smile_smooth', {})
-            strikes = sorted(set(list(raw.keys()) + list(smooth.keys()))) if smooth else sorted(raw.keys())
+            # X 轴只暴露 raw 实际有数据的档（100 增量）；smile_smooth 里的 50 增量插值点
+            # 只用于平滑曲线本身，不在 X 轴上造出 6350/6450/6550 等无 raw 数据的档
+            strikes = sorted(raw.keys(), key=lambda x: float(x)) if raw else sorted(smooth.keys(), key=lambda x: float(x))
 
             # 持仓数据（当前 strike_oi）
             strike_oi = _state.get('strike_oi', {})
 
-            # 前次曲线：15:00 收盘基准快照
-            # 交易日周期：21:00夜盘开盘才切换基准
-            # - 21:00之前：只用 _prev_day_baseline（前一交易日15:00），便于盘后复盘
-            # - 21:00之后：优先 _close_baseline（当天15:00），兜底 _prev_day_baseline
-            now_hour = datetime.now().hour
-            if now_hour >= 21:
-                # 新交易周期开始，使用当天15:00基准
-                close_baseline = _close_baseline
-                prev_smooth = close_baseline.get('smooth', {}) if close_baseline else {}
-                prev_raw = close_baseline.get('raw', {}) if close_baseline else {}
+            # 前次曲线：与 alert_data/gex 端点完全对齐的基准选择逻辑
+            # - _close_baseline 优先（人工注入的 15:00 收盘）
+            # - 21:00 之后 OR (0:00-9:00 且基准日期=昨天) → 用 _close_baseline
+            # - 日盘 9:00-21:00 → 用 _prev_day_baseline（前一交易日 15:00）
+            now_dt = datetime.now()
+            now_hour = now_dt.hour
+            cb = _close_baseline
+            cb_eligible = False
+            if cb and cb.get('smooth'):
+                cb_contract = cb.get('contract')
+                if not cb_contract or not _state.get('active_contract') or cb_contract == _state.get('active_contract'):
+                    cb_ts = cb.get('ts') or cb.get('timestamp') or ''
+                    if cb_ts:
+                        try:
+                            cb_date = datetime.fromisoformat(cb_ts[:10] if len(cb_ts) >= 10 else cb_ts).date()
+                            today = now_dt.date()
+                            yd = (now_dt - timedelta(days=1)).date()
+                            baseline_is_today = (cb_date == today)
+                            baseline_is_postclose_yesterday = (cb_date == yd and now_dt.hour < 9)
+                            cb_eligible = baseline_is_today or baseline_is_postclose_yesterday
+                        except Exception:
+                            pass
+            if cb_eligible:
+                close_baseline = cb
+                prev_smooth = close_baseline.get('smooth', {})
+                prev_raw = close_baseline.get('raw', {})
                 if not prev_smooth and _prev_day_baseline:
                     prev_smooth = _prev_day_baseline.get('smooth', {})
                     prev_raw = _prev_day_baseline.get('raw', {})
@@ -2483,7 +2660,7 @@ def register_routes(app):
                         ts = _prev_day_baseline.get('timestamp', '')[:19]
                         print(f"[iv_smile] 📌 使用前一交易日15:00基准 smooth={len(prev_smooth)}档 ts={ts}")
             else:
-                # 盘后复盘时段（15:00-21:00）或日盘（09:00-15:00），保持前一交易日基准
+                # 9:00-21:00 日盘时段：保持前一交易日基准
                 close_baseline = None
                 prev_smooth = _prev_day_baseline.get('smooth', {}) if _prev_day_baseline else {}
                 prev_raw = _prev_day_baseline.get('raw', {}) if _prev_day_baseline else {}
@@ -2551,19 +2728,13 @@ def register_routes(app):
                             right = kk
                             break
                     if left is not None and right is not None:
-                        # 线性插值
-                        v_left = prev_smooth[str(left)]
-                        v_right = prev_smooth[str(right)]
-                        ratio = (k_int - left) / (right - left)
-                        v_interp = v_left + (v_right - v_left) * ratio
+                        # 仅在 prev_smooth 覆盖范围内才插值；超出首末两档的恒定延伸会产生
+                        # 误导性的平台（5000-5300 全是 0.3541、7500-8100 全是 0.3666），
+                        # 让用户误以为前次曲线有那些档的数据
                         entry['smooth_prev'] = float(v_interp)
                         entry['prev_avg'] = float(v_interp)
-                    elif left is not None:
-                        entry['smooth_prev'] = prev_smooth[str(left)]
-                        entry['prev_avg'] = prev_smooth[str(left)]
-                    elif right is not None:
-                        entry['smooth_prev'] = prev_smooth[str(right)]
-                        entry['prev_avg'] = prev_smooth[str(right)]
+                    # 超出 prev_smooth 首/末端的档：不填 prev_smooth_prev，让前次曲线在那些
+                    # 区域自然断开（ECharts scatter 模式下会显示 gap）
                 # 前次原始 Call/Put IV
                 if prev_raw and k_str in prev_raw:
                     pv = prev_raw[k_str]
@@ -2804,6 +2975,7 @@ def register_routes(app):
                 'strike_oi': strike_oi,
                 'S': float(S),
                 'ts': ts,
+                'close_point': '15:00',  # 手工注入的语义上就是 15:00 收盘基准
             }
             print(f"[iv_smile] ✅ 注入收盘基准(完整): {len(smooth)}档 OI={len(strike_oi)}档 ts={ts}")
             return jsonify({'success': True, 'count': len(smooth), 'has_oi': True, 'ts': ts})
@@ -2816,6 +2988,7 @@ def register_routes(app):
                 'strike_oi': {},
                 'S': float(S),
                 'ts': ts,
+                'close_point': '15:00',
             }
             print(f"[iv_smile] ✅ 注入收盘基准(仅IV): {len(strike_ivs)}档 ts={ts}")
             return jsonify({'success': True, 'count': len(strike_ivs), 'has_oi': False, 'ts': ts})
@@ -2859,6 +3032,161 @@ def register_routes(app):
             return jsonify({'ok': False, 'error': str(e)})
 
 
+    @app.route('/api/iv_smile/_debug_baseline')
+    def iv_api_debug_baseline():
+        """临时 debug: 返回 _close_baseline 关键字段（仅 debug 用）"""
+        with _state['lock']:
+            cb = dict(_close_baseline) if _close_baseline else {}
+        cb['strike_oi_6000'] = cb.get('strike_oi', {}).get('6000') or cb.get('strike_oi', {}).get(6000)
+        cb['strike_oi_6000_str'] = str(cb.get('strike_oi', {}).get('6000'))
+        cb['_prev_day_baseline_oi_6000'] = (_prev_day_baseline or {}).get('strike_oi', {}).get('6000')
+        cb['_state_strike_oi_6000'] = _state.get('strike_oi', {}).get('6000')
+        return jsonify(cb)
+
+    @app.route('/api/iv_smile/_debug_alert_full')
+    def iv_api_debug_alert_full():
+        """临时 debug: 实际执行 alert_data 端点计算（不输出 rows，只输出关键变量）"""
+        with _state['lock']:
+            strike_oi = _state.get('strike_oi', {})
+            strike_vol = _state.get('strike_vol', {})
+            smile_raw = _state.get('smile_raw', {})
+            smile_smooth = _state.get('smile_smooth', {})
+        cur_contract = _state.get('active_contract')
+        baseline_ts_str = _close_baseline.get('ts', '') if _close_baseline else ''
+        from datetime import datetime as _dt
+        baseline_is_today = False
+        baseline_is_postclose_yesterday = False
+        if baseline_ts_str:
+            try:
+                bd = _dt.fromisoformat(baseline_ts_str).date()
+                baseline_is_today = (bd == _dt.now().date())
+                yd = (_dt.now() - __import__('datetime').timedelta(days=1)).date()
+                baseline_is_postclose_yesterday = (bd == yd and _dt.now().hour < 9)
+            except Exception:
+                pass
+        baseline_contract_match = (cur_contract and _close_baseline.get('contract') == cur_contract) if _close_baseline else False
+        if _close_baseline and baseline_contract_match and (baseline_is_today or baseline_is_postclose_yesterday):
+            close_baseline = _close_baseline
+        else:
+            nh = _dt.now().hour
+            if nh >= 21 and _close_baseline and (baseline_is_today or baseline_is_postclose_yesterday):
+                close_baseline = _close_baseline
+            else:
+                close_baseline = {}
+        b_smooth = close_baseline.get('smooth', {}) if close_baseline else {}
+        b_raw = close_baseline.get('raw', {}) if close_baseline else {}
+        b_oi = close_baseline.get('strike_oi', {}) if close_baseline else {}
+        b_vol = close_baseline.get('strike_vol', {}) if close_baseline else {}
+        has_baseline = bool(b_smooth)
+        if (not has_baseline or not b_oi) and _prev_day_baseline:
+            if not has_baseline:
+                b_smooth = _prev_day_baseline.get('smooth', {})
+                b_raw = _prev_day_baseline.get('raw', {})
+            if not b_oi:
+                snap_oi = _prev_day_baseline.get('strike_oi', {})
+                if snap_oi:
+                    b_oi = snap_oi
+            if not b_vol:
+                b_vol = _prev_day_baseline.get('strike_vol', {})
+            has_baseline = bool(b_smooth)
+        # 模拟 line 3185-3234
+        out = {}
+        for k in ['5400', '5900', '6000', '6100', '6500', '6700', '7400']:
+            if k not in b_oi and k not in b_raw and k not in b_smooth:
+                continue
+            b_oi_s = b_oi.get(k) or b_oi.get(int(k)) or {'C': 0, 'P': 0}
+            b_vol_s = b_vol.get(k) or b_vol.get(int(k)) or {'C': 0, 'P': 0}
+            b_raw_s = b_raw.get(k) or b_raw.get(int(k)) or {}
+            b_sm = b_smooth.get(k) or b_smooth.get(int(k)) or 0
+            cur_oi = strike_oi.get(k) or strike_oi.get(int(k)) or {'C': 0, 'P': 0}
+            cur_vol = strike_vol.get(k) or strike_vol.get(int(k)) or {'C': 0, 'P': 0}
+            oi_call_b = int(b_oi_s.get('C', 0))
+            oi_put_b = int(b_oi_s.get('P', 0))
+            iv_c_b_raw = b_raw_s.get('C') if isinstance(b_raw_s, dict) else None
+            iv_p_b_raw = b_raw_s.get('P') if isinstance(b_raw_s, dict) else None
+            iv_c_b = (iv_c_b_raw * 100) if iv_c_b_raw else ((b_sm or 0) * 100)
+            out[k] = {
+                'b_oi_s': b_oi_s,
+                'b_vol_s': b_vol_s,
+                'b_raw_s': b_raw_s,
+                'b_sm': b_sm,
+                'cur_oi': cur_oi,
+                'cur_vol': cur_vol,
+                'oi_call_b': oi_call_b,
+                'oi_put_b': oi_put_b,
+                'iv_c_b_raw': iv_c_b_raw,
+                'iv_p_b_raw': iv_p_b_raw,
+                'iv_c_b': iv_c_b,
+                'iv_p_b': (iv_p_b_raw * 100) if iv_p_b_raw else ((b_sm or 0) * 100),
+            }
+        return jsonify({
+            'baseline_ts_str': baseline_ts_str,
+            'baseline_is_today': baseline_is_today,
+            'baseline_is_postclose_yesterday': baseline_is_postclose_yesterday,
+            'baseline_contract_match': baseline_contract_match,
+            'cur_contract': cur_contract,
+            'b_smooth_档数': len(b_smooth),
+            'b_oi_档数': len(b_oi),
+            'b_vol_档数': len(b_vol),
+            'has_baseline': has_baseline,
+            'sample_rows': out,
+        })
+    def iv_api_debug_alert_paths_unused():
+        baseline_ts_str = _close_baseline.get('ts', '') if _close_baseline else ''
+        baseline_date = None
+        if baseline_ts_str:
+            try:
+                from datetime import datetime as _dt
+                baseline_date = _dt.fromisoformat(baseline_ts_str).date()
+            except Exception:
+                pass
+        baseline_is_today = (baseline_date == datetime.now().date()) if baseline_date else False
+        from datetime import timedelta as _td
+        yesterday = (datetime.now() - _td(days=1)).date()
+        baseline_is_postclose_yesterday = (baseline_date == yesterday and datetime.now().hour < 9) if baseline_date else False
+        baseline_contract_match = (cur_contract and _close_baseline.get('contract') == cur_contract) if _close_baseline else False
+        enter_close_branch = bool(_close_baseline and baseline_contract_match and (baseline_is_today or baseline_is_postclose_yesterday))
+        # 模拟 line 3067-3071
+        if enter_close_branch:
+            close_baseline = _close_baseline
+        else:
+            now_hour = datetime.now().hour
+            if now_hour >= 21 and _close_baseline and (baseline_is_today or baseline_is_postclose_yesterday):
+                close_baseline = _close_baseline
+            else:
+                close_baseline = {}
+        b_smooth = close_baseline.get('smooth', {}) if close_baseline else {}
+        b_raw = close_baseline.get('raw', {}) if close_baseline else {}
+        b_oi = close_baseline.get('strike_oi', {}) if close_baseline else {}
+        b_vol = close_baseline.get('strike_vol', {}) if close_baseline else {}
+        # 模拟 line 3078-3085
+        snap_oi_6000_before = b_oi.get('6000')
+        will_overwrite = bool((not b_smooth or not b_oi) and _prev_day_baseline)
+        if will_overwrite:
+            if not b_smooth:
+                b_smooth = _prev_day_baseline.get('smooth', {})
+                b_raw = _prev_day_baseline.get('raw', {})
+            if not b_oi:
+                b_oi = _prev_day_baseline.get('strike_oi', {})
+            if not b_vol:
+                b_vol = _prev_day_baseline.get('strike_vol', {})
+        return jsonify({
+            'cur_contract': cur_contract,
+            'baseline_ts_str': baseline_ts_str,
+            'baseline_date': str(baseline_date),
+            'baseline_is_today': baseline_is_today,
+            'baseline_is_postclose_yesterday': baseline_is_postclose_yesterday,
+            'baseline_contract_match': baseline_contract_match,
+            'enter_close_branch': enter_close_branch,
+            'b_smooth_档数': len(b_smooth),
+            'b_raw_档数': len(b_raw),
+            'b_oi_档数': len(b_oi),
+            'b_vol_档数': len(b_vol),
+            'b_oi_6000': b_oi.get('6000'),
+            'will_overwrite_with_prev': will_overwrite,
+            '_prev_day_baseline_oi_6000': (_prev_day_baseline or {}).get('strike_oi', {}).get('6000'),
+        })
+
     @app.route('/api/iv_smile/alert_data')
     def iv_api_alert_data():
         _ensure_today_close_baseline_after_21()
@@ -2883,19 +3211,29 @@ def register_routes(app):
         cur_contract = _state.get('active_contract')
         baseline_ts_str = _close_baseline.get('ts', '') if _close_baseline else ''
         baseline_is_today = False
+        baseline_is_postclose_yesterday = False  # 盘后跨日：昨天收盘基准 + 盘后时段（00:00-09:00）
         if baseline_ts_str:
             try:
                 baseline_date = datetime.fromisoformat(baseline_ts_str).date()
                 baseline_is_today = (baseline_date == datetime.now().date())
+                from datetime import timedelta as _td
+                yesterday = (datetime.now() - _td(days=1)).date()
+                baseline_is_postclose_yesterday = (
+                    baseline_date == yesterday
+                    and datetime.now().hour < 9
+                )
             except Exception:
                 pass
         baseline_contract_match = (cur_contract and _close_baseline.get('contract') == cur_contract) if _close_baseline else False
 
-        if _close_baseline and baseline_is_today and baseline_contract_match:
+        # 接受 _close_baseline 的条件：
+        # 1) 今日 + 合约匹配 OR
+        # 2) 盘后跨日（昨天收盘 + 现在 00:00-09:00）+ 合约匹配
+        if _close_baseline and baseline_contract_match and (baseline_is_today or baseline_is_postclose_yesterday):
             close_baseline = _close_baseline
         else:
             now_hour = datetime.now().hour
-            if now_hour >= 21 and _close_baseline and baseline_is_today:
+            if now_hour >= 21 and _close_baseline and (baseline_is_today or baseline_is_postclose_yesterday):
                 close_baseline = _close_baseline
             else:
                 close_baseline = {}
@@ -3588,30 +3926,92 @@ def register_routes(app):
             max_pain_val = min(pain_curve, key=lambda x: x['pain'])['strike']
             summary['max_pain'] = max_pain_val
 
-        # ---- 前次基准数据（逻辑与IV Smile曲线完全一致）----
-        # 21:00之后（新交易日开盘）：优先 _close_baseline（当天15:00），兜底 _prev_day_baseline
-        # 21:00之前（盘后/日盘）：只用 _prev_day_baseline（前一交易日15:00）
+        # ---- 前次基准数据 ----
+        # 优先用 _close_baseline（人工注入 / 今日 15:00 收盘），与 alert_data 端点保持完全一致的数据源
+        # 兜底：_prev_day_baseline（自动写入的前一交易日 15:00）
         prev_gex_bars, prev_pain_curve, prev_oi_dist, prev_summary = [], [], [], {}
         baseline_label = None
-        now_hour = datetime.now().hour
         prev_oi = None
-        if now_hour >= 21:
+        prev_S = None
+        prev_smile_raw = None
+        prev_smile_smooth = None
+        prev_expiry = expiry
+        prev_T = T
+        prev_r = r
+        prev_last_update = None
+
+        def _close_baseline_eligible(cb):
+            """判断 _close_baseline 是否可用作'前次基准'，与 alert_data 端点逻辑完全对齐"""
+            if not cb or not cb.get('strike_oi'):
+                return False
+            cb_contract = cb.get('contract')
+            if cb_contract and _state.get('active_contract') and cb_contract != _state.get('active_contract'):
+                return False
+            cb_ts = cb.get('ts') or cb.get('timestamp') or ''
+            if not cb_ts:
+                return False
+            try:
+                cb_date = datetime.fromisoformat(cb_ts[:10] if len(cb_ts) >= 10 else cb_ts).date()
+            except Exception:
+                return False
+            now_dt = datetime.now()
+            today = now_dt.date()
+            yd = (now_dt - timedelta(days=1)).date()
+            baseline_is_today = (cb_date == today)
+            baseline_is_postclose_yesterday = (cb_date == yd and now_dt.hour < 9)
+            return baseline_is_today or baseline_is_postclose_yesterday
+
+        if _close_baseline_eligible(_close_baseline):
             cb = _close_baseline
-            if cb and cb.get('strike_oi'):
-                prev_oi = cb['strike_oi']
-                baseline_label = '15:00收盘'
-            elif _prev_day_baseline and _prev_day_baseline.get('strike_oi'):
-                prev_oi = _prev_day_baseline['strike_oi']
-                ts = _prev_day_baseline.get('timestamp', '')[:19]
-                baseline_label = f'前日15:00 ({ts[5:10]})'
-        else:
-            if _prev_day_baseline and _prev_day_baseline.get('strike_oi'):
-                prev_oi = _prev_day_baseline['strike_oi']
-                ts = _prev_day_baseline.get('timestamp', '')[:19]
-                baseline_label = f'前日15:00 ({ts[5:10]})'
+            prev_oi = cb.get('strike_oi', {})
+            prev_S = cb.get('S') or cb.get('futures_price') or cb.get('state', {}).get('S')
+            prev_smile_raw = cb.get('raw', {})
+            prev_smile_smooth = cb.get('smooth', {})
+            cb_ts = (cb.get('ts') or cb.get('timestamp') or '')[:10]
+            baseline_label = f"今日15:00 ({cb_ts[5:10]})" if cb_ts else '今日15:00收盘'
+            # T/r/expiry 也用 15:00 收盘时点的（若可推断）
+            cb_expiry_ts = cb.get('expiry') or cb.get('state', {}).get('expiry')
+            if cb_expiry_ts:
+                try:
+                    prev_expiry = datetime.fromisoformat(cb_expiry_ts.replace('Z', '')) if isinstance(cb_expiry_ts, str) else cb_expiry_ts
+                except Exception:
+                    pass
+            cb_T = cb.get('T') or cb.get('state', {}).get('T')
+            if cb_T and cb_T > 0:
+                prev_T = cb_T
+            prev_last_update = cb.get('ts') or cb.get('timestamp')
+        elif _prev_day_baseline and _prev_day_baseline.get('strike_oi'):
+            pdb = _prev_day_baseline
+            prev_oi = pdb.get('strike_oi', {})
+            prev_S = pdb.get('S') or pdb.get('futures_price') or pdb.get('state', {}).get('S')
+            prev_smile_raw = pdb.get('raw', {})
+            prev_smile_smooth = pdb.get('smooth', {})
+            ts = (pdb.get('timestamp') or '')[:19]
+            baseline_label = f'前日15:00 ({ts[5:10]})' if ts else '前日15:00'
+            prev_last_update = pdb.get('timestamp')
 
         if prev_oi and len(prev_oi) > 0:
-            prev_gex_bars, prev_pain_curve, prev_oi_dist, prev_summary = _calc_gex_pain_oi(prev_oi)
+            # 把 prev 用的 S/T/r/smile_raw/smile_smooth/futures_price 临时闭包替换后再调计算函数
+            _saved_globals = (F, T, r, expiry, smile_raw, smile_smooth, last_update, futures_price)
+            try:
+                if prev_S and prev_S > 0:
+                    F = float(prev_S)
+                    futures_price = float(prev_S)  # 关键：summ 里用的也是这个闭包变量
+                if prev_T and prev_T > 0:
+                    T = float(prev_T)
+                if prev_r is not None:
+                    r = float(prev_r)
+                if prev_expiry is not None:
+                    expiry = prev_expiry
+                if prev_smile_raw is not None:
+                    smile_raw = prev_smile_raw
+                if prev_smile_smooth is not None:
+                    smile_smooth = prev_smile_smooth
+                if prev_last_update is not None:
+                    last_update = prev_last_update
+                prev_gex_bars, prev_pain_curve, prev_oi_dist, prev_summary = _calc_gex_pain_oi(prev_oi)
+            finally:
+                F, T, r, expiry, smile_raw, smile_smooth, last_update, futures_price = _saved_globals
 
         return jsonify({
             'gex_bars': gex_bars,
