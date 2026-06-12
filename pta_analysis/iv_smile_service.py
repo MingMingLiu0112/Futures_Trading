@@ -10,8 +10,6 @@
 
 
 
-
-
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -304,9 +302,12 @@ def get_shared_futures_price():
     兜底返回 _last_valid 缓存值（服务重启后也能用）。
     返回 (price, source) 元组：price为float，source为 'tqsdk'/'cache'/'none'。"""
     with _state.get('lock', _dummy_lock):
-        p = _state.get('futures_price') or _last_valid.get('futures_price')
+        p = _state.get('futures_price')
+        if p and p > 0:
+            return float(p), 'tqsdk'
+        p = _last_valid.get('futures_price')
     if p and p > 0:
-        return float(p), 'tqsdk'
+        return float(p), 'cache'
     return None, 'none'
 
 _dummy_lock = type('DummyLock', (), {'__enter__': lambda s: s, '__exit__': lambda *a: None})()
@@ -2155,12 +2156,13 @@ def tqsdk_loop():
                 except Exception as e:
                     if _state['running']:
                         print(f"[iv_smile] wait_update异常: {e}")
+                        _request_tqsdk_restart(f"wait_update exception: {e}")
                     break
 
             api.close()
             loop.close()
 
-            # 如果是主动请求重启，不算异常，继续重连
+            # wait_update异常/主动请求重启：走外层重连，不退出线程
             if _tqsdk_restart_requested:
                 print("[iv_smile] 🔄 TqSdk 线程重启中...")
                 continue

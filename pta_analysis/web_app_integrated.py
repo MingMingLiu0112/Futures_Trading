@@ -425,33 +425,44 @@ def api_underlying_price():
     """
     try:
         price = 0
+        price_source = 'none'
         expiry_code = oca.get_homepage_near_expiry()
         try:
             shared_contract = iv_smile_service._state.get('active_contract')
         except Exception:
             shared_contract = None
-        # 1) 合约一致 → 复用 iv_smile 共享 TqSdk 价
+        # 1) 合约一致 → 仅复用 iv_smile 的实时 TqSdk 共享价；缓存价不能伪装成实时价
         if shared_contract == expiry_code:
             try:
                 shared = iv_smile_service.get_shared_futures_price()
                 if isinstance(shared, (tuple, list)):
-                    price = float(shared[0] or 0)
+                    shared_price = float(shared[0] or 0)
+                    shared_source = shared[1] if len(shared) > 1 else 'unknown'
                 else:
-                    price = float(shared or 0)
+                    shared_price = float(shared or 0)
+                    shared_source = 'legacy'
+                if shared_price > 0 and shared_source in ('tqsdk', 'legacy'):
+                    price = shared_price
+                    price_source = f'shared_{shared_source}'
+                elif shared_price > 0:
+                    print(f"[api_underlying_price] 跳过缓存共享价 {shared_price} source={shared_source}，改走直连")
             except Exception:
                 price = 0
-        # 2) 合约不一致（24h 提前生效时）→ 用 TqSdk/akshare 直连该合约
+        # 2) 合约不一致或共享价只是缓存 → 用 TqSdk/akshare 直连该合约
         if price <= 0:
             try:
                 from analysis.option_chain_api import get_tq_futures_price_by_expiry
                 tq_price, _ = get_tq_futures_price_by_expiry(expiry_code, timeout=2.0)
                 if tq_price and tq_price > 0:
                     price = float(tq_price)
+                    price_source = 'direct_tqsdk'
             except Exception:
                 pass
         if price <= 0:
             try:
                 price = oca._get_akshare_latest_price(expiry_code)
+                if price and price > 0:
+                    price_source = 'akshare_contract'
             except Exception:
                 pass
         # 3) 兜底到 akshare 主力合约，避免接口阻塞/超时
@@ -461,6 +472,7 @@ def api_underlying_price():
                 if df is not None and not df.empty:
                     price = float(df.iloc[-1].get('trade', 0))
                     expiry_code = expiry_code or 'TA0'
+                    price_source = 'akshare_main'
             except Exception:
                 pass
         return jsonify({
@@ -468,7 +480,7 @@ def api_underlying_price():
             'underlying_price': price,
             'symbol': expiry_code,
             'timestamp': dt_datetime.now().isoformat(),
-            'source': 'homepage_24h_advance' if price and expiry_code else 'fallback'
+            'source': price_source if price and expiry_code else 'fallback'
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
