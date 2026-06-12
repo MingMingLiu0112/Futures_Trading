@@ -1099,6 +1099,12 @@ def generate_report(report_type: str = 'intraday') -> Dict:
 
     # 计算成本利润
     cost_data = {}
+    # ---- 人工 spot_main_overrides（v2.11.37+）：现货价同步到 profit ----
+    _manual_macro_c = load_manual_macro_input()
+    _spot_ovr_c = (_manual_macro_c or {}).get('spot_main_overrides') or {}
+    if _spot_ovr_c.get('spot_price') is not None and float(_spot_ovr_c.get('spot_price') or 0) > 0:
+        pta = dict(pta or {})
+        pta['spot_price'] = float(_spot_ovr_c['spot_price'])
     if px.get('spot_price') and px.get('spot_price') > 0:
         cost_data['pta_cost'] = round(px['spot_price'] * 0.655, 0)
     if px_external.get('pta_external_cost'):
@@ -1549,6 +1555,12 @@ def generate_macro_analysis(crude, px, pta, rates, inventory, macro_news, cost_d
     brent_chg = crude.get('brent', {}).get('change_pct', 0)
     wti_chg = crude.get('wti', {}).get('change_pct', 0)
     pta_spot = pta.get('spot_price')
+
+    # ---- 人工 spot_main_overrides（v2.11.37+）：仅覆盖 PTA 现货价；主力价/符号/涨跌幅/基差都交给K线 ----
+    _manual_macro_m = load_manual_macro_input()
+    _spot_overrides = (_manual_macro_m or {}).get('spot_main_overrides') or {}
+    if _spot_overrides.get('spot_price') is not None and float(_spot_overrides.get('spot_price') or 0) > 0:
+        pta_spot = float(_spot_overrides['spot_price'])
     pta_future = pta.get('future', {})
     profit = cost_data.get('profit', 0)
     profit_pct = cost_data.get('profit_pct', 0)
@@ -1610,6 +1622,19 @@ def generate_macro_analysis(crude, px, pta, rates, inventory, macro_news, cost_d
     if pta_spot:
         basis = ind_pta.get('basis', {})
         basis_val = basis.get('value', 0)
+        # 基差统一用 (人工spot - pta_future.settle) 自然计算（v2.11.37+ 修正）
+        # 注：generate_macro_analysis 内没有 K线 main 价，只能用 pta_future.settle 兜底；
+        # 字段层 intraday_analysis 的 K线覆盖会再把 main_futures_price 替换成实时K线。
+        _basis_anchor = pta_future.get('settle') if isinstance(pta_future, dict) else None
+        if pta_spot and _basis_anchor:
+            basis_val = round(float(pta_spot) - float(_basis_anchor), 2)
+            basis = dict(basis or {})
+            basis['value'] = basis_val
+            basis['level'] = '强' if basis_val > 200 else ('偏弱' if basis_val < -100 else '中性')
+            ind_pta = dict(ind_pta or {})
+            ind_pta['basis'] = basis
+            industry = dict(industry or {})
+            industry['pta'] = ind_pta
         chain_prices.append({
             'name': 'PTA现货', 'price': pta_spot, 'unit': 'CNY/吨',
             'change': f"基差{basis_val:+.0f}({basis.get('level', '')})" if basis_val else '—',
@@ -2257,6 +2282,15 @@ def generate_intraday_analysis(report: Dict) -> Dict:
     main_futures_price = main_px.get('price') or pta.get('dominant_price') or pta.get('near_price')
     main_symbol = main_px.get('symbol') or pta.get('dominant_contract') or 'TA主力'
 
+    # ---- 人工 spot_main_overrides（v2.11.37+）：仅覆盖 PTA 现货价；
+    # 盘面主力参考价/主力符号/涨跌幅/基差都来自实时K线 / 自然计算 ----
+    spot_overrides = (manual_macro or {}).get('spot_main_overrides') or {}
+    manual_spot = spot_overrides.get('spot_price')
+    if manual_spot is not None and float(manual_spot) > 0:
+        pta_spot_override = float(manual_spot)
+    else:
+        pta_spot_override = None
+
     direction = s3.get('direction') or '震荡'
     gex_dir = gex_summary.get('gex_direction')
     net_gex = _as_float(gex_summary.get('net_gex'))
@@ -2279,10 +2313,18 @@ def generate_intraday_analysis(report: Dict) -> Dict:
         headline_dir = direction
 
     pta_spot = pta.get('spot_price') or pta.get('spot', {}).get('price')
-    # 盘面主力参考价只能来自首页K线实时接口，不能混用产业链/fundamental中的TA609结算价。
+    # 人工现货价覆盖（v2.11.37+）：manual_macro_input.spot_main_overrides.spot_price
+    if pta_spot_override is not None:
+        pta_spot = pta_spot_override
+    # 盘面主力参考价只能来自实时K线；不再用 spot_main_overrides 覆盖。
     main_futures_label = main_symbol or 'TA主力'
     main_futures_display_price = main_futures_price
+    # 同步把 main_futures_price 暴露给下游（trader_report / narrative 末尾的'盘面主力参考价 XX'复用）
+    main_futures_price = main_futures_display_price
     near_basis = pta.get('near_basis')
+    # 基差：现货-主力（用 K线 main + 人工 spot 自然计算）
+    if near_basis is None and pta_spot is not None and main_futures_display_price:
+        near_basis = round(float(pta_spot) - float(main_futures_display_price), 2)
     px_price = px.get('spot_price') or px.get('price')
     px_asia_close = px_external.get('px_asia_close_usd')
     pta_external_cost = px_external.get('pta_external_cost') or (cost.get('pta_external_cost') if isinstance(cost, dict) else None)

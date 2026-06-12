@@ -338,10 +338,13 @@ def _save_close_state(close_point='15:00'):
     """
     _ensure_snapshot_dir()
     # 只保存可序列化的字段
+    _expiry_iso = _state.get('expiry').isoformat() if _state.get('expiry') else None
     payload = {
         'close_point': close_point,           # '15:00' = 真正的日内收盘基准；其他值视为污染
         'timestamp': datetime.now().isoformat(),
         'state': {
+            'active_contract': _state.get('active_contract'),
+            'expiry': _expiry_iso,
             'futures_price': _state.get('futures_price'),
             'atm_strike': _state.get('atm_strike'),
             'max_pain': _state.get('max_pain'),
@@ -600,9 +603,10 @@ def _load_close_state():
 
         # === 关键：恢复 _close_baseline 内存变量 ===
         # 不然 alert_data 拿不到今日基准 (会回退到 _prev_day_baseline)
-        # active_contract 加载时还没设置 (tqsdk_loop 启动后才设)，
-        # 用 close_state.json 里的 strike_oi 第一个 key 反推 TA 前缀，或从 svi_params / S 推断
-        recovered_contract = _state.get('active_contract')
+        # 优先使用 save 时写入的 active_contract（v2.11.36+ 已写入 close_state.json），
+        # 否则兜底用 _state（tqsdk_loop 启动后才设），再否则从 svi_params.note 反推。
+        recovered_contract = saved_state.get('active_contract') or _state.get('active_contract')
+        recovered_expiry = saved_state.get('expiry') or (_state.get('expiry').isoformat() if _state.get('expiry') else None)
         if not recovered_contract:
             # 兜底：svi_params.note 里通常有 contract；或者从 expiry 字段反推
             note = (saved_state.get('svi_params') or {}).get('note', '')
@@ -621,7 +625,7 @@ def _load_close_state():
             'ts': ts,
             'close_point': close_point,  # 标记这是 15:00 收盘基准
             'contract': recovered_contract,
-            'expiry': _state.get('expiry').isoformat() if _state.get('expiry') else None,
+            'expiry': recovered_expiry,
         }
         print(f"[iv_smile] 💾 _close_baseline 已恢复 contract={_close_baseline.get('contract')} "
               f"close_point={close_point} ts={ts[:19]} oi={len(_close_baseline.get('strike_oi') or {})}档")

@@ -741,6 +741,10 @@ def _fetch_kline_ta609_for_report():
 def _override_report_with_kline_price(report):
     """用首页K线接口当前价覆盖研报里的盘面主力参考价（字段/表格/正文三处都要覆盖）。
     对应前端 loadDailyReport() 的覆盖逻辑；这里是后端镜像，确保导出 Word/MD 与前端一致。
+
+    v2.11.37+澄清：人工 spot_main_overrides 只覆盖 PX/现货，不覆盖盘面主力。
+    盘面主力参考价必须来自实时K线（用户人工合约是 TA2609，但K线接口默认给"TA"，
+    symbol 差异通过 _fetch_kline_ta609_for_report() 内部处理）。
     """
     if not isinstance(report, dict):
         return report
@@ -1059,6 +1063,20 @@ def api_strategy_report_daily():
 
 def format_strategy_report_markdown(report):
     """把研报与策略导出为适合存档的Markdown。"""
+    def _fmt_num(v, digits: int = 0, prefix: str = '') -> str:
+        """Markdown导出本地数字格式化，避免依赖日报生成脚本内部 helper。"""
+        try:
+            if v is None or v == '':
+                return '--'
+            x = float(v)
+            if math.isnan(x) or math.isinf(x):
+                return '--'
+            if digits == 0:
+                return prefix + f"{x:,.0f}"
+            return prefix + f"{x:,.{digits}f}"
+        except Exception:
+            return str(v) if v not in (None, '') else '--'
+
     report = report or {}
     ia = report.get('intraday_analysis') or report.get('market_brief') or {}
     cmp = report.get('previous_day_comparison') or {}
