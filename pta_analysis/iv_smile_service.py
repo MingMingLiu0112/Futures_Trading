@@ -687,11 +687,23 @@ def _save_all_snapshots():
         except Exception:
             pass
     # 合并：磁盘快照 + 内存快照（内存快照优先级更高，覆盖同 key）
-    merged = dict(existing)
-    merged.update(_interval_snapshots)
+    # 写盘前再按快照自身 timestamp 过滤一次，防止昨日 15:00 等脏快照混入今日文件。
+    merged = {}
+    skipped_mismatch = []
+    for source_name, source in (('disk', existing), ('memory', _interval_snapshots)):
+        for k, v in (source or {}).items():
+            snap_ts = (v or {}).get('timestamp', '') if isinstance(v, dict) else ''
+            snap_date = snap_ts[:10].replace('-', '') if snap_ts else ''
+            if snap_date != date_str:
+                skipped_mismatch.append((source_name, k, snap_ts))
+                continue
+            merged[k] = v
+    if skipped_mismatch:
+        preview = ', '.join([f"{src}:{key}@{ts[:19]}" for src, key, ts in skipped_mismatch[:5]])
+        print(f"[iv_smile] ⚠️ 跳过跨日脏快照 {len(skipped_mismatch)}个: {preview}")
     payload = {
         'date': date_str,
-        'snapshots': merged,   # 合并后全量快照 dict
+        'snapshots': merged,   # 合并后全量快照 dict（仅保留 timestamp 属于 date_str 的快照）
 
     }
     # 原子写入：先写临时文件，再 os.replace() 覆盖目标文件。
@@ -1406,6 +1418,26 @@ _tqsdk_last_data_time = None      # 上次数据更新时间戳
 _EXPIRY_CACHE = {}  # {contract_code: last_trade_date}
 _OPTION_STRIKES_CACHE = {}  # {contract_code: [strike, ...]}
 
+# 本地 PTA 期权合约-到期日 fallback 表（v2.11.36+ 修复硬编码 TA607+2026-06-11 bug）
+# 当 akshare.option_contract_info_ctp() 完全失败（akshare 不可达/接口变化/超时）时使用。
+# 优先级：akshare 实时 > _EXPIRY_CACHE（当日缓存）> _LOCAL_PTA_EXPIRY_FALLBACK（本地表）> 抛异常
+# 数据来源：交易所月度合约上市公告 + 2026-06 历史 snapshot。
+# 注意：实际到期日以交易所公告为准，本表"近似日期"用于 fallback 选合约即可。
+# 维护规则：每季度在月初加 3-6 个月的新合约（按需更新）。
+_LOCAL_PTA_EXPIRY_FALLBACK = {
+    'TA608': '2026-07-14',  # 2026-07 月期权
+    'TA609': '2026-08-12',  # 2026-08 月期权
+    'TA610': '2026-09-15',  # 2026-09 月期权
+    'TA611': '2026-10-15',  # 2026-10 月期权
+    'TA612': '2026-11-13',  # 2026-11 月期权
+    'TA701': '2026-12-15',  # 2026-12 月期权
+    'TA702': '2027-01-15',  # 2027-01 月期权
+    'TA703': '2027-02-12',  # 2027-02 月期权
+    'TA704': '2027-03-15',  # 2027-03 月期权
+    'TA705': '2027-04-15',  # 2027-04 月期权
+    'TA706': '2027-05-14',  # 2027-05 月期权
+}
+
 def _get_option_strikes_for_contract(opt_prefix):
     """
     获取当前期权月份真实存在的全档行权价。
@@ -1487,6 +1519,8 @@ def get_active_ta_contract():
     after_1500 = now.strftime('%H%M') >= '1500'
 
     def _pick(expiry_dict):
+        """从 {opt_prefix: 'YYYY-MM-DD'} 字典按 today_str + after_1500 选最近未到期合约。
+        选不到时返回 dict 中日期最晚的（兜底，绝不返回 None/硬编码值）。"""
         if not expiry_dict:
             return None, None
         if after_1500:
@@ -1495,7 +1529,7 @@ def get_active_ta_contract():
             active = {k: v for k, v in expiry_dict.items() if v >= today_str}
         if not active:
             sorted_items = sorted(expiry_dict.items(), key=lambda x: x[1])
-            return sorted_items[-1]
+            return sorted_items[-1]  # 全部过期 → 返回最晚的（异常兜底）
         nearest = sorted(active.items(), key=lambda x: x[1])[0]
         return nearest[0], nearest[1]
 
@@ -1508,15 +1542,25 @@ def get_active_ta_contract():
 
         contract_id, last_trade = _pick(_EXPIRY_CACHE)
         if not contract_id:
-            return 'TA607', datetime(2026, 6, 11)
+            # akshare 拉到数据但 pick 不到（极端：全过期或日期格式错）→ 本地 fallback
+            contract_id, last_trade = _pick(_LOCAL_PTA_EXPIRY_FALLBACK)
+            if not contract_id:
+                raise RuntimeError("本地 PTA 合约 fallback 表也无可用合约")
+            return contract_id, datetime.strptime(last_trade, '%Y-%m-%d')
         return contract_id, datetime.strptime(last_trade, '%Y-%m-%d')
 
     except Exception as e:
+        # akshare 失败 → 优先用 cache，没有再走本地 fallback（绝对不硬编码 TA607+2026-06-11）
         if _EXPIRY_CACHE:
             contract_id, last_trade = _pick(_EXPIRY_CACHE)
             if contract_id:
                 return contract_id, datetime.strptime(last_trade, '%Y-%m-%d')
-        return 'TA607', datetime(2026, 6, 11)
+        contract_id, last_trade = _pick(_LOCAL_PTA_EXPIRY_FALLBACK)
+        if contract_id:
+            print(f"[iv_smile] ⚠️ akshare+cache均失效，使用本地 PTA 合约 fallback: {contract_id} (到期 {last_trade})")
+            return contract_id, datetime.strptime(last_trade, '%Y-%m-%d')
+        # 实在无解 → 抛异常让调用方保留 _state['active_contract']
+        raise RuntimeError(f"无法确定 PTA 主力合约: akshare失败+cache空+本地fallback也空: {e}")
 
 
 # ===================== 无风险利率（akshare 国债收益率，1h 缓存） =====================
@@ -2627,41 +2671,39 @@ def register_routes(app):
             # 持仓数据（当前 strike_oi）
             strike_oi = _state.get('strike_oi', {})
 
-            # 前次曲线：与 alert_data/gex 端点完全对齐的基准选择逻辑
-            # - _close_baseline 优先（人工注入的 15:00 收盘）
-            # - 21:00 之后 OR (0:00-9:00 且基准日期=昨天) → 用 _close_baseline
-            # - 日盘 9:00-21:00 → 用 _prev_day_baseline（前一交易日 15:00）
+            # 前次曲线：与 alert_data/gex 端点完全对齐的基准选择逻辑。
+            # - 昨日 15:00 _close_baseline（人工注入或自动）在今天 21:00 前有效。
+            # - 今日 15:00 _close_baseline 在 21:00 后才自动切入。
+            # - 若 _close_baseline 为空/合约不匹配/时间窗不符合，再兜底 _prev_day_baseline。
             now_dt = datetime.now()
-            now_hour = now_dt.hour
             cb = _close_baseline
+            close_baseline = None
             cb_eligible = False
             if cb and cb.get('smooth'):
                 cb_contract = cb.get('contract')
-                if not cb_contract or not _state.get('active_contract') or cb_contract == _state.get('active_contract'):
-                    cb_ts = cb.get('ts') or cb.get('timestamp') or ''
-                    if cb_ts:
-                        try:
-                            cb_date = datetime.fromisoformat(cb_ts[:10] if len(cb_ts) >= 10 else cb_ts).date()
-                            today = now_dt.date()
-                            yd = (now_dt - timedelta(days=1)).date()
-                            baseline_is_today = (cb_date == today)
-                            baseline_is_postclose_yesterday = (cb_date == yd and now_dt.hour < 9)
-                            cb_eligible = baseline_is_today or baseline_is_postclose_yesterday
-                        except Exception:
-                            pass
+                cur_contract = _state.get('active_contract')
+                contract_match = (not cb_contract or not cur_contract or cb_contract == cur_contract)
+                cb_ts = cb.get('ts') or cb.get('timestamp') or ''
+                if contract_match and cb_ts:
+                    try:
+                        cb_date = datetime.fromisoformat(cb_ts[:10] if len(cb_ts) >= 10 else cb_ts).date()
+                        today = now_dt.date()
+                        yd = (now_dt - timedelta(days=1)).date()
+                        baseline_is_previous_calendar_day = (cb_date == yd)
+                        baseline_is_today = (cb_date == today)
+                        # 昨日15:00基准：今天21:00前有效；今日15:00自动快照：21:00后切入。
+                        cb_eligible = (
+                            (baseline_is_previous_calendar_day and now_dt.hour < 21)
+                            or (baseline_is_today and now_dt.hour >= 21)
+                        )
+                    except Exception:
+                        pass
+
             if cb_eligible:
                 close_baseline = cb
                 prev_smooth = close_baseline.get('smooth', {})
                 prev_raw = close_baseline.get('raw', {})
-                if not prev_smooth and _prev_day_baseline:
-                    prev_smooth = _prev_day_baseline.get('smooth', {})
-                    prev_raw = _prev_day_baseline.get('raw', {})
-                    if prev_smooth:
-                        ts = _prev_day_baseline.get('timestamp', '')[:19]
-                        print(f"[iv_smile] 📌 使用前一交易日15:00基准 smooth={len(prev_smooth)}档 ts={ts}")
             else:
-                # 9:00-21:00 日盘时段：保持前一交易日基准
-                close_baseline = None
                 prev_smooth = _prev_day_baseline.get('smooth', {}) if _prev_day_baseline else {}
                 prev_raw = _prev_day_baseline.get('raw', {}) if _prev_day_baseline else {}
                 if prev_smooth:
@@ -2675,12 +2717,9 @@ def register_routes(app):
             # 属于同一体系,直接对比方向是正确的。
             # (之前的重算逻辑会因为前后T值不同导致方向错误)
 
-            # 前次ATM：优先取baseline的atm_strike，其次从futures_price/S计算
+            # 前次ATM：优先取已选中的前次基准，其次从futures_price/S计算
             prev_atm_strike = None
-            if now_hour >= 21:
-                bl = close_baseline if close_baseline and (close_baseline.get('atm_strike') or close_baseline.get('S')) else _prev_day_baseline
-            else:
-                bl = _prev_day_baseline
+            bl = close_baseline if close_baseline and (close_baseline.get('atm_strike') or close_baseline.get('S')) else _prev_day_baseline
             if bl:
                 if bl.get('atm_strike'):
                     prev_atm_strike = int(bl['atm_strike'])
@@ -3203,40 +3242,30 @@ def register_routes(app):
             futures_price = _state.get('futures_price')
             max_pain = _state.get('max_pain')
 
-        # 前次基准选择：
-        # 1) 若 _close_baseline 已是今日写入 + 合约匹配 → 立即用今日（合约切日日 6/11 等场景需要）
-        # 2) 21:00 之后 → 用今日 15:00 收盘
-        # 3) 21:00 之前 + _close_baseline 是今日 → 仍用今日（盘后场景）
-        # 4) 21:00 之前 + _close_baseline 是昨日/不匹配 → 用 _prev_day_baseline（盘后复盘）
+        # 前次基准选择（不破坏 15:00 自动写入 + 21:00 自动切换）：
+        # - 若 _close_baseline 是昨日 15:00 且合约匹配：今天 21:00 前持续作为前次基准
+        #   （合约切换日人工 TA608 基准就属于此类，不能在 09:00 后被 _prev_day_baseline 顶掉）。
+        # - 若 _close_baseline 是今日 15:00 且合约匹配：21:00 后才切入，保持“15:00快照构成21:00切换基础”。
         cur_contract = _state.get('active_contract')
+        now_dt = datetime.now()
         baseline_ts_str = _close_baseline.get('ts', '') if _close_baseline else ''
         baseline_is_today = False
-        baseline_is_postclose_yesterday = False  # 盘后跨日：昨天收盘基准 + 盘后时段（00:00-09:00）
+        baseline_is_previous_calendar_day = False
         if baseline_ts_str:
             try:
                 baseline_date = datetime.fromisoformat(baseline_ts_str).date()
-                baseline_is_today = (baseline_date == datetime.now().date())
-                from datetime import timedelta as _td
-                yesterday = (datetime.now() - _td(days=1)).date()
-                baseline_is_postclose_yesterday = (
-                    baseline_date == yesterday
-                    and datetime.now().hour < 9
-                )
+                baseline_is_today = (baseline_date == now_dt.date())
+                baseline_is_previous_calendar_day = (baseline_date == (now_dt - timedelta(days=1)).date())
             except Exception:
                 pass
         baseline_contract_match = (cur_contract and _close_baseline.get('contract') == cur_contract) if _close_baseline else False
 
-        # 接受 _close_baseline 的条件：
-        # 1) 今日 + 合约匹配 OR
-        # 2) 盘后跨日（昨天收盘 + 现在 00:00-09:00）+ 合约匹配
-        if _close_baseline and baseline_contract_match and (baseline_is_today or baseline_is_postclose_yesterday):
-            close_baseline = _close_baseline
-        else:
-            now_hour = datetime.now().hour
-            if now_hour >= 21 and _close_baseline and (baseline_is_today or baseline_is_postclose_yesterday):
+        close_baseline = {}
+        if _close_baseline and baseline_contract_match:
+            if baseline_is_previous_calendar_day and now_dt.hour < 21:
                 close_baseline = _close_baseline
-            else:
-                close_baseline = {}
+            elif baseline_is_today and now_dt.hour >= 21:
+                close_baseline = _close_baseline
         b_smooth = close_baseline.get('smooth', {}) if close_baseline else {}
         b_raw = close_baseline.get('raw', {}) if close_baseline else {}
         b_oi = close_baseline.get('strike_oi', {}) if close_baseline else {}
@@ -3963,8 +3992,9 @@ def register_routes(app):
             today = now_dt.date()
             yd = (now_dt - timedelta(days=1)).date()
             baseline_is_today = (cb_date == today)
-            baseline_is_postclose_yesterday = (cb_date == yd and now_dt.hour < 9)
-            return baseline_is_today or baseline_is_postclose_yesterday
+            baseline_is_previous_calendar_day = (cb_date == yd)
+            # 昨日15:00基准：今天21:00前有效；今日15:00自动快照：21:00后切入。
+            return (baseline_is_previous_calendar_day and now_dt.hour < 21) or (baseline_is_today and now_dt.hour >= 21)
 
         if _close_baseline_eligible(_close_baseline):
             cb = _close_baseline
