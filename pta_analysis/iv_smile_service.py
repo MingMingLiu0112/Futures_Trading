@@ -3828,13 +3828,18 @@ def register_routes(app):
 
         # ---- 通用计算函数 ----
         def _calc_gex_pain_oi(oi_dict):
-            """根据给定的 strike_oi 字典，计算 gex_bars, pain_curve, oi_dist 及摘要"""
-            # GEX/Flip/Max Pain 固定使用ATM附近21档口径；T表/PCR/Excel可全档，二者不要混用。
-            atm_for_gex = round(F / 100) * 100
-            oi_strikes_all = sorted(set(float(k) for k in oi_dict.keys()))
-            oi_strikes = [k for k in oi_strikes_all if atm_for_gex - 1000 <= k <= atm_for_gex + 1000]
-            if not oi_strikes:
-                oi_strikes = oi_strikes_all
+            """根据给定的 strike_oi 字典，计算 gex_bars, pain_curve, oi_dist 及摘要
+
+            v2.11.35: GEX/Flip/Max Pain/PCR/OI 全部改为全档动态口径（与 T表/Excel 一致）。
+            深度档 IV 来源: smile_smooth (SVI 拟合, moneyness ±20% 内) → smile_raw (实时报价) → None=gamma=0。
+            之前是 ATM±10 (21档) 口径，导致 GEX summary PCR 与 T表全档 PCR 差 0.023，
+            且深度虚值 Put (保险盘) 的 gamma 暴露被截断。
+            验证: 实测 F=6502 时 21档→32档 Net GEX +9.9%, GEX Flip/方向 不变。
+            """
+            # GEX/Flip/Max Pain/PCR/OI 全部用全档 (32档) 动态计算，与 T表/Excel 保持一致。
+            # SVI 拟合仍只覆盖 ATM±10 (moneyness ±20%)，深度档 IV 落到 raw 报价；
+            # 极少数深度档 raw 无报价时 gamma=0（与之前 21档外 OI=0 同等处理）。
+            oi_strikes = sorted(set(float(k) for k in oi_dict.keys()))
             # 1. GEX
             gex_list = []
             for K in oi_strikes:
