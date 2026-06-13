@@ -10,6 +10,7 @@
 
 
 
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -22,7 +23,7 @@ PTA期权隐波微笑曲线实时服务 v4
 - Flask API 提供数据
 """
 import sys, os, time, json, warnings, atexit
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from threading import Thread, Lock
 import numpy as np
 import requests
@@ -312,6 +313,87 @@ def get_shared_futures_price():
 
 _dummy_lock = type('DummyLock', (), {'__enter__': lambda s: s, '__exit__': lambda *a: None})()
 
+
+def _valid_price(value):
+    """返回合法正价格 float；无效行情字段（None/nan/inf/0）返回 None。"""
+    try:
+        if value is None:
+            return None
+        v = float(value)
+        if np.isnan(v) or np.isinf(v) or v <= 0:
+            return None
+        return v
+    except Exception:
+        return None
+
+
+def _get_latest_tqsdk_futures_price():
+    """从 TqSdk 最新快照取可用期货价：last > close > bid/ask 中间价。"""
+    snap = _tqsdk_quotes.get('snap') or {}
+    fut = snap.get('futures') or {}
+    price = _valid_price(fut.get('last'))
+    source = 'last'
+    if price is None:
+        price = _valid_price(fut.get('close'))
+        source = 'close'
+    if price is None:
+        bid = _valid_price(fut.get('bid'))
+        ask = _valid_price(fut.get('ask'))
+        if bid and ask:
+            price = (bid + ask) / 2
+            source = 'bidask_mid'
+    if price is None:
+        return None, None
+    return round(price / 2) * 2, source
+
+
+def _set_payload_futures_price(payload, price):
+    """同步校准 eod payload 内所有 current price 字段。"""
+    if not price or price <= 0:
+        return
+    for section in ('state', 'last_valid'):
+        data = payload.get(section)
+        if isinstance(data, dict):
+            data['futures_price'] = price
+            # API/前端有些地方兼容 underlying_price 字段；若存在则保持一致
+            if 'underlying_price' in data:
+                data['underlying_price'] = price
+
+
+def _parse_iso_dt(value):
+    """宽容解析 ISO 时间字符串；失败返回 None。"""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+    except Exception:
+        return None
+
+
+def _payload_state_timestamp(payload_or_state):
+    """取用于 current 防回退比较的时间：state.last_update 优先，其次 payload.timestamp/ts。"""
+    if not isinstance(payload_or_state, dict):
+        return None
+    state = payload_or_state.get('state') if isinstance(payload_or_state.get('state'), dict) else payload_or_state
+    return (state.get('last_update') or payload_or_state.get('timestamp')
+            or payload_or_state.get('ts') or payload_or_state.get('last_update'))
+
+
+def _should_restore_current(incoming_ts, source='unknown'):
+    """禁止旧快照/close baseline 覆盖更新的 current _state。
+
+    close_state/eod_state/interval snapshot 只能在其时间不早于当前 _state.last_update 时覆盖 current。
+    这样 23:00 EOD current 不会被 15:00 close baseline 或旧 interval snapshot 拉回去；
+    _close_baseline 仍由 close_state 单独恢复，不受影响。
+    """
+    current_ts = _state.get('last_update')
+    cur_dt = _parse_iso_dt(current_ts)
+    in_dt = _parse_iso_dt(incoming_ts)
+    if cur_dt and in_dt and in_dt < cur_dt:
+        print(f"[iv_smile] 🛡️ 拒绝旧状态覆盖 current: source={source} incoming={str(incoming_ts)[:19]} < current={str(current_ts)[:19]}")
+        return False
+    return True
+
 # ===================== 持久化配置 =====================
 _SNAPSHOT_DIR = os.path.join(WORKSPACE, 'data', 'iv_snapshots')
 _SAVED_DATES = set()   # 记录已写入磁盘的日期，避免重复保存
@@ -409,12 +491,22 @@ def _copy_close_state_to_interval_snapshot(hh, mm, now):
 
     strike_oi = _state.get('strike_oi') or _last_valid.get('strike_oi') or {}
     strike_vol = _state.get('strike_vol') or _last_valid.get('strike_vol') or {}
+    close_price = _state.get('futures_price') or _last_valid.get('futures_price')
+    if hh == 23 and mm == 0:
+        # 夜盘收盘边界进入休盘分支后不再 compute_once，_state 里的 last 可能停在 22:59；
+        # 优先用 TqSdk 快照里的最后收盘/成交价校准 23:00 快照价格。
+        latest_price, price_source = _get_latest_tqsdk_futures_price()
+        if latest_price and latest_price != close_price:
+            print(f"[iv_smile] 📌 23:00边界价格校准: {close_price} → {latest_price} ({price_source})")
+            close_price = latest_price
+            _state['futures_price'] = latest_price
+            _last_valid['futures_price'] = latest_price
     _interval_snapshots[interval_key] = {
         'smooth': {k: float(v) for k, v in smooth.items()},
         'raw': {k: (dict(v) if isinstance(v, dict) else v) for k, v in raw.items()},
         'timestamp': now.isoformat(),
         'svi_params': _state.get('svi_params') or _last_valid.get('svi_params'),
-        'futures_price': _state.get('futures_price') or _last_valid.get('futures_price'),
+        'futures_price': close_price,
         'ref_strike': _state.get('ref_strike') or _last_valid.get('ref_strike'),
         'max_pain': _state.get('max_pain') or _last_valid.get('max_pain'),
         'atm_strike': _state.get('atm_strike') or _last_valid.get('atm_strike'),
@@ -460,27 +552,59 @@ def _check_and_save_close_state():
             break
 
 
+def _json_safe(obj):
+    """递归转换快照 payload 中的 datetime / numpy / lock 等不可 JSON 序列化对象。"""
+    if obj is None or isinstance(obj, (str, int, float, bool)):
+        return obj
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if hasattr(obj, 'item'):
+        try:
+            return obj.item()
+        except Exception:
+            pass
+    if isinstance(obj, dict):
+        return {str(k): _json_safe(v) for k, v in obj.items() if k not in ('lock', 'running')}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    # threading.Lock 等对象直接丢弃，避免 json.dump 写半截文件
+    return str(obj)
+
+
 def _save_eod_state(eod_point='23:00'):
     """把当前 _state / _last_valid 完整写到 eod_state.json。
     用于：冷启动恢复 _state 的 OI/Vol/S/MP/ATM（盘后/夜盘时段启动后立即有数据）。"""
     try:
+        # timestamp 必须是 EOD 保存时刻，不能用 _state.last_update（可能仍是 15:00 IV 更新时间）
         payload = {
             'eod_point': eod_point,
-            'timestamp': _state.get('last_update') or datetime.now().isoformat(),
-            'state': dict(_state),
-            'last_valid': dict(_last_valid),
+            'timestamp': datetime.now().isoformat(),
+            'state': _json_safe(dict(_state)),
+            'last_valid': _json_safe(dict(_last_valid)),
         }
-        # 清除不可序列化的 lock
-        payload['state'].pop('lock', None)
-        payload['state'].pop('running', None)
-        # svi_params 中含 numpy 类型，转换
-        if isinstance(payload['state'].get('svi_params'), dict):
-            for k, v in list(payload['state']['svi_params'].items()):
-                if hasattr(v, 'item'):
-                    try: payload['state']['svi_params'][k] = v.item()
-                    except Exception: pass
-        with open(_EOD_STATE_FILE, 'w', encoding='utf-8') as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
+        if eod_point == '23:00':
+            latest_price, price_source = _get_latest_tqsdk_futures_price()
+            fallback_price = (payload.get('state') or {}).get('futures_price') or (payload.get('last_valid') or {}).get('futures_price')
+            if latest_price:
+                if latest_price != fallback_price:
+                    print(f"[iv_smile] 📌 EOD价格校准: {fallback_price} → {latest_price} ({price_source})")
+                _set_payload_futures_price(payload, latest_price)
+                _state['futures_price'] = latest_price
+                _last_valid['futures_price'] = latest_price
+            else:
+                print(f"[iv_smile] ⚠️ EOD价格校准无TqSdk快照，沿用缓存价 {fallback_price}")
+        import tempfile
+        fd, tmp_path = tempfile.mkstemp(dir=_SNAPSHOT_DIR, suffix='.tmp')
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, _EOD_STATE_FILE)
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
         print(f"[iv_smile] 💾 EOD 收盘快照已保存: eod_point={eod_point} "
               f"ts={payload['timestamp'][:19]} OI={len(payload['state'].get('strike_oi') or {})}档 "
               f"Vol={len(payload['state'].get('strike_vol') or {})}档 "
@@ -506,23 +630,27 @@ def _load_eod_state():
         eod_point = payload.get('eod_point', '')
         ts = payload.get('timestamp', '')
 
-        # 只接受"今天"或"盘后时段（00:00-09:00）昨天 23:00 收盘"的 eod 快照
-        # 6/12 00:30 启动时，6/11 23:00 收盘就是"当下最新"（夜盘后 → 次日 15:00 开盘前都是这个状态）
-        today = datetime.now().strftime('%Y-%m-%d')
-        now_hm = datetime.now().hour * 60 + datetime.now().minute
-        is_postclose = now_hm < 9 * 60   # 00:00-09:00 视为盘后
+        # 只接受"今天"或盘后/非交易日最近一次 23:00 收盘的 eod 快照。
+        # 23:00 EOD 是夜盘收盘后的 current 状态；周末/节假日也要保留它，不能回退到15:00基准。
+        now_dt = datetime.now()
+        today = now_dt.strftime('%Y-%m-%d')
+        now_hm = now_dt.hour * 60 + now_dt.minute
+        # 23:00 EOD 是夜盘收盘后的 current 状态：
+        # - 次日09:00前接受昨天23:00；
+        # - 周末/节假日/非交易日也必须继续接受上一交易日23:00，否则会被15:00 close_state覆盖回退。
+        is_eod_current_window = (now_hm < 9 * 60) or (not _is_trading_day(now_dt))
         ts_date = ts[:10] if ts else ''
         if ts_date != today:
-            if is_postclose and eod_point == '23:00':
-                # 盘后时段接受昨天 23:00 收盘
+            if is_eod_current_window and eod_point == '23:00':
                 from datetime import timedelta
-                yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
-                if ts_date != yesterday:
-                    print(f"[iv_smile] ⏭️ eod_state.json ts={ts_date} 既不是今天({today})也不是昨天({yesterday})，跳过")
+                # 接受最近7天内的23:00 EOD，用于周末/节假日盘后恢复 current。
+                ts_dt = datetime.strptime(ts_date, '%Y-%m-%d').date() if ts_date else None
+                if (not ts_dt) or ((now_dt.date() - ts_dt).days < 0) or ((now_dt.date() - ts_dt).days > 7):
+                    print(f"[iv_smile] ⏭️ eod_state.json ts={ts_date} 距今过远或无效，跳过")
                     return False
-                print(f"[iv_smile] 📌 盘后时段，接受昨天 23:00 收盘的 eod_state.json（ts={ts_date}）")
+                print(f"[iv_smile] 📌 盘后/非交易日，接受最近23:00收盘的 eod_state.json（ts={ts_date}）")
             else:
-                print(f"[iv_smile] ⏭️ eod_state.json ts={ts_date} 不是今天({today})，且非盘后时段，跳过")
+                print(f"[iv_smile] ⏭️ eod_state.json ts={ts_date} 不是今天({today})，且非盘后/非交易日窗口，跳过")
                 return False
 
         # 校验关键字段
@@ -530,7 +658,10 @@ def _load_eod_state():
             print(f"[iv_smile] ⚠️ eod_state.json 数据不完整，跳过")
             return False
 
-        # 恢复 _state（盘后/夜盘的"当前最新"）
+        # 恢复 _state（盘后/夜盘的"当前最新"），但禁止比当前状态更旧的 payload 回退 current。
+        incoming_ts = _payload_state_timestamp(payload)
+        if not _should_restore_current(incoming_ts, 'eod_state'):
+            return False
         for key in ('futures_price', 'atm_strike', 'max_pain', 'ref_strike',
                      'smile_raw', 'smile_smooth', 'svi_params', 'last_update',
                      'strike_oi', 'strike_vol', 'expiry'):
@@ -585,20 +716,25 @@ def _load_close_state():
             print(f"[iv_smile] ⚠️ 收盘快照数据不完整，跳过")
             return False
 
-        # 恢复 _state（仅在 EOD 未加载时；EOD 已加载则保留盘后最新值不动）
+        # 恢复 _state（仅在 EOD 未加载且 close_state 不会造成 current 时间回退时）。
+        # close_state 的 15:00 baseline 始终会在下方恢复到 _close_baseline；这里只管 current。
         if not _eod_state_loaded:
-            for key in ('futures_price', 'atm_strike', 'max_pain', 'ref_strike',
-                         'smile_raw', 'smile_smooth', 'svi_params', 'last_update', 'strike_oi', 'strike_vol'):
-                val = saved_state.get(key)
-                if val is not None:
-                    _state[key] = val
+            incoming_ts = _payload_state_timestamp(payload)
+            if _should_restore_current(incoming_ts, 'close_state'):
+                for key in ('futures_price', 'atm_strike', 'max_pain', 'ref_strike',
+                             'smile_raw', 'smile_smooth', 'svi_params', 'last_update', 'strike_oi', 'strike_vol'):
+                    val = saved_state.get(key)
+                    if val is not None:
+                        _state[key] = val
 
-            # 恢复 _last_valid
-            for key in ('futures_price', 'atm_strike', 'max_pain', 'ref_strike',
-                         'smile_raw', 'smile_smooth', 'svi_params', 'strike_oi', 'strike_vol'):
-                val = saved_valid.get(key)
-                if val is not None:
-                    _last_valid[key] = val
+                # 恢复 _last_valid
+                for key in ('futures_price', 'atm_strike', 'max_pain', 'ref_strike',
+                             'smile_raw', 'smile_smooth', 'svi_params', 'strike_oi', 'strike_vol'):
+                    val = saved_valid.get(key)
+                    if val is not None:
+                        _last_valid[key] = val
+            else:
+                print(f"[iv_smile] 🔄 close_state.json 只恢复 _close_baseline，不覆盖 current _state")
         else:
             print(f"[iv_smile] 🔄 EOD 已先恢复 _state，close_state.json 跳过 _state 覆盖（保留盘后最新值）")
 
@@ -1091,9 +1227,11 @@ def _load_previous_day_snapshots():
             continue
 
     # === 3. 从最新快照恢复标的价格和微笑曲线 ===
-    # 如果收盘快照已恢复 _state，跳过从15分钟快照恢复（避免被更旧数据覆盖）
+    # 如果收盘快照已恢复 _state，跳过从15分钟快照恢复（避免被更旧数据覆盖）。
+    # 即使未恢复，也必须经过 timestamp guard，禁止 15:00/旧快照覆盖 23:00 current。
     # 但仍需恢复 expiry/T 和 akshare 校正（不论哪种恢复路径都需要）
-    if not close_restored and latest_for_restore:
+    can_restore_latest = bool(latest_for_restore and _should_restore_current(latest_for_restore_ts, f'interval_snapshot:{latest_for_restore_key}'))
+    if not close_restored and can_restore_latest:
         restored_price = latest_for_restore.get('futures_price')
         restored_atm = latest_for_restore.get('atm_strike')
         restored_mp = latest_for_restore.get('max_pain')
@@ -1370,6 +1508,9 @@ def _restore_from_latest_snapshot():
     latest_key = all_keys[-1]
     snap = _interval_snapshots[latest_key]
     if snap.get('smooth'):
+        incoming_ts = snap.get('last_update') or snap.get('timestamp')
+        if not _should_restore_current(incoming_ts, f'interval_snapshot:{latest_key}'):
+            return
         _state['smile_smooth'] = snap['smooth']
         _state['smile_raw'] = snap.get('raw', {})
         _state['svi_params'] = snap.get('svi_params') or snap.get('sabr_params')  # 兼容旧快照
@@ -2102,6 +2243,7 @@ def tqsdk_loop():
                         snap = {
                             'futures': {
                                 'last': getattr(fut_quote, 'last_price', None),
+                                'close': getattr(fut_quote, 'close', None),
                                 'bid': getattr(fut_quote, 'bid_price1', None),
                                 'ask': getattr(fut_quote, 'ask_price1', None),
                             },
