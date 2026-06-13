@@ -394,6 +394,39 @@ def _should_restore_current(incoming_ts, source='unknown'):
         return False
     return True
 
+
+def _get_latest_close_boundary_timestamp():
+    """扫描今日（+ 昨日兜底）iv_snapshots_*.json 中 close_boundary=True 快照的最晚时间戳。
+
+    用于冷启动时的 priority 判定：今日 10:15/11:30/15:00/23:00 边界
+    应当优先于 eod_state.json（昨日 23:00）。让 4 个休盘点都成为 current 的候选锚点。
+    """
+    from datetime import timedelta
+    now = datetime.now()
+    today = now.strftime('%Y%m%d')
+    yesterday = (now - timedelta(days=1)).strftime('%Y%m%d')
+    best_ts = ''
+    best_key = None
+    best_date = None
+    for date_str in (today, yesterday):
+        path = _get_snapshot_path(date_str)
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                payload = json.load(f)
+            for k, v in (payload.get('snapshots') or {}).items():
+                if v.get('close_boundary') and v.get('smooth'):
+                    ts = v.get('timestamp', '') or ''
+                    if ts and ts > best_ts:
+                        best_ts = ts
+                        best_key = k
+                        best_date = date_str
+        except Exception:
+            continue
+    return best_ts, best_key, best_date
+
+
 # ===================== 持久化配置 =====================
 _SNAPSHOT_DIR = os.path.join(WORKSPACE, 'data', 'iv_snapshots')
 _SAVED_DATES = set()   # 记录已写入磁盘的日期，避免重复保存
@@ -571,9 +604,52 @@ def _json_safe(obj):
     return str(obj)
 
 
+def _guard_eod_payload_schema(payload):
+    """8 字段联动契约守卫：避免"只改 F 不联动 ATM/smile/max_pain"的东补西凑。
+
+    返回 (ok, blocking_problems, warnings)
+      - blocking_problems: 写盘前会硬阻断，必须修才能写
+      - warnings: 不阻断但会在日志里打 WARN，便于审计
+    阻断规则:
+      1. 8 个关键字段必须非空 (futures_price/atm_strike/max_pain/ref_strike
+         strike_oi/strike_vol/smile_raw/smile_smooth)
+      2. F↔ATM 联动一致性: F 与最近 strike 偏差 > 50 (TA608 strike_step=100) 视为不一致
+    警告规则:
+      3. smile 档数与 OI 档数差异 (SVI 平滑可能跳过深虚值/深实值端，是已知正常现象)
+    """
+    state = payload.get('state') or {}
+    blocking = []
+    warnings = []
+    # 1. 关键字段必须非空（硬阻断）
+    for k in ('futures_price', 'atm_strike', 'max_pain', 'ref_strike',
+              'strike_oi', 'strike_vol', 'smile_raw', 'smile_smooth'):
+        v = state.get(k)
+        if not v:  # None / 0 / {} / '' 都视为缺失
+            blocking.append(f'字段缺失:{k}')
+    # 2. 联动一致性：F 跨过 ATM 边界时 atm_strike 必须随 F 重算（硬阻断）
+    F = state.get('futures_price')
+    atm = state.get('atm_strike')
+    if F and atm:
+        if abs(float(F) - float(atm)) > 50.5:
+            blocking.append(f'F↔ATM不一致(F={F}, ATM={atm})')
+    # 3. smile 档数与 OI 档数差异（软告警，SVI 平滑跳过端点是已知现象）
+    n_oi = len(state.get('strike_oi') or {})
+    n_sm = len(state.get('smile_smooth') or {})
+    n_raw = len(state.get('smile_raw') or {})
+    if n_oi and n_raw and abs(n_oi - n_raw) > 1:
+        warnings.append(f'smile_raw/OI 档数差>1(oi={n_oi}, raw={n_raw})')
+    if n_oi and n_sm and abs(n_oi - n_sm) > 1:
+        warnings.append(f'smile_smooth/OI 档数差>1(oi={n_oi}, smooth={n_sm})')
+    return (len(blocking) == 0, blocking, warnings)
+
+
 def _save_eod_state(eod_point='23:00'):
     """把当前 _state / _last_valid 完整写到 eod_state.json。
-    用于：冷启动恢复 _state 的 OI/Vol/S/MP/ATM（盘后/夜盘时段启动后立即有数据）。"""
+    用于：冷启动恢复 _state 的 OI/Vol/S/MP/ATM（盘后/夜盘时段启动后立即有数据）。
+
+    [v2.11.41+] 写盘前先过 _guard_eod_payload_schema() 8 字段联动守卫，缺字段或 F↔ATM
+    不一致时拒绝写盘并打 ERROR（不静默丢弃），避免"只改 F 不联动"的脏 EOD 污染冷启动。
+    """
     try:
         # timestamp 必须是 EOD 保存时刻，不能用 _state.last_update（可能仍是 15:00 IV 更新时间）
         eod_ts = datetime.now().isoformat()
@@ -583,6 +659,17 @@ def _save_eod_state(eod_point='23:00'):
             'state': _json_safe(dict(_state)),
             'last_valid': _json_safe(dict(_last_valid)),
         }
+        # 写盘前 schema 守卫
+        ok, blocking, warnings = _guard_eod_payload_schema(payload)
+        if not ok:
+            print(f"[iv_smile] ❌ EOD 写盘被守卫拦截，硬阻断: {blocking} | "
+                  f"eod_point={eod_point} ts={eod_ts[:19]} F={payload['state'].get('futures_price')} "
+                  f"ATM={payload['state'].get('atm_strike')}")
+            return  # 拒绝写盘
+        if warnings:
+            print(f"[iv_smile] ⚠️ EOD schema 软告警: {warnings} (不阻断，但建议修复)")
+        print(f"[iv_smile] ✅ EOD schema 守卫通过: 8字段齐 F={payload['state'].get('futures_price')} "
+              f"ATM={payload['state'].get('atm_strike')} MP={payload['state'].get('max_pain')}")
         # 23:00 收盘后的 current 语义就是 EOD 快照；即便 IV 计算线程最后一次 last_update
         # 停在 22:59/15:00，也不能让 state.last_update 把 EOD 恢复误判成旧 current。
         if eod_point == '23:00':
@@ -593,9 +680,28 @@ def _save_eod_state(eod_point='23:00'):
             if latest_price:
                 if latest_price != fallback_price:
                     print(f"[iv_smile] 📌 EOD价格校准: {fallback_price} → {latest_price} ({price_source})")
+                # [v2.11.41+] F 改变时必须联动重算 ATM（如果 F 跨过 strike 边界，旧 ATM 与新 F 不一致）
+                # strike 步长从 strike_oi keys 推断（TA608 = 100）；兼容 _state 没值时从 payload 推断
+                _strike_keys = sorted((_state.get('strike_oi') or {}).keys(), key=lambda x: float(x))
+                if len(_strike_keys) >= 2:
+                    _strike_step = round(float(_strike_keys[1]) - float(_strike_keys[0]))
+                else:
+                    _strike_step = 100  # 兜底
+                _new_atm = min(_strike_keys, key=lambda k: abs(float(k) - latest_price)) if _strike_keys else None
+                if _new_atm is not None and str(_new_atm) != str(payload.get('state', {}).get('atm_strike')):
+                    print(f"[iv_smile] 📌 EOD 联动重算 ATM: {payload.get('state', {}).get('atm_strike')} → {_new_atm} (F={latest_price}, step={_strike_step})")
+                    payload.setdefault('state', {})['atm_strike'] = str(_new_atm)
+                    payload.setdefault('last_valid', {})['atm_strike'] = str(_new_atm)
+                    _state['atm_strike'] = str(_new_atm)
+                    _last_valid['atm_strike'] = str(_new_atm)
                 _set_payload_futures_price(payload, latest_price)
                 _state['futures_price'] = latest_price
                 _last_valid['futures_price'] = latest_price
+                # 重新跑 schema 守卫（F+ATM 都更新后）
+                ok2, blocking2, _ = _guard_eod_payload_schema(payload)
+                if not ok2:
+                    print(f"[iv_smile] ❌ EOD 价校准后 schema 仍不一致: {blocking2} | 拒绝写盘")
+                    return
             else:
                 print(f"[iv_smile] ⚠️ EOD价格校准无TqSdk快照，沿用缓存价 {fallback_price}")
         import tempfile
@@ -634,6 +740,15 @@ def _load_eod_state():
         saved_valid = payload.get('last_valid', {})
         eod_point = payload.get('eod_point', '')
         ts = payload.get('timestamp', '')
+
+        # [v2.11.42+] 边界优先：若今日 10:15/11:30/15:00/23:00 close_boundary 快照
+        # 存在且比 eod_state.json 新，则跳过 EOD 加载，让 15min 恢复路径接管。
+        # 避免昨日 23:00 拉回覆盖今日 11:30 收盘后的 current。
+        boundary_ts, boundary_key, boundary_date = _get_latest_close_boundary_timestamp()
+        if boundary_ts and ts and boundary_ts > ts:
+            print(f"[iv_smile] ⏭ EOD ts={ts[:19]} 已被 {boundary_date} {boundary_key} close_boundary "
+                  f"覆盖 (boundary_ts={boundary_ts[:19]})，跳过 _state 恢复")
+            return False
 
         # 只接受"今天"或盘后/非交易日最近一次 23:00 收盘的 eod 快照。
         # 23:00 EOD 是夜盘收盘后的 current 状态；周末/节假日也要保留它，不能回退到15:00基准。
@@ -723,7 +838,12 @@ def _load_close_state():
 
         # 恢复 _state（仅在 EOD 未加载且 close_state 不会造成 current 时间回退时）。
         # close_state 的 15:00 baseline 始终会在下方恢复到 _close_baseline；这里只管 current。
-        if not _eod_state_loaded:
+        # [v2.11.42+] 边界优先：若今日 10:15/11:30/15:00/23:00 close_boundary 快照
+        # 比本 close_state 新，跳过 _state 恢复（让 15min 恢复路径接管）。
+        boundary_ts, boundary_key, boundary_date = _get_latest_close_boundary_timestamp()
+        boundary_is_newer = bool(boundary_ts and ts and boundary_ts > ts)
+        should_set_state = (not _eod_state_loaded) and not boundary_is_newer
+        if should_set_state:
             incoming_ts = _payload_state_timestamp(payload)
             if _should_restore_current(incoming_ts, 'close_state'):
                 for key in ('futures_price', 'atm_strike', 'max_pain', 'ref_strike',
@@ -801,7 +921,10 @@ def _load_close_state():
         print(f"[iv_smile] 💾 收盘快照已恢复: S={saved_state.get('futures_price')} "
               f"MP={saved_state.get('max_pain')} 档={smooth_count} "
               f"ts={ts[:19]}")
-        return True
+        # [v2.11.42+] 仅在本次实际恢复了 _state 时返回 True。
+        # 若 EOD 已加载或今日 close_boundary 快照更新，_state 不被覆盖，
+        # 返回 False 以便下方 15min 恢复路径接管。
+        return should_set_state
     except Exception as e:
         print(f"[iv_smile] ⚠️ 收盘快照加载失败: {e}")
         return False
@@ -1236,7 +1359,12 @@ def _load_previous_day_snapshots():
     # 即使未恢复，也必须经过 timestamp guard，禁止 15:00/旧快照覆盖 23:00 current。
     # 但仍需恢复 expiry/T 和 akshare 校正（不论哪种恢复路径都需要）
     can_restore_latest = bool(latest_for_restore and _should_restore_current(latest_for_restore_ts, f'interval_snapshot:{latest_for_restore_key}'))
-    if not close_restored and can_restore_latest:
+    # [v2.11.42+] 15min 恢复必须先验证：仅当 15min 是 close_boundary 才允许覆盖 EOD。
+    # 否则 09:00/09:15/09:30 等盘中 slot 会拉回覆盖昨日 23:00 EOD，
+    # 违反"4 个休盘点后冻结"的语义。
+    is_close_boundary = bool(latest_for_restore and latest_for_restore.get('close_boundary'))
+    should_restore_latest = can_restore_latest and (is_close_boundary or not eod_restored)
+    if not close_restored and should_restore_latest:
         restored_price = latest_for_restore.get('futures_price')
         restored_atm = latest_for_restore.get('atm_strike')
         restored_mp = latest_for_restore.get('max_pain')
