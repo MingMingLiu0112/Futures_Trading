@@ -2193,6 +2193,151 @@ def _as_float(v):
         return None
 
 
+def _text_fingerprint(text: str) -> str:
+    """用于研报短文本去重：去标签、去标点空白，保留核心中文/数字/英文。"""
+    t = re.sub(r'【[^】]+】', '', str(text or ''))
+    t = re.sub(r'<[^>]+>', '', t)
+    t = re.sub(r'[\s，。；;,.、：:！!？?（）()\[\]【】"“”\'’`~\-—_]+', '', t)
+    return t.lower()
+
+
+def _dedupe_text_items(items, max_items: int = None):
+    """近似去重：完全重复、包含关系都只保留信息更完整的一条。"""
+    out = []
+    fps = []
+    for item in items or []:
+        text = str(item or '').strip()
+        if not text:
+            continue
+        fp = _text_fingerprint(text)
+        if not fp:
+            continue
+        duplicate = False
+        for old_fp in fps:
+            if fp == old_fp or fp in old_fp or old_fp in fp:
+                duplicate = True
+                break
+        if duplicate:
+            continue
+        out.append(text)
+        fps.append(fp)
+        if max_items and len(out) >= max_items:
+            break
+    return out
+
+
+def _dedupe_narrative_notes(notes: Dict) -> Dict:
+    if not isinstance(notes, dict):
+        return notes
+    return {k: _dedupe_text_items(v) if isinstance(v, list) else v for k, v in notes.items()}
+
+
+def _remove_duplicate_note_bases(notes: Dict, base_map: Dict[str, str]) -> Dict:
+    """避免 API/cache 层同时把同一段解读放在 xxx_interpretation 与 narrative_notes.xxx。"""
+    if not isinstance(notes, dict):
+        return notes
+    cleaned = {}
+    for key, vals in notes.items():
+        if not isinstance(vals, list):
+            cleaned[key] = vals
+            continue
+        base_fp = _text_fingerprint(base_map.get(key, ''))
+        out = []
+        for v in vals:
+            fp = _text_fingerprint(v)
+            if base_fp and fp and (fp == base_fp or fp in base_fp or base_fp in fp):
+                continue
+            out.append(v)
+        cleaned[key] = out
+    return cleaned
+
+
+def _fmt_chain_value(value, unit: str = '', digits: int = 1) -> str:
+    x = _as_float(value)
+    if x is None:
+        return '--'
+    if abs(x - round(x)) < 1e-9 and digits > 0:
+        txt = f"{x:.0f}"
+    else:
+        txt = f"{x:.{digits}f}"
+    return f"{txt}{unit or ''}"
+
+
+def _fmt_delta_arrow(current, prev, unit: str = '', digits: int = 1) -> str:
+    cur = _as_float(current)
+    old = _as_float(prev)
+    if cur is None or old is None:
+        return '暂无前值'
+    diff = cur - old
+    arrow = '↑' if diff > 0 else ('↓' if diff < 0 else '→')
+    suffix = 'pct' if unit == '%' else (unit or '')
+    if abs(diff) < 1e-9:
+        return f"{arrow}0"
+    return f"{arrow}{diff:+.{digits}f}{suffix}"
+
+
+def build_chain_operation_snapshot(manual_macro: Dict) -> Dict:
+    """从人工宏观基本面输入生成产业链开工率/库存快照；缺失不臆测。"""
+    raw = (manual_macro or {}).get('chain_operation_snapshot') or {}
+    if not isinstance(raw, dict):
+        return {'as_of_date': (manual_macro or {}).get('as_of_date'), 'source': '人工宏观与基本面文本', 'items': [], 'table': []}
+    aliases = {
+        'px': 'PX', 'PX': 'PX', 'pta': 'PTA', 'PTA': 'PTA',
+        'polyester': '聚酯', '聚酯': '聚酯', 'weaving': '织造', '织造': '织造'
+    }
+    raw_items = raw.get('items') if isinstance(raw.get('items'), list) else []
+    if not raw_items:
+        for key, name in aliases.items():
+            val = raw.get(key)
+            if isinstance(val, dict):
+                item = dict(val)
+                item.setdefault('name', name)
+                raw_items.append(item)
+    order = ['PX', 'PTA', '聚酯', '织造']
+    by_name = {}
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        name = aliases.get(str(item.get('name') or item.get('环节') or '').strip(), str(item.get('name') or item.get('环节') or '').strip())
+        if name in order:
+            it = dict(item)
+            it['name'] = name
+            by_name[name] = it
+    items = []
+    table = []
+    for name in order:
+        it = by_name.get(name, {'name': name})
+        rate_unit = it.get('operating_rate_unit') or it.get('rate_unit') or '%'
+        inv_unit = it.get('inventory_unit') or it.get('stock_unit') or ''
+        rate = it.get('operating_rate', it.get('rate'))
+        rate_prev = it.get('operating_rate_prev', it.get('rate_prev'))
+        inv = it.get('inventory', it.get('stock'))
+        inv_prev = it.get('inventory_prev', it.get('stock_prev'))
+        inv_desc = it.get('inventory_desc') or it.get('stock_desc') or it.get('desc') or ''
+        norm = {
+            'name': name,
+            'operating_rate': rate,
+            'operating_rate_prev': rate_prev,
+            'operating_rate_unit': rate_unit,
+            'operating_rate_text': _fmt_chain_value(rate, rate_unit),
+            'operating_rate_delta': _fmt_delta_arrow(rate, rate_prev, rate_unit),
+            'inventory': inv,
+            'inventory_prev': inv_prev,
+            'inventory_unit': inv_unit,
+            'inventory_text': _fmt_chain_value(inv, inv_unit),
+            'inventory_delta': _fmt_delta_arrow(inv, inv_prev, inv_unit),
+            'inventory_desc': inv_desc or ('文本未给出' if inv is None else ''),
+        }
+        items.append(norm)
+        table.append([name, norm['operating_rate_text'], norm['operating_rate_delta'], norm['inventory_text'], norm['inventory_delta']])
+    return {
+        'as_of_date': raw.get('as_of_date') or (manual_macro or {}).get('as_of_date'),
+        'source': raw.get('source') or '人工宏观与基本面文本',
+        'items': items,
+        'table': table,
+    }
+
+
 def _table(headers, rows) -> str:
     lines = ['| ' + ' | '.join(headers) + ' |', '| ' + ' | '.join(['---'] * len(headers)) + ' |']
     for row in rows:
@@ -2389,7 +2534,10 @@ def generate_intraday_analysis(report: Dict) -> Dict:
             t = _clean_news_text(x, 240)
             if t and t not in macro_news_items:
                 macro_news_items.append(t)
+    macro_news_items = _dedupe_text_items(macro_news_items)
     macro_news_items = macro_news_items[:6]
+    chain_operation_snapshot = build_chain_operation_snapshot(manual_macro)
+    chain_operation_table = chain_operation_snapshot.get('table') or []
 
     key_levels = []
     if gex_flip: key_levels.append([_fmt_num(gex_flip), 'GEX Flip，重新站上后负Gamma压力缓和' if gex_dir == 'negative' else 'GEX Flip，跌破后波动可能放大'])
@@ -2522,6 +2670,15 @@ def generate_intraday_analysis(report: Dict) -> Dict:
         'strategy': [strategy_logic],
         'other': []
     }
+    narrative_notes = _dedupe_narrative_notes(narrative_notes)
+    narrative_notes = _remove_duplicate_note_bases(narrative_notes, {
+        'market': market_snapshot_interpretation,
+        'gex': gex_interpretation,
+        'oi': oi_interpretation,
+        'iv': iv_interpretation,
+        'macro': macro_interpretation,
+        'strategy': strategy_logic,
+    })
 
     sections = [
         conclusion,
@@ -2553,6 +2710,7 @@ def generate_intraday_analysis(report: Dict) -> Dict:
         "",
         "6. 基本面与宏观：先看宏观快讯和成本链，周频供需项暂不放入盘中主研判。",
         _table(['项目','当前值','解读'], macro_table),
+        _table(['环节','开工率','较前值','库存','较前值'], chain_operation_table),
         macro_interpretation,
         _render_auto_news(macro_news_items),
         f"基本面不是单边空：现货/成本可能提供下方支撑；但加工利润{_fmt_num(profit)}元若处在偏高区域，容易限制上方弹性。",
@@ -2596,6 +2754,8 @@ def generate_intraday_analysis(report: Dict) -> Dict:
         'oi_tables': oi_tables,
         'iv_table': iv_table,
         'macro_table': macro_table,
+        'chain_operation_snapshot': chain_operation_snapshot,
+        'chain_operation_table': chain_operation_table,
         'macro_news_items': macro_news_items,
         'strategy_blocks': strategy_blocks,
         'key_levels': key_levels,

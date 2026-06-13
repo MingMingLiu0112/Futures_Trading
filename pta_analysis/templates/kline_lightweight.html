@@ -2843,11 +2843,41 @@ function getStrategyReportEndpoint() {
                         });
                         return notes;
                     }
+                    function textKey(x) {
+                        return String(x || '').replace(/【[^】]+】/g, '').replace(/[\s，。；;,.、：:！!？?（）()\[\]【】"“”'’`~\-—_]/g, '').toLowerCase();
+                    }
                     function combinedInterpretation(base, extraList) {
                         const parts = [];
-                        if (base) parts.push(String(base));
-                        (extraList || []).forEach(x => { if (x) parts.push(String(x)); });
+                        const seen = new Set();
+                        function add(x) {
+                            const text = String(x || '').trim();
+                            if (!text) return;
+                            const key = textKey(text);
+                            if (!key) return;
+                            if (seen.has(key)) return;
+                            for (const old of seen) {
+                                if (key === old || key.includes(old) || old.includes(key)) return;
+                            }
+                            seen.add(key);
+                            parts.push(text);
+                        }
+                        add(base);
+                        (extraList || []).forEach(add);
                         return parts.join('；');
+                    }
+                    function renderChainOperationSnapshot(snapshot) {
+                        const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
+                        if (!items.length) return '';
+                        const colorDelta = v => String(v || '').startsWith('↑') ? '#ef5350' : (String(v || '').startsWith('↓') ? '#26a69a' : '#aaa');
+                        const cards = items.map(it => `<div style="flex:1 1 150px;min-width:150px;border:1px solid #30303d;border-radius:4px;padding:6px 8px;background:#12121a;">
+                            <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:4px;"><b style="color:#ffd700;font-size:12px;">${cell(it.name || '--')}</b><span style="color:#777;font-size:10px;">${cell(snapshot.source || '人工宏观与基本面文本')}</span></div>
+                            <div style="display:flex;flex-wrap:wrap;gap:4px 10px;color:#d0d0d0;font-size:11px;line-height:1.55;">
+                                <span>开工 <b style="color:#eee;">${cell(it.operating_rate_text || '--')}</b> <em style="font-style:normal;color:${colorDelta(it.operating_rate_delta)};">${cell(it.operating_rate_delta || '暂无前值')}</em></span>
+                                <span>库存 <b style="color:#eee;">${cell(it.inventory_text || '--')}</b> <em style="font-style:normal;color:${colorDelta(it.inventory_delta)};">${cell(it.inventory_delta || '暂无前值')}</em></span>
+                            </div>
+                            ${it.inventory_desc ? `<div style="margin-top:3px;color:#888;font-size:10px;line-height:1.4;">${cell(it.inventory_desc)}</div>` : ''}
+                        </div>`).join('');
+                        return `<div style="margin:6px 0 10px 0;"><div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">产业链运行快照</div><div style="display:flex;flex-wrap:wrap;gap:6px;">${cards}</div></div>`;
                     }
                     function renderInterpretation(text) {
                         if (!text) return '';
@@ -2930,6 +2960,7 @@ function getStrategyReportEndpoint() {
                     out += renderReportTable('ATM附近IV / T表', ['K','C IV','P IV','SVI/平滑IV','OI结构'], intraday.iv_table || []);
                     out += renderInterpretation(combinedInterpretation(intraday.iv_interpretation, narrativeNotes.iv));
                     out += renderReportTable('宏观与成本快照', ['项目','当前值','解读'], intraday.macro_table || []);
+                    out += renderChainOperationSnapshot(intraday.chain_operation_snapshot);
                     out += renderInterpretation(combinedInterpretation(intraday.macro_interpretation, narrativeNotes.macro));
                     const news = Array.isArray(intraday.macro_news_items) ? intraday.macro_news_items.slice(0, 5) : [];
                     if (news.length) {
@@ -4375,6 +4406,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div id="klFooterVersion" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.39</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.40</div>
 </body>
 </html>
