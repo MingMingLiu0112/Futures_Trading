@@ -119,5 +119,51 @@
     "spot_price": 6585.0,
     "spot_source": "manual:人工整理(Mysteel/正信期货)",
     "as_of_date": "2026-06-12"
+  },
+  "chain_operation_snapshot": {
+    "as_of_date": "2026-06-12",
+    "source": "manual_macro_input.json 人工结构化(来自宏观基本面文本)",
+    "items": [
+      {
+        "name": "PX",
+        "operating_rate": 77.3,
+        "operating_rate_prev": 76.0,
+        "operating_rate_unit": "%",
+        "inventory": null,
+        "inventory_prev": null,
+        "inventory_unit": "万吨",
+        "inventory_desc": "4月PX进口量69.4万吨；文本未给出PX库存绝对值"
+      },
+      {
+        "name": "PTA",
+        "operating_rate": 64.99,
+        "operating_rate_prev": 61.39,
+        "operating_rate_unit": "%",
+        "inventory": 326.02,
+        "inventory_prev": 335.5,
+        "inventory_unit": "万吨",
+        "inventory_desc": "PTA行业库存"
+      },
+      {
+        "name": "聚酯",
+        "operating_rate": 78.07,
+        "operating_rate_prev": null,
+        "operating_rate_unit": "%",
+        "inventory": null,
+        "inventory_prev": null,
+        "inventory_unit": "天",
+        "inventory_desc": "文本仅给出下游成品库存增加，未给出聚酯成品库存天数"
+      },
+      {
+        "name": "织造",
+        "operating_rate": 48.6,
+        "operating_rate_prev": 48.62,
+        "operating_rate_unit": "%",
+        "inventory": null,
+        "inventory_prev": null,
+        "inventory_unit": "天",
+        "inventory_desc": "文本仅给出终端成品库存增加，未给出坯布库存天数"
+      }
+    ]
   }
 }
