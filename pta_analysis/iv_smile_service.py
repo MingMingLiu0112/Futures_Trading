@@ -576,12 +576,17 @@ def _save_eod_state(eod_point='23:00'):
     用于：冷启动恢复 _state 的 OI/Vol/S/MP/ATM（盘后/夜盘时段启动后立即有数据）。"""
     try:
         # timestamp 必须是 EOD 保存时刻，不能用 _state.last_update（可能仍是 15:00 IV 更新时间）
+        eod_ts = datetime.now().isoformat()
         payload = {
             'eod_point': eod_point,
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': eod_ts,
             'state': _json_safe(dict(_state)),
             'last_valid': _json_safe(dict(_last_valid)),
         }
+        # 23:00 收盘后的 current 语义就是 EOD 快照；即便 IV 计算线程最后一次 last_update
+        # 停在 22:59/15:00，也不能让 state.last_update 把 EOD 恢复误判成旧 current。
+        if eod_point == '23:00':
+            payload.setdefault('state', {})['last_update'] = eod_ts
         if eod_point == '23:00':
             latest_price, price_source = _get_latest_tqsdk_futures_price()
             fallback_price = (payload.get('state') or {}).get('futures_price') or (payload.get('last_valid') or {}).get('futures_price')

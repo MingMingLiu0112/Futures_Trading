@@ -34,3 +34,10 @@ def test_eod_and_interval_snapshot_restore_are_timestamp_guarded():
     assert "_should_restore_current(incoming_ts, 'eod_state')" in s
     assert "_should_restore_current(latest_for_restore_ts, f'interval_snapshot:{latest_for_restore_key}')" in s
     assert "_should_restore_current(incoming_ts, f'interval_snapshot:{latest_key}')" in s
+
+
+def test_eod_snapshot_marks_state_last_update_as_eod_timestamp():
+    s = _source()
+    assert "eod_ts = datetime.now().isoformat()" in s
+    assert "payload.setdefault('state', {})['last_update'] = eod_ts" in s
+    assert "不能让 state.last_update 把 EOD 恢复误判成旧 current" in s
