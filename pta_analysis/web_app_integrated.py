@@ -870,7 +870,9 @@ def _trigger_strategy_report_background_refresh():
         global _strategy_report_refreshing
         try:
             with _strategy_report_lock:
-                report = _generate_strategy_report(force_close=False)
+                # 15:00 后切到 close 模式，确保主页刷新立即带上收盘复盘数据
+                is_after_close = dt_datetime.now().hour >= 15
+                report = _generate_strategy_report(force_close=is_after_close)
                 _maybe_write_close_report(report)
         except Exception as e:
             app.logger.error('[策略研报API] 后台刷新失败: %s', e)
@@ -899,9 +901,14 @@ def _strategy_report_periodic_scheduler(interval_minutes: int = 15):
     while True:
         try:
             t0 = time.time()
-            report = _generate_strategy_report(force_close=False)
+            # 15:00 后切到 close 模式：让 /realtime 缓存（daily_report.json）也带上 previous_day_comparison
+            # 字段，确保主页 15:00 收盘复盘区块能立即可见。K线实时价由 _override_report_with_kline_price 覆盖。
+            is_after_close = datetime.now().hour >= 15
+            report = _generate_strategy_report(force_close=is_after_close)
+            # force_close=True 时 _generate_strategy_report 内部不会再调 _maybe_write_close_report，
+            # 手动调一次写盘（幂等）。
             _maybe_write_close_report(report)
-            print(f"[strategy-report] 周期刷新完成: {(time.time()-t0):.1f}s @ {datetime.now().strftime('%H:%M:%S')}")
+            print(f"[strategy-report] 周期刷新完成: {(time.time()-t0):.1f}s @ {datetime.now().strftime('%H:%M:%S')} mode={'close' if is_after_close else 'intraday'}")
         except Exception as e:
             app.logger.error('[策略研报API] 周期刷新失败: %s', e)
         time.sleep(interval_minutes * 60)
@@ -1056,7 +1063,9 @@ def api_strategy_report_refresh():
     """手动刷新研报与策略。"""
     try:
         with _strategy_report_lock:
-            report = _generate_strategy_report(force_close=False)
+            # 15:00 后切到 close 模式，让用户手动刷新立即拿到收盘复盘数据
+            is_after_close = dt_datetime.now().hour >= 15
+            report = _generate_strategy_report(force_close=is_after_close)
             report = _override_report_with_kline_price(report)
             close_path = _maybe_write_close_report(report)
         return jsonify({'success': True, 'data': report, 'cached': False, 'manual': True, 'cache_minutes': STRATEGY_REPORT_CACHE_MINUTES, 'close_report_ready': bool(close_path)})
