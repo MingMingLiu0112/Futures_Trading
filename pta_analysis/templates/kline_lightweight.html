@@ -2983,6 +2983,97 @@ function getStrategyReportEndpoint() {
                     if (snaps.length) {
                         out += `<div style="margin-top:8px;color:#ffd700;font-size:12px;font-weight:bold;">日内15分钟快照摘要</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:4px 10px;margin-top:4px;">${snaps.map(s => `<div style="color:#aaa;font-size:11px;line-height:1.5;">${cell(s.slot || s.time || '-')}: ${cell(s.summary || '-')}</div>`).join('')}</div>`;
                     }
+                    // 收盘复盘：日内走势 + 前日动态对比（15:00 收盘研报核心模块）
+                    const review = cmp.intraday_review || {};
+                    const prevDyn = cmp.previous_day_dynamic || {};
+                    if (review.summary || (review.segments && review.segments.length) || prevDyn.summary) {
+                        out += `<div style="margin:10px 0 8px 0;padding:8px 10px;background:#15151f;border-left:3px solid #26a69a;border-radius:5px;">`;
+                        out += `<div style="color:#26a69a;font-size:12px;font-weight:bold;margin-bottom:6px;">📈 日内走势复盘 + 前日动态对比</div>`;
+                        // 日内主句
+                        if (review.summary) {
+                            out += `<div style="color:#cfcfcf;font-size:11px;line-height:1.6;margin:4px 0 6px 0;">${cell(review.summary)}</div>`;
+                        }
+                        // 关键价位：open/close/high/low/peak/trough
+                        const openSlot = review.open_slot, closeSlot = review.close_slot;
+                        const openP = review.open_price, closeP = review.close_price;
+                        const high = review.high, low = review.low;
+                        const peak = review.peak || {}, trough = review.trough || {};
+                        if (openP != null && closeP != null) {
+                            const chg = (closeP - openP) || 0;
+                            const chgColor = chg > 0 ? '#ef5350' : (chg < 0 ? '#26a69a' : '#888');
+                            out += `<table style="width:100%;border-collapse:collapse;font-size:11px;line-height:1.4;background:#12121b;border:1px solid #2a2a36;margin-bottom:6px;"><thead><tr>` +
+                                `<th style="color:#aaa;text-align:left;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">开/收</th>` +
+                                `<th style="color:#aaa;text-align:left;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">开盘价</th>` +
+                                `<th style="color:#aaa;text-align:left;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">收盘价</th>` +
+                                `<th style="color:#aaa;text-align:left;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">日内变化</th>` +
+                                `<th style="color:#aaa;text-align:left;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">区间低</th>` +
+                                `<th style="color:#aaa;text-align:left;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">区间高</th>` +
+                                `<th style="color:#aaa;text-align:left;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">高点时点</th>` +
+                                `<th style="color:#aaa;text-align:left;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">低点时点</th>` +
+                                `</tr></thead><tbody><tr>` +
+                                `<td style="color:#ddd;padding:4px 6px;border-bottom:1px solid #242430;">${cell(openSlot)}→${cell(closeSlot)}</td>` +
+                                `<td style="color:#ddd;padding:4px 6px;border-bottom:1px solid #242430;">${cell(openP, 0)}</td>` +
+                                `<td style="color:#ddd;padding:4px 6px;border-bottom:1px solid #242430;">${cell(closeP, 0)}</td>` +
+                                `<td style="color:${chgColor};padding:4px 6px;border-bottom:1px solid #242430;font-weight:bold;">${chg >= 0 ? '+' : ''}${chg.toFixed(0)}</td>` +
+                                `<td style="color:#ddd;padding:4px 6px;border-bottom:1px solid #242430;">${cell(low, 0)}</td>` +
+                                `<td style="color:#ddd;padding:4px 6px;border-bottom:1px solid #242430;">${cell(high, 0)}</td>` +
+                                `<td style="color:#ddd;padding:4px 6px;border-bottom:1px solid #242430;">${peak.slot ? `${cell(peak.slot)} ${cell(peak.price, 0)}` : '-'}</td>` +
+                                `<td style="color:#ddd;padding:4px 6px;border-bottom:1px solid #242430;">${trough.slot ? `${cell(trough.slot)} ${cell(trough.price, 0)}` : '-'}</td>` +
+                                `</tr></tbody></table>`;
+                        }
+                        // 走势分桶表
+                        const segs = Array.isArray(review.segments) ? review.segments : [];
+                        if (segs.length) {
+                            out += `<div style="color:#ffd700;font-size:11px;font-weight:bold;margin:6px 0 4px 0;">走势分桶（按 bias 切换分段）</div>`;
+                            out += `<table style="width:100%;border-collapse:collapse;font-size:11px;line-height:1.4;background:#12121b;border:1px solid #2a2a36;"><thead><tr>` +
+                                `<th style="color:#aaa;text-align:left;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">段起</th>` +
+                                `<th style="color:#aaa;text-align:left;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">段止</th>` +
+                                `<th style="color:#aaa;text-align:left;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">方向</th>` +
+                                `<th style="color:#aaa;text-align:left;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">变化</th>` +
+                                `<th style="color:#aaa;text-align:left;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">段内低</th>` +
+                                `<th style="color:#aaa;text-align:left;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">段内高</th>` +
+                                `</tr></thead><tbody>`;
+                            segs.forEach(seg => {
+                                const segChg = seg.change || 0;
+                                const segColor = segChg > 0 ? '#ef5350' : (segChg < 0 ? '#26a69a' : '#888');
+                                out += `<tr>` +
+                                    `<td style="color:#ddd;padding:4px 6px;border-bottom:1px solid #242430;">${cell(seg.from_slot)} (${cell(seg.from_price, 0)})</td>` +
+                                    `<td style="color:#ddd;padding:4px 6px;border-bottom:1px solid #242430;">${cell(seg.to_slot)} (${cell(seg.to_price, 0)})</td>` +
+                                    `<td style="color:#ddd;padding:4px 6px;border-bottom:1px solid #242430;">${cell(seg.bias)}</td>` +
+                                    `<td style="color:${segColor};padding:4px 6px;border-bottom:1px solid #242430;font-weight:bold;">${segChg >= 0 ? '+' : ''}${segChg.toFixed(0)}</td>` +
+                                    `<td style="color:#ddd;padding:4px 6px;border-bottom:1px solid #242430;">${cell(seg.low, 0)}</td>` +
+                                    `<td style="color:#ddd;padding:4px 6px;border-bottom:1px solid #242430;">${cell(seg.high, 0)}</td>` +
+                                    `</tr>`;
+                            });
+                            out += `</tbody></table>`;
+                        }
+                        // 前日动态对比
+                        if (prevDyn.summary || prevDyn.previous_close_price != null) {
+                            out += `<div style="color:#ffd700;font-size:11px;font-weight:bold;margin:8px 0 4px 0;">前日动态对比</div>`;
+                            if (prevDyn.summary) {
+                                out += `<div style="color:#cfcfcf;font-size:11px;line-height:1.6;margin:0 0 4px 0;">${cell(prevDyn.summary)}</div>`;
+                            }
+                            const prevP = prevDyn.previous_close_price, curP = prevDyn.current_price;
+                            if (prevP != null && curP != null) {
+                                const dChg = (curP - prevP) || 0;
+                                const dColor = dChg > 0 ? '#ef5350' : (dChg < 0 ? '#26a69a' : '#888');
+                                out += `<table style="width:100%;border-collapse:collapse;font-size:11px;line-height:1.4;background:#12121b;border:1px solid #2a2a36;"><thead><tr>` +
+                                    `<th style="color:#aaa;text-align:left;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">前一交易日收盘参考</th>` +
+                                    `<th style="color:#aaa;text-align:left;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">今日收盘参考</th>` +
+                                    `<th style="color:#aaa;text-align:left;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">日间变化</th>` +
+                                    `<th style="color:#aaa;text-align:left;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">昨日结构</th>` +
+                                    `<th style="color:#aaa;text-align:left;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">今日结构</th>` +
+                                    `</tr></thead><tbody><tr>` +
+                                    `<td style="color:#ddd;padding:4px 6px;border-bottom:1px solid #242430;">${cell(prevP, 0)}</td>` +
+                                    `<td style="color:#ddd;padding:4px 6px;border-bottom:1px solid #242430;">${cell(curP, 0)}</td>` +
+                                    `<td style="color:${dColor};padding:4px 6px;border-bottom:1px solid #242430;font-weight:bold;">${dChg >= 0 ? '+' : ''}${dChg.toFixed(0)}</td>` +
+                                    `<td style="color:#ddd;padding:4px 6px;border-bottom:1px solid #242430;">${cell(prevDyn.bias_yesterday) || '-'}</td>` +
+                                    `<td style="color:#ddd;padding:4px 6px;border-bottom:1px solid #242430;">${cell(prevDyn.bias_today) || '-'}</td>` +
+                                    `</tr></tbody></table>`;
+                            }
+                        }
+                        out += `</div>`;
+                    }
                     out += `</div>`;
                     return out;
                 }

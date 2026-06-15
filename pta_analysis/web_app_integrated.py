@@ -881,6 +881,32 @@ def _trigger_strategy_report_background_refresh():
     threading.Thread(target=_worker, daemon=True, name='strategy-report-refresh').start()
 
 
+def _strategy_report_periodic_scheduler(interval_minutes: int = 15):
+    """独立定时调度：每 N 分钟主动刷新研报缓存，不依赖浏览器访问。
+
+    之前研报面板依赖 /realtime 接口被调用时触发后台刷新，没人访问就 0 刷新；
+    现改成服务启动后跑独立 daemon 线程，整 15 分钟主动调一次 _generate_strategy_report。
+    """
+    import time
+    from datetime import datetime
+    # 启动后第一次 sleep 到下一个整 15 分钟边界（避免启动时立即打满）
+    now = datetime.now()
+    boundary_sec = (15 - (now.minute % 15)) * 60 - now.second
+    if boundary_sec <= 0:
+        boundary_sec += 15 * 60
+    print(f"[strategy-report] 周期调度启动：首次刷新在 {boundary_sec}s 后（整 15min 对齐）")
+    time.sleep(boundary_sec)
+    while True:
+        try:
+            t0 = time.time()
+            report = _generate_strategy_report(force_close=False)
+            _maybe_write_close_report(report)
+            print(f"[strategy-report] 周期刷新完成: {(time.time()-t0):.1f}s @ {datetime.now().strftime('%H:%M:%S')}")
+        except Exception as e:
+            app.logger.error('[策略研报API] 周期刷新失败: %s', e)
+        time.sleep(interval_minutes * 60)
+
+
 @app.route('/api/strategy_report/manual_macro', methods=['GET', 'POST'])
 def api_strategy_report_manual_macro():
     """保存/读取用户盘前或休盘后补充的宏观基本面材料。"""
@@ -3025,6 +3051,10 @@ if __name__ == '__main__':
     pt = threading.Thread(target=prewarm_option_chain, daemon=True)
     pt.start()
 
+    # 策略研报独立周期调度：整 15 分钟主动刷新，不依赖浏览器访问
+    srt = threading.Thread(target=_strategy_report_periodic_scheduler, kwargs={'interval_minutes': 15}, daemon=True, name='strategy-report-periodic')
+    srt.start()
+
     app.run(host='0.0.0.0', port=8424, debug=False, threaded=True)
 else:
     # gunicorn / uwsgi 等 WSGI 服务器启动时初始化数据库
@@ -3038,3 +3068,6 @@ else:
         print("[iv_smile] WSGI模式：TqSdk线程已启动（内部自愈重连已启用）")
         # 调度器立即启动，data_ready后compute_once自动生效
         iv_smile_service.start_scheduler(interval_minutes=1)
+        # 策略研报独立周期调度（WSGI 模式同样启用）
+        srt = threading.Thread(target=_strategy_report_periodic_scheduler, kwargs={'interval_minutes': 15}, daemon=True, name='strategy-report-periodic')
+        srt.start()
