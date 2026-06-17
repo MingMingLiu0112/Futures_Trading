@@ -2466,9 +2466,9 @@ def generate_intraday_analysis(report: Dict) -> Dict:
     main_futures_display_price = main_futures_price
     # 同步把 main_futures_price 暴露给下游（trader_report / narrative 末尾的'盘面主力参考价 XX'复用）
     main_futures_price = main_futures_display_price
-    near_basis = pta.get('near_basis')
-    # 基差：现货-主力（用 K线 main + 人工 spot 自然计算）
-    if near_basis is None and pta_spot is not None and main_futures_display_price:
+    # 基差口径（v2.11.46+）：严格按"PTA现货 − 盘面主力参考价"计算，akshare 郑商所表的 near_basis 已废弃
+    near_basis = None
+    if pta_spot is not None and main_futures_display_price:
         near_basis = round(float(pta_spot) - float(main_futures_display_price), 2)
     px_price = px.get('spot_price') or px.get('price')
     px_asia_close = px_external.get('px_asia_close_usd')
