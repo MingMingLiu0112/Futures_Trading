@@ -2563,7 +2563,7 @@ def generate_intraday_analysis(report: Dict) -> Dict:
         ['盘面主力参考价', f"{main_futures_label} {_fmt_num(main_futures_display_price)}", f"K线短线节奏：{futures_bias}"],
         ['最近20根K线', _fmt_signed(main_px.get('change_20_bars')), '观察日内强弱和追单风险'],
         ['PTA现货', _fmt_num(pta_spot), '现货/成本锚'],
-        ['现货-近月基差', _fmt_signed(near_basis), '升水偏强、贴水偏弱'],
+        ['基差', _fmt_signed(near_basis), 'PTA现货 − 盘面主力参考价；升水偏强、贴水偏弱'],
     ]
     gex_table = [['标的价F', _fmt_num(option_underlying_price)], ['GEX Flip', _fmt_num(gex_flip)], ['净GEX', f"{_fmt_num(net_gex_m,1)}M"], ['Gamma方向', gex_dir or '--'], ['Max Pain', _fmt_num(max_pain)], ['PCR', _fmt_num(pcr,3)], ['剩余到期', f"{_fmt_num(days_left,1)}天"]]
     pain_table = pain_rows
@@ -2637,7 +2637,7 @@ def generate_intraday_analysis(report: Dict) -> Dict:
         f"原油/PX若继续偏强，会给PTA下方托底；如果中东缓和、原油回落或PX转弱，则多头会受压。当前PTA利润约{_fmt_num(profit)}元，加工费偏高会限制上方持续单边拉涨空间。",
         "",
         "三、PTA自身基本面",
-        f"现货参考{_fmt_num(pta_spot)}，基差{_fmt_signed(near_basis)}，PX参考{_fmt_num(px_price)}，PTA估算成本{_fmt_num(pta_cost)}。现货/成本仍提供支撑，但高加工费和装置重启预期会压制追多空间。",
+        f"现货参考{_fmt_num(pta_spot)}，基差{_fmt_signed(near_basis)}（即PTA现货 − 盘面主力参考价），PX参考{_fmt_num(px_price)}，PTA估算成本{_fmt_num(pta_cost)}。现货/成本仍提供支撑，但高加工费和装置重启预期会压制追多空间。",
         "",
         "四、当前期权结构",
         f"期权链标的参考价：{_fmt_num(option_underlying_price)}；Max Pain：{max_pain_text}；GEX Flip：{gex_flip_text}；净GEX：{_fmt_num(net_gex_m,1)}M；Gamma方向：{gex_dir or '--'}；PCR：{_fmt_num(pcr,3)}；剩余到期：约{_fmt_num(days_left,1)}天。",
