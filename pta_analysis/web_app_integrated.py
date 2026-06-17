@@ -793,12 +793,29 @@ def _override_report_with_kline_price(report):
             node['futures_panel'] = panel
         mst = node.get('market_snapshot_table')
         if isinstance(mst, list):
+            # 同步重算"基差"行：基差 = PTA现货 − 盘面主力参考价。
+            # 否则当 main_futures_price 从 fallback 值被 K线覆盖时,基差仍停留在旧主力价,出现"主力价 5784 / 基差 -225"自相矛盾。
+            _pta_spot = None
+            _new_main_price = new_price
             for row in mst:
-                if not (isinstance(row, list) and len(row) >= 2):
-                    continue
-                key = str(row[0] or '')
-                if '盘面主力参考价' in key or '盘面助理参考价' in key:
-                    row[1] = f"{new_symbol} {live_text}"
+                if isinstance(row, list) and len(row) >= 2:
+                    if str(row[0] or '') == 'PTA现货':
+                        try:
+                            _pta_spot = float(str(row[1]).replace(',', ''))
+                        except (TypeError, ValueError):
+                            _pta_spot = None
+                    if '盘面主力参考价' in str(row[0] or '') or '盘面助理参考价' in str(row[0] or ''):
+                        row[1] = f"{new_symbol} {live_text}"
+            # 重算基差行
+            if _pta_spot is not None:
+                _recomputed_basis = round(_pta_spot - _new_main_price, 2)
+                for row in mst:
+                    if isinstance(row, list) and len(row) >= 2 and str(row[0] or '') == '基差':
+                        try:
+                            from scripts.generate_daily_report import _fmt_signed  # type: ignore
+                        except Exception:
+                            _fmt_signed = lambda v, digits=0: (('--' if v is None else f'{float(v):+.{digits}f}'))
+                        row[1] = _fmt_signed(_recomputed_basis)
         # 文本层
         def _rep(text):
             if not isinstance(text, str):
@@ -829,6 +846,26 @@ def _override_report_with_kline_price(report):
                 f'盘面助理参考价 {new_symbol} {live_text}', text, flags=_re.ASCII)
             text = _re.sub(_pat_inline_asst2,
                 f'盘面助理参考价 {new_symbol} {live_text}', text, flags=_re.ASCII)
+            # 同步替换文本中的"基差±N"为按新主力价重算的值。
+            # 必须在"盘面主力参考价"行覆盖完之后做（保证能拿到最新的 _pta_spot / new_price）
+            # 注意：trader_report 第二节有"基差走弱(09合约贴水...)"等叙述文字,只匹配"基差±N"格式
+            # 不匹配"基差走弱"等非数字形态,避免误伤。
+            if _pta_spot is not None:
+                _new_basis = round(_pta_spot - new_price, 2)
+                try:
+                    from scripts.generate_daily_report import _fmt_signed as _fs  # type: ignore
+                except Exception:
+                    _fs = lambda v, digits=0: (('--' if v is None else f'{float(v):+.{digits}f}'))
+                _new_basis_text = _fs(_new_basis)
+                # 表格行："| 基差 | ±N |" → "| 基差 | ±M |"
+                text = _re.sub(r'\|\s*基差\s*\|\s*[+-]?\d+(?:\.\d+)?\s*\|',
+                               f'| 基差 | {_new_basis_text} |', text, flags=_re.ASCII)
+                # 文本 inline："基差±N" 必须后接"（即"或紧跟"（"才匹配，避免误命中"基差走弱"等叙述
+                text = _re.sub(r'基差[+-]?\d+(?:\.\d+)?(?=\s*[（(]?即)',
+                               f'基差{_new_basis_text}', text, flags=_re.ASCII)
+                # 兜底:trader_report 第三节"现货参考6127，基差±N，PX参考..."模式
+                text = _re.sub(r'(现货参考[\d,.]+[，,]\s*)基差[+-]?\d+(?:\.\d+)?(?=\s*[，,])',
+                               rf'\1基差{_new_basis_text}', text, flags=_re.ASCII)
             return text
         for k in ('narrative', 'trader_report',
                   'market_snapshot_interpretation',

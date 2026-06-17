@@ -2423,9 +2423,26 @@ def generate_intraday_analysis(report: Dict) -> Dict:
     manual_macro = report.get('manual_macro_input') or {}
 
     option_underlying_price = gex_summary.get('futures_price')
+    # 盘面主力参考价: 严格用实时K线价;K线接口拿不到时**不再 fallback 到 dominant_price/near_price**
+    # (那些是 TA609 上一交易日结算价 / TA606 近月合约价,跟"盘面主力参考价"不是一个口径,
+    # fallback 后会被后续 _override_report_with_kline_price 用 K线价覆盖,但期间生成的
+    # market_snapshot_table['基差'] 和 trader_report 第三节点的 near_basis 都会是错的)
+    # 取不到就直接返回 None,让上层决策是否保留旧缓存
     main_px = get_main_futures_price()
-    main_futures_price = main_px.get('price') or pta.get('dominant_price') or pta.get('near_price')
-    main_symbol = main_px.get('symbol') or pta.get('dominant_contract') or 'TA主力'
+    kline_price = main_px.get('price')
+    if kline_price is not None:
+        main_futures_price = float(kline_price)
+        main_symbol = main_px.get('symbol') or pta.get('dominant_contract') or 'TA609'
+    else:
+        # K线接口无价:日志告警,保留 None;调用方需自己决定是否要保留 main_futures_price=None 的旧值
+        app_logger = None  # generate_daily_report 不直接接 app.logger,用 print 兜底
+        try:
+            import logging
+            logging.getLogger(__name__).warning('[研报] K线接口无价,main_futures_price=None (避开 fallback 到 dominant_price)')
+        except Exception:
+            pass
+        main_futures_price = None
+        main_symbol = pta.get('dominant_contract') or 'TA609'
 
     # ---- 人工 spot_main_overrides（v2.11.37+）：仅覆盖 PTA 现货价；
     # 盘面主力参考价/主力符号/涨跌幅/基差都来自实时K线 / 自然计算 ----
