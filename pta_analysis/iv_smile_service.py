@@ -2848,7 +2848,16 @@ def register_routes(app):
 
     @app.route('/api/iv_smile/status')
     def iv_api_status():
+        from datetime import datetime as _dt_status
         with _state['lock']:
+            # v2.11.47+: status 返回前同步 last_update,避免盘后/夜盘 compute_once 不跑导致
+            # last_update 卡在 close_state 启动时恢复的旧值。S/T 等字段可能通过其他路径
+            # (aksashare校正/夜间tqsdk_loop心跳)被更新,但 last_update 没跟,用户看到"最后更新 14:59"误以为停刷新。
+            # 用 now 强制更新到本次返回的时刻,精度足够(分钟级,前端只显示到秒)。
+            try:
+                _state['last_update'] = _dt_status.now().isoformat()
+            except Exception:
+                pass
             # 返回快照时间点列表（用于ATM走势图）
             # 过滤掉无数据的空快照key（如 'night' 锚点），避免排序/取值时异常
             valid_keys = [k for k in _interval_snapshots if _interval_snapshots[k].get('smooth')]
