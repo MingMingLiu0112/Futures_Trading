@@ -908,7 +908,10 @@ def _trigger_strategy_report_background_refresh():
         try:
             with _strategy_report_lock:
                 # 15:00 后切到 close 模式，确保主页刷新立即带上收盘复盘数据
-                is_after_close = dt_datetime.now().hour >= 15
+                # v2.11.48+: 21:00-23:00 夜盘时段仍按 intraday 模式跑,让 save_intraday_snapshot 把夜盘槽位归档
+                now_h = dt_datetime.now().hour
+                in_night_session = 21 <= now_h < 23
+                is_after_close = (now_h >= 15) and not in_night_session
                 report = _generate_strategy_report(force_close=is_after_close)
                 _maybe_write_close_report(report)
         except Exception as e:
@@ -956,11 +959,15 @@ def _strategy_report_periodic_scheduler(interval_minutes: int = 15):
             t0 = time.time()
             now_run = datetime.now()
             # 15:00 后切到 close 模式:让 /realtime 缓存也带上 previous_day_comparison 字段。
+            # v2.11.48+: 21:00-23:00 夜盘时段切回 intraday 模式,确保 save_intraday_snapshot 被调用、夜盘槽位能归档,
+            # 否则 build_daily_comparison 永远拿不到夜盘数据, intraday_slots 只有日盘 12 份。
             # 00:00-08:59 跳过(无交易,生成也无意义)。
             if now_run.hour < 9:
                 print(f"[strategy-report] 非交易时段 {now_run.strftime('%H:%M:%S')} 跳过")
                 continue
-            is_after_close = now_run.hour >= 15
+            # 夜盘 21:00-23:00 强制 intraday 模式(即便 hour>=15)
+            in_night_session = 21 <= now_run.hour < 23
+            is_after_close = (now_run.hour >= 15) and not in_night_session
             report = _generate_strategy_report(force_close=is_after_close)
             _maybe_write_close_report(report)
             print(f"[strategy-report] 周期刷新完成: {(time.time()-t0):.1f}s @ {now_run.strftime('%H:%M:%S')} mode={'close' if is_after_close else 'intraday'}")
