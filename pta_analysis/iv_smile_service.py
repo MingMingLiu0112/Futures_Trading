@@ -2722,8 +2722,9 @@ def compute_once(force=False):
             _state['svi_params'] = svi
         else:
             print(f"[iv_smile] 📊 保留已有smile数据({existing_smooth_count}档)，不用不完整数据({new_smooth_count}档)覆盖")
-        if should_update_smile:
-            _state['last_update'] = now.isoformat()
+        # v2.11.47+: last_update 必须在每次 compute_once 都同步,不能只在交易时段更新
+        # 否则盘后/夜盘 last_update 会永远停在最后一次 14:59:xx,用户看到"最后更新 14:59"误以为停止刷新
+        _state['last_update'] = now.isoformat()
 
     svi_str = (f"a={svi['a']:.4f} b={svi['b']:.4f} ρ={svi['rho']:.3f} ATMvol={svi['atm_vol']:.2%}") if svi else "失败"
     mp_str = f"MP={max_pain}" if max_pain else ""
