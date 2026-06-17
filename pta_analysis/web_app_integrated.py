@@ -921,34 +921,53 @@ def _trigger_strategy_report_background_refresh():
 
 
 def _strategy_report_periodic_scheduler(interval_minutes: int = 15):
-    """独立定时调度：每 N 分钟主动刷新研报缓存，不依赖浏览器访问。
+    """独立定时调度:整 15 分钟边界主动刷新研报缓存,不依赖浏览器访问。
 
-    之前研报面板依赖 /realtime 接口被调用时触发后台刷新，没人访问就 0 刷新；
-    现改成服务启动后跑独立 daemon 线程，整 15 分钟主动调一次 _generate_strategy_report。
+    v2.11.47+: 用绝对时刻 sleep 到下一个整 15 分边界,不再固定 sleep(900) 导致累积漂移。
+    之前每次刷新实际消耗 350-630 秒,固定 sleep 900 秒会让实际完成时间偏离整 15 分越来越远
+    (如 09:30 → 10:48 → 12:21 → 13:52 → 15:36,完全不在整 15 分边界)。
+
+    close/intraday 模式切换:
+    - hour < 15: intraday 模式(普通盘中)
+    - hour >= 15: close 模式(15:00 后全天总复盘)
+    - 00:00-08:59 不刷新(无交易时段,刷新也浪费)
     """
-    import time
-    from datetime import datetime
-    # 启动后第一次 sleep 到下一个整 15 分钟边界（避免启动时立即打满）
-    now = datetime.now()
-    boundary_sec = (15 - (now.minute % 15)) * 60 - now.second
-    if boundary_sec <= 0:
-        boundary_sec += 15 * 60
-    print(f"[strategy-report] 周期调度启动：首次刷新在 {boundary_sec}s 后（整 15min 对齐）")
-    time.sleep(boundary_sec)
+    from datetime import datetime, timedelta
+    # 启动后第一次 sleep 到下一个整 15 分边界(09:00/09:15/09:30/...)
+    # 注意:启动时间可能恰好就是整 15 分边界,此时应立即触发,不等下一拍
     while True:
+        now = datetime.now()
+        # 整 15 分边界 = 当前时间的 minute % 15 == 0
+        if now.minute % 15 == 0 and now.second < 30:
+            boundary_dt = now.replace(second=0, microsecond=0)
+        else:
+            # 下一个整 15 分边界
+            next_minute = ((now.minute // 15) + 1) * 15
+            if next_minute >= 60:
+                boundary_dt = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+            else:
+                boundary_dt = now.replace(minute=next_minute, second=0, microsecond=0)
+        sleep_sec = (boundary_dt - now).total_seconds()
+        if sleep_sec > 0:
+            print(f"[strategy-report] 周期调度:下次刷新 @ {boundary_dt.strftime('%H:%M:%S')} (sleep {sleep_sec:.0f}s)")
+            import time
+            time.sleep(sleep_sec)
         try:
             t0 = time.time()
-            # 15:00 后切到 close 模式：让 /realtime 缓存（daily_report.json）也带上 previous_day_comparison
-            # 字段，确保主页 15:00 收盘复盘区块能立即可见。K线实时价由 _override_report_with_kline_price 覆盖。
-            is_after_close = datetime.now().hour >= 15
+            now_run = datetime.now()
+            # 15:00 后切到 close 模式:让 /realtime 缓存也带上 previous_day_comparison 字段。
+            # 00:00-08:59 跳过(无交易,生成也无意义)。
+            if now_run.hour < 9:
+                print(f"[strategy-report] 非交易时段 {now_run.strftime('%H:%M:%S')} 跳过")
+                continue
+            is_after_close = now_run.hour >= 15
             report = _generate_strategy_report(force_close=is_after_close)
-            # force_close=True 时 _generate_strategy_report 内部不会再调 _maybe_write_close_report，
-            # 手动调一次写盘（幂等）。
             _maybe_write_close_report(report)
-            print(f"[strategy-report] 周期刷新完成: {(time.time()-t0):.1f}s @ {datetime.now().strftime('%H:%M:%S')} mode={'close' if is_after_close else 'intraday'}")
+            print(f"[strategy-report] 周期刷新完成: {(time.time()-t0):.1f}s @ {now_run.strftime('%H:%M:%S')} mode={'close' if is_after_close else 'intraday'}")
         except Exception as e:
-            app.logger.error('[策略研报API] 周期刷新失败: %s', e)
-        time.sleep(interval_minutes * 60)
+            import logging
+            logging.getLogger('werkzeug').error('[策略研报API] 周期刷新失败: %s', e)
+            print(f"[strategy-report] 周期刷新失败: {e}")
 
 
 @app.route('/api/strategy_report/manual_macro', methods=['GET', 'POST'])

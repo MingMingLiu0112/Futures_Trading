@@ -2847,15 +2847,27 @@ def load_previous_trading_day_close_report(date_text: Optional[str] = None) -> O
 
 
 def build_daily_comparison(current_report: Dict, previous_report: Optional[Dict], intraday_snapshots: List[Dict]) -> Dict:
-    """生成全天总研报的日内变化和前日对比，并明确数据覆盖度。
+    """生成全天总研报的日内变化和前日对比,并明确数据覆盖度。
 
-    15:00收盘研报不能只给“归档了几份”；需要把盘中15分钟快照串成走势回顾，
-    并和前一交易日收盘研报做动态对比。
+    PTA 交易日边界定义:一个完整交易日 = 前一日夜盘 21:00 开盘 → 当日日盘 15:00 收盘(夜盘 21:00-23:00 + 日盘 09:00-15:00)。
+    intraday_review.open_slot 应取该交易日**第一段**(夜盘 21:00 槽或当日 09:00 槽),而非只看 09:00。
+    previous_day_dynamic.previous_close_price 取**上一交易日日盘 15:00 收盘价**(=前一交易日 baseline)。
     """
     def pick_price(r):
         ia = (r or {}).get('intraday_analysis') or {}
-        # 收盘复盘优先看盘面主力节奏；若历史快照缺主力字段再退回期权链标的价。
+        # 收盘复盘优先看盘面主力节奏;若历史快照缺主力字段再退回期权链标的价。
         return _as_float(ia.get('main_futures_price')) or _as_float(ia.get('option_underlying_price'))
+
+    def pick_slot(r):
+        """优先取 intraday_analysis.snapshot_slot(15分钟槽),否则 intraday_snapshots[0].slot,否则空。"""
+        ia = (r or {}).get('intraday_analysis') or {}
+        slot = ia.get('snapshot_slot')
+        if slot:
+            return str(slot)
+        snaps = (r or {}).get('intraday_snapshots') or []
+        if snaps and isinstance(snaps[0], dict):
+            return str(snaps[0].get('snapshot_slot') or snaps[0].get('slot') or '')
+        return ''
 
     def pick_bias(r):
         ia = (r or {}).get('intraday_analysis') or {}
@@ -2870,6 +2882,24 @@ def build_daily_comparison(current_report: Dict, previous_report: Optional[Dict]
 
     snapshot_count = len(intraday_snapshots)
     slots = [x.get('snapshot_slot') for x in intraday_snapshots if x.get('snapshot_slot')]
+    # v2.11.47+: PTA 交易日 = 前夜盘 21:00 → 当日 15:00。open_slot 优先取该窗口第一段(夜盘槽 21:00/21:15),否则日盘 09:00。
+    # 当 points 序列跨过 15:00(说明含次日日盘),仍取 points[0] 当作"该报告锚定的交易日开盘"。
+    def _resolve_open_slot(pts: List[Dict], current_report_slot: str = '') -> Optional[str]:
+        if not pts:
+            return None
+        # 1) 优先看 current_report_slot 是否是夜盘(>=2100 且 <2400)
+        if current_report_slot and current_report_slot.isdigit():
+            s_int = int(current_report_slot)
+            if 2100 <= s_int < 2400:
+                return current_report_slot
+        # 2) 否则看 points 里第一个 >=2100 的槽(夜盘)或 0900 槽
+        first_slot = pts[0].get('slot')
+        if first_slot and str(first_slot).isdigit():
+            s_int = int(first_slot)
+            if 2100 <= s_int < 2400:
+                return str(first_slot)
+        return first_slot  # 默认日盘 09:00
+
     points = []
     for x in intraday_snapshots:
         price = pick_price(x)
@@ -2884,6 +2914,9 @@ def build_daily_comparison(current_report: Dict, previous_report: Optional[Dict]
         })
     prices = [x['price'] for x in points]
     cur_price = pick_price(current_report)
+    # v2.11.47+: 日内比较应覆盖完整交易日(前一日 21:00 → 当日 15:00)。
+    # 若当前报告的前夜盘有 slot,优先取夜盘开盘的 slot/price 作为 open;否则用日盘 09:00 槽。
+    cur_slot = pick_slot(current_report)
     prev_price = pick_price(previous_report) if previous_report else None
     previous_day_available = previous_report is not None
 
@@ -2937,9 +2970,11 @@ def build_daily_comparison(current_report: Dict, previous_report: Optional[Dict]
 
     intraday_review = {
         'points': points,
-        'open_slot': points[0]['slot'] if points else None,
+        # v2.11.47+: 完整交易日 open 槽优先取夜盘(2100),否则日盘(0900)。
+        # 若 current_report.snapshot_slot 是夜盘(如 21:00/21:15),用它作 open。
+        'open_slot': _resolve_open_slot(points, cur_slot),
         'close_slot': points[-1]['slot'] if points else None,
-        'open_price': points[0]['price'] if points else None,
+        'open_price': points[0]['price'] if points else None,  # points 本身已按时间排序
         'close_price': points[-1]['price'] if points else cur_price,
         'high': max(prices) if prices else None,
         'low': min(prices) if prices else None,
@@ -2947,6 +2982,8 @@ def build_daily_comparison(current_report: Dict, previous_report: Optional[Dict]
         'segments': segment_summaries,
         'peak': {'slot': peak_pt['slot'], 'price': peak_pt['price']} if peak_pt else None,
         'trough': {'slot': trough_pt['slot'], 'price': trough_pt['price']} if trough_pt else None,
+        # v2.11.47+: 标注交易日边界
+        'trading_day_window': '前夜盘 21:00 → 当日 15:00(夜盘 + 日盘)',
     }
     if intraday_review['change'] is not None:
         chg = intraday_review['change']
@@ -2977,19 +3014,23 @@ def build_daily_comparison(current_report: Dict, previous_report: Optional[Dict]
 
     if previous_day_available and prev_price is not None and cur_price is not None:
         day_change = cur_price - prev_price
-        day_note = f'相对前一交易日参考价变化{day_change:+.0f}点。'
+        # v2.11.47+: summary 明确这是"上一交易日日盘 15:00 收盘基准"(PTA 交易日 = 前夜盘 21:00 → 当日 15:00,
+        # 所以"上一交易日"指上一个完整交易日;6/17 报告里 prev_price=5830 是 6/16 15:00 收盘价,正确)
+        day_note = f'较上一交易日日盘 15:00 收盘基准变化{day_change:+.0f}点。'
         previous_day_dynamic = {
             'previous_close_price': prev_price,
+            'previous_close_label': '上一交易日日盘 15:00 收盘基准',
             'current_price': cur_price,
             'change': day_change,
             'bias_yesterday': pick_bias(previous_report),
             'bias_today': pick_bias(current_report),
-            'summary': f"今日收盘参考价较前一交易日{day_change:+.0f}点；昨日结构{pick_bias(previous_report)}，今日结构{pick_bias(current_report)}。"
+            'summary': f'今日日盘 15:00 收盘参考价较上一交易日日盘 15:00 收盘基准{day_change:+.0f}点;昨日结构{pick_bias(previous_report)},今日结构{pick_bias(current_report)}。',
         }
     else:
-        day_note = '前一交易日收盘研报暂缺，日间动态对比暂不能完整展开。'
+        day_note = '前一交易日收盘研报暂缺,日间动态对比暂不能完整展开。'
         previous_day_dynamic = {
             'previous_close_price': prev_price,
+            'previous_close_label': '上一交易日日盘 15:00 收盘基准',
             'current_price': cur_price,
             'change': None,
             'bias_yesterday': None,
