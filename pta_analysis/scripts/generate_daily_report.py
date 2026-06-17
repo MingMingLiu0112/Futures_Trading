@@ -2855,8 +2855,14 @@ def build_daily_comparison(current_report: Dict, previous_report: Optional[Dict]
     """
     def pick_price(r):
         ia = (r or {}).get('intraday_analysis') or {}
-        # 收盘复盘优先看盘面主力节奏;若历史快照缺主力字段再退回期权链标的价。
-        return _as_float(ia.get('main_futures_price')) or _as_float(ia.get('option_underlying_price'))
+        # v2.11.49: 主力研报口径只取 TA609 主力合约(K线 main_futures_price),禁止回退到
+        #   TA608 期权链标的价(option_underlying_price)。两个合约价格差近百点,
+        #   一旦混入会导致研报"日内走势"/"基差"价格全错。
+        #   K线接口无价的槽位返回 None,build_daily_comparison 会自动跳过(points 不含该槽)。
+        price = _as_float(ia.get('main_futures_price'))
+        if price is None:
+            return None
+        return price
 
     def pick_slot(r):
         """优先取 intraday_analysis.snapshot_slot(15分钟槽),否则 intraday_snapshots[0].slot,否则空。"""
@@ -2882,8 +2888,8 @@ def build_daily_comparison(current_report: Dict, previous_report: Optional[Dict]
 
     snapshot_count = len(intraday_snapshots)
     slots = [x.get('snapshot_slot') for x in intraday_snapshots if x.get('snapshot_slot')]
-    # v2.11.47+: PTA 交易日 = 前夜盘 21:00 → 当日 15:00。open_slot 优先取该窗口第一段(夜盘槽 21:00/21:15),否则日盘 09:00。
-    # 当 points 序列跨过 15:00(说明含次日日盘),仍取 points[0] 当作"该报告锚定的交易日开盘"。
+    # v2.11.49+: PTA 交易日 = 前夜盘 21:00 → 当日 15:00。open_slot 必须从 points 里找第一个 21xx 槽
+    #   (夜盘起点),不再取字典序 pts[0] (会落到日盘 0900)。
     def _resolve_open_slot(pts: List[Dict], current_report_slot: str = '') -> Optional[str]:
         if not pts:
             return None
@@ -2892,13 +2898,15 @@ def build_daily_comparison(current_report: Dict, previous_report: Optional[Dict]
             s_int = int(current_report_slot)
             if 2100 <= s_int < 2400:
                 return current_report_slot
-        # 2) 否则看 points 里第一个 >=2100 的槽(夜盘)或 0900 槽
-        first_slot = pts[0].get('slot')
-        if first_slot and str(first_slot).isdigit():
-            s_int = int(first_slot)
-            if 2100 <= s_int < 2400:
-                return str(first_slot)
-        return first_slot  # 默认日盘 09:00
+        # 2) 从 points 里显式遍历找第一个 21xx 槽(夜盘起点)
+        for p in pts:
+            s = p.get('slot')
+            if s and str(s).isdigit():
+                s_int = int(s)
+                if 2100 <= s_int < 2400:
+                    return str(s)
+        # 3) 兜底:用 pts[0] (日盘 0900)
+        return pts[0].get('slot') if pts else None
 
     points = []
     for x in intraday_snapshots:
@@ -2912,6 +2920,19 @@ def build_daily_comparison(current_report: Dict, previous_report: Optional[Dict]
             'bias': pick_bias(x),
             'summary': _clean_report_text(((x.get('intraday_analysis') or {}).get('summary') or x.get('narrative_report') or ''))[:160],
         })
+    # v2.11.49+: points 按"夜盘优先 + 时间正序"双键排序。
+    #   排序键:(夜盘0/日盘1, 槽位分钟数)。这样 pts[0]=2100 槽(夜盘起点),pts[-1]=日盘末槽或夜盘末槽;
+    #   open_price/close_price 才能与 open_slot/close_slot 一一对应。
+    def _slot_sort_key(slot):
+        s = str(slot).zfill(4)
+        try:
+            minutes = int(s[:2]) * 60 + int(s[2:4])
+        except Exception:
+            return (1, 9999)
+        if 21 * 60 <= minutes < 24 * 60:
+            return (0, minutes)
+        return (1, minutes)
+    points = sorted(points, key=lambda p: _slot_sort_key(p.get('slot') or '9999'))
     prices = [x['price'] for x in points]
     cur_price = pick_price(current_report)
     # v2.11.47+: 日内比较应覆盖完整交易日(前一日 21:00 → 当日 15:00)。
