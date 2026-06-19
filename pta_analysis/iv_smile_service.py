@@ -437,6 +437,8 @@ _CLOSE_STATE_FILE = os.path.join(_SNAPSHOT_DIR, 'close_state.json')
 _EOD_STATE_FILE = os.path.join(_SNAPSHOT_DIR, 'eod_state.json')  # 23:00 收盘完整状态（用于冷启动恢复 _state）
 _eod_state_loaded = False  # 全局标记：eod_state.json 是否已加载（避免被 close_state.json 覆盖）
 _close_state_saved_slots = set()  # 记录本次进程已保存的收盘时间槽，避免重复
+_close_state_last_mtime = 0.0    # 上次已知的 close_state.json mtime，主循环每 60s 轮询一次，新则 reload _close_baseline
+_last_close_state_check_ts = 0.0  # 独立计时器，60s 才 stat 一次文件（避免每 1s wait_update 都打磁盘）
 
 def _get_snapshot_path(date_str):
     """返回指定日期的日盘快照文件路径（包含全天所有15分钟时间点）。"""
@@ -876,6 +878,22 @@ def _load_close_state():
                 import re as _re
                 m = _re.search(r'TA\d{3}', note)
                 if m: recovered_contract = m.group(0)
+        # v2.11.50+ 校准 ts：用 close_point 对应的"语义收盘时刻"（15:00 = 15:00:00），而不是落盘时间
+        # 例如盘后 17:21 手工补盘 → _close_baseline.ts 应显示 "06/18 15:00"，这样前端标签就是"15:00收盘"
+        # 否则前端显示 "06/18 17:21"，看起来像"17:21 才切到今日基准"，与实际语义不符
+        semantic_ts = ts  # 兜底用文件落盘时间
+        try:
+            ts_date = ts[:10]  # 'YYYY-MM-DD'
+            if close_point == '15:00':
+                semantic_ts = f'{ts_date}T15:00:00'
+            elif close_point == '10:15':
+                semantic_ts = f'{ts_date}T10:15:00'
+            elif close_point == '11:30':
+                semantic_ts = f'{ts_date}T11:30:00'
+            elif close_point == '23:00':
+                semantic_ts = f'{ts_date}T23:00:00'
+        except Exception:
+            pass
         _close_baseline = {
             'smooth': saved_state.get('smile_smooth', {}),
             'raw': saved_state.get('smile_raw', {}),
@@ -884,13 +902,13 @@ def _load_close_state():
             'S': saved_state.get('futures_price'),
             'max_pain': saved_state.get('max_pain'),  # 关键：注入的 max_pain 是用户自定义基准，不能用 OI 实时算
             'atm_strike': saved_state.get('atm_strike'),
-            'ts': ts,
+            'ts': semantic_ts,  # ← 改用语义时刻，前端 label 显示 "MM/DD HH:MM" 对应收盘点
             'close_point': close_point,  # 标记这是 15:00 收盘基准
             'contract': recovered_contract,
             'expiry': recovered_expiry,
         }
         print(f"[iv_smile] 💾 _close_baseline 已恢复 contract={_close_baseline.get('contract')} "
-              f"close_point={close_point} ts={ts[:19]} oi={len(_close_baseline.get('strike_oi') or {})}档")
+              f"close_point={close_point} ts={semantic_ts[:19]} oi={len(_close_baseline.get('strike_oi') or {})}档")
 
         # === 补齐 svi_params 中缺少的 skew/curvature ===
         cur_svi = _state.get('svi_params')
@@ -1045,9 +1063,19 @@ def _is_trading_day(dt=None):
     - 周六00:00-02:30 → 检查周五是否有夜盘（周五非节假日 且 周六非节假日的首日时才有）
     - 法定节假日 → 非交易日
     - 节假日前一天的夜盘也不交易（通过检查"次日是否休市"实现）
+
+    入参 dt 可以是 datetime 或 date 或 None（默认 datetime.now()）。
     """
     if dt is None:
         dt = datetime.now()
+    elif isinstance(dt, datetime):
+        pass  # 已是 datetime
+    elif hasattr(dt, 'weekday'):
+        # date 类型：转成 datetime（用午夜时间）
+        dt = datetime.combine(dt, datetime.min.time())
+    else:
+        return False
+
     wd = dt.weekday()  # 0=周一 ... 6=周日
     h, m = dt.hour, dt.minute
     total_min = h * 60 + m
@@ -1097,6 +1125,96 @@ def _has_pta_night_session(day):
         return True
     tomorrow = day + timedelta(days=1)
     return tomorrow.weekday() < 5 and not _is_cn_holiday(tomorrow)
+
+
+def _find_last_trading_day_before(day, max_lookback=8):
+    """往前找最近的交易日（不含 day 本身）。返回 date 或 None。"""
+    if isinstance(day, datetime):
+        day = day.date()
+    for delta in range(1, max_lookback + 1):
+        d = day - timedelta(days=delta)
+        if _is_trading_day(d):
+            return d
+    return None
+
+
+def _is_post_holiday_first_trading_day(day):
+    """判断 day 是否是节假日的第一个交易日（节后首日）。"""
+    if isinstance(day, datetime):
+        day = day.date()
+    if not _is_trading_day(day):
+        return False
+    prev_td = _find_last_trading_day_before(day)
+    if not prev_td:
+        return False
+    # 节后首日：上一交易日距今天超过 1 天（即中间隔了周末或节假日）
+    return (day - prev_td).days > 1
+
+
+def _cb_should_apply(cb_date, now_dt):
+    """统一判断：_close_baseline（其 cb_date）当前是否应该作为前次基准。
+
+    切换原则（v2.11.38+）：
+    - 今日 15:00 已过 → 今日 cb（即 today）生效
+    - 节后首个交易日 9:00 早盘开盘后 → 切到节前最后交易日
+    - 有夜盘的交易日 21:00 夜盘开盘后 → 切到今日 cb（即 today）
+    - 其他时段 → 用上一交易日（即 _find_last_trading_day_before(today)）
+
+    cb_date 与上述"应生效的基准日期"匹配 → True，否则 False。
+    """
+    if isinstance(cb_date, datetime):
+        cb_date = cb_date.date()
+    if isinstance(now_dt, datetime):
+        now = now_dt
+    else:
+        now = datetime.combine(now_dt, datetime.min.time())
+
+    if cb_date > now.date():
+        return False
+
+    expected = _get_expected_baseline_date(now)
+    return cb_date == expected
+
+
+def _get_expected_baseline_date(now_dt):
+    """根据当前时刻，返回"应当生效的前次基准"的 date。
+
+    切换原则（v2.11.50+ 用户明确规则）：
+    - 有夜盘的交易日 21:00 夜盘开盘后 → 切到今日 15:00（即 today）
+    - 节后首个交易日 9:00 早盘开盘后 → 切到节前最后交易日（即 _find_last_trading_day_before(today)）
+    - 其他时段 → 用"上一交易日 15:00"：
+      * 今日是交易日（且不是节后首日）：今日 cb 在 21:00 才生效 → 用今日 cb 之前的"上一交易日"
+      * 节假日/周末：节前最后交易日的 cb 还没生效（要等节后首日 9:00）→ 用"节前最后交易日 的上一交易日"
+
+    即"前次基准" = 离当前最近的、已经生效的"前一次切换事件"指向的日期。
+    """
+    if isinstance(now_dt, datetime):
+        now = now_dt
+    else:
+        now = datetime.combine(now_dt, datetime.min.time())
+
+    today = now.date()
+
+    # 1) 有夜盘的交易日 21:00 夜盘开盘后 → 切到今日 15:00（优先级最高，覆盖节后首日的 9:00 分支）
+    if _is_trading_day(today) and _has_pta_night_session(today) and now.hour >= 21:
+        return today
+
+    # 2) 节后首个交易日 9:00 早盘开盘后 → 切到节前最后交易日（即上一交易日）
+    if _is_trading_day(today) and _is_post_holiday_first_trading_day(today) and now.hour >= 9:
+        prev_td = _find_last_trading_day_before(today)
+        if prev_td:
+            return prev_td
+
+    # 3) 默认
+    if _is_trading_day(today):
+        # 今日是交易日（且不是节后首日），今日 cb 在 21:00 才生效 → 用上一交易日
+        return _find_last_trading_day_before(today)
+    else:
+        # 节假日/周末：节前最后交易日的 cb 还没生效（要等节后首日 9:00）→ 再往前一个交易日
+        last_td = _find_last_trading_day_before(today)
+        if last_td:
+            return _find_last_trading_day_before(last_td)
+        return None
 
 
 def _is_trading_hours():
@@ -1300,59 +1418,106 @@ def _load_previous_day_snapshots():
         start_days_ago = 0  # 交易日21:00后，可以用当天15:00
     else:
         start_days_ago = 1  # 其他情况（含非交易日），从昨天开始找
-    for days_ago in range(start_days_ago, 8):
-        if days_ago == 0:
-            check_date = today
-            check_path = today_path
-        else:
-            check_date = (now - timedelta(days=days_ago)).strftime('%Y%m%d')
-            check_path = _get_snapshot_path(check_date)
-        if not os.path.exists(check_path):
-            continue
-        # 跳过非交易日的快照（周末/节假日写入的脏数据）
+    # v2.11.50+ 节假日兜底：当前为非交易日且今天就是节假日时，
+    # 预期基准日 = "上一交易日 的再上一交易日"（因为节前最后交易日的 cb 要等节后首日 9:00 才生效）。
+    # 此时 start_days_ago=1 会先找到昨天（节前最后交易日）就 break，错误地把
+    # 节前最后交易日的 15:00 当成 prev baseline；正确做法是直接用 _get_expected_baseline_date。
+    expected_date = _get_expected_baseline_date(now)  # may be None
+    expected_date_str = expected_date.strftime('%Y%m%d') if expected_date else None
+
+    # v2.11.50+ 优先尝试 expected_date（节假日时跳过节前最后交易日，直接找上一交易日）
+    if expected_date_str:
         try:
-            check_dt = datetime.strptime(check_date, '%Y%m%d')
-            if check_dt.weekday() >= 5 or _is_cn_holiday(check_dt):
-                reason = f"weekday={check_dt.weekday()}" if check_dt.weekday() >= 5 else "法定节假日"
-                print(f"[iv_smile] ⏭ 跳过非交易日快照: {check_date} ({reason})")
-                continue
-        except ValueError:
-            pass
-        try:
-            with open(check_path, 'r', encoding='utf-8') as f:
-                payload = json.load(f)
-            snaps = payload.get('snapshots', {})
-            snap_15 = snaps.get('15:00')
-            if snap_15 and snap_15.get('smooth'):
-                # 验证 timestamp 确实属于该日期（防止污染数据）
-                snap_ts = snap_15.get('timestamp', '')
-                snap_date = snap_ts[:10].replace('-', '') if snap_ts else ''
-                if snap_date == check_date:
-                    _prev_day_baseline = snap_15
-                    # 同时用于恢复 _state（盘后冷启动时确保页面有数据）
-                    if not latest_for_restore:
-                        latest_for_restore = snap_15
-                        latest_for_restore_key = f"15:00@{check_date}"
-                        latest_for_restore_ts = snap_ts
-                    label = "今日" if days_ago == 0 else "前一交易日"
-                    print(f"[iv_smile] 📂 已加载{label}15:00基准 ({check_date}): "
-                          f"smooth={len(snap_15.get('smooth',{}))}档 "
-                          f"oi={len(snap_15.get('strike_oi',{}))}档 "
-                          f"ts={snap_ts[:19]}")
-                    break
+            exp_path = _get_snapshot_path(expected_date_str)
+            if os.path.exists(exp_path):
+                with open(exp_path, 'r', encoding='utf-8') as f:
+                    exp_payload = json.load(f)
+                exp_snaps = exp_payload.get('snapshots', {})
+                exp_snap_15 = exp_snaps.get('15:00')
+                if exp_snap_15 and exp_snap_15.get('smooth'):
+                    exp_snap_ts = exp_snap_15.get('timestamp', '')
+                    exp_snap_date = exp_snap_ts[:10].replace('-', '') if exp_snap_ts else ''
+                    if exp_snap_date == expected_date_str:
+                        _prev_day_baseline = exp_snap_15
+                        if not latest_for_restore:
+                            latest_for_restore = exp_snap_15
+                            latest_for_restore_key = f"15:00@{expected_date_str}"
+                            latest_for_restore_ts = exp_snap_ts
+                        print(f"[iv_smile] 📂 已加载预期基准日15:00基准 ({expected_date_str}): "
+                              f"smooth={len(exp_snap_15.get('smooth',{}))}档 "
+                              f"oi={len(exp_snap_15.get('strike_oi',{}))}档 "
+                              f"ts={exp_snap_ts[:19]}")
+                        # 找到后直接走"恢复 _state"逻辑，跳过下面的 days_ago 循环
+                        # 把 days_ago 设为 99 跳出循环，然后继续 _state 恢复
+                        # 更安全：用一个 flag 标记已找到
+                        _found_expected = True
+                    else:
+                        print(f"[iv_smile] ⚠️ 预期基准日 {expected_date_str} 的15:00快照timestamp不匹配({exp_snap_ts})，跳过")
+                        _found_expected = False
                 else:
-                    print(f"[iv_smile] ⚠️ {check_date} 的15:00快照timestamp不匹配({snap_ts})，跳过")
-            # 如果该天没有15:00但有其他数据，也用于恢复 _state
-            if not latest_for_restore and days_ago > 0:
-                valid_keys = [k for k in snaps if snaps[k].get('smooth')]
-                if valid_keys:
-                    lk = max(valid_keys, key=lambda k: snaps[k].get('timestamp', ''))
-                    latest_for_restore = snaps[lk]
-                    latest_for_restore_key = lk
-                    latest_for_restore_ts = snaps[lk].get('timestamp', '')
+                    _found_expected = False
+            else:
+                _found_expected = False
         except Exception as e:
-            print(f"[iv_smile] ⚠️ 加载历史快照 {check_date} 失败: {e}")
-            continue
+            print(f"[iv_smile] ⚠️ 加载预期基准日 {expected_date_str} 失败: {e}")
+            _found_expected = False
+    else:
+        _found_expected = False
+
+    if not _found_expected:
+        for days_ago in range(start_days_ago, 8):
+            if days_ago == 0:
+                check_date = today
+                check_path = today_path
+            else:
+                check_date = (now - timedelta(days=days_ago)).strftime('%Y%m%d')
+                check_path = _get_snapshot_path(check_date)
+            if not os.path.exists(check_path):
+                continue
+            # 跳过非交易日的快照（周末/节假日写入的脏数据）
+            try:
+                check_dt = datetime.strptime(check_date, '%Y%m%d')
+                if check_dt.weekday() >= 5 or _is_cn_holiday(check_dt):
+                    reason = f"weekday={check_dt.weekday()}" if check_dt.weekday() >= 5 else "法定节假日"
+                    print(f"[iv_smile] ⏭ 跳过非交易日快照: {check_date} ({reason})")
+                    continue
+            except ValueError:
+                pass
+            try:
+                with open(check_path, 'r', encoding='utf-8') as f:
+                    payload = json.load(f)
+                snaps = payload.get('snapshots', {})
+                snap_15 = snaps.get('15:00')
+                if snap_15 and snap_15.get('smooth'):
+                    # 验证 timestamp 确实属于该日期（防止污染数据）
+                    snap_ts = snap_15.get('timestamp', '')
+                    snap_date = snap_ts[:10].replace('-', '') if snap_ts else ''
+                    if snap_date == check_date:
+                        _prev_day_baseline = snap_15
+                        # 同时用于恢复 _state（盘后冷启动时确保页面有数据）
+                        if not latest_for_restore:
+                            latest_for_restore = snap_15
+                            latest_for_restore_key = f"15:00@{check_date}"
+                            latest_for_restore_ts = snap_ts
+                        label = "今日" if days_ago == 0 else "前一交易日"
+                        print(f"[iv_smile] 📂 已加载{label}15:00基准 ({check_date}): "
+                              f"smooth={len(snap_15.get('smooth',{}))}档 "
+                              f"oi={len(snap_15.get('strike_oi',{}))}档 "
+                              f"ts={snap_ts[:19]}")
+                        break
+                    else:
+                        print(f"[iv_smile] ⚠️ {check_date} 的15:00快照timestamp不匹配({snap_ts})，跳过")
+                # 如果该天没有15:00但有其他数据，也用于恢复 _state
+                if not latest_for_restore and days_ago > 0:
+                    valid_keys = [k for k in snaps if snaps[k].get('smooth')]
+                    if valid_keys:
+                        lk = max(valid_keys, key=lambda k: snaps[k].get('timestamp', ''))
+                        latest_for_restore = snaps[lk]
+                        latest_for_restore_key = lk
+                        latest_for_restore_ts = snaps[lk].get('timestamp', '')
+            except Exception as e:
+                print(f"[iv_smile] ⚠️ 加载历史快照 {check_date} 失败: {e}")
+                continue
 
     # === 3. 从最新快照恢复标的价格和微笑曲线 ===
     # 如果收盘快照已恢复 _state，跳过从15分钟快照恢复（避免被更旧数据覆盖）。
@@ -2403,6 +2568,35 @@ def tqsdk_loop():
                             _request_tqsdk_restart(f"data stale {stale:.0f}s")
                         last_log_time = time.time()
 
+                    # 每60秒轮询 close_state.json mtime。盘后手工补盘（或定时落盘）
+                    # 写入了新文件，而本进程未重启 → 内存 _close_baseline 还是旧基准。
+                    # 检测到 mtime 变化就调一次 _load_close_state()：盘中通常
+                    # _eod_state_loaded=True，函数走"只设 _close_baseline 不覆盖
+                    # _state"分支，前端 T 表立刻切到新基准（不影响 current 实时值）。
+                    # 独立计时器 _last_close_state_check_ts，避免与 last_log_time 抢节奏，
+                    # 也避免每 1s wait_update 都 stat 文件。
+                    global _close_state_last_mtime, _last_close_state_check_ts
+                    if time.time() - _last_close_state_check_ts >= 60:
+                        _last_close_state_check_ts = time.time()
+                        try:
+                            if os.path.exists(_CLOSE_STATE_FILE):
+                                mtime = os.path.getmtime(_CLOSE_STATE_FILE)
+                                if mtime > _close_state_last_mtime:
+                                    # 第一次进入循环时 _close_state_last_mtime=0，盘上
+                                    # 文件 mtime 一定 > 0，正常触发一次 reload（启动时
+                                    # _load_close_state 已加载过，所以 reload 是 no-op
+                                    # 但会打一行日志方便排查；后续就只在 mtime 真变化时触发）
+                                    _close_state_last_mtime = mtime
+                                    old_ts = _close_baseline.get('ts', '') if _close_baseline else ''
+                                    if _load_close_state():
+                                        new_ts = _close_baseline.get('ts', '') if _close_baseline else ''
+                                        if new_ts != old_ts:
+                                            print(f"[iv_smile] 🔄 盘外 reload close_state.json: 基准 ts {old_ts[:19] or '∅'} → {new_ts[:19]}")
+                                        else:
+                                            print(f"[iv_smile] 🔄 reload close_state.json（基准 ts 未变: {new_ts[:19]}）")
+                        except Exception as e:
+                            print(f"[iv_smile] ⚠️ close_state.json mtime 检查失败: {e}")
+
                     # 每30秒检查档数完整性（防止 TqSdk 推送档数减少导致 T表/PCR 算错）
                     if time.time() - _last_integrity_check_time >= 30:
                         _last_integrity_check_time = time.time()
@@ -2979,14 +3173,21 @@ def register_routes(app):
                     try:
                         cb_date = datetime.fromisoformat(cb_ts[:10] if len(cb_ts) >= 10 else cb_ts).date()
                         today = now_dt.date()
-                        yd = (now_dt - timedelta(days=1)).date()
-                        baseline_is_previous_calendar_day = (cb_date == yd)
-                        baseline_is_today = (cb_date == today)
-                        # 昨日15:00基准：今天21:00前有效；今日15:00自动快照：21:00后切入。
-                        cb_eligible = (
-                            (baseline_is_previous_calendar_day and now_dt.hour < 21)
-                            or (baseline_is_today and now_dt.hour >= 21)
-                        )
+                        # ⚠️ 夜盘守卫 + 跨节假日守卫：
+                        # - cb_date == today: 今日15:00写入的cb，全天有效（21:00前后都用）
+                        # - cb_date < today 且 has_night: 历史基准在有效夜盘日生效（含节后首日）
+                        # - cb_date > today: 异常（未来），忽略
+                        # 这覆盖了三种情况：
+                        #   (a) 节前最后一天 21:00 后 cb_date==today，has_night=False → 用今日cb（已是当日最终态）
+                        #   (b) 节后首日 21:00 后 cb_date<today（如6/18→6/22），has_night=True → 切到节前最后日cb
+                        #   (c) 节假日中 cb_date<today 且 has_night=False → 仍走历史cb（不切换）
+                        # v2.11.38+ 切换原则：
+                        # - 今日 15:00 已过 → 用今日 cb（today）
+                        # - 节后首日 9:00 早盘开盘后 → 用节前最后交易日
+                        # - 有夜盘的交易日 21:00 后 → 用今日 cb
+                        # - 其他时段 → 用上一交易日
+                        # cb_date == _get_expected_baseline_date(now) 即为有效
+                        cb_eligible = _cb_should_apply(cb_date, now_dt)
                     except Exception:
                         pass
 
@@ -3268,6 +3469,58 @@ def register_routes(app):
         print(f"[iv_smile] 📥 手工注入OI: {len(data)}档")
         return jsonify({'success': True, 'count': len(data)})
 
+    @app.route('/api/iv_smile/save_close_state_now', methods=['POST'])
+    def iv_api_save_close_state_now():
+        """补打当前时刻作为 15:00 收盘快照。
+
+        场景: 服务在 15:00 之后的 2 分钟窗口外才被触发（比如调度器卡顿、
+        或者当前是盘后手工补打），手动写一次 close_state.json + 内存 _close_baseline
+        + 15:00 interval 槽。**不**写入 _close_state_saved_slots（避免 23:00 重复写）。
+        """
+        from flask import request
+        data = request.get_json(silent=True) or {}
+        close_point = data.get('close_point', '15:00')  # 默 15:00
+        try:
+            # 1. 写 close_state.json
+            _save_close_state(close_point=close_point)
+            # 2. 同步内存 _close_baseline (用 _state 当前值)
+            global _close_baseline
+            # v2.11.50+ 语义校准：ts 用 close_point 对应的收盘时刻（15:00 = 15:00:00），不用 datetime.now()
+            # 原因：盘后补打时 datetime.now() 是 17:21，但语义收盘点是 15:00，
+            # 前端 label 显示 "06/18 15:00" 而不是 "06/18 17:21"，避免误读。
+            _now = datetime.now()
+            _semantic_ts = f"{_now.strftime('%Y-%m-%d')}T{close_point}:00"
+            _close_baseline = {
+                'smooth': dict(_state.get('smile_smooth') or _last_valid.get('smile_smooth') or {}),
+                'raw': dict(_state.get('smile_raw') or _last_valid.get('smile_raw') or {}),
+                'strike_oi': dict(_state.get('strike_oi') or _last_valid.get('strike_oi') or {}),
+                'strike_vol': dict(_state.get('strike_vol') or _last_valid.get('strike_vol') or {}),
+                'S': _state.get('futures_price') or _last_valid.get('futures_price'),
+                'ts': _semantic_ts,
+                'contract': _state.get('active_contract'),
+                'expiry': _state.get('expiry').isoformat() if _state.get('expiry') else None,
+                'close_point': close_point,
+            }
+            # 3. 补 15:00 边界槽
+            _copy_close_state_to_interval_snapshot(int(close_point.split(':')[0]),
+                                                  int(close_point.split(':')[1]),
+                                                  datetime.now())
+            _save_all_snapshots()
+            print(f"[iv_smile] ✅ 手工补打收盘快照: close_point={close_point}")
+            return jsonify({
+                'success': True,
+                'close_point': close_point,
+                'F': _state.get('futures_price'),
+                'ATM': _state.get('atm_strike'),
+                'MP': _state.get('max_pain'),
+                'OI_strikes': len(_close_baseline['strike_oi']),
+                'smooth_strikes': len(_close_baseline['smooth']),
+            })
+        except Exception as e:
+            print(f"[iv_smile] ❌ 手工补打收盘快照失败: {e}")
+            import traceback; traceback.print_exc()
+            return jsonify({'success': False, 'error': str(e)}), 500
+
     @app.route('/api/iv_smile/inject_baseline', methods=['POST'])
     def iv_api_inject_baseline():
         """手工注入收盘基准（完整T型数据：smooth IV + raw C/P IV + 持仓OI）"""
@@ -3386,23 +3639,26 @@ def register_routes(app):
         from datetime import datetime as _dt
         baseline_is_today = False
         baseline_is_postclose_yesterday = False
+        baseline_date = None
         if baseline_ts_str:
             try:
                 bd = _dt.fromisoformat(baseline_ts_str).date()
+                baseline_date = bd
                 baseline_is_today = (bd == _dt.now().date())
                 yd = (_dt.now() - __import__('datetime').timedelta(days=1)).date()
                 baseline_is_postclose_yesterday = (bd == yd and _dt.now().hour < 9)
             except Exception:
                 pass
         baseline_contract_match = (cur_contract and _close_baseline.get('contract') == cur_contract) if _close_baseline else False
-        if _close_baseline and baseline_contract_match and (baseline_is_today or baseline_is_postclose_yesterday):
+        # v2.11.38+ 切换原则（统一判断）
+        baseline_is_valid = bool(_close_baseline and baseline_contract_match
+                                  and baseline_date
+                                  and _cb_should_apply(baseline_date, _dt.now()))
+        if _close_baseline and baseline_is_valid:
             close_baseline = _close_baseline
         else:
-            nh = _dt.now().hour
-            if nh >= 21 and _close_baseline and (baseline_is_today or baseline_is_postclose_yesterday):
-                close_baseline = _close_baseline
-            else:
-                close_baseline = {}
+            # v2.11.38+: baseline_is_valid 已经统一判断，这里直接 fallback
+            close_baseline = {}
         b_smooth = close_baseline.get('smooth', {}) if close_baseline else {}
         b_raw = close_baseline.get('raw', {}) if close_baseline else {}
         b_oi = close_baseline.get('strike_oi', {}) if close_baseline else {}
@@ -3475,16 +3731,16 @@ def register_routes(app):
         yesterday = (datetime.now() - _td(days=1)).date()
         baseline_is_postclose_yesterday = (baseline_date == yesterday and datetime.now().hour < 9) if baseline_date else False
         baseline_contract_match = (cur_contract and _close_baseline.get('contract') == cur_contract) if _close_baseline else False
-        enter_close_branch = bool(_close_baseline and baseline_contract_match and (baseline_is_today or baseline_is_postclose_yesterday))
+        # v2.11.38+ 切换原则（统一判断）
+        baseline_is_valid = bool(_close_baseline and baseline_contract_match
+                                  and baseline_date
+                                  and _cb_should_apply(baseline_date, datetime.now()))
+        enter_close_branch = baseline_is_valid
         # 模拟 line 3067-3071
         if enter_close_branch:
             close_baseline = _close_baseline
         else:
-            now_hour = datetime.now().hour
-            if now_hour >= 21 and _close_baseline and (baseline_is_today or baseline_is_postclose_yesterday):
-                close_baseline = _close_baseline
-            else:
-                close_baseline = {}
+            close_baseline = {}
         b_smooth = close_baseline.get('smooth', {}) if close_baseline else {}
         b_raw = close_baseline.get('raw', {}) if close_baseline else {}
         b_oi = close_baseline.get('strike_oi', {}) if close_baseline else {}
@@ -3552,10 +3808,9 @@ def register_routes(app):
         baseline_contract_match = (cur_contract and _close_baseline.get('contract') == cur_contract) if _close_baseline else False
 
         close_baseline = {}
-        if _close_baseline and baseline_contract_match:
-            if baseline_is_previous_calendar_day and now_dt.hour < 21:
-                close_baseline = _close_baseline
-            elif baseline_is_today and now_dt.hour >= 21:
+        if _close_baseline and baseline_contract_match and baseline_date is not None:
+            # v2.11.38+ 切换原则（统一判断）
+            if _cb_should_apply(baseline_date, now_dt):
                 close_baseline = _close_baseline
         b_smooth = close_baseline.get('smooth', {}) if close_baseline else {}
         b_raw = close_baseline.get('raw', {}) if close_baseline else {}
@@ -4281,11 +4536,8 @@ def register_routes(app):
                 return False
             now_dt = datetime.now()
             today = now_dt.date()
-            yd = (now_dt - timedelta(days=1)).date()
-            baseline_is_today = (cb_date == today)
-            baseline_is_previous_calendar_day = (cb_date == yd)
-            # 昨日15:00基准：今天21:00前有效；今日15:00自动快照：21:00后切入。
-            return (baseline_is_previous_calendar_day and now_dt.hour < 21) or (baseline_is_today and now_dt.hour >= 21)
+            # v2.11.38+ 切换原则（统一判断）：cb_date 与当前期望基准日期匹配
+            return _cb_should_apply(cb_date, now_dt)
 
         if _close_baseline_eligible(_close_baseline):
             cb = _close_baseline
