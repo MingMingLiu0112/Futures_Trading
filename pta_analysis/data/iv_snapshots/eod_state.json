@@ -1,10 +1,10 @@
 {
   "eod_point": "23:00",
-  "timestamp": "2026-06-18T23:00:00",
+  "timestamp": "2026-06-21T23:00:24.438807",
   "state": {
     "futures_price": 5974,
     "atm_strike": 6000,
-    "last_update": "2026-06-18T23:00:00",
+    "last_update": "2026-06-21T23:00:24.438807",
     "smile_raw": {
       "6600": {
         "C": 0.3109584806843594,
@@ -176,11 +176,11 @@
       },
       "success": true
     },
-    "expiry": "2026-07-13T15:00:00",
+    "expiry": "2026-07-13T00:00:00",
     "rate": 0.0225,
     "rate_src": "default(2.25%)",
     "active_contract": "TA608",
-    "data_ready": false,
+    "data_ready": true,
     "strike_vol": {
       "6600": {
         "C": 11898,
@@ -458,12 +458,12 @@
         "C": 1465,
         "P": 3
       }
-    }
+    },
+    "T": 0.06388642413487133
   },
   "last_valid": {
     "futures_price": 5974,
     "atm_strike": 6000,
-    "last_update": "2026-06-18T23:00:00",
     "smile_raw": {
       "6600": {
         "C": 0.3109584806843594,
@@ -635,11 +635,6 @@
       },
       "success": true
     },
-    "expiry": "2026-07-13T15:00:00",
-    "rate": 0.0225,
-    "rate_src": "default(2.25%)",
-    "active_contract": "TA608",
-    "data_ready": false,
     "strike_vol": {
       "6600": {
         "C": 11898,

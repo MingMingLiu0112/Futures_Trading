@@ -439,6 +439,8 @@ _eod_state_loaded = False  # 全局标记：eod_state.json 是否已加载（避
 _close_state_saved_slots = set()  # 记录本次进程已保存的收盘时间槽，避免重复
 _close_state_last_mtime = 0.0    # 上次已知的 close_state.json mtime，主循环每 60s 轮询一次，新则 reload _close_baseline
 _last_close_state_check_ts = 0.0  # 独立计时器，60s 才 stat 一次文件（避免每 1s wait_update 都打磁盘）
+_prev_baseline_expected_date = None  # 当前 _prev_day_baseline 加载的预期基准日（YYYYMMDD str）；用于检测节后首日 9:00 切换
+_last_prev_baseline_check_ts = 0.0   # 独立计时器，60s 才 stat 一次文件
 
 def _get_snapshot_path(date_str):
     """返回指定日期的日盘快照文件路径（包含全天所有15分钟时间点）。"""
@@ -2596,6 +2598,47 @@ def tqsdk_loop():
                                             print(f"[iv_smile] 🔄 reload close_state.json（基准 ts 未变: {new_ts[:19]}）")
                         except Exception as e:
                             print(f"[iv_smile] ⚠️ close_state.json mtime 检查失败: {e}")
+
+                    # 每60秒检测 _prev_day_baseline 是否需要切换（节后首日 9:00 触发）
+                    # 场景：服务跨节假日长期运行（如 6/19 启动 → 6/22 9:00 开盘），
+                    # 冷启动时按节假日兜底加载了 6/17 15:00 作为 _prev_day_baseline，
+                    # 但服务进程没重启，_prev_day_baseline 不会自动换成 6/18 15:00。
+                    # 修法：每 60s 调 _get_expected_baseline_date() 算出"应当生效的基准日"，
+                    # 与 _prev_baseline_expected_date 对比，不一致就重新加载对应文件 15:00 键。
+                    global _prev_baseline_expected_date, _last_prev_baseline_check_ts
+                    if time.time() - _last_prev_baseline_check_ts >= 60:
+                        _last_prev_baseline_check_ts = time.time()
+                        try:
+                            expected_dt = _get_expected_baseline_date(datetime.now())
+                            expected_str = expected_dt.strftime('%Y%m%d') if expected_dt else None
+                            if expected_str and expected_str != _prev_baseline_expected_date:
+                                # 预期基准日变了 → 重新加载新基准日文件
+                                old_expected = _prev_baseline_expected_date or '∅'
+                                snap_path = _get_snapshot_path(expected_str)
+                                if os.path.exists(snap_path):
+                                    with open(snap_path, 'r', encoding='utf-8') as f:
+                                        snap_payload = json.load(f)
+                                    snap_15 = (snap_payload.get('snapshots') or {}).get('15:00')
+                                    if snap_15 and snap_15.get('smooth'):
+                                        # 校验 timestamp 与预期日匹配（防污染数据）
+                                        snap_ts = snap_15.get('timestamp', '')
+                                        snap_date = snap_ts[:10].replace('-', '') if snap_ts else ''
+                                        if snap_date == expected_str:
+                                            _prev_day_baseline = snap_15
+                                            _prev_baseline_expected_date = expected_str
+                                            print(f"[iv_smile] 🔄 _prev_day_baseline 切换: {old_expected} → {expected_str} "
+                                                  f"(S={snap_15.get('futures_price', '?')}, "
+                                                  f"smooth={len(snap_15.get('smooth', {}))}档, "
+                                                  f"oi={len(snap_15.get('strike_oi', {}))}档, "
+                                                  f"ts={snap_ts[:19]})")
+                                        else:
+                                            print(f"[iv_smile] ⚠️ 预期基准日 {expected_str} 的 15:00 快照 timestamp={snap_ts[:19]} 不匹配，跳过切换")
+                                    else:
+                                        print(f"[iv_smile] ⚠️ 预期基准日 {expected_str} 的 15:00 键缺失或无 smooth 字段，跳过切换")
+                                else:
+                                    print(f"[iv_smile] ⚠️ 预期基准日 {expected_str} 的快照文件不存在 ({snap_path})，跳过切换")
+                        except Exception as e:
+                            print(f"[iv_smile] ⚠️ _prev_day_baseline 切换检测失败: {e}")
 
                     # 每30秒检查档数完整性（防止 TqSdk 推送档数减少导致 T表/PCR 算错）
                     if time.time() - _last_integrity_check_time >= 30:
