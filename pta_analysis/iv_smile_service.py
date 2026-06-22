@@ -2198,29 +2198,59 @@ def fit_svi(K_list, IV_list, F, T):
     
     K_arr = np.array(K_list, dtype=float)
     IV_arr = np.array(IV_list, dtype=float)
-    
+
     # 过滤无效数据
     valid = ~(np.isnan(IV_arr) | (IV_arr <= 0) | (IV_arr > 2.5))
     if valid.sum() < 3:
         return None
-    
+
     K_v = K_arr[valid]
     IV_v = IV_arr[valid]
-    
+
     # 过滤深度OTM：moneyness ±15% 且 绝对距离 ≤1000
     # 深度OTM（如K=4550 IV=103%）会严重拉高SVI曲线ATM端，必须剔除
     moneyness_pct = np.abs(K_v - F) / F
     near_mask = moneyness_pct <= 0.15
     abs_mask = np.abs(K_v - F) <= 1000
     combined_mask = near_mask & abs_mask
-    
+
     if combined_mask.sum() < 3:
         combined_mask = moneyness_pct <= 0.25
     if combined_mask.sum() < 3:
         return None
-    
+
     K_v = K_v[combined_mask]
     IV_v = IV_v[combined_mask]
+
+    # v2.11.51+ 异常点过滤：剔除与相邻档偏离过大的孤立点
+    # 场景：TqSdk 偶发推送 raw IV 异常（如 6/18 K=6500 Put IV=23.2% vs 邻档 30%+），
+    # 拉出 SVI 拟合局部下凹。拟合前按 OTM-Put 翼部单调性检测离群点。
+    # 算法：按 K 排序后，计算 IV 的一阶差分，相邻差 > 5pp（绝对）且方向与左/右不一致
+    # → 标记为离群点
+    if len(K_v) >= 5:
+        order = np.argsort(K_v)
+        K_sorted = K_v[order]
+        IV_sorted = IV_v[order]
+        diffs = np.abs(np.diff(IV_sorted))
+        median_diff = np.median(diffs)
+        # 离群点：相邻 IV 差 > 5pp 且 与中位数差 > 3 倍
+        outlier_mask_local = np.zeros(len(K_v), dtype=bool)
+        for i in range(1, len(IV_sorted) - 1):
+            left_diff = abs(IV_sorted[i] - IV_sorted[i-1])
+            right_diff = abs(IV_sorted[i] - IV_sorted[i+1])
+            # 中心点的左右差都很大（≥ 5pp），且与翼部中位数差异 > 3 倍
+            if left_diff >= 0.05 and right_diff >= 0.05:
+                if median_diff > 0 and (left_diff + right_diff) / 2 > median_diff * 3:
+                    # 把 K_sorted[i] 对应回原 index
+                    outlier_mask_local[order[i]] = True
+        if outlier_mask_local.any():
+            keep = ~outlier_mask_local
+            K_v = K_v[keep]
+            IV_v = IV_v[keep]
+            if len(K_v) < 3:
+                return None
+            print(f"[fit_svi] v2.11.51+ 异常点过滤: 剔除 {outlier_mask_local.sum()} 个离群点 "
+                  f"(K={sorted([K_v[k] for k in range(len(K_v)) if outlier_mask_local[k]][:5])})")
     
     # 转换到 SVI 空间
     k_arr = np.log(K_v / F)           # log-moneyness
