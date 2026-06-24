@@ -990,6 +990,11 @@ def _save_all_snapshots():
     if skipped_mismatch:
         preview = ', '.join([f"{src}:{key}@{ts[:19]}" for src, key, ts in skipped_mismatch[:5]])
         print(f"[iv_smile] ⚠️ 跳过跨日脏快照 {len(skipped_mismatch)}个: {preview}")
+    # v2.11.52+ 防御：merged 为空时不要覆盖磁盘文件（避免跨日运行进程把 6/23 文件覆盖成空，
+    # 参见 6/22 进程 6/23 凌晨 36 次空写入事件）
+    if not merged:
+        print(f"[iv_smile] ⏭ 跨日过滤后 merged 为空, 跳过 {date_str} 写入（保留磁盘已有 {len(existing)} 个键）")
+        return
     payload = {
         'date': date_str,
         'snapshots': merged,   # 合并后全量快照 dict（仅保留 timestamp 属于 date_str 的快照）
@@ -1439,7 +1444,13 @@ def _load_previous_day_snapshots():
                 if exp_snap_15 and exp_snap_15.get('smooth'):
                     exp_snap_ts = exp_snap_15.get('timestamp', '')
                     exp_snap_date = exp_snap_ts[:10].replace('-', '') if exp_snap_ts else ''
-                    if exp_snap_date == expected_date_str:
+                    # v2.11.52+ 防御性过滤：timestamp 时间部分必须落在 14:00-15:59 窗口（盘中 9:24 误打会落在这里之外）
+                    try:
+                        _ts_dt = datetime.fromisoformat(exp_snap_ts)
+                        _ts_in_window = (14 <= _ts_dt.hour <= 15)
+                    except Exception:
+                        _ts_in_window = False
+                    if exp_snap_date == expected_date_str and _ts_in_window:
                         _prev_day_baseline = exp_snap_15
                         if not latest_for_restore:
                             latest_for_restore = exp_snap_15
@@ -1454,7 +1465,8 @@ def _load_previous_day_snapshots():
                         # 更安全：用一个 flag 标记已找到
                         _found_expected = True
                     else:
-                        print(f"[iv_smile] ⚠️ 预期基准日 {expected_date_str} 的15:00快照timestamp不匹配({exp_snap_ts})，跳过")
+                        reason = f"timestamp={exp_snap_ts[:19]} 不在 14:00-15:59 窗口" if not _ts_in_window else f"日期不匹配 {exp_snap_date}!={expected_date_str}"
+                        print(f"[iv_smile] ⚠️ 预期基准日 {expected_date_str} 的15:00快照被过滤 ({reason})，跳过")
                         _found_expected = False
                 else:
                     _found_expected = False
@@ -1494,7 +1506,13 @@ def _load_previous_day_snapshots():
                     # 验证 timestamp 确实属于该日期（防止污染数据）
                     snap_ts = snap_15.get('timestamp', '')
                     snap_date = snap_ts[:10].replace('-', '') if snap_ts else ''
-                    if snap_date == check_date:
+                    # v2.11.52+ 防御性过滤：timestamp 时间部分必须落在 14:00-15:59 窗口
+                    try:
+                        _ts_dt = datetime.fromisoformat(snap_ts)
+                        _ts_in_window = (14 <= _ts_dt.hour <= 15)
+                    except Exception:
+                        _ts_in_window = False
+                    if snap_date == check_date and _ts_in_window:
                         _prev_day_baseline = snap_15
                         # 同时用于恢复 _state（盘后冷启动时确保页面有数据）
                         if not latest_for_restore:
@@ -1508,7 +1526,8 @@ def _load_previous_day_snapshots():
                               f"ts={snap_ts[:19]}")
                         break
                     else:
-                        print(f"[iv_smile] ⚠️ {check_date} 的15:00快照timestamp不匹配({snap_ts})，跳过")
+                        reason = f"timestamp={snap_ts[:19]} 不在 14:00-15:59 窗口" if not _ts_in_window else f"日期不匹配 {snap_date}!={check_date}"
+                        print(f"[iv_smile] ⏭ 跳过{check_date} 15:00 键 ({reason})")
                 # 如果该天没有15:00但有其他数据，也用于恢复 _state
                 if not latest_for_restore and days_ago > 0:
                     valid_keys = [k for k in snaps if snaps[k].get('smooth')]
