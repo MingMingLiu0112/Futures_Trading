@@ -178,21 +178,23 @@ def get_spot_daily(symbols: List[str], days: int = 5) -> Dict[str, Dict]:
     """批量获取现货每日价格（使用futures_spot_price_daily，更权威）"""
     result = {}
     today_str = datetime.now().strftime('%Y%m%d')
-    start_str = (datetime.now() - timedelta(days=days)).strftime('%Y%m%d')
-    
+
     # 只取有数据的交易日
-    trading_dates = [start_str]
-    for i in range(1, days + 5):
+    trading_dates = []
+    for i in range(0, days + 5):
         d = datetime.now() - timedelta(days=i)
         if d.weekday() < 5:
             trading_dates.append(d.strftime('%Y%m%d'))
-        if len(trading_dates) >= 5:
+        if len(trading_dates) >= days:
             break
-    
+
     try:
         df = ak.futures_spot_price_daily(
             start_day=trading_dates[-1],
-            end_day=trading_dates[0],
+            end_day=today_str,  # v2.11.53+ 修复：end_day 必须用今天
+                                # 之前用 trading_dates[0] (=今天-5天)，
+                                # 若其中含周末/节假日，akshare会返回空，
+                                # 触发 get_px_data 走东方财富脏数据 fallback。
             vars_list=symbols
         )
         if df is not None and not df.empty:
@@ -490,21 +492,13 @@ def get_px_data() -> Dict:
                 data['source'] = '郑商所每日现货参考价格表'
     except Exception as e:
         print(f"PX郑商所数据错误: {e}")
-    
-    # 备用东方财富数据
+
+    # v2.11.53+: 锁定郑商所单一数据源。
+    # 删除原东方财富 futures_spot_stock fallback —— 该接口把期货月价当现货价
+    # (如 9900/7500 实际是 PX608/PX610 月价)，污染 PX现货/PTA估算成本/PTA利润。
+    # 郑商所接口异常时返回空 dict，让 daily_report.json 保留上一周期值。
     if not data:
-        try:
-            df_em = ak.futures_spot_stock(symbol='化工')
-            if df_em is not None and not df_em.empty:
-                px_row = df_em[df_em['商品名称'] == 'PX']
-                if not px_row.empty:
-                    r = px_row.iloc[0]
-                    data['spot_price'] = float(r['最新价格'])
-                    data['change_pct'] = float(r.get('近半年涨跌幅', 0))
-                    data['date'] = date_disp
-                    data['source'] = '东方财富现货'
-        except:
-            pass
+        print(f"  PX郑商所两路都未取到数据，PX现货保留 daily_report.json 旧值 (date={date_disp})")
     return data
 
 

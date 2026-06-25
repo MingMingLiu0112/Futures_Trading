@@ -3290,14 +3290,30 @@ def register_routes(app):
             valid_keys = [k for k in _interval_snapshots if _interval_snapshots[k].get('smooth')]
             snapshot_times = sorted(valid_keys,
                                    key=lambda k: (int(k.replace(':', '')), k))
+            # v2.11.57+: 盘后/夜盘前 fallback —— 交易软件盘后应该显示前次基准 / 今日 15:00 收盘数据,
+            # 而不是空白。实时行情为 null 时,fallback 到 _close_baseline 的 S/atm_strike/max_pain
+            # (这是 prev_baseline.json 加载的"前次基准 15:00 收盘"完整快照,见 v2.11.54)
+            cb_fut = _state.get('futures_price')
+            cb_atm = _state['atm_strike']
+            cb_mp = _state.get('max_pain')
+            cb_ref = _state.get('ref_strike')
+            if _close_baseline:
+                if not cb_fut and _close_baseline.get('S'):
+                    cb_fut = _close_baseline['S']
+                if cb_atm is None and _close_baseline.get('atm_strike') is not None:
+                    cb_atm = _close_baseline['atm_strike']
+                if cb_mp is None and _close_baseline.get('max_pain') is not None:
+                    cb_mp = _close_baseline['max_pain']
+                if cb_ref is None and cb_mp is not None:
+                    cb_ref = cb_mp
             return jsonify({
                 'running': _state['running'],
                 'tqsdk_ready': _tqsdk_ready,
                 'data_ready': _state.get('data_ready', False),
-                'futures_price': _state['futures_price'],
-                'ref_strike': _state.get('ref_strike'),   # 最大痛点
-                'max_pain': _state.get('max_pain'),        # 最大痛点（兼容）
-                'atm_strike': _state['atm_strike'],
+                'futures_price': cb_fut,
+                'ref_strike': cb_ref,                  # 最大痛点
+                'max_pain': cb_mp,                     # 最大痛点（兼容）
+                'atm_strike': cb_atm,
                 'option_count': len(_state.get('smile_raw', {})),
                 'last_update': _state['last_update'],
                 'expiry': _state['expiry'].isoformat() if _state.get('expiry') else None,
@@ -4634,14 +4650,37 @@ def register_routes(app):
         else:
             T = _state.get('T')
 
-        if not futures_price or not T or T <= 0:
+        # v2.11.57+: 盘后/夜盘前/_state 尚未就绪时（实时行情为 null），不要直接 return 空数据。
+        # 兜底用 _close_baseline 的 S/strike_oi/smile_smooth/smile_raw 算"今日收盘"快照作为 current
+        # —— 交易软件盘后就是显示 15:00 收盘数据，不是空白。
+        fallback_to_close_baseline = (not futures_price or not T or T <= 0)
+        if fallback_to_close_baseline and _close_baseline and _close_baseline.get('S') and _close_baseline.get('strike_oi'):
+            print(f"[iv_smile] ℹ️ 实时行情为 null (盘后/夜盘前)，fallback 到 _close_baseline 作为 current: "
+                  f"ts={_close_baseline.get('ts', '')[:19]} S={_close_baseline.get('S')}")
+            futures_price = float(_close_baseline['S'])
+            strike_oi = _close_baseline.get('strike_oi', {})
+            smile_raw = _close_baseline.get('raw', {})
+            smile_smooth = _close_baseline.get('smooth', {})
+            if _close_baseline.get('expiry'):
+                try:
+                    expiry = datetime.fromisoformat(_close_baseline['expiry'].replace('Z', '')) if isinstance(_close_baseline['expiry'], str) else _close_baseline['expiry']
+                except Exception:
+                    pass
+            # 重新算 T（基于 fallback 的 expiry）
+            if expiry:
+                T = _calc_T_trading_days(expiry)
+            r = _state.get('rate', 0.02)
+            last_update = _close_baseline.get('ts', '') or last_update
+            F = futures_price
+            sqrtT = np.sqrt(T) if T > 0 else 1e-6
+        elif not futures_price or not T or T <= 0:
             return jsonify({'error': 'data not ready', 'gex_bars': [], 'pain_curve': [],
                             'oi_dist': [], 'summary': {},
                             'prev_gex_bars': [], 'prev_pain_curve': [],
                             'prev_oi_dist': [], 'prev_summary': {}, 'baseline_label': None})
-
-        F = futures_price
-        sqrtT = np.sqrt(T) if T > 0 else 1e-6
+        else:
+            F = futures_price
+            sqrtT = np.sqrt(T) if T > 0 else 1e-6
 
         # 辅助函数：兼容字典key类型（可能是str/int/float）
         def _get(d, k, default=None):
