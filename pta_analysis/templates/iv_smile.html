@@ -75,11 +75,11 @@
     letter-spacing: 1px;
   }
 
-  /* ===== GEX 指标栏（1行5列）===== */
+  /* ===== GEX 指标栏（1行6列）===== */
   .gex-metric-grid {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 8px;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 6px;
     margin-bottom: 10px;
   }
 
@@ -385,7 +385,7 @@
   </div>
 </div>
 
-<!-- ===== GEX 指标栏（1行5列）===== -->
+<!-- ===== GEX 指标栏（1行6列）===== -->
 <div class="gex-metric-grid">
   <div class="metric-box">
     <div class="metric-name">持仓PCR</div>
@@ -406,6 +406,11 @@
     <div class="metric-name">GEX 翻转点</div>
     <div class="metric-value" id="mGexFlip" style="color:#ffaa00;">--</div>
     <div class="metric-sub" id="mGexFlipSub">正负 Gamma 切换价</div>
+  </div>
+  <div class="metric-box">
+    <div class="metric-name">Pain 斜率</div>
+    <div class="metric-value" id="mPainSlope" style="color:#00d4ff;">--</div>
+    <div class="metric-sub" id="mPainSlopeSub">左/右 MP 两侧痛点增速</div>
   </div>
   <div class="metric-box">
     <div class="metric-name">距到期</div>
@@ -1032,6 +1037,54 @@ function updateGexCharts(gexData, alertData) {
       d <= 3 ? '⚠️ 即将到期！Gamma加速' : d <= 7 ? '临近到期' : '时间充裕';
   }
 
+  // Pain 斜率（v2.11.53+）：Max Pain 两侧各取 1 个邻居点算每点 pain 增速
+  // 解读: 哪边更陡 → 那边的 OI 集中度更高 → 突破该方向阻力更大
+  // 业务上: 左斜率 / 右斜率 / L:R 比值三段显示
+  const slopeEl = document.getElementById('mPainSlope');
+  const slopeSubEl = document.getElementById('mPainSlopeSub');
+  if (painCurve.length >= 3 && summary.max_pain != null) {
+    const sorted = [...painCurve].sort((a, b) => a.strike - b.strike);
+    const mpIdx = sorted.findIndex(d => d.strike === summary.max_pain);
+    if (mpIdx > 0 && mpIdx < sorted.length - 1) {
+      const left  = sorted[mpIdx - 1];
+      const right = sorted[mpIdx + 1];
+      const mp    = sorted[mpIdx];
+      const leftSpan  = mp.strike - left.strike;
+      const rightSpan = right.strike - mp.strike;
+      const leftSlope  = leftSpan  > 0 ? (left.pain - mp.pain) / leftSpan  : 0;  // 元/点
+      const rightSlope = rightSpan > 0 ? (right.pain - mp.pain) / rightSpan : 0; // 元/点
+      const maxSlope = Math.max(Math.abs(leftSlope), Math.abs(rightSlope));
+      const fmtSlope = (v) => {
+        const av = Math.abs(v);
+        return av >= 1e6 ? (v/1e6).toFixed(2) + 'M' :
+               av >= 1e3 ? (v/1e3).toFixed(1) + 'K' :
+               Math.round(v).toString();
+      };
+      slopeEl.textContent = `←${fmtSlope(leftSlope)} / ${fmtSlope(rightSlope)}→`;
+      // L:R 比值（取较大/较小）
+      const minS = Math.min(Math.abs(leftSlope), Math.abs(rightSlope));
+      const maxS = Math.max(Math.abs(leftSlope), Math.abs(rightSlope));
+      const ratio = minS > 0 ? maxS / minS : Infinity;
+      const ratioStr = minS > 0 ? (ratio >= 10 ? '>10x' : ratio.toFixed(1) + 'x') : '∞';
+      const side = Math.abs(leftSlope) > Math.abs(rightSlope) ? '↓左陡' :
+                   Math.abs(rightSlope) > Math.abs(leftSlope) ? '↑右陡' : '对称';
+      const ratioColor = ratio >= 5 ? '#ff4444' : ratio >= 2 ? '#ffaa00' : '#00d4ff';
+      slopeEl.style.color = ratioColor;
+      slopeSubEl.textContent = `${side} L:R ${ratioStr}`;
+      slopeSubEl.style.color = ratioColor;
+    } else {
+      slopeEl.textContent = '边界';
+      slopeEl.style.color = '#555';
+      slopeSubEl.textContent = 'MP 位于曲线端点';
+      slopeSubEl.style.color = '#888';
+    }
+  } else {
+    slopeEl.textContent = '--';
+    slopeEl.style.color = '#555';
+    slopeSubEl.textContent = painCurve.length < 3 ? 'pain 曲线 < 3 个点' : '无 max_pain';
+    slopeSubEl.style.color = '#888';
+  }
+
   // ---- GEX 柱状图 ----
   const gexChart = chartInstances.gex;
   if (gexChart && gexBars.length > 0) {
@@ -1554,6 +1607,6 @@ document.addEventListener('DOMContentLoaded', () => {
   setInterval(fetchData, 60000);
 });
 </script>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.52</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.54</div>
 </body>
 </html>

@@ -435,6 +435,12 @@ _SAVED_DATES = set()   # 记录已写入磁盘的日期，避免重复保存
 _PTA_CLOSE_TIMES = [(10, 15), (11, 30), (15, 0), (23, 0)]
 _CLOSE_STATE_FILE = os.path.join(_SNAPSHOT_DIR, 'close_state.json')
 _EOD_STATE_FILE = os.path.join(_SNAPSHOT_DIR, 'eod_state.json')  # 23:00 收盘完整状态（用于冷启动恢复 _state）
+# v2.11.54+: 前次基准独立快照文件。
+# 关键设计：close_state.json 是"最新一天 15:00 收盘状态"（盘中状态用），被每日 15:00 覆盖；
+# prev_baseline.json 是"前次基准"（昨日 15:00），**只在 21:00 切换时被覆盖**（不在 15:00 覆盖），
+# 因此冷启动永远能拿到最近一个 15:00 基准（次日 14:59 启动时 = 今日 15:00 = 昨日的"前次基准"）。
+# 写入时机：21:00 夜盘开盘 _ensure_today_close_baseline_after_21() 切换时调用 _save_prev_baseline()。
+_PREV_BASELINE_FILE = os.path.join(_SNAPSHOT_DIR, 'prev_baseline.json')
 _eod_state_loaded = False  # 全局标记：eod_state.json 是否已加载（避免被 close_state.json 覆盖）
 _close_state_saved_slots = set()  # 记录本次进程已保存的收盘时间槽，避免重复
 _close_state_last_mtime = 0.0    # 上次已知的 close_state.json mtime，主循环每 60s 轮询一次，新则 reload _close_baseline
@@ -449,6 +455,73 @@ def _get_snapshot_path(date_str):
 def _ensure_snapshot_dir():
     """确保快照目录存在"""
     os.makedirs(_SNAPSHOT_DIR, exist_ok=True)
+
+def _save_prev_baseline(snap_15, today_str):
+    """
+    v2.11.54+: 21:00 夜盘切换时把今日 15:00 收盘快照写入 prev_baseline.json。
+    调用时机：_ensure_today_close_baseline_after_21() 成功切换后（即 21:00 夜盘开盘后）。
+
+    写入策略：
+      - snap_15 是从 iv_snapshots_<today_str>.json['15:00'] 槽取出的数据
+      - 写入 prev_baseline.json 后即代表"昨日 15:00"的副本（次日 14:59 启动时用）
+
+    关键约束：prev_baseline.json **不被每日 15:00 收盘覆盖**，只在 21:00 切换时写入。
+    这样 6/26 14:59 启动时，prev_baseline.json 还是 6/25 15:00（21:00 切换时写入的），
+    不会被 6/26 15:00 收盘的 close_state.json 覆盖逻辑污染。
+    """
+    if not snap_15 or not snap_15.get('smooth'):
+        return False
+    payload = {
+        'close_point': '15:00',
+        'timestamp': f'{today_str}T15:00:00',  # 语义：今日 15:00 收盘
+        'state': {
+            'active_contract': snap_15.get('contract') or _state.get('active_contract'),
+            'expiry': snap_15.get('expiry'),
+            'futures_price': snap_15.get('S') or snap_15.get('futures_price'),
+            'atm_strike': snap_15.get('atm_strike'),
+            'max_pain': snap_15.get('max_pain'),
+            'ref_strike': snap_15.get('ref_strike'),
+            'smile_raw': snap_15.get('raw', {}),
+            'smile_smooth': snap_15.get('smooth', {}),
+            'svi_params': snap_15.get('svi_params'),
+            'last_update': f'{today_str}T15:00:00',
+            'strike_oi': snap_15.get('strike_oi', {}),
+            'strike_vol': snap_15.get('strike_vol', {}),
+        },
+        'last_valid': {
+            'futures_price': snap_15.get('S') or snap_15.get('futures_price'),
+            'atm_strike': snap_15.get('atm_strike'),
+            'max_pain': snap_15.get('max_pain'),
+            'ref_strike': snap_15.get('ref_strike'),
+            'smile_raw': snap_15.get('raw', {}),
+            'smile_smooth': snap_15.get('smooth', {}),
+            'svi_params': snap_15.get('svi_params'),
+            'strike_oi': snap_15.get('strike_oi', {}),
+            'strike_vol': snap_15.get('strike_vol', {}),
+        },
+    }
+    import tempfile
+    try:
+        fd, tmp_path = tempfile.mkstemp(dir=_SNAPSHOT_DIR, suffix='.tmp')
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, _PREV_BASELINE_FILE)
+            print(f"[iv_smile] 💾 prev_baseline.json 已更新为今日15:00 ({today_str}): "
+                  f"smooth={len(payload['state']['smile_smooth'])}档 "
+                  f"oi={len(payload['state']['strike_oi'])}档 "
+                  f"S={payload['state']['futures_price']}")
+            return True
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+    except Exception as e:
+        print(f"[iv_smile] ⚠️ 写 prev_baseline.json 失败: {e}")
+        return False
+
 
 def _save_close_state(close_point='15:00'):
     """
@@ -580,6 +653,8 @@ def _check_and_save_close_state():
             # - 15:00 收盘 → 写 close_state.json（语义=日内收盘基准，用于冷启动恢复 _close_baseline）
             # - 23:00 收盘 → 写 eod_state.json（语义=当日最终状态，用于冷启动恢复 _state 的 OI/Vol/S/MP）
             # 10:15/11:30 只写 _interval_snapshots，不污染基准文件
+            # v2.11.54+: prev_baseline.json **不在 15:00 覆盖**（保持昨日 15:00 不变，供次日 14:59 启动用），
+            # 而是在 21:00 _ensure_today_close_baseline_after_21() 切换时写入今日 15:00。
             if hh == 15 and mm == 0:
                 _save_close_state(close_point='15:00')
             elif hh == 23 and mm == 0:
@@ -818,8 +893,59 @@ def _load_close_state():
 
     如果 _eod_state_loaded=True（EOD 收盘快照已先恢复 _state），
     本函数**只**设 _close_baseline（前次基准），不再覆盖 _state。
+
+    v2.11.54+ 加载优先级：
+      1. prev_baseline.json（"前次基准"独立快照，**只在 21:00 切换时被覆盖**）
+      2. close_state.json（"最新一天 15:00 收盘"快照，每天 15:00 收盘被覆盖）
+    优先 prev_baseline.json 的原因：6/25 14:59 启动时，close_state.json 已经是 6/25 15:00 写的状态
+    （14:59 启动时 close_state.json 里还是 6/24 15:00；但若进程一直跑跨日，close_state 会被覆盖成今日），
+    拿 prev_baseline.json 才是真正的"前次基准"。
     """
     global _state, _last_valid, _close_baseline
+    # v2.11.54+: 优先从 prev_baseline.json 加载（不会因 close_state.json 被覆盖而丢"前次基准"）
+    if os.path.exists(_PREV_BASELINE_FILE):
+        try:
+            with open(_PREV_BASELINE_FILE, 'r', encoding='utf-8') as f:
+                payload = json.load(f)
+            saved_state = payload.get('state', {})
+            saved_valid = payload.get('last_valid', {})
+            ts = payload.get('timestamp', '')
+            close_point = payload.get('close_point', '15:00')
+            if close_point != '15:00':
+                print(f"[iv_smile] ⚠️ prev_baseline.json 的 close_point={close_point!r}（非 15:00），视为污染数据，丢弃。")
+            elif not saved_state.get('smile_smooth') or not saved_state.get('futures_price'):
+                print(f"[iv_smile] ⚠️ prev_baseline.json 数据不完整，跳过")
+            else:
+                # 关键：直接恢复 _close_baseline，不依赖 close_state.json
+                semantic_ts = ts
+                try:
+                    ts_date = ts[:10]
+                    if close_point == '15:00':
+                        semantic_ts = f'{ts_date}T15:00:00'
+                except Exception:
+                    pass
+                _close_baseline = {
+                    'smooth': saved_state.get('smile_smooth', {}),
+                    'raw': saved_state.get('smile_raw', {}),
+                    'strike_oi': saved_state.get('strike_oi', {}),
+                    'strike_vol': saved_state.get('strike_vol', {}),
+                    'S': saved_state.get('futures_price'),
+                    'max_pain': saved_state.get('max_pain'),
+                    'atm_strike': saved_state.get('atm_strike'),
+                    'ts': semantic_ts,
+                    'close_point': close_point,
+                    'contract': saved_state.get('active_contract'),  # v2.11.54+ 修复: alert_data 端点靠 _close_baseline.get('contract') == cur_contract 判断 baseline_contract_match
+                    'expiry': saved_state.get('expiry'),
+                }
+                print(f"[iv_smile] 📂 从 prev_baseline.json 恢复 _close_baseline: "
+                      f"ts={semantic_ts[:19]} S={saved_state.get('futures_price')} "
+                      f"smooth={len(_close_baseline['smooth'])}档 "
+                      f"oi={len(_close_baseline.get('strike_oi') or {})}档 "
+                      f"contract={saved_state.get('active_contract')}")
+                return True
+        except Exception as e:
+            print(f"[iv_smile] ⚠️ 加载 prev_baseline.json 失败: {e}")
+
     if not os.path.exists(_CLOSE_STATE_FILE):
         return False
     try:
@@ -851,7 +977,8 @@ def _load_close_state():
             incoming_ts = _payload_state_timestamp(payload)
             if _should_restore_current(incoming_ts, 'close_state'):
                 for key in ('futures_price', 'atm_strike', 'max_pain', 'ref_strike',
-                             'smile_raw', 'smile_smooth', 'svi_params', 'last_update', 'strike_oi', 'strike_vol'):
+                             'smile_raw', 'smile_smooth', 'svi_params', 'last_update', 'strike_oi', 'strike_vol',
+                             'active_contract'):  # v2.11.53+ 修复: 不恢复 active_contract 会让 alert_data 的 baseline_contract_match 永远 False, 退到 _prev_day_baseline (昨天数据)
                     val = saved_state.get(key)
                     if val is not None:
                         _state[key] = val
@@ -1791,6 +1918,10 @@ def _ensure_today_close_baseline_after_21():
             'ts': snap_ts,
             'close_point': '15:00',  # 明确标记：这是 15:00 收盘基准
         }
+        # v2.11.54+: 同时把今日 15:00 写入 prev_baseline.json
+        # 这样次日 14:59 启动时，_load_close_state() 从 prev_baseline.json 拿到今日 15:00（即"昨日 15:00"）
+        # 不会被次日 15:00 收盘时 close_state.json 覆盖而污染
+        _save_prev_baseline(snap_15, today)
         print(f"[iv_smile] 🔁 21:00基准自动切换: 今日15:00 ({today}) smooth={len(_close_baseline['smooth'])}档 oi={len(_close_baseline.get('strike_oi') or {})}档 ts={snap_ts[:19]}")
         return True
     except Exception as e:
@@ -3020,9 +3151,19 @@ def compute_once(force=False):
     _check_iv_alert(smooth_iv, raw_iv, strike_oi, S, max_pain)
 
     # 15:00收盘时记录基准快照（每个交易日只记一次）
+    # v2.11.53+ 修复: 守门条件从 `not _close_baseline` 改为"今天不是 baseline 的日期"。
+    # 旧逻辑会让 6/18 启动后加载的 6/18 baseline 一直存在, 此后每天 15:00 都因 _close_baseline 已设而跳过,
+    # 导致 _close_baseline 永远停留在第一次启动的日期, 切换门控永远失败, 退到 _prev_day_baseline (6/18)。
     now = datetime.now()
-    if now.hour == 15 and now.minute == 0 and not _close_baseline:
-        _record_close_baseline(smooth_iv, raw_iv, strike_oi, S, strike_vol)
+    if now.hour == 15 and now.minute == 0:
+        baseline_ts = (_close_baseline or {}).get('ts', '')
+        baseline_is_today = False
+        try:
+            baseline_is_today = baseline_ts[:10] == now.strftime('%Y-%m-%d')
+        except Exception:
+            pass
+        if not baseline_is_today:
+            _record_close_baseline(smooth_iv, raw_iv, strike_oi, S, strike_vol)
 
     # PTA 四个收盘时间点（10:15/11:30/15:00/23:00）自动保存收盘快照
     _check_and_save_close_state()
@@ -3574,6 +3715,8 @@ def register_routes(app):
         close_point = data.get('close_point', '15:00')  # 默 15:00
         try:
             # 1. 写 close_state.json
+            # v2.11.54+: 手工补盘（save_close_state_now）是"补今日 15:00"，不应影响 prev_baseline.json
+            # （prev_baseline.json 由 21:00 切换逻辑写入今日 15:00）
             _save_close_state(close_point=close_point)
             # 2. 同步内存 _close_baseline (用 _state 当前值)
             global _close_baseline
