@@ -1037,53 +1037,81 @@ function updateGexCharts(gexData, alertData) {
       d <= 3 ? '⚠️ 即将到期！Gamma加速' : d <= 7 ? '临近到期' : '时间充裕';
   }
 
-  // Pain 斜率（v2.11.53+）：Max Pain 两侧各取 1 个邻居点算每点 pain 增速
-  // 解读: 哪边更陡 → 那边的 OI 集中度更高 → 突破该方向阻力更大
-  // 业务上: 左斜率 / 右斜率 / L:R 比值三段显示
+  // Pain 斜率（v2.11.59+）：Max Pain 两侧 ±3 邻居（300 点窗口）算平均斜率（抗 TqSdk OI 推送延迟）
+  // 业务解读：
+  //   - 左侧斜率 = 看跌阻力（K 跌 1 点痛点涨多少）→ Put OI 集中度（产业防跌买盘）
+  //   - 右侧斜率 = 看涨阻力（K 涨 1 点痛点涨多少）→ Call OI 集中度（产业卖 Call 压顶/资金追涨）
+  //   - 比值 ≥ 1.5x → 一边主导（一边 OI 集中度高，市场结构不对称）
+  //   - 比值 < 1.2x  → 对称（市场在 MP 附近钉住，pin risk 高）
+  //   - 与前次基准对比：斜率变化反映 OI 集中度迁移
   const slopeEl = document.getElementById('mPainSlope');
   const slopeSubEl = document.getElementById('mPainSlopeSub');
-  if (painCurve.length >= 3 && summary.max_pain != null) {
-    const sorted = [...painCurve].sort((a, b) => a.strike - b.strike);
-    const mpIdx = sorted.findIndex(d => d.strike === summary.max_pain);
-    if (mpIdx > 0 && mpIdx < sorted.length - 1) {
-      const left  = sorted[mpIdx - 1];
-      const right = sorted[mpIdx + 1];
-      const mp    = sorted[mpIdx];
-      const leftSpan  = mp.strike - left.strike;
-      const rightSpan = right.strike - mp.strike;
-      const leftSlope  = leftSpan  > 0 ? (left.pain - mp.pain) / leftSpan  : 0;  // 元/点
-      const rightSlope = rightSpan > 0 ? (right.pain - mp.pain) / rightSpan : 0; // 元/点
-      const maxSlope = Math.max(Math.abs(leftSlope), Math.abs(rightSlope));
-      const fmtSlope = (v) => {
-        const av = Math.abs(v);
-        return av >= 1e6 ? (v/1e6).toFixed(2) + 'M' :
-               av >= 1e3 ? (v/1e3).toFixed(1) + 'K' :
-               Math.round(v).toString();
-      };
-      slopeEl.textContent = `←${fmtSlope(leftSlope)} / ${fmtSlope(rightSlope)}→`;
-      // L:R 比值（取较大/较小）
-      const minS = Math.min(Math.abs(leftSlope), Math.abs(rightSlope));
-      const maxS = Math.max(Math.abs(leftSlope), Math.abs(rightSlope));
-      const ratio = minS > 0 ? maxS / minS : Infinity;
-      const ratioStr = minS > 0 ? (ratio >= 10 ? '>10x' : ratio.toFixed(1) + 'x') : '∞';
-      const side = Math.abs(leftSlope) > Math.abs(rightSlope) ? '↓左陡' :
-                   Math.abs(rightSlope) > Math.abs(leftSlope) ? '↑右陡' : '对称';
-      const ratioColor = ratio >= 5 ? '#ff4444' : ratio >= 2 ? '#ffaa00' : '#00d4ff';
-      slopeEl.style.color = ratioColor;
-      slopeSubEl.textContent = `${side} L:R ${ratioStr}`;
-      slopeSubEl.style.color = ratioColor;
+  // 计算单边 ±WINDOW 邻域平均斜率（端点→端点拟合）
+  const WINDOW = 3;  // ±3 邻居 = ±300 点
+  const computeSlope = (sorted, mpIdx, side) => {
+    // side: -1=左(看跌), +1=右(看涨)
+    if (side < 0) {
+      const start = Math.max(0, mpIdx - WINDOW);
+      const end = mpIdx;
+      if (end - start < 1) return 0;
+      const points = sorted.slice(start, end + 1);  // 包含 MP
+      const span = points[points.length-1].strike - points[0].strike;
+      return span > 0 ? (points[points.length-1].pain - points[0].pain) / span : 0;
     } else {
-      slopeEl.textContent = '边界';
-      slopeEl.style.color = '#555';
-      slopeSubEl.textContent = 'MP 位于曲线端点';
-      slopeSubEl.style.color = '#888';
+      const start = mpIdx;
+      const end = Math.min(sorted.length - 1, mpIdx + WINDOW);
+      if (end - start < 1) return 0;
+      const points = sorted.slice(start, end + 1);  // 包含 MP
+      const span = points[points.length-1].strike - points[0].strike;
+      return span > 0 ? (points[points.length-1].pain - points[0].pain) / span : 0;
     }
-  } else {
-    slopeEl.textContent = '--';
-    slopeEl.style.color = '#555';
-    slopeSubEl.textContent = painCurve.length < 3 ? 'pain 曲线 < 3 个点' : '无 max_pain';
-    slopeSubEl.style.color = '#888';
-  }
+  };
+  const fmtSlope = (v) => {
+    const av = Math.abs(v);
+    if (av >= 1e6) return (v/1e6).toFixed(2) + 'M';
+    if (av >= 1e3) return (v/1e3).toFixed(1) + 'K';
+    return Math.round(v).toString();
+  };
+  const renderSlope = (curve, maxPain, prevMaxPain) => {
+    if (curve.length < 2 * WINDOW + 1) {
+      return { main: '--', sub: `pain 曲线 < ${2*WINDOW+1} 个点`, color: '#888' };
+    }
+    const sorted = [...curve].sort((a, b) => a.strike - b.strike);
+    const mpIdx = sorted.findIndex(d => d.strike === maxPain);
+    if (mpIdx < 1 || mpIdx > sorted.length - 2) {
+      return { main: '边界', sub: 'MP 位于曲线端点', color: '#888' };
+    }
+    // 左侧斜率 < 0（MP 左侧 pain > MP.pain），右侧斜率 > 0
+    const leftSlope = computeSlope(sorted, mpIdx, -1);   // 元/点，负数
+    const rightSlope = computeSlope(sorted, mpIdx, +1);  // 元/点，正数
+    // 业务语言：看跌阻力 = |左侧斜率|，看涨阻力 = 右侧斜率
+    const downResist = Math.abs(leftSlope);
+    const upResist = rightSlope;
+    // 比值（max/min）
+    const minS = Math.min(downResist, upResist);
+    const maxS = Math.max(downResist, upResist);
+    const ratio = minS > 0 ? maxS / minS : Infinity;
+    // 主显示: ↓看跌阻力 / 看涨阻力↑
+    const main = `↓${fmtSlope(downResist)} / ${fmtSlope(upResist)}↑`;
+    // 副显示: 谁更陡 + vs 前次基准
+    const sideDesc = downResist > upResist * 1.05 ? '看跌阻力大' :
+                     upResist > downResist * 1.05 ? '看涨阻力大' : '对称';
+    let sub = sideDesc;
+    if (prevMaxPain != null && maxPain !== prevMaxPain) {
+      const delta = maxPain - prevMaxPain;
+      sub += ` | MP ${delta > 0 ? '+' : ''}${delta}`;
+    } else if (prevMaxPain === maxPain) {
+      sub += ' | MP 持平';
+    }
+    // 颜色：比值 ≥ 1.5 标黄（一边主导），≥ 2.5 标红（严重不对称）
+    const color = ratio >= 2.5 ? '#ff4444' : ratio >= 1.5 ? '#ffaa00' : '#00d4ff';
+    return { main, sub, color, downResist, upResist, ratio, sideDesc };
+  };
+  const cur = renderSlope(painCurve, summary.max_pain, prevSummary.max_pain);
+  slopeEl.textContent = cur.main;
+  slopeEl.style.color = cur.color;
+  slopeSubEl.textContent = cur.sub;
+  slopeSubEl.style.color = cur.color;
 
   // ---- GEX 柱状图 ----
   const gexChart = chartInstances.gex;
@@ -1607,6 +1635,6 @@ document.addEventListener('DOMContentLoaded', () => {
   setInterval(fetchData, 60000);
 });
 </script>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.58</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.59</div>
 </body>
 </html>
