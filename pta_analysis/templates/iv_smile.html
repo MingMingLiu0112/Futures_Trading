@@ -1037,7 +1037,7 @@ function updateGexCharts(gexData, alertData) {
       d <= 3 ? '⚠️ 即将到期！Gamma加速' : d <= 7 ? '临近到期' : '时间充裕';
   }
 
-  // Pain 斜率（v2.11.59+）：Max Pain 两侧 ±3 邻居（300 点窗口）算平均斜率（抗 TqSdk OI 推送延迟）
+  // Pain 斜率（v2.11.59+）：Max Pain 两侧 ±5 邻居（500 点窗口）算平均斜率（抗 TqSdk OI 推送延迟，覆盖产业套保盘"防跌带"宽度）
   // 业务解读：
   //   - 左侧斜率 = 看跌阻力（K 跌 1 点痛点涨多少）→ Put OI 集中度（产业防跌买盘）
   //   - 右侧斜率 = 看涨阻力（K 涨 1 点痛点涨多少）→ Call OI 集中度（产业卖 Call 压顶/资金追涨）
@@ -1047,7 +1047,7 @@ function updateGexCharts(gexData, alertData) {
   const slopeEl = document.getElementById('mPainSlope');
   const slopeSubEl = document.getElementById('mPainSlopeSub');
   // 计算单边 ±WINDOW 邻域平均斜率（端点→端点拟合）
-  const WINDOW = 3;  // ±3 邻居 = ±300 点
+  const WINDOW = 5;  // ±5 邻居 = ±500 点（抗 TqSdk OI 推送延迟，覆盖产业套保盘"防跌带"宽度）
   const computeSlope = (sorted, mpIdx, side) => {
     // side: -1=左(看跌), +1=右(看涨)
     if (side < 0) {
