@@ -3306,6 +3306,13 @@ def register_routes(app):
                 'active_contract': _state.get('active_contract'),
                 'snapshot_times': snapshot_times,  # 格式: ["09:00","09:15",...]
                 'reconnect_count': _tqsdk_reconnect_count,
+                # v2.11.55+: 前端 status 面板需要 prev_timestamp / baseline_label
+                'prev_timestamp': _close_baseline.get('ts', '') if _close_baseline else '',
+                'baseline_label': (
+                    f"今日15:00 ({_close_baseline.get('ts','')[5:10]})"
+                    if (_close_baseline and _close_baseline.get('ts','')[:10] == _dt_status.now().strftime('%Y-%m-%d'))
+                    else (f"前日15:00 ({_close_baseline.get('ts','')[5:10]})" if _close_baseline and _close_baseline.get('ts','') else None)
+                ),
             })
 
     @app.route('/api/iv_smile/curve')
@@ -4420,6 +4427,13 @@ def register_routes(app):
             'iv_alerts': iv_alerts,
             'oi_alerts': oi_alerts,
             'last_update': _state.get('last_update'),
+            # v2.11.55+: 前端 L740 路径会从 alert_data 取 prev_timestamp / baseline_label
+            'prev_timestamp': close_ts,
+            'baseline_label': (
+                f"今日15:00 ({close_ts[5:10]})"
+                if close_ts and close_ts[:10] == datetime.now().strftime('%Y-%m-%d')
+                else (f"前日15:00 ({close_ts[5:10]})" if close_ts else None)
+            ),
         })
 
     @app.route('/api/iv_smile/oi')
