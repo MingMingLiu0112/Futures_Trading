@@ -900,9 +900,14 @@ def _load_close_state():
     优先 prev_baseline.json 的原因：6/25 14:59 启动时，close_state.json 已经是 6/25 15:00 写的状态
     （14:59 启动时 close_state.json 里还是 6/24 15:00；但若进程一直跑跨日，close_state 会被覆盖成今日），
     拿 prev_baseline.json 才是真正的"前次基准"。
+
+    v2.11.58+: 修复盘后 _state 空白 bug——
+    prev_baseline.json 用于 _close_baseline（前次基准）后，仍要读 close_state.json 恢复 _state（盘后 current）
+    之前 L945 直接 return True，导致 _state 在盘后启动时永远 None，status/gex 端点无数据。
     """
     global _state, _last_valid, _close_baseline
     # v2.11.54+: 优先从 prev_baseline.json 加载（不会因 close_state.json 被覆盖而丢"前次基准"）
+    prev_baseline_loaded = False
     if os.path.exists(_PREV_BASELINE_FILE):
         try:
             with open(_PREV_BASELINE_FILE, 'r', encoding='utf-8') as f:
@@ -942,9 +947,45 @@ def _load_close_state():
                       f"smooth={len(_close_baseline['smooth'])}档 "
                       f"oi={len(_close_baseline.get('strike_oi') or {})}档 "
                       f"contract={saved_state.get('active_contract')}")
-                return True
+                prev_baseline_loaded = True
         except Exception as e:
             print(f"[iv_smile] ⚠️ 加载 prev_baseline.json 失败: {e}")
+
+    # v2.11.58+: 无论 prev_baseline 是否加载成功，都继续从 close_state.json 恢复 _state（盘后 current）
+    # 关键：close_state.json 包含"最新一天 15:00 收盘完整快照" (F/strike_oi/smile_smooth/smile_raw)
+    # 盘后启动时 _state 是空 dict, TqSdk 拉不到实时行情 → status/gex 端点 status 字段全 null
+    # 这里把 close_state 的 state 恢复到 _state, status 端点就能显示 F/ATM/MP (盘后 = 今日 15:00 收盘)
+    if not _eod_state_loaded and os.path.exists(_CLOSE_STATE_FILE):
+        try:
+            with open(_CLOSE_STATE_FILE, 'r', encoding='utf-8') as f:
+                cs_payload = json.load(f)
+            cs_saved_state = cs_payload.get('state', {})
+            cs_saved_valid = cs_payload.get('last_valid', {})
+            cs_ts = cs_payload.get('timestamp', '')
+            cs_close_point = cs_payload.get('close_point', '15:00')
+            if cs_close_point == '15:00' and cs_saved_state.get('smile_smooth') and cs_saved_state.get('futures_price'):
+                incoming_ts = _payload_state_timestamp(cs_payload)
+                if _should_restore_current(incoming_ts, 'close_state'):
+                    for key in ('futures_price', 'atm_strike', 'max_pain', 'ref_strike',
+                                 'smile_raw', 'smile_smooth', 'svi_params', 'last_update', 'strike_oi', 'strike_vol',
+                                 'active_contract'):
+                        val = cs_saved_state.get(key)
+                        if val is not None:
+                            _state[key] = val
+                    for key in ('futures_price', 'atm_strike', 'max_pain', 'ref_strike',
+                                 'smile_raw', 'smile_smooth', 'svi_params', 'strike_oi', 'strike_vol'):
+                        val = cs_saved_valid.get(key)
+                        if val is not None:
+                            _last_valid[key] = val
+                    print(f"[iv_smile] 💾 从 close_state.json 恢复 _state (盘后 current): "
+                          f"ts={cs_ts[:19]} S={cs_saved_state.get('futures_price')} "
+                          f"MP={cs_saved_state.get('max_pain')} OI={len(cs_saved_state.get('strike_oi') or {})}档")
+                else:
+                    print(f"[iv_smile] 🔄 close_state.json 只恢复 _close_baseline，不覆盖 current _state (incoming_ts={incoming_ts})")
+        except Exception as e:
+            print(f"[iv_smile] ⚠️ 从 close_state.json 恢复 _state 失败: {e}")
+
+    return prev_baseline_loaded
 
     if not os.path.exists(_CLOSE_STATE_FILE):
         return False
@@ -4834,7 +4875,14 @@ def register_routes(app):
             prev_smile_raw = cb.get('raw', {})
             prev_smile_smooth = cb.get('smooth', {})
             cb_ts = (cb.get('ts') or cb.get('timestamp') or '')[:10]
-            baseline_label = f"今日15:00 ({cb_ts[5:10]})" if cb_ts else '今日15:00收盘'
+            # v2.11.58+: _close_baseline 来自 prev_baseline.json，语义是"前次基准"（最近一个 15:00 收盘）
+            # 不论 _cb_should_apply 返回 True/False，标签都应该是"前次基准 (MM-DD)"，与 status 端点对齐
+            from datetime import datetime as _dt_label
+            today_str_lbl = _dt_label.now().strftime('%Y-%m-%d')
+            if cb_ts == today_str_lbl:
+                baseline_label = f"今日15:00 ({cb_ts[5:10]})" if cb_ts else '今日15:00收盘'
+            else:
+                baseline_label = f"前次基准 ({cb_ts[5:10]})" if cb_ts else '前次基准'
             # T/r/expiry 也用 15:00 收盘时点的（若可推断）
             cb_expiry_ts = cb.get('expiry') or cb.get('state', {}).get('expiry')
             if cb_expiry_ts:
