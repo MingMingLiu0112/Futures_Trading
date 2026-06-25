@@ -409,8 +409,8 @@
   </div>
   <div class="metric-box">
     <div class="metric-name">Pain 斜率</div>
-    <div class="metric-value" id="mPainSlope" style="color:#00d4ff;">--</div>
-    <div class="metric-sub" id="mPainSlopeSub">左/右 MP 两侧痛点增速</div>
+    <div class="metric-value" id="mPainSlope" style="font-size:12px; font-weight:500;">--</div>
+    <div class="metric-sub" id="mPainSlopeSub">MP ±500 点痛点增速</div>
   </div>
   <div class="metric-box">
     <div class="metric-name">距到期</div>
@@ -1103,15 +1103,19 @@ function updateGexCharts(gexData, alertData) {
     } else if (prevMaxPain === maxPain) {
       sub += ' | MP 持平';
     }
-    // 颜色：比值 ≥ 1.5 标黄（一边主导），≥ 2.5 标红（严重不对称）
-    const color = ratio >= 2.5 ? '#ff4444' : ratio >= 1.5 ? '#ffaa00' : '#00d4ff';
-    return { main, sub, color, downResist, upResist, ratio, sideDesc };
+    // 阈值判定（写到副显示里, 不要用颜色）
+    let threshold;
+    if (ratio >= 2.5) threshold = '强不对称';
+    else if (ratio >= 1.5) threshold = '一边主导';
+    else if (ratio >= 1.2) threshold = '略不对称';
+    else threshold = '对称';
+    sub += ` | ${ratio.toFixed(2)}x ${threshold}`;
+    return { main, sub, downResist, upResist, ratio, sideDesc };
   };
   const cur = renderSlope(painCurve, summary.max_pain, prevSummary.max_pain);
   slopeEl.textContent = cur.main;
-  slopeEl.style.color = cur.color;
+  // 不要用颜色, 用户偏好统一字号 (font-size 由 mPainSlope CSS 控制)
   slopeSubEl.textContent = cur.sub;
-  slopeSubEl.style.color = cur.color;
 
   // ---- GEX 柱状图 ----
   const gexChart = chartInstances.gex;
