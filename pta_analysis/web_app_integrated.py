@@ -1727,7 +1727,10 @@ def _fetch_kline_data(symbol='TA609', period='5min', count=500,
                 fetch_count = max(count * 3, 2000)
             # else: 都没指定，取最近 count 根（默认行为）
 
-            api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS), debug=False)
+            # v2.11.54+: K线 API 改用 TqKq 测试连接（auth=test 占测试账户名额，不占 mingmingliu 真实账户）
+            # 否则会和 iv_smile 期权长连接（TqAuth mingmingliu）抢同一个账户名额，
+            # TqSdk 限制同账户只允许一个连接，iv_smile 永远连不上。
+            api = TqApi(TqKq(), auth=TqAuth('test', 'test'), debug=False)
             klines = api.get_kline_serial(tqsdk_symbol, period_sec, data_length=fetch_count)
             api.close()
             data = []
@@ -1900,11 +1903,8 @@ def api_kline_data():
     # 缓存未命中或已过期，尝试TqSdk（但如果之前失败过就跳过）
     if not _kline_tqsdk_failed:
         try:
-            # 使用真实TqSdk认证 + 主力连续合约；TqKq测试环境在部分进程中会与长连接竞争
-            # 这里优先取天勤实时/准实时行情，失败才临时fallback到akshare。
-            # 注意：盘后调用 wait_update 会一直等到夜盘开盘才返回新 tick（hang 几分钟到几小时），
-            # 因此 wait_update 的 deadline 必须很短；K线最后一根 close 本身已是最新可用价。
-            api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS), debug=False)
+            # v2.11.54+: 改用 TqKq 测试连接（auth=test）避免抢 iv_smile 真实账户 mingmingliu 连接名额
+            api = TqApi(TqKq(), auth=TqAuth('test', 'test'), debug=False)
             klines = api.get_kline_serial(tqsdk_symbol, period_sec, data_length=count)
             api.wait_update(deadline=_time_mod.time() + 1)  # 1秒即可：只接收已经到了的tick；盘后夜盘未开时直接返回缓存kline
 
@@ -2025,7 +2025,8 @@ def _kline_warmup():
             with _kline_tqsdk_lock:
                 if _kline_tqsdk_cache.get(cache_key):
                     continue
-            api = TqApi(auth=TqAuth(TQS_USER, TQS_PASS), debug=False)
+            # v2.11.54+: 改用 TqKq 测试连接（auth=test）避免抢 iv_smile 真实账户连接名额
+            api = TqApi(TqKq(), auth=TqAuth('test', 'test'), debug=False)
             try:
                 klines = api.get_kline_serial(sym, period_sec, data_length=count)
                 api.wait_update(deadline=_time_mod.time() + 5)
