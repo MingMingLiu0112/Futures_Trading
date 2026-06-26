@@ -1956,8 +1956,12 @@ def _ensure_today_close_baseline_after_21():
             'strike_vol': snap_15.get('strike_vol', {}),
             'S': snap_15.get('S') or snap_15.get('futures_price'),
             'atm_strike': snap_15.get('atm_strike'),
+            'max_pain': snap_15.get('max_pain'),  # v2.11.62a+ 修复: 加 max_pain (GEX/Pain 斜率用)
             'ts': snap_ts,
             'close_point': '15:00',  # 明确标记：这是 15:00 收盘基准
+            # v2.11.62a+ 修复: 加 contract 和 expiry (避免 21:00 切换后 alert_data baseline_contract_match=False)
+            'contract': snap_15.get('contract') or snap_15.get('active_contract') or _state.get('active_contract'),
+            'expiry': snap_15.get('expiry') or (_state.get('expiry').isoformat() if _state.get('expiry') else None),
         }
         # v2.11.54+: 同时把今日 15:00 写入 prev_baseline.json
         # 这样次日 14:59 启动时，_load_close_state() 从 prev_baseline.json 拿到今日 15:00（即"昨日 15:00"）
