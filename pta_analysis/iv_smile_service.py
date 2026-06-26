@@ -2978,6 +2978,15 @@ def compute_once(force=False):
     """
     global _state
 
+    # v2.11.61+: 即使 snap 还没到，但只要期货行情有价 + K线预热完成 → 视为 TqSdk 数据活跃
+    # 解决中午时段期权 bid/ask 缺失导致启动期 60% 判定不通过、_tqsdk_ready 永远 False 的问题
+    fut_last = _state.get('futures_price') or 0
+    if fut_last > 0:
+        if not _tqsdk_ready:
+            print("[iv_smile] ✅ K线/akshare 已有期货价，置 tqsdk_ready=True（避开中午期权流动性差）")
+        _tqsdk_ready = True
+        _state['data_ready'] = True
+
     if 'snap' not in _tqsdk_quotes:
         # 即使 data_ready=False，也要尝试从快照恢复数据（保持微笑曲线活跃）
         _restore_from_latest_snapshot()
@@ -3326,6 +3335,20 @@ def register_routes(app):
                 _state['last_update'] = _dt_status.now().isoformat()
             except Exception:
                 pass
+            # v2.11.61+: 派生 tqsdk_ready——若 _state.futures_price 有有效值且距 now 不超过 10 分钟
+            # (反映 K 线/tqsdk 任何一条路径有数据)，返回 True。
+            # 解决中午时段 compute_once 不跑 + _tqsdk_quotes['snap'] 空 → 启动期 False 永驻的问题。
+            global _tqsdk_ready
+            try:
+                _lu = _state.get('last_update')
+                if _lu:
+                    _lu_dt = _dt_status.fromisoformat(_lu) if 'T' in _lu else None
+                    if _lu_dt and (_dt_status.now() - _lu_dt).total_seconds() < 600:
+                        if (_state.get('futures_price') or 0) > 0:
+                            _tqsdk_ready = True
+                            _state['data_ready'] = True
+            except Exception:
+                pass
             # 返回快照时间点列表（用于ATM走势图）
             # 过滤掉无数据的空快照key（如 'night' 锚点），避免排序/取值时异常
             valid_keys = [k for k in _interval_snapshots if _interval_snapshots[k].get('smooth')]
@@ -3446,6 +3469,24 @@ def register_routes(app):
             # 从当前状态取 raw/smooth（compute_once 最新结果）
             raw = _state.get('smile_raw', {})
             smooth = _state.get('smile_smooth', {})
+            # v2.11.61+: 若 _state.smile 是从 prev_baseline/close_state 恢复的（昨天 15:00 数据），
+            # 且今天 interval_snapshots 有更新的槽（如 11:30），
+            # 用最新槽的 IV/smooth 替代 _state 中的旧值。
+            # 触发条件：_state.last_update < 最新槽 timestamp
+            try:
+                latest_snap_ts = None
+                if all_keys:
+                    latest_snap_ts = _interval_snapshots.get(all_keys[-1], {}).get('timestamp')
+                if latest_snap_ts:
+                    _state_lu = _state.get('last_update')
+                    if _state_lu and latest_snap_ts > _state_lu:
+                        # _state 的 IV 是旧值，用最新槽的
+                        latest_snap = _interval_snapshots.get(all_keys[-1], {})
+                        if latest_snap.get('smooth'):
+                            smooth = latest_snap['smooth']
+                            raw = latest_snap.get('raw', raw)
+            except Exception:
+                pass
             # X 轴只暴露 raw 实际有数据的档（100 增量）；smile_smooth 里的 50 增量插值点
             # 只用于平滑曲线本身，不在 X 轴上造出 6350/6450/6550 等无 raw 数据的档
             strikes = sorted(raw.keys(), key=lambda x: float(x)) if raw else sorted(smooth.keys(), key=lambda x: float(x))
@@ -4095,6 +4136,7 @@ def register_routes(app):
         cur_contract = _state.get('active_contract')
         now_dt = datetime.now()
         baseline_ts_str = _close_baseline.get('ts', '') if _close_baseline else ''
+        baseline_date = None  # v2.11.60a: 默认初始化,防止 baseline_ts_str 为空时 UnboundLocalError
         baseline_is_today = False
         baseline_is_previous_calendar_day = False
         if baseline_ts_str:
