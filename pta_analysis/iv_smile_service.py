@@ -2976,9 +2976,9 @@ def compute_once(force=False):
     Args:
         force: True时强制写入快照（手动触发场景）
     """
-    global _state
+    global _state, _tqsdk_ready
 
-    # v2.11.61+: 即使 snap 还没到，但只要期货行情有价 + K线预热完成 → 视为 TqSdk 数据活跃
+    # v2.11.62+: 即使 snap 还没到，但只要期货行情有价 + K线预热完成 → 视为 TqSdk 数据活跃
     # 解决中午时段期权 bid/ask 缺失导致启动期 60% 判定不通过、_tqsdk_ready 永远 False 的问题
     fut_last = _state.get('futures_price') or 0
     if fut_last > 0:
