@@ -410,7 +410,7 @@
   <div class="metric-box">
     <div class="metric-name">Pain 斜率</div>
     <div class="metric-value" id="mPainSlope" style="font-size:12px; font-weight:500;">--</div>
-    <div class="metric-sub" id="mPainSlopeSub">MP ±500 点痛点增速</div>
+    <div class="metric-sub" id="mPainSlopeSub">形态×位置 · P 距 MP</div>
   </div>
   <div class="metric-box">
     <div class="metric-name">距到期</div>
@@ -1037,13 +1037,12 @@ function updateGexCharts(gexData, alertData) {
       d <= 3 ? '⚠️ 即将到期！Gamma加速' : d <= 7 ? '临近到期' : '时间充裕';
   }
 
-  // Pain 斜率（v2.11.59+）：Max Pain 两侧 ±5 邻居（500 点窗口）算平均斜率（抗 TqSdk OI 推送延迟，覆盖产业套保盘"防跌带"宽度）
-  // 业务解读：
-  //   - 左侧斜率 = 看跌阻力（K 跌 1 点痛点涨多少）→ Put OI 集中度（产业防跌买盘）
-  //   - 右侧斜率 = 看涨阻力（K 涨 1 点痛点涨多少）→ Call OI 集中度（产业卖 Call 压顶/资金追涨）
-  //   - 比值 ≥ 1.5x → 一边主导（一边 OI 集中度高，市场结构不对称）
-  //   - 比值 < 1.2x  → 对称（市场在 MP 附近钉住，pin risk 高）
-  //   - 与前次基准对比：斜率变化反映 OI 集中度迁移
+  // Pain 斜率（v2.11.60+）：Max Pain 两侧 ±5 邻居（500 点窗口）算平均斜率（抗 TqSdk OI 推送延迟，覆盖产业套保盘"防跌带"宽度）
+  // v2.11.60+: 增加「形态 × 位置」二维业务判断（解决"左缓右陡但价格弱势 ≠ 多头主导"的盲区）
+  //   - 形态（shape）: 比值决定 leftSteep/rightSteep/sym
+  //   - 位置（position）: P vs MP 决定 belowMP/aboveMP/atMP
+  //   - 二维组合 → 业务标签（见 labelMap），不再只显示"看涨阻力大"
+  //   - 位置距离单独显示（第二行），强制前端暴露位置维度
   const slopeEl = document.getElementById('mPainSlope');
   const slopeSubEl = document.getElementById('mPainSlopeSub');
   // 计算单边 ±WINDOW 邻域平均斜率（端点→端点拟合）
@@ -1055,15 +1054,15 @@ function updateGexCharts(gexData, alertData) {
       const end = mpIdx;
       if (end - start < 1) return 0;
       const points = sorted.slice(start, end + 1);  // 包含 MP
-      const span = points[points.length-1].strike - points[0].strike;
-      return span > 0 ? (points[points.length-1].pain - points[0].pain) / span : 0;
+      const realSpan = points[points.length-1].strike - points[0].strike;
+      return realSpan > 0 ? (points[points.length-1].pain - points[0].pain) / realSpan : 0;
     } else {
       const start = mpIdx;
       const end = Math.min(sorted.length - 1, mpIdx + WINDOW);
       if (end - start < 1) return 0;
       const points = sorted.slice(start, end + 1);  // 包含 MP
-      const span = points[points.length-1].strike - points[0].strike;
-      return span > 0 ? (points[points.length-1].pain - points[0].pain) / span : 0;
+      const realSpan = points[points.length-1].strike - points[0].strike;
+      return realSpan > 0 ? (points[points.length-1].pain - points[0].pain) / realSpan : 0;
     }
   };
   const fmtSlope = (v) => {
@@ -1072,7 +1071,50 @@ function updateGexCharts(gexData, alertData) {
     if (av >= 1e3) return (v/1e3).toFixed(1) + 'K';
     return Math.round(v).toString();
   };
-  const renderSlope = (curve, maxPain, prevMaxPain) => {
+  // v2.11.60+: 形态 × 位置 → 业务标签
+  // 形态只反映 OI 分布不对称，位置才反映实际对冲压力在哪半区
+  // 必须叠加判断，避免"左缓右陡但 P < MP 远 → 误判多头主导"
+  const classifyRegime = (downResist, upResist, futPrice, maxPain) => {
+    if (futPrice == null || maxPain == null) return null;
+    const ratio = Math.max(downResist, upResist) / Math.min(downResist, upResist);
+    // 形态（shape）: leftSteep / rightSteep / sym
+    let shape;
+    if (ratio < 1.2) shape = 'sym';
+    else if (downResist > upResist * 1.05) shape = 'leftSteep';   // 看跌阻力大 = Put OI 集中
+    else if (upResist > downResist * 1.05) shape = 'rightSteep';  // 看涨阻力大 = Call OI 集中
+    else shape = 'sym';
+    // 位置（position）: P vs MP，±2% 内视为 atMP（pin risk 区间）
+    const dist = futPrice - maxPain;
+    const threshold = maxPain * 0.02;
+    let position;
+    if (Math.abs(dist) <= threshold) position = 'atMP';
+    else if (dist > 0) position = 'aboveMP';
+    else position = 'belowMP';
+    // 二维标签矩阵
+    // 注意：业务语义下，"左陡右缓"+"P<MP"=空头趋势（下跌自我强化），
+    //       "左缓右陡"+"P<MP"=空头末期+右侧燃料待点燃（不是多头主导！）
+    const labelMap = {
+      'leftSteep|belowMP':  '空头趋势·左暴露',
+      'leftSteep|atMP':     '左暴露压顶·下行',
+      'leftSteep|aboveMP':  '多头陷阱·左暴露待引爆',
+      'rightSteep|belowMP': '空头末期·右燃料待燃',  // ← 用户当前场景典型
+      'rightSteep|atMP':    '底部反转中',
+      'rightSteep|aboveMP': '多头趋势·右暴露加速',
+      'sym|belowMP':        '低位震荡·pin风险',
+      'sym|atMP':           'pin风险·双向对冲对称',
+      'sym|aboveMP':        '高位震荡·pin风险',
+    };
+    return labelMap[`${shape}|${position}`] || '形态不明';
+  };
+  // 位置距离文本（v2.11.60+ 新增第二行）
+  const fmtPosDist = (futPrice, maxPain) => {
+    if (futPrice == null || maxPain == null) return '';
+    const dist = futPrice - maxPain;
+    const absDist = Math.abs(dist);
+    const arrow = dist > 0 ? '↑' : (dist < 0 ? '↓' : '≈');
+    return `P ${futPrice} ${arrow} MP ${maxPain} (${dist > 0 ? '+' : ''}${dist})`;
+  };
+  const renderSlope = (curve, maxPain, prevMaxPain, futPrice) => {
     if (curve.length < 2 * WINDOW + 1) {
       return { main: '--', sub: `pain 曲线 < ${2*WINDOW+1} 个点`, color: '#888' };
     }
@@ -1093,9 +1135,10 @@ function updateGexCharts(gexData, alertData) {
     const ratio = minS > 0 ? maxS / minS : Infinity;
     // 主显示: ↓看跌阻力 / 看涨阻力↑
     const main = `↓${fmtSlope(downResist)} / ${fmtSlope(upResist)}↑`;
-    // 副显示: 谁更陡 + vs 前次基准
-    const sideDesc = downResist > upResist * 1.05 ? '看跌阻力大' :
-                     upResist > downResist * 1.05 ? '看涨阻力大' : '对称';
+    // 副显示第 1 行：业务标签（形态×位置） + vs 前次基准 + 比值阈值
+    const regime = classifyRegime(downResist, upResist, futPrice, maxPain);
+    const sideDesc = regime || (downResist > upResist * 1.05 ? '看跌阻力大' :
+                     upResist > downResist * 1.05 ? '看涨阻力大' : '对称');
     let sub = sideDesc;
     if (prevMaxPain != null && maxPain !== prevMaxPain) {
       const delta = maxPain - prevMaxPain;
@@ -1110,12 +1153,16 @@ function updateGexCharts(gexData, alertData) {
     else if (ratio >= 1.2) threshold = '略不对称';
     else threshold = '对称';
     sub += ` | ${ratio.toFixed(2)}x ${threshold}`;
-    return { main, sub, downResist, upResist, ratio, sideDesc };
+    // 副显示第 2 行：位置距离（强制前端暴露位置维度）
+    const posLine = fmtPosDist(futPrice, maxPain);
+    return { main, sub, posLine, downResist, upResist, ratio, sideDesc, regime };
   };
-  const cur = renderSlope(painCurve, summary.max_pain, prevSummary.max_pain);
+  const cur = renderSlope(painCurve, summary.max_pain, prevSummary.max_pain, summary.futures_price);
   slopeEl.textContent = cur.main;
   // 不要用颜色, 用户偏好统一字号 (font-size 由 mPainSlope CSS 控制)
-  slopeSubEl.textContent = cur.sub;
+  // v2.11.60+: 第二行用 <br> + 灰色位置距离（不再仅 1 行 sub）
+  // 数字字段不需 escape（来自 summary.futures_price / summary.max_pain）
+  slopeSubEl.innerHTML = cur.sub + (cur.posLine ? `<br><span style="color:#666">${cur.posLine}</span>` : '');
 
   // ---- GEX 柱状图 ----
   const gexChart = chartInstances.gex;
@@ -1639,6 +1686,6 @@ document.addEventListener('DOMContentLoaded', () => {
   setInterval(fetchData, 60000);
 });
 </script>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.59</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.60</div>
 </body>
 </html>
