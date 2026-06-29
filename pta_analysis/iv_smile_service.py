@@ -476,7 +476,7 @@ def _save_prev_baseline(snap_15, today_str):
         'timestamp': f'{today_str}T15:00:00',  # 语义：今日 15:00 收盘
         'state': {
             'active_contract': snap_15.get('contract') or _state.get('active_contract'),
-            'expiry': snap_15.get('expiry'),
+            'expiry': snap_15.get('expiry') or (_state.get('expiry').isoformat() if _state.get('expiry') else None),
             'futures_price': snap_15.get('S') or snap_15.get('futures_price'),
             'atm_strike': snap_15.get('atm_strike'),
             'max_pain': snap_15.get('max_pain'),
