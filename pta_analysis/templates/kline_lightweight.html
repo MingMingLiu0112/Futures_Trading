@@ -2883,6 +2883,66 @@ function getStrategyReportEndpoint() {
                         if (!text) return '';
                         return `<div style="margin:-4px 0 10px 0;color:#cfcfcf;font-size:11px;line-height:1.65;background:#101018;border-left:2px solid #444;padding:6px 8px;border-radius:3px;">${cell(text)}</div>`;
                     }
+                    // v2.11.63b+: 性质判定 × 合成信号 block
+                    function renderNatureSynthesisBlock(ns) {
+                        if (!ns || !ns.available) {
+                            const note = (ns || {}).note || '数据不足，无法做性质判定';
+                            return `<div style="margin:8px 0 10px 0;"><div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">5.5 性质判定 × 合成信号（v2.11.63b+ 实战）</div><div style="color:#888;font-size:11px;font-style:italic;padding:4px 0;">${cell(note)}</div></div>`;
+                        }
+                        const put = ns.put || {};
+                        const call = ns.call || {};
+                        const synth = ns.synthesis || {};
+                        const fmtOI = (x) => (x == null || x === 0) ? '0' : Number(x).toLocaleString();
+                        const fmtPct = (x) => x == null ? '--' : (x >= 0 ? '+' : '') + Number(x).toFixed(1) + '%';
+                        const fmtPP  = (x) => x == null ? '--' : (x >= 0 ? '+' : '') + Number(x).toFixed(2) + 'pp';
+                        const pcrNow = ns.pcr_now, pcrPrev = ns.pcr_prev;
+                        let pcrText = 'PCR --';
+                        if (pcrNow != null && pcrPrev != null) {
+                            pcrText = `PCR ${Number(pcrNow).toFixed(3)}${cell(synth.pcr_label || '—')}（前日 ${Number(pcrPrev).toFixed(3)}）`;
+                        } else if (pcrPrev != null) {
+                            pcrText = `PCR --（前日 ${Number(pcrPrev).toFixed(3)}）`;
+                        }
+                        const headerMeta = `形态：${cell(ns.shape_label || '--')}；位置：${cell(ns.position_label || '--')}；${pcrText}；基准：今日 15:00 当前 vs 昨日 15:00 收盘（alert_data OI/IV prev 字段）`;
+                        const synthLabel = cell(synth.label || '未判定');
+                        const synthInt = cell(synth.intensity || '弱');
+                        const synthDesc = cell(synth.description || '');
+                        return `<div style="margin:8px 0 10px 0;">
+                            <div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">5.5 性质判定 × 合成信号（v2.11.63b+ 实战）</div>
+                            <div style="color:#aaa;font-size:11px;margin-bottom:5px;">${headerMeta}</div>
+                            <table style="width:100%;border-collapse:collapse;font-size:11px;line-height:1.45;background:#12121b;border:1px solid #2a2a36;">
+                                <thead><tr>
+                                    <th style="color:#aaa;text-align:left;padding:5px 6px;border-bottom:1px solid #333;font-weight:500;">维度</th>
+                                    <th style="color:#aaa;text-align:left;padding:5px 6px;border-bottom:1px solid #333;font-weight:500;">当前</th>
+                                    <th style="color:#aaa;text-align:left;padding:5px 6px;border-bottom:1px solid #333;font-weight:500;">前次</th>
+                                    <th style="color:#aaa;text-align:left;padding:5px 6px;border-bottom:1px solid #333;font-weight:500;">变化</th>
+                                    <th style="color:#aaa;text-align:left;padding:5px 6px;border-bottom:1px solid #333;font-weight:500;">性质</th>
+                                    <th style="color:#aaa;text-align:left;padding:5px 6px;border-bottom:1px solid #333;font-weight:500;">业务解读</th>
+                                </tr></thead>
+                                <tbody>
+                                    <tr>
+                                        <td style="color:#ddd;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">Put</td>
+                                        <td style="color:#ddd;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">${fmtOI(put.oi_cur)}</td>
+                                        <td style="color:#ddd;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">${fmtOI(put.oi_prev)}</td>
+                                        <td style="color:#ddd;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">OI ${fmtPct(put.oi_delta_pct)}<br>IV ${fmtPP(put.iv_delta_pp)}</td>
+                                        <td style="color:#ddd;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">${cell(put.nature_label)}</td>
+                                        <td style="color:#ddd;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">${cell(put.business_meaning)}</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="color:#ddd;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">Call</td>
+                                        <td style="color:#ddd;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">${fmtOI(call.oi_cur)}</td>
+                                        <td style="color:#ddd;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">${fmtOI(call.oi_prev)}</td>
+                                        <td style="color:#ddd;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">OI ${fmtPct(call.oi_delta_pct)}<br>IV ${fmtPP(call.iv_delta_pp)}</td>
+                                        <td style="color:#ddd;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">${cell(call.nature_label)}</td>
+                                        <td style="color:#ddd;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">${cell(call.business_meaning)}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                            <div style="margin-top:6px;color:#cfcfcf;font-size:11px;line-height:1.65;background:#101018;border-left:2px solid #ffd700;padding:6px 8px;border-radius:3px;">
+                                <span style="color:#ffd700;">合成信号：</span><b>${synthLabel}</b>（${synthInt}）<br>
+                                <span style="color:#aaa;">${synthDesc}</span>
+                            </div>
+                        </div>`;
+                    }
                     function renderTraderReport(text) {
                         const raw = String(text || '').trim();
                         if (!raw) return '';
@@ -2959,6 +3019,7 @@ function getStrategyReportEndpoint() {
                     out += `</div>`;
                     out += renderReportTable('ATM附近IV / T表', ['K','C IV','P IV','SVI/平滑IV','OI结构'], intraday.iv_table || []);
                     out += renderInterpretation(combinedInterpretation(intraday.iv_interpretation, narrativeNotes.iv));
+                    out += renderNatureSynthesisBlock(intraday.nature_synthesis);
                     out += renderReportTable('宏观与成本快照', ['项目','当前值','解读'], intraday.macro_table || []);
                     out += renderChainOperationSnapshot(intraday.chain_operation_snapshot);
                     out += renderInterpretation(combinedInterpretation(intraday.macro_interpretation, narrativeNotes.macro));
@@ -4497,6 +4558,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.62b</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.63b</div>
 </body>
 </html>

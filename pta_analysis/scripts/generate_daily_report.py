@@ -880,6 +880,370 @@ def get_iv_curve_data() -> Dict:
     return data
 
 
+# ===== v2.11.63b+: 性质判定 × 合成信号（按 skill 2.3.2 三层判定流程）=====
+
+# OI 变化阈值（绝对量 / 相对量）
+# 用 sum(total_OI) 的相对变化判定"上升/下降/不变"——避免绝对量在 OI 规模不同时不可比
+# 阈值 1.0%：PTA 主力单日 OI 变化常态在 ±2-5% 区间，1% 是显著信号起点。
+# 用 1% 而非 2% 是为了把"轻微但一致的方向"识别出来（实战中 1.5% OI 变化对应 ~5K 手也是清晰信号）。
+_NATURE_OI_REL_THRESHOLD = 0.01  # |delta/total_prev| ≥ 1% 算"上升"或"下降"，否则"不变"
+# IV 变化阈值（百分点）
+# PTA 主力 IV 平时在 20-35% 区间，1 个百分点变化是显著信号
+_NATURE_IV_ABS_THRESHOLD = 0.5   # |delta_pp| ≥ 0.5pp 算"上升"或"下降"，否则"不变"
+# 形态判定（v2.11.63 阈值）：Call OI / Put OI 比值
+_SHAPE_RATIO_THRESHOLD = 1.15     # ≥ 1.15 → 左缓右陡；≤ 1/1.15 → 左陡右缓；否则 对称
+
+# 5 种性质判定标签
+_NATURE_LABELS = {
+    'spec_buy':    '投机买权',
+    'hedge_sell':  '套保卖权',
+    'hedge_buy':   '套保买保',
+    'close_push':  '平仓推动',
+    'double_exit': '双边撤退',
+}
+
+
+def _judge_nature(oi_delta_pct: float, iv_delta_pp: float) -> str:
+    """按 skill 2.3.1 性质判定表把 (OI 变化%, IV 变化pp) 映射到 5 种性质之一。
+
+    输入:
+        oi_delta_pct: OI 相对变化 = (cur - prev) / prev * 100
+        iv_delta_pp:  IV 绝对变化 = cur - prev（IV 已经是 %）
+
+    返回: 'spec_buy' / 'hedge_sell' / 'hedge_buy' / 'close_push' / 'double_exit' / 'unknown'
+
+    阈值:
+        OI: |x| ≥ 1% 算变化，否则"不变"
+        IV: |x| ≥ 0.5pp 算变化，否则"不变"
+    """
+    oi_up = oi_delta_pct >= _NATURE_OI_REL_THRESHOLD * 100
+    oi_dn = oi_delta_pct <= -_NATURE_OI_REL_THRESHOLD * 100
+    iv_up = iv_delta_pp >= _NATURE_IV_ABS_THRESHOLD
+    iv_dn = iv_delta_pp <= -_NATURE_IV_ABS_THRESHOLD
+
+    if oi_up and iv_up:
+        return 'spec_buy'        # ↑↑ 投机买权（情绪驱动）
+    if oi_up and iv_dn:
+        return 'hedge_sell'      # ↑↓ 套保卖权（产业端真实意愿，被行权即接受）
+    if oi_up and not iv_up and not iv_dn:
+        return 'hedge_buy'       # ↑— 套保买保（产业端无情绪溢价，看跌/看涨避险）
+    if oi_dn and iv_up:
+        return 'close_push'      # ↓↑ 平仓推动（卖方买回平仓 + 剩余风险溢价上升）
+    if oi_dn and iv_dn:
+        return 'double_exit'     # ↓↓ 双边撤退（情绪消退+对冲盘撤离）
+    if oi_dn and not iv_up and not iv_dn:
+        return 'double_exit'     # ↓— OI 下降 + IV 不变 = 对冲盘撤离（双边撤退性质）
+    if not oi_up and not oi_dn:
+        if iv_up:
+            return 'spec_buy'
+        if iv_dn:
+            return 'close_push'
+    return 'unknown'
+
+
+def _judge_shape(call_oi: float, put_oi: float) -> str:
+    """形态判定：Call OI / Put OI 比值 → 'rightSteep' / 'leftSteep' / 'sym'"""
+    if not call_oi or not put_oi:
+        return 'unknown'
+    ratio = call_oi / put_oi
+    if ratio >= _SHAPE_RATIO_THRESHOLD:
+        return 'rightSteep'   # Call OI 集中
+    if ratio <= 1 / _SHAPE_RATIO_THRESHOLD:
+        return 'leftSteep'    # Put OI 集中
+    return 'sym'
+
+
+def _judge_position(futures_price, max_pain) -> str:
+    """位置判定：F vs MP → 'aboveMP' / 'atMP' / 'belowMP'  (P ≈ MP 是 ±2%)"""
+    if not futures_price or not max_pain:
+        return 'unknown'
+    try:
+        diff_pct = (float(futures_price) - float(max_pain)) / float(max_pain) * 100
+    except (TypeError, ValueError):
+        return 'unknown'
+    if diff_pct > 2:
+        return 'aboveMP'
+    if diff_pct < -2:
+        return 'belowMP'
+    return 'atMP'
+
+
+def _synthesize_signal(put_nature: str, call_nature: str,
+                       pcr_now: float, pcr_prev: float) -> Dict:
+    """第三层：合成信号（同向共振 / 反向矛盾 / 单边 / 观望）
+
+    业务语义（v2.11.63a 陷阱 9 + 6.29 实战边界修订）:
+        - hedge_buy（套保买保）= **中性**（看跌/看涨避险 = 抛/购意愿抑制，不站队方向）
+        - hedge_sell（套保卖权）= **中性**（收租不站队方向）
+        - double_exit（双边撤退）= **中性**
+        - spec_buy（投机买权）= 站队方向（看空/看多，情绪驱动）
+        - close_push（平仓推动）= 方向加速（卖方对冲压力释放）
+
+    返回: {'label': str, 'intensity': str, 'description': str, 'put_dir': str, 'call_dir': str, 'pcr_label': str}
+    """
+    PUT_DIR = {
+        'spec_buy':   'bearish',  # 投机买 Put（看空，恐慌）
+        'hedge_sell': 'neutral',  # 卖 Put 集中（收租不站队方向）
+        'hedge_buy':  'neutral',  # 买 Put 防存货减值（看跌避险，软底效应）——**不是看空/看多**
+        'close_push': 'bearish',  # Put 卖方平仓（下方对冲卖压释放 = 下跌加速 = 看空）
+        'double_exit':'neutral',  # 认沽买盘消失（看跌买盘撤退 + 恐慌消退 = 中性）
+    }
+    CALL_DIR = {
+        'spec_buy':   'bullish',  # 投机买 Call（看多，情绪回暖）
+        'hedge_sell': 'neutral',  # 卖 Call 收租（锁定销售顶价 = 中性，不站队方向）
+        'hedge_buy':  'neutral',  # 买 Call 锁采购顶价（看涨避险，软顶效应）——**不是看多/看空**
+        'close_push': 'bullish',  # Call 卖方平仓（上方对冲买压释放 = 上涨加速 = 看多）
+        'double_exit':'neutral',  # 认购买盘消失（看涨买盘撤退 + 情绪降温 = 中性）
+    }
+
+    p_dir = PUT_DIR.get(put_nature, 'unknown')
+    c_dir = CALL_DIR.get(call_nature, 'unknown')
+
+    pcr_delta = 0
+    if pcr_now and pcr_prev:
+        pcr_delta = pcr_now - pcr_prev
+    pcr_label = '↑' if pcr_delta > 0.02 else ('↓' if pcr_delta < -0.02 else '—')
+
+    if p_dir == c_dir and p_dir in ('bullish', 'bearish'):
+        dir_word = '看多' if p_dir == 'bullish' else '看空'
+        return {
+            'label': f'{dir_word}共振',
+            'intensity': '强',
+            'description': f'Put 端({_NATURE_LABELS.get(put_nature, "未知")}) + Call 端({_NATURE_LABELS.get(call_nature, "未知")}) 同向加强 = {dir_word}共振',
+            'put_dir': p_dir, 'call_dir': c_dir,
+            'pcr_delta': pcr_delta, 'pcr_label': pcr_label,
+        }
+    if p_dir != c_dir and p_dir in ('bullish', 'bearish') and c_dir in ('bullish', 'bearish'):
+        return {
+            'label': '信号矛盾',
+            'intensity': '观望',
+            'description': f'Put 端({_NATURE_LABELS.get(put_nature, "未知")})看{p_dir} + Call 端({_NATURE_LABELS.get(call_nature, "未知")})看{c_dir} = 方向矛盾，观望',
+            'put_dir': p_dir, 'call_dir': c_dir,
+            'pcr_delta': pcr_delta, 'pcr_label': pcr_label,
+        }
+    if p_dir == 'neutral' and c_dir == 'neutral':
+        return {
+            'label': '中性',
+            'intensity': '观望',
+            'description': f'Put 端({_NATURE_LABELS.get(put_nature, "未知")})中性 + Call 端({_NATURE_LABELS.get(call_nature, "未知")})中性 = 方向不明，观望',
+            'put_dir': p_dir, 'call_dir': c_dir,
+            'pcr_delta': pcr_delta, 'pcr_label': pcr_label,
+        }
+    the_dir = p_dir if p_dir != 'neutral' else c_dir
+    the_side = 'Put' if p_dir != 'neutral' else 'Call'
+    the_nature = put_nature if the_side == 'Put' else call_nature
+    dir_word = '看多' if the_dir == 'bullish' else '看空'
+    return {
+        'label': f'单边{dir_word}',
+        'intensity': '中',
+        'description': f'{the_side} 端({_NATURE_LABELS.get(the_nature, "未知")})给出{dir_word}信号，另一侧中性',
+        'put_dir': p_dir, 'call_dir': c_dir,
+        'pcr_delta': pcr_delta, 'pcr_label': pcr_label,
+    }
+
+
+def _compute_nature_and_synthesis(iv_table_rows: list, atm_strike,
+                                   max_pain, futures_price,
+                                   pcr_now, pcr_call_oi, pcr_put_oi) -> Dict:
+    """汇总全档 Put/Call 总量 OI/IV 变化 + 性质判定 + 合成信号
+
+    返回结构（供 narrative 模板渲染）:
+        {
+            'available': bool, 'note': '',
+            'put': {oi_cur, oi_prev, oi_delta_pct, iv_cur, iv_prev, iv_delta_pp, nature, nature_label, business_meaning},
+            'call': {...},
+            'shape': 'rightSteep' / 'leftSteep' / 'sym',
+            'position': 'aboveMP' / 'atMP' / 'belowMP',
+            'pcr_now': float, 'pcr_prev': float, 'pcr_delta': float,
+            'synthesis': {label, intensity, description, put_dir, call_dir, pcr_label},
+        }
+    """
+    result = {'available': False, 'put': {}, 'call': {}, 'synthesis': {}}
+
+    if not iv_table_rows:
+        return result
+
+    put_oi_cur = put_oi_prev = 0
+    call_oi_cur = call_oi_prev = 0
+    put_iv_cur_w = put_iv_prev_w = 0.0
+    put_iv_cur_n = put_iv_prev_n = 0
+    call_iv_cur_w = call_iv_prev_w = 0.0
+    call_iv_cur_n = call_iv_prev_n = 0
+    has_prev_data = False
+
+    if atm_strike:
+        scope = [r for r in iv_table_rows if r.get('strike') and abs(r['strike'] - atm_strike) <= 250]
+    else:
+        scope = iv_table_rows
+
+    for r in scope:
+        oc = r.get('oi_call') or 0
+        op = r.get('oi_put') or 0
+        oc_p = r.get('oi_call_prev') or 0
+        op_p = r.get('oi_put_prev') or 0
+        if oc_p > 0 or op_p > 0:
+            has_prev_data = True
+        call_oi_cur += oc
+        call_oi_prev += oc_p
+        put_oi_cur += op
+        put_oi_prev += op_p
+        iv_c = r.get('iv_call')
+        iv_p = r.get('iv_put')
+        iv_c_p = r.get('iv_call_prev')
+        iv_p_p = r.get('iv_put_prev')
+        if iv_c is not None and oc > 0:
+            call_iv_cur_w += iv_c * oc
+            call_iv_cur_n += oc
+        if iv_c_p is not None and oc_p > 0:
+            call_iv_prev_w += iv_c_p * oc_p
+            call_iv_prev_n += oc_p
+        if iv_p is not None and op > 0:
+            put_iv_cur_w += iv_p * op
+            put_iv_cur_n += op
+        if iv_p_p is not None and op_p > 0:
+            put_iv_prev_w += iv_p_p * op_p
+            put_iv_prev_n += op_p
+
+    if not has_prev_data:
+        return {
+            **result,
+            'note': 'alert_data 无前次基准（昨日 15:00 收盘未写入或当前在非交易日），无法做性质判定',
+        }
+
+    call_oi_delta_pct = ((call_oi_cur - call_oi_prev) / call_oi_prev * 100) if call_oi_prev > 0 else 0
+    put_oi_delta_pct = ((put_oi_cur - put_oi_prev) / put_oi_prev * 100) if put_oi_prev > 0 else 0
+    call_iv_cur_avg = call_iv_cur_w / call_iv_cur_n if call_iv_cur_n else 0
+    call_iv_prev_avg = call_iv_prev_w / call_iv_prev_n if call_iv_prev_n else 0
+    put_iv_cur_avg = put_iv_cur_w / put_iv_cur_n if put_iv_cur_n else 0
+    put_iv_prev_avg = put_iv_prev_w / put_iv_prev_n if put_iv_prev_n else 0
+    call_iv_delta = call_iv_cur_avg - call_iv_prev_avg
+    put_iv_delta = put_iv_cur_avg - put_iv_prev_avg
+
+    put_nature = _judge_nature(put_oi_delta_pct, put_iv_delta)
+    call_nature = _judge_nature(call_oi_delta_pct, call_iv_delta)
+
+    shape = _judge_shape(call_oi_cur, put_oi_cur)
+    position = _judge_position(futures_price, max_pain)
+
+    pcr_prev = (put_oi_prev / call_oi_prev) if call_oi_prev > 0 else None
+
+    synthesis = _synthesize_signal(put_nature, call_nature, pcr_now or 0, pcr_prev or 0)
+
+    PUT_MEANING = {
+        'spec_buy':   '投机买 Put（看空，恐慌情绪推动）',
+        'hedge_sell': '卖 Put 集中（左侧加速器加码 = 投机/做市商认为下方有支撑收租）',
+        'hedge_buy':  '产业买 Put 防存货减值（看跌避险，形成软底效应）',
+        'close_push': 'Put 卖方买回平仓（下方对冲卖压释放 = 下跌加速）',
+        'double_exit':'认沽买盘消失（看跌买盘撤退 + 恐慌消退）',
+    }
+    CALL_MEANING = {
+        'spec_buy':   '投机买 Call（看多，情绪回暖推动）',
+        'hedge_sell': '卖 Call 收租（产业锁定销售顶价 = 中性，不站队方向）',
+        'hedge_buy':  '产业买 Call 锁采购顶价（看涨避险，形成软顶效应）',
+        'close_push': 'Call 卖方买回平仓（上方对冲买压释放 = 上涨加速）',
+        'double_exit':'认购买盘消失（看涨买盘撤退 + 情绪降温）',
+    }
+    SHAPE_LABEL = {'rightSteep': '[左缓右陡]', 'leftSteep': '[左陡右缓]', 'sym': '[左右对称]', 'unknown': '[形态未知]'}
+    POS_LABEL = {'aboveMP': '高位(P>MP)', 'atMP': '中位(P≈MP)', 'belowMP': '低位(P<MP)', 'unknown': '位置未知'}
+
+    return {
+        'available': True,
+        'put': {
+            'oi_cur': put_oi_cur, 'oi_prev': put_oi_prev,
+            'oi_delta_pct': put_oi_delta_pct,
+            'iv_cur': put_iv_cur_avg, 'iv_prev': put_iv_prev_avg,
+            'iv_delta_pp': put_iv_delta,
+            'nature': put_nature, 'nature_label': _NATURE_LABELS[put_nature],
+            'business_meaning': PUT_MEANING.get(put_nature, '未知'),
+        },
+        'call': {
+            'oi_cur': call_oi_cur, 'oi_prev': call_oi_prev,
+            'oi_delta_pct': call_oi_delta_pct,
+            'iv_cur': call_iv_cur_avg, 'iv_prev': call_iv_prev_avg,
+            'iv_delta_pp': call_iv_delta,
+            'nature': call_nature, 'nature_label': _NATURE_LABELS[call_nature],
+            'business_meaning': CALL_MEANING.get(call_nature, '未知'),
+        },
+        'shape': shape, 'shape_label': SHAPE_LABEL[shape],
+        'position': position, 'position_label': POS_LABEL[position],
+        'pcr_now': pcr_now, 'pcr_prev': pcr_prev, 'pcr_delta': (pcr_now - pcr_prev) if (pcr_now and pcr_prev) else 0,
+        'synthesis': synthesis,
+        'note': '',
+    }
+
+
+def _render_nature_synthesis_section(ns: Dict) -> str:
+    """渲染'6.5 性质判定 × 合成信号'段落（按 skill 2.3.2 三层判定）"""
+    if not ns or not ns.get('available'):
+        note = (ns or {}).get('note') or '数据不足，无法做性质判定'
+        return f"5.5 性质判定 × 合成信号（v2.11.63b+）\n{note}"
+
+    put = ns.get('put') or {}
+    call = ns.get('call') or {}
+    synth = ns.get('synthesis') or {}
+
+    def _fmt_pct(x):
+        if x is None:
+            return '--'
+        return f"{x:+.1f}%"
+
+    def _fmt_pp(x):
+        if x is None:
+            return '--'
+        return f"{x:+.2f}pp"
+
+    def _fmt_oi(x):
+        if x is None or x == 0:
+            return '0'
+        return f"{int(x):,}"
+
+    table = _table(
+        ['维度', '当前', '前次', '变化', '性质', '业务解读'],
+        [
+            [
+                'Put',
+                _fmt_oi(put.get('oi_cur')),
+                _fmt_oi(put.get('oi_prev')),
+                f"OI {_fmt_pct(put.get('oi_delta_pct'))}\nIV {_fmt_pp(put.get('iv_delta_pp'))}",
+                put.get('nature_label') or '--',
+                put.get('business_meaning') or '--',
+            ],
+            [
+                'Call',
+                _fmt_oi(call.get('oi_cur')),
+                _fmt_oi(call.get('oi_prev')),
+                f"OI {_fmt_pct(call.get('oi_delta_pct'))}\nIV {_fmt_pp(call.get('iv_delta_pp'))}",
+                call.get('nature_label') or '--',
+                call.get('business_meaning') or '--',
+            ],
+        ]
+    )
+
+    pcr_now = ns.get('pcr_now')
+    pcr_prev = ns.get('pcr_prev')
+    pcr_label = (synth.get('pcr_label') or '—')
+    if pcr_now and pcr_prev:
+        pcr_text = f"PCR {pcr_now:.3f}{pcr_label}（前日 {pcr_prev:.3f}）"
+    elif pcr_prev:
+        pcr_text = f"PCR --（前日 {pcr_prev:.3f}）"
+    else:
+        pcr_text = "PCR --"
+
+    synth_label = synth.get('label') or '未判定'
+    synth_intensity = synth.get('intensity') or '弱'
+    synth_desc = synth.get('description') or ''
+
+    return (
+        "5.5 性质判定 × 合成信号（v2.11.63b+ 实战）\n"
+        f"形态：{ns.get('shape_label', '--')}；位置：{ns.get('position_label', '--')}；{pcr_text}\n"
+        f"基准：今日 15:00 当前 vs 昨日 15:00 收盘（alert_data OI/IV prev 字段）。\n"
+        + table
+        + "\n"
+        + f"合成信号：{synth_label}（{synth_intensity}）\n"
+        + synth_desc
+    )
+
+
 def get_iv_table_data() -> Dict:
     """从本地iv_smile服务获取T型报价表数据（与iv_smile页面T表完全一致）
     数据源：/api/iv_smile/alert_data — 包含iv_call/iv_put/iv_call_prev/iv_put_prev等
@@ -1401,6 +1765,14 @@ def generate_option_analysis(opt: Dict, gex: Dict = None, iv_curve: Dict = None,
         iv_changes.sort(key=lambda x: max(abs(x.get('call_change') or 0), abs(x.get('put_change') or 0)), reverse=True)
         iv_changes = iv_changes[:3]
 
+    # ===== v2.11.63b+: 性质判定 × 合成信号（按 skill 2.3.2 三层判定流程）=====
+    # 全档 Put/Call 总量 OI/IV 变化汇总（数据源：alert_data 的 oi_call_prev/iv_call_prev = 昨日 15:00 收盘）
+    nature_data = _compute_nature_and_synthesis(
+        iv_table_rows=t_rows, atm_strike=atm_strike,
+        max_pain=max_pain, futures_price=futures_price,
+        pcr_now=pcr_val, pcr_call_oi=pcr_call_oi, pcr_put_oi=pcr_put_oi,
+    )
+
     # 构建持仓表
     all_puts = [h for h in highlights if h['type'] == 'P']
     all_calls = [h for h in highlights if h['type'] == 'C']
@@ -1538,6 +1910,7 @@ def generate_option_analysis(opt: Dict, gex: Dict = None, iv_curve: Dict = None,
         'pain_convergence': pain_convergence,
         'iv_analysis': iv_analysis,
         'iv_changes': iv_changes,
+        'nature_synthesis': nature_data,  # v2.11.63b+ 性质判定 × 合成信号（skill 2.3.2 三层判定）
     }
 
 
@@ -2719,6 +3092,8 @@ def generate_intraday_analysis(report: Dict) -> Dict:
         iv_interpretation,
         f"ATM附近隐波约{_fmt_num(atm_iv,1)}%，属于{s1.get('iv_analysis',{}).get('vol_level','中波/待确认')}；{skew_desc or 'Skew待确认'}；{curv_desc or '曲率待确认'}。左侧Put IV若显著高于ATM，说明市场对下跌尾部风险有定价。",
         "",
+        _render_nature_synthesis_section(s1.get('nature_synthesis') or {}),
+        "",
         "6. 基本面与宏观：先看宏观快讯和成本链，周频供需项暂不放入盘中主研判。",
         _table(['项目','当前值','解读'], macro_table),
         _table(['环节','开工率','较前值','库存','较前值'], chain_operation_table),
@@ -2773,6 +3148,7 @@ def generate_intraday_analysis(report: Dict) -> Dict:
         'option_underlying_price': option_underlying_price,
         'main_futures_price': main_futures_price,
         'main_futures_symbol': main_symbol,
+        'nature_synthesis': s1.get('nature_synthesis') or {},  # v2.11.63b+ 性质判定 × 合成信号（供前端渲染）
     }
 
 
