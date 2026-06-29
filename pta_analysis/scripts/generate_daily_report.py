@@ -1004,6 +1004,15 @@ def _synthesize_signal(put_nature: str, call_nature: str,
         pcr_delta = pcr_now - pcr_prev
     pcr_label = '↑' if pcr_delta > 0.02 else ('↓' if pcr_delta < -0.02 else '—')
 
+    # PCR 变化业务解读（v2.11.63c+ 新增）
+    pcr_meaning = ''
+    if pcr_delta > 0.02:
+        pcr_meaning = f'PCR↑ = Put 持仓增速 > Call 持仓增速（{pcr_now:.3f}↑ vs {pcr_prev:.3f}）'
+    elif pcr_delta < -0.02:
+        pcr_meaning = f'PCR↓ = Call 持仓增速 > Put 持仓增速（{pcr_now:.3f}↓ vs {pcr_prev:.3f}）'
+    else:
+        pcr_meaning = f'PCR— 持仓相对均衡（{pcr_now:.3f}）'
+
     if p_dir == c_dir and p_dir in ('bullish', 'bearish'):
         dir_word = '看多' if p_dir == 'bullish' else '看空'
         return {
@@ -1011,7 +1020,7 @@ def _synthesize_signal(put_nature: str, call_nature: str,
             'intensity': '强',
             'description': f'Put 端({_NATURE_LABELS.get(put_nature, "未知")}) + Call 端({_NATURE_LABELS.get(call_nature, "未知")}) 同向加强 = {dir_word}共振',
             'put_dir': p_dir, 'call_dir': c_dir,
-            'pcr_delta': pcr_delta, 'pcr_label': pcr_label,
+            'pcr_delta': pcr_delta, 'pcr_label': pcr_label, 'pcr_meaning': pcr_meaning,
         }
     if p_dir != c_dir and p_dir in ('bullish', 'bearish') and c_dir in ('bullish', 'bearish'):
         return {
@@ -1019,7 +1028,7 @@ def _synthesize_signal(put_nature: str, call_nature: str,
             'intensity': '观望',
             'description': f'Put 端({_NATURE_LABELS.get(put_nature, "未知")})看{p_dir} + Call 端({_NATURE_LABELS.get(call_nature, "未知")})看{c_dir} = 方向矛盾，观望',
             'put_dir': p_dir, 'call_dir': c_dir,
-            'pcr_delta': pcr_delta, 'pcr_label': pcr_label,
+            'pcr_delta': pcr_delta, 'pcr_label': pcr_label, 'pcr_meaning': pcr_meaning,
         }
     if p_dir == 'neutral' and c_dir == 'neutral':
         return {
@@ -1027,7 +1036,7 @@ def _synthesize_signal(put_nature: str, call_nature: str,
             'intensity': '观望',
             'description': f'Put 端({_NATURE_LABELS.get(put_nature, "未知")})中性 + Call 端({_NATURE_LABELS.get(call_nature, "未知")})中性 = 方向不明，观望',
             'put_dir': p_dir, 'call_dir': c_dir,
-            'pcr_delta': pcr_delta, 'pcr_label': pcr_label,
+            'pcr_delta': pcr_delta, 'pcr_label': pcr_label, 'pcr_meaning': pcr_meaning,
         }
     the_dir = p_dir if p_dir != 'neutral' else c_dir
     the_side = 'Put' if p_dir != 'neutral' else 'Call'
@@ -1038,7 +1047,7 @@ def _synthesize_signal(put_nature: str, call_nature: str,
         'intensity': '中',
         'description': f'{the_side} 端({_NATURE_LABELS.get(the_nature, "未知")})给出{dir_word}信号，另一侧中性',
         'put_dir': p_dir, 'call_dir': c_dir,
-        'pcr_delta': pcr_delta, 'pcr_label': pcr_label,
+        'pcr_delta': pcr_delta, 'pcr_label': pcr_label, 'pcr_meaning': pcr_meaning,
     }
 
 
@@ -1071,10 +1080,11 @@ def _compute_nature_and_synthesis(iv_table_rows: list, atm_strike,
     call_iv_cur_n = call_iv_prev_n = 0
     has_prev_data = False
 
-    if atm_strike:
-        scope = [r for r in iv_table_rows if r.get('strike') and abs(r['strike'] - atm_strike) <= 250]
-    else:
-        scope = iv_table_rows
+    # v2.11.63c 修订: scope 必须用全档（不限 ATM±N 档）
+    # 原因: PTA OI 集中在深度虚值档 (4800-5300 Put 端 ~30K 手、6000-6500 Call 端 ~40K 手)
+    # 限 ATM±N 档会漏掉 80% 的 OI 数据，导致判定严重偏离真实业务含义
+    # IV 加权也必须用全档 OI 作权重（虚值档虽然 IV 高，但 OI 加权后不会拉偏太大）
+    scope = iv_table_rows
 
     for r in scope:
         oc = r.get('oi_call') or 0
@@ -1234,8 +1244,9 @@ def _render_nature_synthesis_section(ns: Dict) -> str:
     synth_desc = synth.get('description') or ''
 
     return (
-        "5.5 性质判定 × 合成信号（v2.11.63b+ 实战）\n"
+        "5.5 性质判定 × 合成信号（v2.11.63c+ 实战）\n"
         f"形态：{ns.get('shape_label', '--')}；位置：{ns.get('position_label', '--')}；{pcr_text}\n"
+        f"PCR 业务解读：{synth.get('pcr_meaning', '')}\n"
         f"基准：今日 15:00 当前 vs 昨日 15:00 收盘（alert_data OI/IV prev 字段）。\n"
         + table
         + "\n"

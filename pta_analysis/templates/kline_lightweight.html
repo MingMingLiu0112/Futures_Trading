@@ -2903,12 +2903,14 @@ function getStrategyReportEndpoint() {
                             pcrText = `PCR --（前日 ${Number(pcrPrev).toFixed(3)}）`;
                         }
                         const headerMeta = `形态：${cell(ns.shape_label || '--')}；位置：${cell(ns.position_label || '--')}；${pcrText}；基准：今日 15:00 当前 vs 昨日 15:00 收盘（alert_data OI/IV prev 字段）`;
+                        const pcrMeaning = cell(synth.pcr_meaning || '');
                         const synthLabel = cell(synth.label || '未判定');
                         const synthInt = cell(synth.intensity || '弱');
                         const synthDesc = cell(synth.description || '');
                         return `<div style="margin:8px 0 10px 0;">
-                            <div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">5.5 性质判定 × 合成信号（v2.11.63b+ 实战）</div>
+                            <div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">5.5 性质判定 × 合成信号（v2.11.63c+ 实战）</div>
                             <div style="color:#aaa;font-size:11px;margin-bottom:5px;">${headerMeta}</div>
+                            ${pcrMeaning ? `<div style="color:#cfcfcf;font-size:11px;margin-bottom:5px;background:#1a1a25;padding:3px 6px;border-radius:3px;border-left:2px solid #4a90e2;">📊 PCR 业务解读：${pcrMeaning}</div>` : ''}
                             <table style="width:100%;border-collapse:collapse;font-size:11px;line-height:1.45;background:#12121b;border:1px solid #2a2a36;">
                                 <thead><tr>
                                     <th style="color:#aaa;text-align:left;padding:5px 6px;border-bottom:1px solid #333;font-weight:500;">维度</th>
