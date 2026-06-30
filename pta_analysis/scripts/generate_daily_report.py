@@ -890,6 +890,15 @@ _NATURE_OI_REL_THRESHOLD = 0.01  # |delta/total_prev| ≥ 1% 算"上升"或"下�
 # IV 变化阈值（百分点）
 # PTA 主力 IV 平时在 20-35% 区间，1 个百分点变化是显著信号
 _NATURE_IV_ABS_THRESHOLD = 0.5   # |delta_pp| ≥ 0.5pp 算"上升"或"下降"，否则"不变"
+
+# v2.11.63e: strike 级别判定门槛（解决软肋 2/3：数据噪声污染）
+# 实战教训: PTA 主力单 strike OI 显著信号通常 1000+ 手，<200 手基本是噪声
+# 6600-8100C 等深度虚值档 IV 字段缺失（None/0），不能参与判定
+_STRIKE_MIN_OI = 200            # strike OI 门槛（取 max(oi_cur, oi_prev)，过滤深度虚值档）
+_STRIKE_IV_FLOOR = 0.10         # strike IV 数据有效性门槛（< 0.1% 视为缺失，郑商所实际报价精度 0.5pp）
+_STRIKE_IV_THRESHOLD_PP = 0.15  # strike 级别 IV 变化阈值（vs 全档 0.5pp）
+                                # 配合 _STRIKE_MIN_OI 后，单 strike IV 显著变化通常 0.1-0.5pp
+                                # 0.01pp 已被证明过细（数据噪声会被误判）
 # 形态判定（v2.11.63 阈值）：Call OI / Put OI 比值
 _SHAPE_RATIO_THRESHOLD = 1.15     # ≥ 1.15 → 左缓右陡；≤ 1/1.15 → 左陡右缓；否则 对称
 
@@ -968,18 +977,170 @@ def _judge_position(futures_price, max_pain) -> str:
     return 'atMP'
 
 
-def _synthesize_signal(put_nature: str, call_nature: str,
-                       pcr_now: float, pcr_prev: float) -> Dict:
-    """第三层：合成信号（同向共振 / 反向矛盾 / 单边 / 观望）
+def _judge_nature_strike(oi_delta_pct: float, iv_delta_pp: float = None) -> str:
+    """v2.11.63d/e: strike 级别性质判定
 
-    业务语义（v2.11.63a 陷阱 9 + 6.29 实战边界修订）:
+    v2.11.63e 修订: IV 阈值从 0.01pp → 0.15pp（_STRIKE_IV_THRESHOLD_PP）
+    原因: 0.01pp 在郑商所 daily 快照的报价精度（0.5pp）以下，等于把噪声当信号。
+    配合 OI 门槛（_STRIKE_MIN_OI）后，0.15pp 是 PTA 单 strike 显著变化的合理起点。
+    如果 iv_delta_pp 为 None（数据缺失），按 'IV—' 处理。
+
+    阈值:
+        OI: |x| ≥ 1% 算变化
+        IV: |x| ≥ 0.15pp 算变化
+    """
+    if iv_delta_pp is None:
+        iv_d = 0  # 数据缺失，按 IV 不变处理
+        iv_up = iv_dn = False
+    else:
+        iv_d = iv_delta_pp
+        iv_up = iv_d >= _STRIKE_IV_THRESHOLD_PP
+        iv_dn = iv_d <= -_STRIKE_IV_THRESHOLD_PP
+
+    oi_up = oi_delta_pct >= 1.0
+    oi_dn = oi_delta_pct <= -1.0
+
+    if oi_up and iv_up: return 'spec_buy'
+    if oi_up and iv_dn: return 'hedge_sell'
+    if oi_up:           return 'hedge_buy'   # OI↑IV—
+    if oi_dn and iv_up: return 'close_push'
+    if oi_dn and iv_dn: return 'double_exit' # OI↓IV↓ 投机离场
+    if oi_dn:           return 'double_exit' # OI↓IV— 对冲撤离
+    if iv_up:           return 'spec_buy'
+    if iv_dn:           return 'close_push'
+    return 'unknown'
+
+
+def _is_strike_eligible(oi_cur: float, oi_prev: float, iv_cur, iv_prev) -> bool:
+    """v2.11.63e: 判断 strike 是否参与性质判定（过滤数据噪声）
+
+    过滤条件（任一不满足则返回 False）:
+        1. oi_cur 和 oi_prev **都** ≥ _STRIKE_MIN_OI（200 手）
+           —— 严格双门槛（不是 max），避免"曾经 1000 手现在 100 手"被误判为有效
+        2. iv_cur 和 iv_prev 都非 None 且 ≥ _STRIKE_IV_FLOOR（0.1%）—— IV 数据有效
+
+    v2.11.63e 修订: 原版用 max() 误判（1000 → 100 仍通过）→ 改为双门槛 AND
+    """
+    if (oi_cur or 0) < _STRIKE_MIN_OI or (oi_prev or 0) < _STRIKE_MIN_OI:
+        return False
+    if iv_cur is None or iv_prev is None:
+        return False
+    if iv_cur < _STRIKE_IV_FLOOR or iv_prev < _STRIKE_IV_FLOOR:
+        return False
+    return True
+
+
+def _synthesize_strike_roles(strikes: list, futures_price, max_pain, side: str) -> Dict:
+    """v2.11.63d 资金意图层精细化: 按 strike 级别区分'投机端'与'产业端'。
+
+    业务语义（实战沉淀）:
+        - Call 端:
+            减仓 (OI↓) + IV↓ = 投机买 Call **平仓获利离场**（非方向信号，但表明投机资金离场）
+            增仓 (OI↑) + IV↓ = 产业 **卖 Call 收租**（典型产业行为）
+            增仓 (OI↑) + IV↑ = 投机 **买 Call**（情绪推动）
+            增仓 (OI↑) + IV— = 产业 **买 Call 锁采购顶价**（聚酯厂买保）
+        - Put 端:
+            减仓 (OI↓) + IV↓ = 认沽买方离场（看跌买盘撤退）
+            增仓 (OI↑) + IV↓ = 产业/做市商 **卖 Put 收租**（卖方接货）
+            增仓 (OI↑) + IV↑ = 投机 **买 Put**（恐慌推动）
+            增仓 (OI↑) + IV— = 产业 **买 Put 防存货减值**（生产商买保）
+
+    输入:
+        strikes: [{strike, oi_cur, oi_prev, oi_delta_pct, iv_delta_pp, nature}, ...]
+        side: 'put' / 'call'
+
+    返回:
+        {
+            'spec_trim':   [strike_info...],  # 投机端平仓 / 离场（OI↓ + IV↓）
+            'spec_add':    [strike_info...],  # 投机端加仓（OI↑ + IV↑）
+            'hedge_sell':  [strike_info...],  # 产业卖权收租（OI↑ + IV↓）
+            'hedge_buy':   [strike_info...],  # 产业买保（OI↑ + IV—）
+            'close_push':  [strike_info...],  # 卖方平仓（OI↓ + IV↑）
+            'role_summary': '投机端 + 产业端方向分化的文字描述'
+        }
+    """
+    buckets = {
+        'spec_trim':  [],  # OI↓ IV↓  投机端平仓/离场
+        'spec_add':   [],  # OI↑ IV↑  投机端加仓
+        'hedge_sell': [],  # OI↑ IV↓  产业卖权收租
+        'hedge_buy':  [],  # OI↑ IV—  产业买保
+        'close_push': [],  # OI↓ IV↑  卖方平仓
+        'double_exit':[],  # OI↓ IV—  对冲盘撤离
+    }
+    for s in strikes:
+        oi_d = s.get('oi_delta_pct') or 0
+        iv_d = s.get('iv_delta_pp') or 0
+        nature = s.get('nature') or 'unknown'
+        if nature in ('spec_buy',):
+            buckets['spec_add'].append(s)
+        elif nature in ('hedge_sell',):
+            buckets['hedge_sell'].append(s)
+        elif nature in ('hedge_buy',):
+            buckets['hedge_buy'].append(s)
+        elif nature in ('close_push',):
+            buckets['close_push'].append(s)
+        elif nature in ('double_exit',):
+            # OI↓IV↓ 是投机离场，OI↓IV— 是对冲盘撤离 —— 合并展示
+            buckets['double_exit'].append(s)
+        # 跳过 unknown（OI/IV 都在阈值内）
+
+    # 按 OI 绝对变化量降序，每组取 Top N（v2.11.63e: Top 5 → Top 10，多展示细节）
+    # 用户能看到更多 strike，避免 Top 5 截断丢失关键尾部信号
+    _STRIKE_BUCKET_TOP_N = 10
+    for k in buckets:
+        buckets[k].sort(key=lambda x: abs(x.get('oi_delta_pct') or 0), reverse=True)
+        buckets[k] = buckets[k][:_STRIKE_BUCKET_TOP_N]
+    buckets['_top_n'] = _STRIKE_BUCKET_TOP_N  # 暴露给前端/统计脚本
+
+    # 角色汇总文字（业务可读）
+    call_label = 'Call' if side == 'call' else 'Put'
+    parts = []
+    if buckets['hedge_sell']:
+        strikes_str = '/'.join(f"{int(s['strike'])}{call_label[0]}" for s in buckets['hedge_sell'][:3] if s.get('strike'))
+        oi_sum = sum(abs(s.get('oi_delta_pct') or 0) for s in buckets['hedge_sell'])
+        parts.append(f"产业卖权收租({strikes_str}, OI增量{oi_sum:.0f}%)")
+    if buckets['spec_trim'] or buckets['double_exit']:
+        # 区分"OI↓IV↓ 投机离场" vs "OI↓IV— 对冲撤离"——合并描述
+        combined = buckets['spec_trim'] + buckets['double_exit']
+        strikes_str = '/'.join(f"{int(s['strike'])}{call_label[0]}" for s in combined[:3] if s.get('strike'))
+        oi_sum = sum(abs(s.get('oi_delta_pct') or 0) for s in combined)
+        parts.append(f"投机/对冲端撤退({strikes_str}, OI减量{oi_sum:.0f}%)")
+    if buckets['spec_add']:
+        strikes_str = '/'.join(f"{int(s['strike'])}{call_label[0]}" for s in buckets['spec_add'][:3] if s.get('strike'))
+        parts.append(f"投机端加仓({strikes_str})")
+    if buckets['hedge_buy']:
+        strikes_str = '/'.join(f"{int(s['strike'])}{call_label[0]}" for s in buckets['hedge_buy'][:3] if s.get('strike'))
+        parts.append(f"产业买保({strikes_str})")
+    if buckets['close_push']:
+        strikes_str = '/'.join(f"{int(s['strike'])}{call_label[0]}" for s in buckets['close_push'][:3] if s.get('strike'))
+        parts.append(f"卖方平仓({strikes_str})")
+
+    buckets['role_summary'] = ' / '.join(parts) if parts else '无显著方向分化'
+
+    return buckets
+
+
+def _synthesize_signal(put_nature: str, call_nature: str,
+                       pcr_now: float, pcr_prev: float,
+                       call_role: Dict = None, put_role: Dict = None,
+                       futures_price: float = None) -> Dict:
+    """第三层：合成信号（同向共振 / 反向矛盾 / 单边 / 观望 / v2.11.63d 慢牛/慢熊修正）
+
+    业务语义（v2.11.63a 陷阱 9 + 6.29 实战边界修订 + v2.11.63d strike 修正）:
         - hedge_buy（套保买保）= **中性**（看跌/看涨避险 = 抛/购意愿抑制，不站队方向）
-        - hedge_sell（套保卖权）= **中性**（收租不站队方向）
+        - hedge_sell（套保卖权）= **中性**（收租不站队方向）→ v2.11.63d: 但若 strike 级别有方向分化，升级为"弱方向"
         - double_exit（双边撤退）= **中性**
         - spec_buy（投机买权）= 站队方向（看空/看多，情绪驱动）
         - close_push（平仓推动）= 方向加速（卖方对冲压力释放）
 
-    返回: {'label': str, 'intensity': str, 'description': str, 'put_dir': str, 'call_dir': str, 'pcr_label': str}
+    v2.11.63d strike 修正逻辑:
+        - 双侧 hedge_sell（中性） + 单侧 spec_trim 集中 = **慢牛/慢熊倾向**
+        - Call 端 spec_trim（投机平仓 5500-5600C）+ Call 端 hedge_sell 集中在更高位（5900-6300C）=
+          "投机离场 + 产业在更高位收租" = **慢牛倾向**（生产端仍在看涨）
+        - Put 端 spec_trim（认沽买方离场）+ Put 端 hedge_sell 集中在更低位（4850-5300P）=
+          "买方撤 + 卖方在更低位收租" = **慢熊倾向**（市场仍在看跌）
+
+    返回: {'label': str, 'intensity': str, 'description': str, 'put_dir': str, 'call_dir': str, 'pcr_label': str, 'strike_modifier': str}
     """
     PUT_DIR = {
         'spec_buy':   'bearish',  # 投机买 Put（看空，恐慌）
@@ -1013,6 +1174,59 @@ def _synthesize_signal(put_nature: str, call_nature: str,
     else:
         pcr_meaning = f'PCR— 持仓相对均衡（{pcr_now:.3f}）'
 
+    # v2.11.63d strike 修正项: 当 Put/Call 总量都是中性时，用 strike 级别方向异质性升级
+    # v2.11.63d 修订: Call 端慢牛 + Put 端慢熊 可同时成立（多空分化），应同时报告
+    # v2.11.63d 修订2: trim strike 只取 ATM 同侧（Call 端只取 ≤ 当前价的，Put 端只取 ≥ 当前价的）
+    # 原因: 5500C 投机离场（call trim）+ 5900C 产业收租（call hs）= 慢牛
+    #      但 6800C 撤退是高位对冲盘撤退（远离价），不该算入"投机离场" → 否则把 trim 平均拉高
+    strike_modifier = ''
+    call_bullish = ''
+    put_bearish = ''
+    if p_dir == 'neutral' and c_dir == 'neutral' and (call_role or put_role):
+        from statistics import mean
+        def _avg_strike_of(role, bucket, current_price, side):
+            """role='hedge_sell'/'spec_trim+double_exit'；side='call'/'put'"""
+            keys = role.split('+')
+            items = []
+            for k in keys:
+                for s in (bucket or {}).get(k, []):
+                    if s.get('strike'):
+                        # v2.11.63d 修订2: 只取 ATM 同侧的 strike
+                        # Call 端: trim 应是"投机离场"在低位（≤ 当前价）
+                        # Put 端: trim 应是"认沽撤退"在高位（≥ 当前价）
+                        if side == 'call' and role.startswith('spec_trim') and float(s['strike']) > current_price:
+                            continue
+                        if side == 'put' and role.startswith('spec_trim') and float(s['strike']) < current_price:
+                            continue
+                        items.append((float(s['strike']), abs(s.get('oi_delta_pct') or 0)))
+            if not items:
+                return None
+            total_w = sum(w for _, w in items)
+            if total_w == 0:
+                return mean(p for p, _ in items)
+            return sum(p * w for p, w in items) / total_w
+
+        call_hs_strike = _avg_strike_of('hedge_sell', call_role, futures_price or 0, 'call')
+        call_trim_strike = _avg_strike_of('spec_trim+double_exit', call_role, futures_price or 0, 'call')
+        put_hs_strike = _avg_strike_of('hedge_sell', put_role, futures_price or 0, 'put')
+        put_trim_strike = _avg_strike_of('spec_trim+double_exit', put_role, futures_price or 0, 'put')
+
+        # Call 端：trim 集中在低位 + hs 集中在更高位 → 慢牛
+        if call_trim_strike and call_hs_strike and call_hs_strike > call_trim_strike:
+            spread = call_hs_strike - call_trim_strike
+            if spread >= 50:
+                call_bullish = f'Call 端慢牛（投机在 {call_trim_strike:.0f}C 离场，产业在 {call_hs_strike:.0f}C 收租，spread={spread:.0f}点）'
+        # Put 端：trim 集中在高位 + hs 集中在更低位 → 慢熊
+        if put_trim_strike and put_hs_strike and put_hs_strike < put_trim_strike:
+            spread = put_trim_strike - put_hs_strike
+            if spread >= 50:
+                put_bearish = f'Put 端慢熊（认沽买方在 {put_trim_strike:.0f}P 撤退，产业在 {put_hs_strike:.0f}P 收租，spread={spread:.0f}点）'
+
+        # 组合 strike_modifier（多空可同时成立）
+        parts = [p for p in [call_bullish, put_bearish] if p]
+        strike_modifier = ' | '.join(parts)
+
+    # 原判定逻辑 + v2.11.63d 修正
     if p_dir == c_dir and p_dir in ('bullish', 'bearish'):
         dir_word = '看多' if p_dir == 'bullish' else '看空'
         return {
@@ -1021,6 +1235,7 @@ def _synthesize_signal(put_nature: str, call_nature: str,
             'description': f'Put 端({_NATURE_LABELS.get(put_nature, "未知")}) + Call 端({_NATURE_LABELS.get(call_nature, "未知")}) 同向加强 = {dir_word}共振',
             'put_dir': p_dir, 'call_dir': c_dir,
             'pcr_delta': pcr_delta, 'pcr_label': pcr_label, 'pcr_meaning': pcr_meaning,
+            'strike_modifier': strike_modifier,
         }
     if p_dir != c_dir and p_dir in ('bullish', 'bearish') and c_dir in ('bullish', 'bearish'):
         return {
@@ -1029,14 +1244,36 @@ def _synthesize_signal(put_nature: str, call_nature: str,
             'description': f'Put 端({_NATURE_LABELS.get(put_nature, "未知")})看{p_dir} + Call 端({_NATURE_LABELS.get(call_nature, "未知")})看{c_dir} = 方向矛盾，观望',
             'put_dir': p_dir, 'call_dir': c_dir,
             'pcr_delta': pcr_delta, 'pcr_label': pcr_label, 'pcr_meaning': pcr_meaning,
+            'strike_modifier': strike_modifier,
         }
     if p_dir == 'neutral' and c_dir == 'neutral':
+        # v2.11.63d: 中性 + strike 修正 → 弱方向（多空可同时）
+        if strike_modifier:
+            has_bull = '慢牛' in strike_modifier
+            has_bear = '慢熊' in strike_modifier
+            if has_bull and has_bear:
+                label = '多空分化(慢牛+慢熊)'
+            elif has_bull:
+                label = '中性偏慢牛'
+            elif has_bear:
+                label = '中性偏慢熊'
+            else:
+                label = '中性'
+            return {
+                'label': label,
+                'intensity': '弱',
+                'description': f'Put/Call 总量均中性（双侧收租），但 strike 级别方向分化 → {strike_modifier}',
+                'put_dir': p_dir, 'call_dir': c_dir,
+                'pcr_delta': pcr_delta, 'pcr_label': pcr_label, 'pcr_meaning': pcr_meaning,
+                'strike_modifier': strike_modifier,
+            }
         return {
             'label': '中性',
             'intensity': '观望',
             'description': f'Put 端({_NATURE_LABELS.get(put_nature, "未知")})中性 + Call 端({_NATURE_LABELS.get(call_nature, "未知")})中性 = 方向不明，观望',
             'put_dir': p_dir, 'call_dir': c_dir,
             'pcr_delta': pcr_delta, 'pcr_label': pcr_label, 'pcr_meaning': pcr_meaning,
+            'strike_modifier': strike_modifier,
         }
     the_dir = p_dir if p_dir != 'neutral' else c_dir
     the_side = 'Put' if p_dir != 'neutral' else 'Call'
@@ -1048,6 +1285,7 @@ def _synthesize_signal(put_nature: str, call_nature: str,
         'description': f'{the_side} 端({_NATURE_LABELS.get(the_nature, "未知")})给出{dir_word}信号，另一侧中性',
         'put_dir': p_dir, 'call_dir': c_dir,
         'pcr_delta': pcr_delta, 'pcr_label': pcr_label, 'pcr_meaning': pcr_meaning,
+        'strike_modifier': strike_modifier,
     }
 
 
@@ -1079,6 +1317,13 @@ def _compute_nature_and_synthesis(iv_table_rows: list, atm_strike,
     call_iv_cur_w = call_iv_prev_w = 0.0
     call_iv_cur_n = call_iv_prev_n = 0
     has_prev_data = False
+
+    # v2.11.63d 资金意图层精细化: strike 级别方向异质性（按 strike 看 OI 增减 + 性质）
+    # 实战教训(6/29 收盘): 全档聚合"中性"会掩盖方向分化
+    # 例: Call 端 5500-5600C 减仓(投机平仓) + 6000-6300C 增仓(产业收租)
+    #     合成不是"中性", 是"投机离场 + 产业在更高位继续收租" = 慢牛格局
+    put_strikes = []   # [{strike, oi_cur, oi_prev, oi_delta_pct, iv_delta_pp, nature, role}]
+    call_strikes = []
 
     # v2.11.63c 修订: scope 必须用全档（不限 ATM±N 档）
     # 原因: PTA OI 集中在深度虚值档 (4800-5300 Put 端 ~30K 手、6000-6500 Call 端 ~40K 手)
@@ -1114,6 +1359,32 @@ def _compute_nature_and_synthesis(iv_table_rows: list, atm_strike,
             put_iv_prev_w += iv_p_p * op_p
             put_iv_prev_n += op_p
 
+        # v2.11.63d: 累计 strike 级别 OI/IV 变化（资金意图方向异质性）
+        # v2.11.63e: 先按 _is_strike_eligible() 过滤深度虚值档 + IV 缺失档
+        if oc_p > 0 or op_p > 0:
+            # Call 行
+            if oc_p > 0 and oc > 0 and _is_strike_eligible(oc, oc_p, iv_c, iv_c_p):
+                call_oi_d_pct = (oc - oc_p) / oc_p * 100
+                call_iv_d_pp = (iv_c - iv_c_p) if (iv_c is not None and iv_c_p is not None) else None
+                call_strikes.append({
+                    'strike': r.get('strike'),
+                    'oi_cur': oc, 'oi_prev': oc_p,
+                    'oi_delta_pct': call_oi_d_pct,
+                    'iv_delta_pp': call_iv_d_pp,
+                    'nature': _judge_nature_strike(call_oi_d_pct, call_iv_d_pp),
+                })
+            # Put 行
+            if op_p > 0 and op > 0 and _is_strike_eligible(op, op_p, iv_p, iv_p_p):
+                put_oi_d_pct = (op - op_p) / op_p * 100
+                put_iv_d_pp = (iv_p - iv_p_p) if (iv_p is not None and iv_p_p is not None) else None
+                put_strikes.append({
+                    'strike': r.get('strike'),
+                    'oi_cur': op, 'oi_prev': op_p,
+                    'oi_delta_pct': put_oi_d_pct,
+                    'iv_delta_pp': put_iv_d_pp,
+                    'nature': _judge_nature_strike(put_oi_d_pct, put_iv_d_pp),
+                })
+
     if not has_prev_data:
         return {
             **result,
@@ -1137,7 +1408,31 @@ def _compute_nature_and_synthesis(iv_table_rows: list, atm_strike,
 
     pcr_prev = (put_oi_prev / call_oi_prev) if call_oi_prev > 0 else None
 
-    synthesis = _synthesize_signal(put_nature, call_nature, pcr_now or 0, pcr_prev or 0)
+    # v2.11.63d 资金意图层精细化: strike 级别方向异质性（区分投机端 vs 产业端）
+    # 必须先算 call_role/put_role，再传给 _synthesize_signal（v2.11.63d strike 修正项）
+    call_role = _synthesize_strike_roles(call_strikes, futures_price, max_pain, 'call')
+    put_role  = _synthesize_strike_roles(put_strikes,  futures_price, max_pain, 'put')
+
+    # v2.11.63e: data_quality 字段 —— 让前端/统计脚本知道这次判定置信度
+    # 总行数（scope） / 有效 strike 数（参与判定） / 过滤数（OI<200 或 IV 缺失）
+    total_strikes = len(scope)
+    eligible_call = len(call_strikes)
+    eligible_put  = len(put_strikes)
+    filtered_count = total_strikes - (eligible_call + eligible_put) // 2  # 粗估（Call/Put 可能不同）
+    data_quality = {
+        'total_strikes': total_strikes,
+        'eligible_call': eligible_call,
+        'eligible_put': eligible_put,
+        'filtered_count': filtered_count,
+        'oi_threshold': _STRIKE_MIN_OI,
+        'iv_threshold_pp': _STRIKE_IV_THRESHOLD_PP,
+        'confidence': 'high' if (eligible_call >= 5 and eligible_put >= 5) else ('medium' if (eligible_call >= 3 and eligible_put >= 3) else 'low'),
+    }
+
+    # v2.11.63d strike 修正: 把 call_role / put_role 传入合成信号
+    synthesis = _synthesize_signal(put_nature, call_nature, pcr_now or 0, pcr_prev or 0,
+                                    call_role=call_role, put_role=put_role,
+                                    futures_price=futures_price)
 
     PUT_MEANING = {
         'spec_buy':   '投机买 Put（看空，恐慌情绪推动）',
@@ -1178,6 +1473,11 @@ def _compute_nature_and_synthesis(iv_table_rows: list, atm_strike,
         'position': position, 'position_label': POS_LABEL[position],
         'pcr_now': pcr_now, 'pcr_prev': pcr_prev, 'pcr_delta': (pcr_now - pcr_prev) if (pcr_now and pcr_prev) else 0,
         'synthesis': synthesis,
+        # v2.11.63d: strike 级别方向异质性
+        'call_role': call_role,
+        'put_role': put_role,
+        # v2.11.63e: 数据质量字段
+        'data_quality': data_quality,
         'note': '',
     }
 
@@ -1243,8 +1543,48 @@ def _render_nature_synthesis_section(ns: Dict) -> str:
     synth_intensity = synth.get('intensity') or '弱'
     synth_desc = synth.get('description') or ''
 
+    # v2.11.63d 资金意图层精细化: strike 级别方向异质性
+    call_role = ns.get('call_role') or {}
+    put_role = ns.get('put_role') or {}
+
+    def _fmt_strike_row(s, side):
+        if not s:
+            return None
+        s_letter = 'C' if side == 'call' else 'P'
+        strike_val = s.get('strike')
+        strike_str = f"{int(strike_val)}{s_letter}" if strike_val is not None else '--'
+        return f"{strike_str} OI{_fmt_pct(s.get('oi_delta_pct'))} IV{_fmt_pp(s.get('iv_delta_pp'))}"
+
+    # Call 端 strike 级别（按角色分组）
+    call_spec_trim_str  = ' '.join(filter(None, [_fmt_strike_row(s, 'call') for s in call_role.get('spec_trim', [])])) or '--'
+    call_hedge_sell_str = ' '.join(filter(None, [_fmt_strike_row(s, 'call') for s in call_role.get('hedge_sell', [])])) or '--'
+    call_spec_add_str   = ' '.join(filter(None, [_fmt_strike_row(s, 'call') for s in call_role.get('spec_add', [])])) or '--'
+    call_hedge_buy_str  = ' '.join(filter(None, [_fmt_strike_row(s, 'call') for s in call_role.get('hedge_buy', [])])) or '--'
+    call_close_push_str = ' '.join(filter(None, [_fmt_strike_row(s, 'call') for s in call_role.get('close_push', [])])) or '--'
+
+    # Put 端 strike 级别
+    put_spec_trim_str  = ' '.join(filter(None, [_fmt_strike_row(s, 'put') for s in put_role.get('spec_trim', [])])) or '--'
+    put_hedge_sell_str = ' '.join(filter(None, [_fmt_strike_row(s, 'put') for s in put_role.get('hedge_sell', [])])) or '--'
+    put_spec_add_str   = ' '.join(filter(None, [_fmt_strike_row(s, 'put') for s in put_role.get('spec_add', [])])) or '--'
+    put_hedge_buy_str  = ' '.join(filter(None, [_fmt_strike_row(s, 'put') for s in put_role.get('hedge_buy', [])])) or '--'
+    put_close_push_str = ' '.join(filter(None, [_fmt_strike_row(s, 'put') for s in put_role.get('close_push', [])])) or '--'
+
+    role_table = _table(
+        ['角色/分组', 'Call strike 级别', 'Put strike 级别'],
+        [
+            ['产业卖权收租 (OI↑IV↓)', call_hedge_sell_str, put_hedge_sell_str],
+            ['产业买保 (OI↑IV—)',     call_hedge_buy_str,  put_hedge_buy_str],
+            ['投机端加仓 (OI↑IV↑)',   call_spec_add_str,   put_spec_add_str],
+            ['投机/对冲撤退 (OI↓IV↓/—)', call_spec_trim_str, put_spec_trim_str],
+            ['卖方平仓 (OI↓IV↑)',     call_close_push_str, put_close_push_str],
+        ]
+    )
+
+    call_summary = call_role.get('role_summary', '无显著方向分化')
+    put_summary  = put_role.get('role_summary', '无显著方向分化')
+
     return (
-        "5.5 性质判定 × 合成信号（v2.11.63c+ 实战）\n"
+        "5.5 性质判定 × 合成信号（v2.11.63d 资金意图精细化）\n"
         f"形态：{ns.get('shape_label', '--')}；位置：{ns.get('position_label', '--')}；{pcr_text}\n"
         f"PCR 业务解读：{synth.get('pcr_meaning', '')}\n"
         f"基准：今日 15:00 当前 vs 昨日 15:00 收盘（alert_data OI/IV prev 字段）。\n"
@@ -1252,6 +1592,11 @@ def _render_nature_synthesis_section(ns: Dict) -> str:
         + "\n"
         + f"合成信号：{synth_label}（{synth_intensity}）\n"
         + synth_desc
+        + "\n\n"
+        + "📊 Strike 级别方向异质性（区分投机端 vs 产业端）：\n"
+        + f"Call 端：{call_summary}\n"
+        + f"Put  端：{put_summary}\n"
+        + role_table
     )
 
 

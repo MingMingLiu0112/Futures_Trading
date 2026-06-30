@@ -2883,7 +2883,7 @@ function getStrategyReportEndpoint() {
                         if (!text) return '';
                         return `<div style="margin:-4px 0 10px 0;color:#cfcfcf;font-size:11px;line-height:1.65;background:#101018;border-left:2px solid #444;padding:6px 8px;border-radius:3px;">${cell(text)}</div>`;
                     }
-                    // v2.11.63b+: 性质判定 × 合成信号 block
+                    // v2.11.63b+: 性质判定 × 合成信号 block (v2.11.63d 加 strike 级别方向异质性)
                     function renderNatureSynthesisBlock(ns) {
                         if (!ns || !ns.available) {
                             const note = (ns || {}).note || '数据不足，无法做性质判定';
@@ -2907,8 +2907,30 @@ function getStrategyReportEndpoint() {
                         const synthLabel = cell(synth.label || '未判定');
                         const synthInt = cell(synth.intensity || '弱');
                         const synthDesc = cell(synth.description || '');
+
+                        // v2.11.63d 资金意图精细化: strike 级别方向异质性
+                        const callRole = ns.call_role || {};
+                        const putRole = ns.put_role || {};
+                        // v2.11.63e: 显示数据质量（让用户知道这次判定置信度）
+                        const dq = ns.data_quality || {};
+                        const dqText = dq.confidence ? `数据质量: ${dq.confidence.toUpperCase()} (Call ${dq.eligible_call}/${dq.total_strikes}档有效, Put ${dq.eligible_put}/${dq.total_strikes}档有效, OI门槛≥${dq.oi_threshold}手, IV阈值≥${dq.iv_threshold_pp}pp)` : '';
+                        const dqColor = dq.confidence === 'high' ? '#5d5' : (dq.confidence === 'medium' ? '#da4' : '#e55');
+                        const fmtStrikeRow = (s, side) => {
+                            if (!s) return null;
+                            const letter = side === 'call' ? 'C' : 'P';
+                            const sv = s.strike;
+                            const sStr = sv != null ? `${Math.round(sv)}${letter}` : '--';
+                            return `${sStr} OI${fmtPct(s.oi_delta_pct)} IV${fmtPP(s.iv_delta_pp)}`;
+                        };
+                        const callStr = (key) => (callRole[key] || []).map(s => fmtStrikeRow(s, 'call')).filter(Boolean).join(' ') || '--';
+                        const putStr = (key) => (putRole[key] || []).map(s => fmtStrikeRow(s, 'put')).filter(Boolean).join(' ') || '--';
+                        const callSummary = cell(callRole.role_summary || '无显著方向分化');
+                        const putSummary = cell(putRole.role_summary || '无显著方向分化');
+                        const topN = callRole._top_n || 5;
+                        const strikeOIT = dq.oi_threshold || 200;
+
                         return `<div style="margin:8px 0 10px 0;">
-                            <div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">5.5 性质判定 × 合成信号（v2.11.63c+ 实战）</div>
+                            <div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">5.5 性质判定 × 合成信号（v2.11.63d 资金意图精细化）</div>
                             <div style="color:#aaa;font-size:11px;margin-bottom:5px;">${headerMeta}</div>
                             ${pcrMeaning ? `<div style="color:#cfcfcf;font-size:11px;margin-bottom:5px;background:#1a1a25;padding:3px 6px;border-radius:3px;border-left:2px solid #4a90e2;">📊 PCR 业务解读：${pcrMeaning}</div>` : ''}
                             <table style="width:100%;border-collapse:collapse;font-size:11px;line-height:1.45;background:#12121b;border:1px solid #2a2a36;">
@@ -2943,6 +2965,48 @@ function getStrategyReportEndpoint() {
                                 <span style="color:#ffd700;">合成信号：</span><b>${synthLabel}</b>（${synthInt}）<br>
                                 <span style="color:#aaa;">${synthDesc}</span>
                             </div>
+                            <div style="margin-top:10px;color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">📊 Strike 级别方向异质性（v2.11.63e 噪声过滤：OI≥${strikeOIT}手 且 IV 有效；每组 Top ${topN}）</div>
+                            ${dqText ? `<div style="color:${dqColor};font-size:10px;margin-bottom:5px;padding:3px 6px;background:#1a1a25;border-radius:3px;">📊 ${dqText}</div>` : ''}
+                            <div style="color:#cfcfcf;font-size:11px;line-height:1.6;background:#1a1a25;padding:5px 8px;border-radius:3px;margin-bottom:3px;border-left:2px solid #4a90e2;">
+                                <b style="color:#aaa;">Call 端：</b>${callSummary}
+                            </div>
+                            <div style="color:#cfcfcf;font-size:11px;line-height:1.6;background:#1a1a25;padding:5px 8px;border-radius:3px;margin-bottom:6px;border-left:2px solid #e2904a;">
+                                <b style="color:#aaa;">Put 端：</b>${putSummary}
+                            </div>
+                            <table style="width:100%;border-collapse:collapse;font-size:10.5px;line-height:1.4;background:#0f0f18;border:1px solid #2a2a36;">
+                                <thead><tr>
+                                    <th style="color:#aaa;text-align:left;padding:4px 5px;border-bottom:1px solid #333;font-weight:500;width:28%;">角色/分组</th>
+                                    <th style="color:#aaa;text-align:left;padding:4px 5px;border-bottom:1px solid #333;font-weight:500;width:36%;">Call strike 级别</th>
+                                    <th style="color:#aaa;text-align:left;padding:4px 5px;border-bottom:1px solid #333;font-weight:500;width:36%;">Put strike 级别</th>
+                                </tr></thead>
+                                <tbody>
+                                    <tr>
+                                        <td style="color:#9bc;padding:4px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;">产业卖权收租 (OI↑IV↓)</td>
+                                        <td style="color:#ddd;padding:4px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;">${cell(callStr('hedge_sell'))}</td>
+                                        <td style="color:#ddd;padding:4px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;">${cell(putStr('hedge_sell'))}</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="color:#9bc;padding:4px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;">产业买保 (OI↑IV—)</td>
+                                        <td style="color:#ddd;padding:4px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;">${cell(callStr('hedge_buy'))}</td>
+                                        <td style="color:#ddd;padding:4px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;">${cell(putStr('hedge_buy'))}</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="color:#9bc;padding:4px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;">投机端加仓 (OI↑IV↑)</td>
+                                        <td style="color:#ddd;padding:4px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;">${cell(callStr('spec_add'))}</td>
+                                        <td style="color:#ddd;padding:4px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;">${cell(putStr('spec_add'))}</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="color:#9bc;padding:4px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;">投机/对冲撤退 (OI↓IV↓/—)</td>
+                                        <td style="color:#ddd;padding:4px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;">${cell(callStr('spec_trim'))} ${cell(callStr('double_exit'))}</td>
+                                        <td style="color:#ddd;padding:4px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;">${cell(putStr('spec_trim'))} ${cell(putStr('double_exit'))}</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="color:#9bc;padding:4px 5px;vertical-align:top;">卖方平仓 (OI↓IV↑)</td>
+                                        <td style="color:#ddd;padding:4px 5px;vertical-align:top;">${cell(callStr('close_push'))}</td>
+                                        <td style="color:#ddd;padding:4px 5px;vertical-align:top;">${cell(putStr('close_push'))}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>`;
                     }
                     function renderTraderReport(text) {
@@ -4560,6 +4624,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.63b</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.63e</div>
 </body>
 </html>
