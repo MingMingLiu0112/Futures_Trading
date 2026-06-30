@@ -904,22 +904,32 @@ _SHAPE_RATIO_THRESHOLD = 1.15     # ≥ 1.15 → 左缓右陡；≤ 1/1.15 → �
 
 # 5 种性质判定标签
 _NATURE_LABELS = {
-    'spec_buy':    '投机买权',
-    'hedge_sell':  '套保卖权',
-    'hedge_buy':   '套保买保',
-    'close_push':  '平仓推动',
-    'double_exit': '双边撤退',
+    'spec_buy':      '投机买权',
+    'hedge_sell':    '套保卖权',
+    'hedge_buy':     '套保买保',
+    'close_push':    '平仓推动',
+    'double_exit':   '双边撤退',
+    # v2.11.63f: 新增 mixed_neutral（OI 抵消 + IV 单边降 = 混合中性）
+    # 业务语义: hedge_sell（OI↑IV↓）和 double_exit（OI↓IV↓）多 strike 叠加，
+    # 全档 OI 抵消持平 + IV 普降 —— 既不是单一 close_push 也不是单一 hedge_sell
+    'mixed_neutral': '混合中性',
 }
 
 
 def _judge_nature(oi_delta_pct: float, iv_delta_pp: float) -> str:
-    """按 skill 2.3.1 性质判定表把 (OI 变化%, IV 变化pp) 映射到 5 种性质之一。
+    """按 skill 2.3.1 性质判定表把 (OI 变化%, IV 变化pp) 映射到 6 种性质之一。
+
+    v2.11.63f 修订: OI 兜底分支（OI—IV↓）不再直接判 close_push
+    原因: OI 持平 + IV 下降常常是 hedge_sell 和 double_exit 多 strike 叠加的结果，
+    不是单一"卖方主动平仓"。机械判 close_push 会给出错误的方向信号（bullish）。
+    修复: OI 兜底分支改成 mixed_neutral（混合中性），不站队方向。
+    真正的 close_push 必须在 strike 级别能看到 OI↓ + IV↑ 的证据（由 _compute_nature_and_synthesis 验证）。
 
     输入:
         oi_delta_pct: OI 相对变化 = (cur - prev) / prev * 100
         iv_delta_pp:  IV 绝对变化 = cur - prev（IV 已经是 %）
 
-    返回: 'spec_buy' / 'hedge_sell' / 'hedge_buy' / 'close_push' / 'double_exit' / 'unknown'
+    返回: 'spec_buy' / 'hedge_sell' / 'hedge_buy' / 'close_push' / 'double_exit' / 'mixed_neutral' / 'unknown'
 
     阈值:
         OI: |x| ≥ 1% 算变化，否则"不变"
@@ -943,10 +953,15 @@ def _judge_nature(oi_delta_pct: float, iv_delta_pp: float) -> str:
     if oi_dn and not iv_up and not iv_dn:
         return 'double_exit'     # ↓— OI 下降 + IV 不变 = 对冲盘撤离（双边撤退性质）
     if not oi_up and not oi_dn:
+        # v2.11.63f 修订: OI 兜底分支不再硬判 close_push
+        # OI 持平 + IV 升 可能是微量情绪（保持 spec_buy 兜底）
+        # OI 持平 + IV 降 不能直接判 close_push（卖方平仓应该是 OI↓，不是 OI 持平）
+        #   实战场景: 多 strike 的 hedge_sell（OI↑IV↓）和 double_exit（OI↓IV↓）抵消
+        #   → 全档 OI 抵消持平 + IV 普降 = 混合中性 mixed_neutral
         if iv_up:
             return 'spec_buy'
         if iv_dn:
-            return 'close_push'
+            return 'mixed_neutral'  # ← v2.11.63f: 修订，避免误判 close_push
     return 'unknown'
 
 
@@ -1143,18 +1158,20 @@ def _synthesize_signal(put_nature: str, call_nature: str,
     返回: {'label': str, 'intensity': str, 'description': str, 'put_dir': str, 'call_dir': str, 'pcr_label': str, 'strike_modifier': str}
     """
     PUT_DIR = {
-        'spec_buy':   'bearish',  # 投机买 Put（看空，恐慌）
-        'hedge_sell': 'neutral',  # 卖 Put 集中（收租不站队方向）
-        'hedge_buy':  'neutral',  # 买 Put 防存货减值（看跌避险，软底效应）——**不是看空/看多**
-        'close_push': 'bearish',  # Put 卖方平仓（下方对冲卖压释放 = 下跌加速 = 看空）
-        'double_exit':'neutral',  # 认沽买盘消失（看跌买盘撤退 + 恐慌消退 = 中性）
+        'spec_buy':      'bearish',  # 投机买 Put（看空，恐慌）
+        'hedge_sell':    'neutral',  # 卖 Put 集中（收租不站队方向）
+        'hedge_buy':     'neutral',  # 买 Put 防存货减值（看跌避险，软底效应）——**不是看空/看多**
+        'close_push':    'bearish',  # Put 卖方平仓（下方对冲卖压释放 = 下跌加速 = 看空）
+        'double_exit':   'neutral',  # 认沽买盘消失（看跌买盘撤退 + 恐慌消退 = 中性）
+        'mixed_neutral': 'neutral',  # v2.11.63f: OI 抵消 + IV↓ = 混合中性，不站队
     }
     CALL_DIR = {
-        'spec_buy':   'bullish',  # 投机买 Call（看多，情绪回暖）
-        'hedge_sell': 'neutral',  # 卖 Call 收租（锁定销售顶价 = 中性，不站队方向）
-        'hedge_buy':  'neutral',  # 买 Call 锁采购顶价（看涨避险，软顶效应）——**不是看多/看空**
-        'close_push': 'bullish',  # Call 卖方平仓（上方对冲买压释放 = 上涨加速 = 看多）
-        'double_exit':'neutral',  # 认购买盘消失（看涨买盘撤退 + 情绪降温 = 中性）
+        'spec_buy':      'bullish',  # 投机买 Call（看多，情绪回暖推动）
+        'hedge_sell':    'neutral',  # 卖 Call 收租（锁定销售顶价 = 中性，不站队方向）
+        'hedge_buy':     'neutral',  # 买 Call 锁采购顶价（看涨避险，软顶效应）——**不是看多/看空**
+        'close_push':    'bullish',  # Call 卖方平仓（上方对冲买压释放 = 上涨加速 = 看多）
+        'double_exit':   'neutral',  # 认购买盘消失（看涨买盘撤退 + 情绪降温 = 中性）
+        'mixed_neutral': 'neutral',  # v2.11.63f: OI 抵消 + IV↓ = 混合中性，不站队
     }
 
     p_dir = PUT_DIR.get(put_nature, 'unknown')
@@ -1248,6 +1265,8 @@ def _synthesize_signal(put_nature: str, call_nature: str,
         }
     if p_dir == 'neutral' and c_dir == 'neutral':
         # v2.11.63d: 中性 + strike 修正 → 弱方向（多空可同时）
+        # v2.11.63f: 文案要如实反映总量性质（不要笼统说"双侧收租"，
+        #   可能一边是 hedge_sell，一边是 mixed_neutral）
         if strike_modifier:
             has_bull = '慢牛' in strike_modifier
             has_bear = '慢熊' in strike_modifier
@@ -1259,10 +1278,15 @@ def _synthesize_signal(put_nature: str, call_nature: str,
                 label = '中性偏慢熊'
             else:
                 label = '中性'
+            # v2.11.63f: 描述要带具体性质标签（hedge_sell / mixed_neutral）
+            nature_descr = (
+                f'Put 端({_NATURE_LABELS.get(put_nature, "未知")}) + '
+                f'Call 端({_NATURE_LABELS.get(call_nature, "未知")}) 总量均中性'
+            )
             return {
                 'label': label,
                 'intensity': '弱',
-                'description': f'Put/Call 总量均中性（双侧收租），但 strike 级别方向分化 → {strike_modifier}',
+                'description': f'{nature_descr}，但 strike 级别方向分化 → {strike_modifier}',
                 'put_dir': p_dir, 'call_dir': c_dir,
                 'pcr_delta': pcr_delta, 'pcr_label': pcr_label, 'pcr_meaning': pcr_meaning,
                 'strike_modifier': strike_modifier,
@@ -1435,18 +1459,22 @@ def _compute_nature_and_synthesis(iv_table_rows: list, atm_strike,
                                     futures_price=futures_price)
 
     PUT_MEANING = {
-        'spec_buy':   '投机买 Put（看空，恐慌情绪推动）',
-        'hedge_sell': '卖 Put 集中（左侧加速器加码 = 投机/做市商认为下方有支撑收租）',
-        'hedge_buy':  '产业买 Put 防存货减值（看跌避险，形成软底效应）',
-        'close_push': 'Put 卖方买回平仓（下方对冲卖压释放 = 下跌加速）',
-        'double_exit':'认沽买盘消失（看跌买盘撤退 + 恐慌消退）',
+        'spec_buy':     '投机买 Put（看空，恐慌情绪推动）',
+        'hedge_sell':   '卖 Put 集中（左侧加速器加码 = 投机/做市商认为下方有支撑收租）',
+        'hedge_buy':    '产业买 Put 防存货减值（看跌避险，形成软底效应）',
+        'close_push':   'Put 卖方买回平仓（下方对冲卖压释放 = 下跌加速）',
+        'double_exit':  '认沽买盘消失（看跌买盘撤退 + 恐慌消退）',
+        # v2.11.63f: OI 抵消 + IV↓ 混合中性（既不是单边卖方平仓也不是单边套保卖权）
+        'mixed_neutral':'多 strike 行为混合（hedge_sell 收租 + double_exit 撤退叠加），OI 抵消 + IV 普降，不站队方向',
     }
     CALL_MEANING = {
-        'spec_buy':   '投机买 Call（看多，情绪回暖推动）',
-        'hedge_sell': '卖 Call 收租（产业锁定销售顶价 = 中性，不站队方向）',
-        'hedge_buy':  '产业买 Call 锁采购顶价（看涨避险，形成软顶效应）',
-        'close_push': 'Call 卖方买回平仓（上方对冲买压释放 = 上涨加速）',
-        'double_exit':'认购买盘消失（看涨买盘撤退 + 情绪降温）',
+        'spec_buy':     '投机买 Call（看多，情绪回暖推动）',
+        'hedge_sell':   '卖 Call 收租（产业锁定销售顶价 = 中性，不站队方向）',
+        'hedge_buy':    '产业买 Call 锁采购顶价（看涨避险，形成软顶效应）',
+        'close_push':   'Call 卖方买回平仓（上方对冲买压释放 = 上涨加速）',
+        'double_exit':  '认购买盘消失（看涨买盘撤退 + 情绪降温）',
+        # v2.11.63f: OI 抵消 + IV↓ 混合中性（6/30 早盘真实场景）
+        'mixed_neutral':'多 strike 行为混合（hedge_sell 收租 + double_exit 撤退叠加），OI 抵消 + IV 普降，不站队方向',
     }
     SHAPE_LABEL = {'rightSteep': '[左缓右陡]', 'leftSteep': '[左陡右缓]', 'sym': '[左右对称]', 'unknown': '[形态未知]'}
     POS_LABEL = {'aboveMP': '高位(P>MP)', 'atMP': '中位(P≈MP)', 'belowMP': '低位(P<MP)', 'unknown': '位置未知'}
