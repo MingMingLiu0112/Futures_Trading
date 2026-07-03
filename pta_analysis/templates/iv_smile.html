@@ -308,6 +308,45 @@
 </head>
 <body>
 
+<!-- ===== v2.11.73 TqSdk Watchdog 大弹窗（默认隐藏） ===== -->
+<div id="tqsdkAlertBanner" style="display:none; position:fixed; top:0; left:0; right:0; z-index:9999;
+  background: linear-gradient(135deg, #2a0a0a 0%, #4a0e0e 100%);
+  border-bottom: 3px solid #ff4444; padding:18px 20px; box-shadow: 0 4px 20px rgba(255,0,0,0.4);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+  <div style="max-width:880px; margin:0 auto; display:flex; align-items:center; gap:18px;">
+    <div style="font-size:38px; line-height:1; animation: alertPulse 1.2s infinite;">⚠️</div>
+    <div style="flex:1;">
+      <div style="color:#ff6b6b; font-size:18px; font-weight:bold; margin-bottom:6px;">
+        TqSdk 数据更新异常
+      </div>
+      <div id="tqsdkAlertMsg" style="color:#ffd5d5; font-size:13px; line-height:1.5;">
+        探针检查中…
+      </div>
+      <div id="tqsdkAlertMeta" style="color:#999; font-size:11px; margin-top:4px;">
+        </div>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      <button id="tqsdkRestartBtn" style="background:#1976d2; color:#fff; border:none; padding:12px 22px;
+        font-size:15px; font-weight:bold; border-radius:6px; cursor:pointer; min-width:160px;
+        box-shadow: 0 2px 8px rgba(25,118,210,0.5);">
+        🔄 立即重启 TqSdk
+      </button>
+      <button id="tqsdkAlertCloseBtn" style="background:transparent; color:#999; border:1px solid #555;
+        padding:6px 12px; font-size:12px; border-radius:4px; cursor:pointer;">
+        关闭（持续监控）
+      </button>
+    </div>
+  </div>
+</div>
+<style>
+@keyframes alertPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.95); }
+}
+#tqsdkRestartBtn:hover { background:#1565c0 !important; }
+#tqsdkRestartBtn:disabled { background:#555 !important; cursor:not-allowed; }
+</style>
+
 <!-- ===== 顶栏 ===== -->
 <div class="header">
   <h2>📊 PTA期权动态监控</h2>
@@ -481,9 +520,119 @@
 
 <div class="footer">
   <span id="lastUpdate">--</span>
+  <span style="margin-left:16px; display:inline-flex; align-items:center; gap:6px;">
+    <span id="tqsdkFooterDot" style="width:8px; height:8px; border-radius:50%; background:#888; display:inline-block;"></span>
+    <span id="tqsdkFooterText" style="color:#888; font-size:11px;">TqSdk 探针检测中…</span>
+  </span>
 </div>
 
 <script>
+// ===================== v2.11.73 TqSdk Watchdog 客户端 =====================
+const TQSDK_WD = {
+  POLL_INTERVAL_MS: 60000,  // 与服务端 watchdog 周期对齐
+  bannerHiddenByUser: false,  // 用户主动关闭后不再自动弹出
+  pollTimer: null,
+
+  start() {
+    this.fetchStatus();
+    if (this.pollTimer) clearInterval(this.pollTimer);
+    this.pollTimer = setInterval(() => this.fetchStatus(), this.POLL_INTERVAL_MS);
+
+    // 按钮事件
+    const restartBtn = document.getElementById('tqsdkRestartBtn');
+    const closeBtn = document.getElementById('tqsdkAlertCloseBtn');
+    if (restartBtn) restartBtn.addEventListener('click', () => this.handleRestart());
+    if (closeBtn) closeBtn.addEventListener('click', () => {
+      this.bannerHiddenByUser = true;
+      document.getElementById('tqsdkAlertBanner').style.display = 'none';
+    });
+  },
+
+  async fetchStatus() {
+    try {
+      const resp = await fetch('/api/tqsdk_watchdog/status', { cache: 'no-store' });
+      const data = await resp.json();
+      this.render(data);
+    } catch (e) {
+      this.render({ alert_level: 'red', alert_message: '❌ 探针请求失败: ' + e.message });
+    }
+  },
+
+  render(data) {
+    const level = data.alert_level || 'green';
+    const footerDot = document.getElementById('tqsdkFooterDot');
+    const footerText = document.getElementById('tqsdkFooterText');
+    const banner = document.getElementById('tqsdkAlertBanner');
+    const msgEl = document.getElementById('tqsdkAlertMsg');
+    const metaEl = document.getElementById('tqsdkAlertMeta');
+
+    // Footer 状态指示
+    if (footerDot && footerText) {
+      const dotColor = level === 'green' ? '#4caf50' : level === 'yellow' ? '#ff9800' : '#f44336';
+      footerDot.style.background = dotColor;
+      const age = data.last_data_age_sec != null ? `${Math.round(data.last_data_age_sec)}s` : '--';
+      footerText.textContent = `TqSdk ${level === 'green' ? '正常' : level === 'yellow' ? '注意' : '异常'} · ${age} 前 · rc=${data.reconnect_count || 0}`;
+    }
+
+    // 大弹窗：red 时显示（除非用户主动关闭）
+    if (level === 'red' && !this.bannerHiddenByUser) {
+      if (msgEl) msgEl.textContent = data.alert_message || 'TqSdk 异常';
+      if (metaEl) {
+        const parts = [];
+        if (data.last_check_at) parts.push(`探针时间: ${data.last_check_at}`);
+        if (data.futures_price) parts.push(`当前 F 价: ${data.futures_price}`);
+        if (data.restart_count_today != null) parts.push(`今日手动重启: ${data.restart_count_today} 次`);
+        metaEl.textContent = parts.join('  ·  ');
+      }
+      banner.style.display = 'block';
+    } else if (level !== 'red') {
+      // 数据恢复后自动消失，重新启用弹窗
+      this.bannerHiddenByUser = false;
+      banner.style.display = 'none';
+    }
+  },
+
+  async handleRestart() {
+    if (!confirm('确认重启 TqSdk 长连接？\n\n仅重启 TqSdk 线程，Flask 不会停，数据不丢失。')) return;
+    const btn = document.getElementById('tqsdkRestartBtn');
+    btn.disabled = true;
+    btn.textContent = '⏳ 重启中…';
+    try {
+      const resp = await fetch('/api/tqsdk_watchdog/restart', { method: 'POST' });
+      const data = await resp.json();
+      if (data.success) {
+        btn.textContent = '✅ 已触发 · 等待生效';
+        // 5s 后重新查状态
+        setTimeout(() => {
+          this.fetchStatus();
+          btn.disabled = false;
+          btn.textContent = '🔄 立即重启 TqSdk';
+        }, 5000);
+      } else {
+        alert('重启触发失败: ' + (data.error || data.message || '未知错误'));
+        btn.disabled = false;
+        btn.textContent = '🔄 立即重启 TqSdk';
+      }
+    } catch (e) {
+      alert('请求失败: ' + e.message);
+      btn.disabled = false;
+      btn.textContent = '🔄 立即重启 TqSdk';
+    }
+  },
+};
+
+// 页面加载后启动
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => TQSDK_WD.start());
+} else {
+  TQSDK_WD.start();
+}
+
+// 页面重新可见时立即查一次
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) TQSDK_WD.fetchStatus();
+});
+
 // ===================== 全局图表实例 =====================
 const chartInstances = {};
 
@@ -1643,7 +1792,11 @@ function checkAndAlert(alertData) {
     const levelText = isReversal ? '⚡盘中联动反转' : level === 'major' ? '🔴较收盘联动重大异动' : '🟡较收盘联动显著异动';
     const title = `${levelText} — K${a.strike}`;
     const basisText = isReversal ? '较报警后同向极值' : '较收盘/前次基准';
-    const detail = `${basisText}：` + items.map(x => `${x.side} raw IV ${x.ivChg}(${levelName(x.ivLevel)})，OI ${x.oiChg}(${levelName(x.oiLevel)})`).join('；') + `。整体级别=IV/OI中最高级别`; 
+    const detail = `${basisText}：` + items.map(x => {
+      const ivPart = `${x.side} raw IV ${x.ivChg}(${levelName(x.ivLevel)})`;
+      if (!x.oiLevel) return ivPart + '，OI 联动未触发';
+      return ivPart + `，OI ${x.oiChg}(${levelName(x.oiLevel)})`;
+    }).join('；') + `。整体级别=IV/OI中最高级别`;
     const toastLevel = isReversal ? 'reversal' : level === 'major' ? 'major' : 'significant';
     showToast(title, detail, toastLevel);
   });
@@ -1683,9 +1836,16 @@ function checkAndAlert(alertData) {
 document.addEventListener('DOMContentLoaded', () => {
   initCharts();
   fetchData();
-  setInterval(fetchData, 60000);
+  // v2.11.64: 15s 间隔 + 页面重新可见时立即拉取一次（修复后台 tab 被节流导致缓存价停留的 bug）
+  setInterval(fetchData, 15000);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      console.log('[iv_smile] 页面重新可见，立即拉取数据');
+      fetchData();
+    }
+  });
 });
 </script>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.63f</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.77</div>
 </body>
 </html>

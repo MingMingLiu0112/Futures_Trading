@@ -2883,132 +2883,298 @@ function getStrategyReportEndpoint() {
                         if (!text) return '';
                         return `<div style="margin:-4px 0 10px 0;color:#cfcfcf;font-size:11px;line-height:1.65;background:#101018;border-left:2px solid #444;padding:6px 8px;border-radius:3px;">${cell(text)}</div>`;
                     }
-                    // v2.11.63b+: 性质判定 × 合成信号 block (v2.11.63d 加 strike 级别方向异质性)
+                    // v2.11.68 A 方案: 5.5 性质判定×合成信号 整块删除,内容合并到段 4 L3 展开区
+                    // （删了 line 2886-3013 的 renderNatureSynthesisBlock 函数 + line 3207 调用）
                     function renderNatureSynthesisBlock(ns) {
-                        if (!ns || !ns.available) {
-                            const note = (ns || {}).note || '数据不足，无法做性质判定';
-                            return `<div style="margin:8px 0 10px 0;"><div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">5.5 性质判定 × 合成信号（v2.11.63b+ 实战）</div><div style="color:#888;font-size:11px;font-style:italic;padding:4px 0;">${cell(note)}</div></div>`;
+                        // 兜底: A 方案后此函数不应被调用, 但保留以防其他模板引用
+                        if (!ns || !ns.available) return '';
+                        return '<div style="display:none"></div>';
+                    }
+
+                    // ============================================================
+                    // 决策层渲染（4 层：PAIN 结构 / GEX 机制 / 资金意图 / 情绪确认 + 最终决策）
+                    // 后端字段：intraday.decision_layer = { layer1, layer2, layer3, layer4, final }
+                    // ============================================================
+                    function renderDecisionLayerBlock(d) {
+                        if (!d) {
+                            return `<div style="margin:8px 0 10px 0;"><div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">🧭 四维决策（v2.11.68+）</div><div style="color:#888;font-size:11px;font-style:italic;padding:4px 0;">决策层数据未生成（可手动跑 <code>python3 scripts/judge_state.py</code> 验证）</div></div>`;
                         }
-                        const put = ns.put || {};
-                        const call = ns.call || {};
-                        const synth = ns.synthesis || {};
-                        const fmtOI = (x) => (x == null || x === 0) ? '0' : Number(x).toLocaleString();
+                        const L1 = d.layer1 || {}, L2 = d.layer2 || {}, L3 = d.layer3 || {}, L4 = d.layer4 || {};
+                        const fin = d.final || {};
+                        const scoreColor = (s) => s > 0.1 ? '#26a69a' : (s < -0.1 ? '#ef5350' : '#aaa');
+                        const fmtScore = (s) => s == null ? '--' : (s >= 0 ? '+' : '') + Number(s).toFixed(2);
+                        // v2.11.68: 动态对比行渲染（vs 1h 整点 / vs 昨日 15:00）
+                        const renderDynamicLine = (layer) => {
+                            if (!layer) return '';
+                            const parts = [];
+                            const ic = layer.intraday_change;
+                            if (ic && ic.F_change != null && ic.F_change !== 0) {
+                                parts.push(`F ${ic.F_change > 0 ? '+' : ''}${ic.F_change.toFixed(0)}`);
+                            }
+                            if (ic && ic.net_gex_change != null && Math.abs(ic.net_gex_change) > 1e5) {
+                                parts.push(`净GEX ${(ic.net_gex_change/1e6).toFixed(2)}M`);
+                            }
+                            if (ic && ic.gex_flip_change != null && ic.gex_flip_change !== 0) {
+                                parts.push(`Flip ${ic.gex_flip_change > 0 ? '+' : ''}${ic.gex_flip_change.toFixed(0)}`);
+                            }
+                            if (ic && ic.slope_ratio_change != null && Math.abs(ic.slope_ratio_change) > 0.05) {
+                                parts.push(`斜率比 ${ic.slope_ratio_change > 0 ? '+' : ''}${ic.slope_ratio_change.toFixed(2)}`);
+                            }
+                            if (ic && ic.slope_regime_change) {
+                                parts.push('形态变');
+                            }
+                            const dc = layer.daily_change;
+                            if (dc && new Date().getHours() >= 15) {
+                                if (dc.max_pain_migration != null && dc.max_pain_migration !== 0) {
+                                    parts.push(`MP ${dc.max_pain_migration > 0 ? '↑' : '↓'}${Math.abs(dc.max_pain_migration).toFixed(0)}`);
+                                }
+                                if (dc.gex_flip_migration != null && dc.gex_flip_migration !== 0) {
+                                    parts.push(`Flip ${dc.gex_flip_migration > 0 ? '+' : ''}${dc.gex_flip_migration.toFixed(0)}`);
+                                }
+                                if (dc.net_gex_change != null && Math.abs(dc.net_gex_change) > 1e5) {
+                                    parts.push(`净GEX ${(dc.net_gex_change/1e6).toFixed(1)}M`);
+                                }
+                                if (dc.slope_regime_change) {
+                                    parts.push(`形态 ${dc.slope_regime_prev}→${dc.slope_regime_now}`);
+                                }
+                            }
+                            if (parts.length === 0) return '';
+                            const isDaily = dc && new Date().getHours() >= 15;
+                            return `<div style="color:#888;font-size:10px;margin-top:2px;line-height:1.4;">📊 ${isDaily ? 'vs 昨+1h' : 'vs 1h'}: ${parts.join(' | ')}</div>`;
+                        };
+                        // brief 字段：L1/L2/L4 是纯文本 → cell 转义；L3 故意含 <span> → raw
+                        const layerRow = (n, name, weight, score, brief, rawBrief = false, layer = null) => {
+                            const dynamic = layer ? renderDynamicLine(layer) : '';
+                            return `<div style="display:flex;align-items:flex-start;gap:8px;padding:4px 0;border-bottom:1px dashed #2a2a36;">
+                                <div style="color:#888;font-size:10px;min-width:24px;font-weight:bold;">L${n}</div>
+                                <div style="flex:1;color:#cfcfcf;font-size:11px;line-height:1.55;">
+                                    <span style="color:#ffd700;font-weight:bold;">${name}</span>
+                                    <span style="color:#666;font-size:10px;">（权重 ${(weight*100).toFixed(0)}%）</span>
+                                    <div style="color:#888;font-size:10px;margin-top:2px;">${rawBrief ? (brief || '') : cell(brief || '')}</div>
+                                    ${dynamic}
+                                </div>
+                                <div style="color:${scoreColor(score)};font-size:13px;font-weight:bold;min-width:48px;text-align:right;">${fmtScore(score)}</div>
+                            </div>`;
+                        };
+                        // 最终决策 banner
+                        const totalScore = fin.total_score;
+                        const decision = cell(fin.decision || '观望');
+                        const confidence = cell(fin.confidence || '--');
+                        const contradiction = fin.contradiction;
+                        const decisionColor = (totalScore == null) ? '#888' : (totalScore >= 0.2 ? '#26a69a' : (totalScore <= -0.2 ? '#ef5350' : '#ffd700'));
+                        let html = `<div style="margin:14px 0 10px 0;padding:10px 12px;background:#15151f;border-left:3px solid #ffd700;border-radius:5px;">`;
+                        html += `<div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:8px;">🧭 四维决策（v2.11.68+）</div>`;
+                        // 决策 banner
+                        html += `<div style="margin:4px 0 10px 0;padding:8px 10px;background:#101018;border-left:3px solid ${decisionColor};border-radius:3px;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+                                <div style="color:#fff;font-size:13px;font-weight:bold;">${decision} <span style="color:#888;font-size:10px;font-weight:normal;">（置信度：${confidence}）</span></div>
+                                <div style="color:${decisionColor};font-size:14px;font-weight:bold;">${totalScore != null ? (totalScore >= 0 ? '+' : '') + totalScore.toFixed(3) : '--'}</div>
+                            </div>
+                            ${contradiction ? '<div style="margin-top:4px;color:#ef5350;font-size:10px;">⚠️ 四层信号方向矛盾 → 决策降级为观望</div>' : ''}
+                        </div>`;
+                        // 4 层（含动态对比）
+                        html += layerRow(1, 'PAIN 结构', L1.weight || 0.35, L1.layer_score, L1.logic_brief, false, L1);
+                        html += layerRow(2, 'GEX 机制', L2.weight || 0.25, L2.layer_score, L2.logic_brief, false, L2);
+                        // L3: 资金意图（B 方案：标准化 label + 1h PCR delta + 跳段 3 链接）
+                        const l3Label = cell((L3.standardized_label || L3.raw_label || '未判定'));
+                        const l3PcrDelta = L3.pcr_delta_1h != null && L3.pcr_delta_1h !== 0
+                            ? ` | <span style="color:#888;">PCR 1h ${L3.pcr_delta_1h > 0 ? '+' : ''}${L3.pcr_delta_1h.toFixed(3)}</span>`
+                            : '';
+                        const l3Brief = L3.logic_brief
+                            ? `${cell(L3.logic_brief)} <span style="color:#888;">| ${l3Label}</span>${l3PcrDelta}`
+                            : `Put ${cell(L3.put_nature || '?')} + Call ${cell(L3.call_nature || '?')} <span style="color:#888;">| ${l3Label}</span>${l3PcrDelta}`;
+                        html += layerRow(3, '资金意图', L3.weight || 0.25, L3.layer_score, l3Brief, true, L3);
+                        // L4: 情绪确认（用 signals 列表前 3 个）
+                        const l4Signals = Array.isArray(L4.signals) ? L4.signals.slice(0, 3).join(' | ') : '';
+                        html += layerRow(4, '情绪确认', L4.weight || 0.15, L4.layer_score, l4Signals, false, L4);
+                        // v2.11.68 A1 方案：L3 折叠展开（24 行 strike 事实 + Put/Call 角色）
+                        // 默认收起，点击 ▶ 展开查看详情；折叠时 L3 行保持简洁
+                        const l3ExpandId = 'l3-expand-' + Math.random().toString(36).slice(2, 8);
+                        const hasL3Detail = (L3.call_role && Object.keys(L3.call_role).length > 1)
+                                          || (L3.put_role && Object.keys(L3.put_role).length > 1);
+                        if (hasL3Detail) {
+                            html += `<div style="margin:8px 0 0 0;">
+                                <div id="${l3ExpandId}-btn" style="color:#4fc3f7;font-size:10px;cursor:pointer;line-height:1.5;user-select:none;" onclick="document.getElementById('${l3ExpandId}').style.display==='none'?(()=>{document.getElementById('${l3ExpandId}').style.display='block';document.getElementById('${l3ExpandId}-btn').textContent='▼ 收起 24 行 strike 事实';})():(()=>{document.getElementById('${l3ExpandId}').style.display='none';document.getElementById('${l3ExpandId}-btn').textContent='▶ 展开 24 行 strike 事实';})()">▶ 展开 24 行 strike 事实</div>
+                                <div id="${l3ExpandId}" style="display:none;margin-top:6px;padding:8px;background:#0e0e16;border:1px solid #2a2a36;border-radius:3px;">${renderL3StrikeDetail(L3)}</div>
+                            </div>`;
+                        }
+                        // 逻辑链（各层一句话串联）
+                        if (fin.logic_chain) {
+                            html += `<div style="margin:8px 0 0 0;color:#aaa;font-size:10px;line-height:1.6;background:#0e0e16;padding:6px 8px;border-radius:3px;">
+                                <span style="color:#888;">逻辑链：</span>${cell(fin.logic_chain)}
+                            </div>`;
+                        }
+                        html += `</div>`;
+                        return html;
+                    }
+
+                    // v2.11.68 A1 方案：L3 展开时渲染 24 行 strike 事实 + Put/Call 角色总结
+                    function renderL3StrikeDetail(L3) {
+                        if (!L3) return '<div style="color:#888;font-size:10px;">无 L3 数据</div>';
+                        const callRole = L3.call_role || {};
+                        const putRole = L3.put_role || {};
                         const fmtPct = (x) => x == null ? '--' : (x >= 0 ? '+' : '') + Number(x).toFixed(1) + '%';
                         const fmtPP  = (x) => x == null ? '--' : (x >= 0 ? '+' : '') + Number(x).toFixed(2) + 'pp';
-                        const pcrNow = ns.pcr_now, pcrPrev = ns.pcr_prev;
-                        let pcrText = 'PCR --';
-                        if (pcrNow != null && pcrPrev != null) {
-                            pcrText = `PCR ${Number(pcrNow).toFixed(3)}${cell(synth.pcr_label || '—')}（前日 ${Number(pcrPrev).toFixed(3)}）`;
-                        } else if (pcrPrev != null) {
-                            pcrText = `PCR --（前日 ${Number(pcrPrev).toFixed(3)}）`;
-                        }
-                        const headerMeta = `形态：${cell(ns.shape_label || '--')}；位置：${cell(ns.position_label || '--')}；${pcrText}；基准：今日 15:00 当前 vs 昨日 15:00 收盘（alert_data OI/IV prev 字段）`;
-                        const pcrMeaning = cell(synth.pcr_meaning || '');
-                        const synthLabel = cell(synth.label || '未判定');
-                        const synthInt = cell(synth.intensity || '弱');
-                        const synthDesc = cell(synth.description || '');
-
-                        // v2.11.63d 资金意图精细化: strike 级别方向异质性
-                        const callRole = ns.call_role || {};
-                        const putRole = ns.put_role || {};
-                        // v2.11.63e: 显示数据质量（让用户知道这次判定置信度）
-                        const dq = ns.data_quality || {};
-                        const dqText = dq.confidence ? `数据质量: ${dq.confidence.toUpperCase()} (Call ${dq.eligible_call}/${dq.total_strikes}档有效, Put ${dq.eligible_put}/${dq.total_strikes}档有效, OI门槛≥${dq.oi_threshold}手, IV阈值≥${dq.iv_threshold_pp}pp)` : '';
-                        const dqColor = dq.confidence === 'high' ? '#5d5' : (dq.confidence === 'medium' ? '#da4' : '#e55');
+                        // v2.11.68 A1 增强: strike 字符串加 nature 标签
+                        const NATURE_LABEL = {
+                            'spec_buy': '投机买', 'spec_add': '投机加',
+                            'spec_trim': '投机撤', 'close_push': '卖方平',
+                            'hedge_buy': '产业买保', 'hedge_sell': '产业收租',
+                            'double_exit': '双边撤', 'mixed_neutral': '中性'
+                        };
                         const fmtStrikeRow = (s, side) => {
                             if (!s) return null;
                             const letter = side === 'call' ? 'C' : 'P';
                             const sv = s.strike;
                             const sStr = sv != null ? `${Math.round(sv)}${letter}` : '--';
-                            return `${sStr} OI${fmtPct(s.oi_delta_pct)} IV${fmtPP(s.iv_delta_pp)}`;
+                            const nat = NATURE_LABEL[s.nature] || s.nature || '?';
+                            return `<span title="nature=${s.nature}">${sStr} ${nat} OI${fmtPct(s.oi_delta_pct)} IV${fmtPP(s.iv_delta_pp)}</span>`;
                         };
-                        const callStr = (key) => (callRole[key] || []).map(s => fmtStrikeRow(s, 'call')).filter(Boolean).join(' ') || '--';
-                        const putStr = (key) => (putRole[key] || []).map(s => fmtStrikeRow(s, 'put')).filter(Boolean).join(' ') || '--';
-                        const callSummary = cell(callRole.role_summary || '无显著方向分化');
-                        const putSummary = cell(putRole.role_summary || '无显著方向分化');
+                        const callStr = (key) => (callRole[key] || []).map(s => fmtStrikeRow(s, 'call')).filter(Boolean).join('<br>') || '--';
+                        const putStr = (key) => (putRole[key] || []).map(s => fmtStrikeRow(s, 'put')).filter(Boolean).join('<br>') || '--';
+                        const callSummary = callRole.role_summary || '无显著方向分化';
+                        const putSummary = putRole.role_summary || '无显著方向分化';
                         const topN = callRole._top_n || 5;
-                        const strikeOIT = dq.oi_threshold || 200;
+                        // Put 端 + Call 端 6 大性质
+                        const rows = [
+                            {label: '产业卖权收租 (OI↑IV↓)', key: 'hedge_sell'},
+                            {label: '产业买保 (OI↑IV—)',      key: 'hedge_buy'},
+                            {label: '投机端加仓 (OI↑IV↑)',     key: 'spec_add'},
+                            {label: '投机/对冲撤退 (OI↓IV↓/—)', key: 'spec_trim'},
+                            {label: '卖方平仓 (OI↓IV↑)',        key: 'close_push'},
+                        ];
+                        let tableRows = '';
+                        rows.forEach(r => {
+                            const cs = callStr(r.key);
+                            const ps = putStr(r.key);
+                            tableRows += `<tr>
+                                <td style="color:#9bc;padding:3px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;width:28%;font-size:10px;">${r.label}</td>
+                                <td style="color:#ddd;padding:3px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;width:36%;font-size:10px;line-height:1.55;">${cs}</td>
+                                <td style="color:#ddd;padding:3px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;width:36%;font-size:10px;line-height:1.55;">${ps}</td>
+                            </tr>`;
+                        });
+                        // v2.11.68 A1 增强: 业务意义判定（信号判定）
+                        const putBiz = L3.put_business_meaning || '';
+                        const callBiz = L3.call_business_meaning || '';
+                        const stdLabel = L3.standardized_label || L3.raw_label || '未判定';
+                        const stdIntensity = L3.standardized_intensity || L3.raw_intensity || '弱';
+                        const strikeMod = L3.strike_modifier || '';
+                        const synthHtml = `<div style="margin:0 0 8px 0;padding:6px 8px;background:#1a1a25;border-radius:3px;border-left:2px solid #ffd700;">
+                            <div style="color:#ffd700;font-size:10px;font-weight:bold;margin-bottom:4px;">📊 资金意图信号判定</div>
+                            <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:10px;line-height:1.5;">
+                                <div style="flex:1 1 220px;background:#101018;padding:3px 6px;border-radius:2px;">
+                                    <span style="color:#e2904a;font-weight:500;">📉 Put 端:</span>
+                                    <span style="color:#cfcfcf;">${putBiz || '<i style="color:#888;">(无)</i>'}</span>
+                                </div>
+                                <div style="flex:1 1 220px;background:#101018;padding:3px 6px;border-radius:2px;">
+                                    <span style="color:#4a90e2;font-weight:500;">📈 Call 端:</span>
+                                    <span style="color:#cfcfcf;">${callBiz || '<i style="color:#888;">(无)</i>'}</span>
+                                </div>
+                            </div>
+                            <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap;font-size:10px;align-items:center;">
+                                <span style="color:#888;">合成:</span>
+                                <b style="color:#ffd700;">${cell(stdLabel)}</b>
+                                <span style="color:#888;">| 强度:</span>
+                                <b style="color:${stdIntensity === '强' ? '#ef5350' : (stdIntensity === '中' ? '#ffd700' : '#888')};">${cell(stdIntensity)}</b>
+                                ${strikeMod ? `<span style="color:#888;">| 形态修正:</span><span style="color:#9bc;">${cell(strikeMod)}</span>` : ''}
+                            </div>
+                        </div>`;
+                        // 数据质量
+                        const dq = L3.data_quality || {};
+                        let dqHtml = '';
+                        if (dq.confidence) {
+                            const dqColor = dq.confidence === 'high' ? '#5d5' : (dq.confidence === 'medium' ? '#da4' : '#e55');
+                            dqHtml = `<div style="margin:0 0 6px 0;color:${dqColor};font-size:9px;">📊 数据质量: ${dq.confidence.toUpperCase()} (Call ${dq.eligible_call}/${dq.total_strikes} 档有效, Put ${dq.eligible_put}/${dq.total_strikes}, OI≥${dq.oi_threshold}手, IV≥${dq.iv_threshold_pp}pp)</div>`;
+                        }
+                        return `${synthHtml}
+                            ${dqHtml}
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+                                <div style="flex:1 1 240px;background:#101018;padding:4px 6px;border-radius:2px;border-left:2px solid #4a90e2;">
+                                    <div style="color:#9bc;font-size:10px;font-weight:500;margin-bottom:2px;">📈 Call 角色分布 (Top ${topN})</div>
+                                    <div style="color:#cfcfcf;font-size:10px;line-height:1.5;">${cell(callSummary)}</div>
+                                </div>
+                                <div style="flex:1 1 240px;background:#101018;padding:4px 6px;border-radius:2px;border-left:2px solid #e2904a;">
+                                    <div style="color:#9bc;font-size:10px;font-weight:500;margin-bottom:2px;">📉 Put 角色分布 (Top ${topN})</div>
+                                    <div style="color:#cfcfcf;font-size:10px;line-height:1.5;">${cell(putSummary)}</div>
+                                </div>
+                            </div>
+                            <table style="width:100%;border-collapse:collapse;font-size:10px;line-height:1.4;background:#0f0f18;border:1px solid #2a2a36;">
+                                <thead><tr>
+                                    <th style="color:#aaa;text-align:left;padding:3px 5px;border-bottom:1px solid #333;font-weight:500;">角色</th>
+                                    <th style="color:#aaa;text-align:left;padding:3px 5px;border-bottom:1px solid #333;font-weight:500;">Call strike (性质)</th>
+                                    <th style="color:#aaa;text-align:left;padding:3px 5px;border-bottom:1px solid #333;font-weight:500;">Put strike (性质)</th>
+                                </tr></thead>
+                                <tbody>${tableRows}</tbody>
+                            </table>
+                            <div style="margin-top:4px;color:#888;font-size:9px;">↑ 点 ▶ 收起</div>`;
+                    }
 
-                        return `<div style="margin:8px 0 10px 0;">
-                            <div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">5.5 性质判定 × 合成信号（v2.11.63f OI 抵消兜底修订）</div>
-                            <div style="color:#aaa;font-size:11px;margin-bottom:5px;">${headerMeta}</div>
-                            ${pcrMeaning ? `<div style="color:#cfcfcf;font-size:11px;margin-bottom:5px;background:#1a1a25;padding:3px 6px;border-radius:3px;border-left:2px solid #4a90e2;">📊 PCR 业务解读：${pcrMeaning}</div>` : ''}
-                            <table style="width:100%;border-collapse:collapse;font-size:11px;line-height:1.45;background:#12121b;border:1px solid #2a2a36;">
+                    // v2.11.69: 决策命中率展示
+                    function renderDecisionStats(ds) {
+                        if (!ds) return '';
+                        const overall = ds.overall || {};
+                        const byWindow = ds.by_window || {};
+                        const byDecision = ds.by_decision || {};
+                        const days = ds.window_days || 7;
+                        // 总命中率
+                        const tot = overall.total || 0;
+                        const hit = overall.hit || 0;
+                        const pct = overall.pct || 0;
+                        const pctColor = pct >= 60 ? '#26a69a' : (pct >= 40 ? '#ffd700' : '#ef5350');
+                        // 各窗口小行
+                        const winRow = (label, w) => {
+                            const x = byWindow[w] || {total:0, hit:0, pct:0};
+                            const xc = x.pct >= 60 ? '#26a69a' : (x.pct >= 40 ? '#ffd700' : '#ef5350');
+                            return `<span style="color:#aaa;margin-right:10px;">${label}: <b style="color:${xc};">${x.pct.toFixed(1)}%</b> <span style="color:#888;">(${x.hit}/${x.total})</span></span>`;
+                        };
+                        // 各决策细分
+                        const decRows = Object.entries(byDecision).map(([k, v]) => {
+                            const cells = ['1h', '4h', 'eod'].map(w => {
+                                const x = v[w] || {total:0, hit:0, pct:0};
+                                const xc = x.total === 0 ? '#888' : (x.pct >= 60 ? '#26a69a' : (x.pct >= 40 ? '#ffd700' : '#ef5350'));
+                                return `<td style="color:#ddd;padding:3px 6px;font-size:10px;">${x.total > 0 ? `<b style="color:${xc};">${x.pct.toFixed(0)}%</b> <span style="color:#888;">(${x.hit}/${x.total})</span>` : '<span style="color:#888;">-</span>'}</td>`;
+                            }).join('');
+                            return `<tr><td style="color:#9bc;padding:3px 6px;font-size:11px;">${cell(k)}</td>${cells}</tr>`;
+                        }).join('');
+                        // 按日明细
+                        const dayRows = (ds.by_day || []).slice(0, 7).map(d => {
+                            const o = d.overall || {};
+                            const c = o.pct >= 60 ? '#26a69a' : (o.pct >= 40 ? '#ffd700' : '#ef5350');
+                            return `<span style="color:#aaa;margin-right:8px;">${d.date.slice(5)}: <b style="color:${c};">${o.pct.toFixed(0)}%</b> <span style="color:#888;">(${o.hit}/${o.total})</span></span>`;
+                        }).join('');
+                        // 无数据时
+                        if (tot === 0) {
+                            return `<div style="margin:14px 0 6px 0;padding:10px 12px;background:#15151f;border-left:3px solid #4fc3f7;border-radius:5px;">
+                                <div style="color:#4fc3f7;font-size:12px;font-weight:bold;margin-bottom:6px;">📊 决策命中率 (近 ${days} 日)</div>
+                                <div style="color:#888;font-size:11px;line-height:1.6;padding:4px 0;">⏳ 暂无验证数据 — 整点调度器每 1h 自动记录 + 验证，1h 后开始有命中统计</div>
+                            </div>`;
+                        }
+                        return `<div style="margin:14px 0 6px 0;padding:10px 12px;background:#15151f;border-left:3px solid #4fc3f7;border-radius:5px;">
+                            <div style="color:#4fc3f7;font-size:12px;font-weight:bold;margin-bottom:6px;">📊 决策命中率 (近 ${days} 日)</div>
+                            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
+                                <div style="color:#aaa;font-size:11px;">总命中:</div>
+                                <div style="color:${pctColor};font-size:18px;font-weight:bold;">${pct.toFixed(1)}%</div>
+                                <div style="color:#888;font-size:11px;">(${hit}/${tot} 样本)</div>
+                            </div>
+                            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;font-size:11px;">
+                                ${winRow('1h', '1h')}
+                                ${winRow('4h', '4h')}
+                                ${winRow('日终', 'eod')}
+                            </div>
+                            ${Object.keys(byDecision).length ? `<table style="width:100%;border-collapse:collapse;margin-bottom:6px;font-size:11px;line-height:1.4;background:#0e0e16;border:1px solid #2a2a36;">
                                 <thead><tr>
-                                    <th style="color:#aaa;text-align:left;padding:5px 6px;border-bottom:1px solid #333;font-weight:500;">维度</th>
-                                    <th style="color:#aaa;text-align:left;padding:5px 6px;border-bottom:1px solid #333;font-weight:500;">当前</th>
-                                    <th style="color:#aaa;text-align:left;padding:5px 6px;border-bottom:1px solid #333;font-weight:500;">前次</th>
-                                    <th style="color:#aaa;text-align:left;padding:5px 6px;border-bottom:1px solid #333;font-weight:500;">变化</th>
-                                    <th style="color:#aaa;text-align:left;padding:5px 6px;border-bottom:1px solid #333;font-weight:500;">性质</th>
-                                    <th style="color:#aaa;text-align:left;padding:5px 6px;border-bottom:1px solid #333;font-weight:500;">业务解读</th>
+                                    <th style="color:#aaa;text-align:left;padding:3px 6px;border-bottom:1px solid #333;font-weight:500;">决策</th>
+                                    <th style="color:#aaa;text-align:left;padding:3px 6px;border-bottom:1px solid #333;font-weight:500;">1h</th>
+                                    <th style="color:#aaa;text-align:left;padding:3px 6px;border-bottom:1px solid #333;font-weight:500;">4h</th>
+                                    <th style="color:#aaa;text-align:left;padding:3px 6px;border-bottom:1px solid #333;font-weight:500;">日终</th>
                                 </tr></thead>
-                                <tbody>
-                                    <tr>
-                                        <td style="color:#ddd;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">Put</td>
-                                        <td style="color:#ddd;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">${fmtOI(put.oi_cur)}</td>
-                                        <td style="color:#ddd;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">${fmtOI(put.oi_prev)}</td>
-                                        <td style="color:#ddd;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">OI ${fmtPct(put.oi_delta_pct)}<br>IV ${fmtPP(put.iv_delta_pp)}</td>
-                                        <td style="color:#ddd;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">${cell(put.nature_label)}</td>
-                                        <td style="color:#ddd;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">${cell(put.business_meaning)}</td>
-                                    </tr>
-                                    <tr>
-                                        <td style="color:#ddd;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">Call</td>
-                                        <td style="color:#ddd;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">${fmtOI(call.oi_cur)}</td>
-                                        <td style="color:#ddd;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">${fmtOI(call.oi_prev)}</td>
-                                        <td style="color:#ddd;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">OI ${fmtPct(call.oi_delta_pct)}<br>IV ${fmtPP(call.iv_delta_pp)}</td>
-                                        <td style="color:#ddd;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">${cell(call.nature_label)}</td>
-                                        <td style="color:#ddd;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">${cell(call.business_meaning)}</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                            <div style="margin-top:6px;color:#cfcfcf;font-size:11px;line-height:1.65;background:#101018;border-left:2px solid #ffd700;padding:6px 8px;border-radius:3px;">
-                                <span style="color:#ffd700;">合成信号：</span><b>${synthLabel}</b>（${synthInt}）<br>
-                                <span style="color:#aaa;">${synthDesc}</span>
-                            </div>
-                            <div style="margin-top:10px;color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">📊 Strike 级别方向异质性（v2.11.63e 噪声过滤：OI≥${strikeOIT}手 且 IV 有效；每组 Top ${topN}）</div>
-                            ${dqText ? `<div style="color:${dqColor};font-size:10px;margin-bottom:5px;padding:3px 6px;background:#1a1a25;border-radius:3px;">📊 ${dqText}</div>` : ''}
-                            <div style="color:#cfcfcf;font-size:11px;line-height:1.6;background:#1a1a25;padding:5px 8px;border-radius:3px;margin-bottom:3px;border-left:2px solid #4a90e2;">
-                                <b style="color:#aaa;">Call 端：</b>${callSummary}
-                            </div>
-                            <div style="color:#cfcfcf;font-size:11px;line-height:1.6;background:#1a1a25;padding:5px 8px;border-radius:3px;margin-bottom:6px;border-left:2px solid #e2904a;">
-                                <b style="color:#aaa;">Put 端：</b>${putSummary}
-                            </div>
-                            <table style="width:100%;border-collapse:collapse;font-size:10.5px;line-height:1.4;background:#0f0f18;border:1px solid #2a2a36;">
-                                <thead><tr>
-                                    <th style="color:#aaa;text-align:left;padding:4px 5px;border-bottom:1px solid #333;font-weight:500;width:28%;">角色/分组</th>
-                                    <th style="color:#aaa;text-align:left;padding:4px 5px;border-bottom:1px solid #333;font-weight:500;width:36%;">Call strike 级别</th>
-                                    <th style="color:#aaa;text-align:left;padding:4px 5px;border-bottom:1px solid #333;font-weight:500;width:36%;">Put strike 级别</th>
-                                </tr></thead>
-                                <tbody>
-                                    <tr>
-                                        <td style="color:#9bc;padding:4px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;">产业卖权收租 (OI↑IV↓)</td>
-                                        <td style="color:#ddd;padding:4px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;">${cell(callStr('hedge_sell'))}</td>
-                                        <td style="color:#ddd;padding:4px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;">${cell(putStr('hedge_sell'))}</td>
-                                    </tr>
-                                    <tr>
-                                        <td style="color:#9bc;padding:4px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;">产业买保 (OI↑IV—)</td>
-                                        <td style="color:#ddd;padding:4px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;">${cell(callStr('hedge_buy'))}</td>
-                                        <td style="color:#ddd;padding:4px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;">${cell(putStr('hedge_buy'))}</td>
-                                    </tr>
-                                    <tr>
-                                        <td style="color:#9bc;padding:4px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;">投机端加仓 (OI↑IV↑)</td>
-                                        <td style="color:#ddd;padding:4px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;">${cell(callStr('spec_add'))}</td>
-                                        <td style="color:#ddd;padding:4px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;">${cell(putStr('spec_add'))}</td>
-                                    </tr>
-                                    <tr>
-                                        <td style="color:#9bc;padding:4px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;">投机/对冲撤退 (OI↓IV↓/—)</td>
-                                        <td style="color:#ddd;padding:4px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;">${cell(callStr('spec_trim'))} ${cell(callStr('double_exit'))}</td>
-                                        <td style="color:#ddd;padding:4px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;">${cell(putStr('spec_trim'))} ${cell(putStr('double_exit'))}</td>
-                                    </tr>
-                                    <tr>
-                                        <td style="color:#9bc;padding:4px 5px;vertical-align:top;">卖方平仓 (OI↓IV↑)</td>
-                                        <td style="color:#ddd;padding:4px 5px;vertical-align:top;">${cell(callStr('close_push'))}</td>
-                                        <td style="color:#ddd;padding:4px 5px;vertical-align:top;">${cell(putStr('close_push'))}</td>
-                                    </tr>
-                                </tbody>
-                            </table>
+                                <tbody>${decRows}</tbody>
+                            </table>` : ''}
+                            ${dayRows ? `<div style="color:#888;font-size:10px;margin-top:4px;line-height:1.6;">按日: ${dayRows}</div>` : ''}
+                            <div style="margin-top:4px;color:#666;font-size:9px;">⏰ 整点自动记录 (10/11/14/15/21/22/23)，1h/4h/日终三档验证</div>
                         </div>`;
                     }
+
                     function renderTraderReport(text) {
                         const raw = String(text || '').trim();
                         if (!raw) return '';
@@ -3040,25 +3206,16 @@ function getStrategyReportEndpoint() {
                     }
                     const oup = intraday.option_underlying_price;
                     const mfp = intraday.main_futures_price;
-                    const narrativeNotes = intraday.narrative_notes || { market: [], gex: [], oi: [], iv: [], macro: [], strategy: [], other: [] };
                     let out = '';
-                    if (intraday.trader_report) {
-                        out += renderTraderReport(intraday.trader_report);
-                    }
+
+                    // ============================================================
+                    // 【1 结论】一句话结论 + 实时价
+                    // ============================================================
                     out += `<div style="margin-bottom:14px;padding:10px 12px;background:#15151f;border-left:3px solid #ffd700;border-radius:5px;">
                         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
                             <div style="color:#ffd700;font-size:13px;font-weight:bold;">🧭 ${cell(intraday.title || '盘中综合研判')}</div>
-                            <div style="color:#aaa;font-size:11px;">${cell(intraday.summary || intraday.conclusion || '')}</div>
+                            <div style="color:#fff;font-size:12px;font-weight:bold;line-height:1.6;white-space:pre-line;">${cell(intraday.conclusion || intraday.summary || '')}</div>
                         </div>`;
-                    const cmp = reportData.previous_day_comparison || intraday.previous_day_comparison || {};
-                    if (cmp.comparison_quality || cmp.data_limitation_note || cmp.intraday_coverage_status) {
-                        out += `<div style="margin:0 0 10px 0;color:#d7d7d7;font-size:11px;line-height:1.65;background:#101018;border-left:2px solid #777;padding:7px 9px;border-radius:3px;">
-                            <b>动态对比完整度：</b>${cell(cmp.comparison_quality || '-')}
-                            <span style="margin-left:10px;color:#aaa;">日内快照：${cell(cmp.intraday_coverage_status || '-')}</span>
-                            <span style="margin-left:10px;color:#aaa;">前日总报：${cmp.previous_day_available ? '已接入' : '暂缺'}</span>
-                            ${cmp.data_limitation_note ? `<div style="margin-top:4px;color:#aaa;">${cell(cmp.data_limitation_note)}</div>` : ''}
-                        </div>`;
-                    }
                     const liveBadge = (origVal, fixedVal) => {
                         if (livePrice && origVal != null && Math.abs(Number(origVal) - Number(fixedVal)) >= 0.5) {
                             return ` <span style="color:#26a69a;font-size:10px;" title="原研报缓存 ${fc(origVal,0)}，已用K线实时价覆盖">✓已实时</span>`;
@@ -3069,58 +3226,90 @@ function getStrategyReportEndpoint() {
                         <span>期权链标的参考价 <b style="color:#ab47bc;">${oup != null ? fc(oup,0) : '--'}</b>${liveBadge(oupBefore, oup)}</span>
                         <span>盘面主力参考价 <b style="color:#ffd700;">${mfp != null ? fc(mfp,0) : '--'}</b>${liveBadge(mfpBefore, mfp)}</span>
                         ${livePrice ? `<span style="color:#888;font-size:10px;" title="数据源：${liveSource||'kline'}">K线实时 <b style="color:#26a69a;">${fc(livePrice,0)}</b></span>` : ''}
+                    </div>
                     </div>`;
+
+                    // 收盘复盘（盘中无，移到段6信息源；但放到结论段尾更醒目，移到6段）
+                    // 关键动态对比也移到6段
+
+                    // ============================================================
+                    // 【2 产业链】宏观与成本快照
+                    // ============================================================
+                    out += `<div style="margin:10px 0 8px 0;color:#ffd700;font-size:12px;font-weight:bold;">📦 产业链</div>`;
+                    out += renderReportTable('宏观与成本快照', ['项目','当前值','解读'], intraday.macro_table || []);
+                    out += renderChainOperationSnapshot(intraday.chain_operation_snapshot);
+                    out += renderInterpretation(combinedInterpretation(intraday.macro_interpretation, (intraday.narrative_notes || {}).macro));
+
+                    // ============================================================
+                    // 【3 期权结构】GEX / Pain / OI / IV 四表
+                    // ============================================================
+                    out += `<div style="margin:14px 0 8px 0;color:#ffd700;font-size:12px;font-weight:bold;">🧩 期权结构</div>`;
                     out += renderReportTable('盘面快照', ['项目','当前值','交易含义'], intraday.market_snapshot_table || []);
-                    out += renderInterpretation(combinedInterpretation(intraday.market_snapshot_interpretation, narrativeNotes.market));
+                    out += renderInterpretation(combinedInterpretation(intraday.market_snapshot_interpretation, (intraday.narrative_notes || {}).market));
                     out += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;">`;
                     out += renderReportTable('GEX / Pain', ['指标','当前值'], intraday.gex_table || []);
-                    out += renderInterpretation(combinedInterpretation(intraday.gex_interpretation, narrativeNotes.gex));
                     out += renderReportTable('Pain Curve近端', ['行权价','Pain','备注'], intraday.pain_table || []);
                     out += `</div>`;
+                    out += renderInterpretation(combinedInterpretation(intraday.gex_interpretation, (intraday.narrative_notes || {}).gex));
                     const oi = intraday.oi_tables || {};
                     out += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;">`;
                     out += renderReportTable('Put持仓集中', ['Put行权价','Put OI'], oi.put || []);
                     out += renderReportTable('Call持仓集中', ['Call行权价','Call OI'], oi.call || []);
-                    out += renderInterpretation(combinedInterpretation(intraday.oi_interpretation, narrativeNotes.oi));
                     out += `</div>`;
+                    out += renderInterpretation(combinedInterpretation(intraday.oi_interpretation, (intraday.narrative_notes || {}).oi));
                     out += renderReportTable('ATM附近IV / T表', ['K','C IV','P IV','SVI/平滑IV','OI结构'], intraday.iv_table || []);
-                    out += renderInterpretation(combinedInterpretation(intraday.iv_interpretation, narrativeNotes.iv));
-                    out += renderNatureSynthesisBlock(intraday.nature_synthesis);
-                    out += renderReportTable('宏观与成本快照', ['项目','当前值','解读'], intraday.macro_table || []);
-                    out += renderChainOperationSnapshot(intraday.chain_operation_snapshot);
-                    out += renderInterpretation(combinedInterpretation(intraday.macro_interpretation, narrativeNotes.macro));
-                    const news = Array.isArray(intraday.macro_news_items) ? intraday.macro_news_items.slice(0, 5) : [];
-                    if (news.length) {
-                        out += `<div style="margin:8px 0;"><div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">宏观财经快讯</div><ul style="margin:0;padding-left:18px;color:#d0d0d0;font-size:11px;line-height:1.65;">${news.map(x => `<li>${cell(x)}</li>`).join('')}</ul></div>`;
-                    }
-                    out += `<div style="margin-top:10px;color:#ffd700;font-size:12px;font-weight:bold;">操作策略</div><div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;">`;
+                    out += renderInterpretation(combinedInterpretation(intraday.iv_interpretation, (intraday.narrative_notes || {}).iv));
+                    // v2.11.68 A 方案: 5.5 性质判定×合成信号 整块删除,内容合并到段 4 L3 展开区
+
+                    // ============================================================
+                    // 【4 四维决策】决策层（4 层 + 最终决策）
+                    // ============================================================
+                    out += renderDecisionLayerBlock(intraday.decision_layer);
+
+                    // ============================================================
+                    // 【5 策略建议】3 段（期货 / 期权买方 / 期权卖方）
+                    // ============================================================
+                    out += `<div style="margin:14px 0 6px 0;color:#ffd700;font-size:12px;font-weight:bold;">🎯 策略建议</div>`;
+                    out += `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;">`;
                     out += renderStrategyBlock('futures_strategy', 'futures');
                     out += renderStrategyBlock('option_seller_strategy', 'option-seller');
                     out += renderStrategyBlock('option_buyer_strategy', 'option-buyer');
                     out += `</div>`;
-                    const strategyText = combinedInterpretation(intraday.strategy_logic, narrativeNotes.strategy);
+                    const strategyText = combinedInterpretation(intraday.strategy_logic, (intraday.narrative_notes || {}).strategy);
                     if (strategyText) {
                         out += `<div style="margin-top:8px;color:#cfcfcf;font-size:11px;line-height:1.65;background:#101018;border-left:2px solid #444;padding:6px 8px;border-radius:3px;"><b style="color:#ffd700;">策略依据：</b>${cell(strategyText)}</div>`;
                     }
-                    const otherNotes = narrativeNotes.other.slice(0, 2);
-                    if (otherNotes.length) {
-                        out += `<div style="margin-top:8px;color:#aaa;font-size:11px;line-height:1.65;"><b style="color:#ffd700;">综合摘要：</b>${cell(otherNotes.join('；'))}</div>`;
+
+                    // ============================================================
+                    // 【6 信息源】宏观快讯 + 关键价位 + 收盘复盘
+                    // ============================================================
+                    out += `<div style="margin:14px 0 6px 0;color:#ffd700;font-size:12px;font-weight:bold;">📡 信息源</div>`;
+                    const news = Array.isArray(intraday.macro_news_items) ? intraday.macro_news_items.slice(0, 5) : [];
+                    if (news.length) {
+                        out += `<div style="margin:4px 0;"><div style="color:#ffd700;font-size:11px;font-weight:bold;margin-bottom:4px;">宏观财经快讯</div><ul style="margin:0;padding-left:18px;color:#d0d0d0;font-size:11px;line-height:1.65;">${news.map(x => `<li>${cell(x)}</li>`).join('')}</ul></div>`;
                     }
-                    const snaps = Array.isArray(reportData.intraday_snapshots) ? reportData.intraday_snapshots.slice(-6) : [];
-                    if (snaps.length) {
-                        out += `<div style="margin-top:8px;color:#ffd700;font-size:12px;font-weight:bold;">日内15分钟快照摘要</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:4px 10px;margin-top:4px;">${snaps.map(s => `<div style="color:#aaa;font-size:11px;line-height:1.5;">${cell(s.slot || s.time || '-')}: ${cell(s.summary || '-')}</div>`).join('')}</div>`;
+                    const keyLevels = Array.isArray(intraday.key_levels) ? intraday.key_levels : [];
+                    if (keyLevels.length) {
+                        out += `<div style="margin:6px 0 4px 0;color:#ffd700;font-size:11px;font-weight:bold;">关键价位</div><ul style="margin:0;padding-left:18px;color:#d0d0d0;font-size:11px;line-height:1.6;">${keyLevels.map(x => `<li>${cell(x)}</li>`).join('')}</ul>`;
                     }
-                    // 收盘复盘：日内走势 + 前日动态对比（15:00 收盘研报核心模块）
+                    // 收盘复盘 + 前日动态对比（盘中空，15:00 收盘后填入）
+                    const cmp = reportData.previous_day_comparison || intraday.previous_day_comparison || {};
+                    if (cmp.comparison_quality || cmp.data_limitation_note || cmp.intraday_coverage_status) {
+                        out += `<div style="margin:6px 0;padding:6px 8px;background:#101018;border-left:2px solid #777;border-radius:3px;">
+                            <b style="color:#aaa;">动态对比完整度：</b>${cell(cmp.comparison_quality || '-')}
+                            <span style="margin-left:10px;color:#aaa;">日内快照：${cell(cmp.intraday_coverage_status || '-')}</span>
+                            <span style="margin-left:10px;color:#aaa;">前日总报：${cmp.previous_day_available ? '已接入' : '暂缺'}</span>
+                            ${cmp.data_limitation_note ? `<div style="margin-top:4px;color:#aaa;">${cell(cmp.data_limitation_note)}</div>` : ''}
+                        </div>`;
+                    }
                     const review = cmp.intraday_review || {};
                     const prevDyn = cmp.previous_day_dynamic || {};
                     if (review.summary || (review.segments && review.segments.length) || prevDyn.summary) {
-                        out += `<div style="margin:10px 0 8px 0;padding:8px 10px;background:#15151f;border-left:3px solid #26a69a;border-radius:5px;">`;
+                        out += `<div style="margin:8px 0;padding:8px 10px;background:#15151f;border-left:3px solid #26a69a;border-radius:5px;">`;
                         out += `<div style="color:#26a69a;font-size:12px;font-weight:bold;margin-bottom:6px;">📈 日内走势复盘 + 前日动态对比</div>`;
-                        // 日内主句
                         if (review.summary) {
                             out += `<div style="color:#cfcfcf;font-size:11px;line-height:1.6;margin:4px 0 6px 0;">${cell(review.summary)}</div>`;
                         }
-                        // 关键价位：open/close/high/low/peak/trough
                         const openSlot = review.open_slot, closeSlot = review.close_slot;
                         const openP = review.open_price, closeP = review.close_price;
                         const high = review.high, low = review.low;
@@ -3148,7 +3337,6 @@ function getStrategyReportEndpoint() {
                                 `<td style="color:#ddd;padding:4px 6px;border-bottom:1px solid #242430;">${trough.slot ? `${cell(trough.slot)} ${cell(trough.price, 0)}` : '-'}</td>` +
                                 `</tr></tbody></table>`;
                         }
-                        // 走势分桶表
                         const segs = Array.isArray(review.segments) ? review.segments : [];
                         if (segs.length) {
                             out += `<div style="color:#ffd700;font-size:11px;font-weight:bold;margin:6px 0 4px 0;">走势分桶（按 bias 切换分段）</div>`;
@@ -3174,7 +3362,6 @@ function getStrategyReportEndpoint() {
                             });
                             out += `</tbody></table>`;
                         }
-                        // 前日动态对比
                         if (prevDyn.summary || prevDyn.previous_close_price != null) {
                             out += `<div style="color:#ffd700;font-size:11px;font-weight:bold;margin:8px 0 4px 0;">前日动态对比</div>`;
                             if (prevDyn.summary) {
@@ -3201,7 +3388,15 @@ function getStrategyReportEndpoint() {
                         }
                         out += `</div>`;
                     }
-                    out += `</div>`;
+
+                    // ============================================================
+                    // 【7 决策命中率】v2.11.69: 整点决策 1h/4h/eod 三档命中统计
+                    // 数据源: intraday.decision_stats (由 _build_decision_stats_summary 注入)
+                    // ============================================================
+                    if (intraday.decision_stats) {
+                        out += renderDecisionStats(intraday.decision_stats);
+                    }
+
                     return out;
                 }
 
@@ -4624,6 +4819,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.63f</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.77</div>
 </body>
 </html>

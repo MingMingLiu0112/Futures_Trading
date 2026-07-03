@@ -58,7 +58,10 @@ _state = {
     'strike_vol': {},      # {strike: {'C': volume, 'P': volume}} 期权成交量
 }
 # 飞书Webhook（用于IV变化报警）
-_FEISHU_WEBHOOK = os.environ.get('FEISHU_WEBHOOK', '')
+# v2.11.75+ 报警逻辑全部移到 /api/iv_smile/alert_data 端点显示层，
+# _check_iv_alert + 飞书推送已彻底删除（飞书推送功能从未实装，移动端 UI 替代）
+# 保留 _FEISHU_WEBHOOK 仅为兼容老的飞书 webhook setter 端点调用，
+# 但实际不再做任何飞书 POST。
 
 # 缓存：连接失败时保留上一次正确值
 _last_valid = {
@@ -75,6 +78,7 @@ _last_valid = {
 # value: {'smooth': {strike: iv}, 'raw': {strike: {'C': iv, 'P': iv}}, 'timestamp': str}
 _interval_snapshots = {}          # 内存快照: key="HH:MM" 或 "night"（仅当天数据）
 _interval_loaded_from_disk = set()  # 已从磁盘加载的日期，避免重复
+_interval_session_date = ''         # 当前内存快照所属的交易日 (YYYYMMDD)；跨日时自动重置
 _prev_day_baseline = {}           # 前一交易日15:00收盘快照（启动时从磁盘加载）
                                   # {'smooth': {}, 'raw': {}, 'strike_oi': {}, 'strike_vol': {}, 'timestamp': str, 'futures_price': float}
 
@@ -88,6 +92,7 @@ _iv_alert_dynamic_raw_baseline = {}  # 兼容旧逻辑：动态raw基准
 _oi_alert_dynamic_baseline = {}    # 兼容旧逻辑：OI动态基准
 _iv_alert_watermarks = {}          # {"strike_side": {'trend':'up/down','extreme':float}} 报警后同向最高/最低点
 _oi_alert_watermarks = {}          # {"strike_side": {'trend':'up/down','extreme':int}} 报警后同向最高/最低点
+_alert_last_level_sent = {}        # v2.11.75+ 预留: 服务端级别升级追踪。前端 _alertState 已处理方向去重；如需服务端显著→重大重发，可在此处接入写入点。
 
 # 每日收盘基准快照（15:00 收盘时记录，作为盘中对比基准）
 _close_baseline = {}               # {'smooth': {}, 'raw': {}, 'strike_oi': {}, 'strike_vol': {}, 'S': float, 'ts': str}
@@ -121,9 +126,54 @@ def _get_oi_thresholds(oi):
         return {'noise': 0.07, 'sigLow': 0.07, 'extreme': 0.15}
     return {'noise': 0.10, 'sigLow': 0.10, 'extreme': 0.25}
 
-def _record_close_baseline(smile_smooth, smile_raw, strike_oi, S, strike_vol=None):
-    """记录每日15:00收盘基准快照，同时重置报警状态"""
+def _record_close_baseline(smile_smooth, smile_raw, strike_oi, S, strike_vol=None,
+                          intraday_slots=None):
+    """记录每日15:00收盘基准快照，同时重置报警状态
+
+    v2.11.68: 加 4 斜率字段（slope_down/up/ratio/regime）+ intraday_slots 整点历史
+    """
     global _close_baseline, _iv_alert_dynamic_baseline, _iv_alert_dynamic_raw_baseline, _oi_alert_dynamic_baseline, _iv_alert_watermarks, _oi_alert_watermarks
+
+    # v2.11.68: 计算 Pain 斜率 4 字段（复用 skill pta-pain-slope-indicator 算法）
+    slope_down, slope_up, slope_ratio, slope_regime = 0.0, 0.0, 0.0, 'unknown'
+    max_pain_now = _state.get('max_pain')
+    if smile_smooth and max_pain_now:
+        try:
+            sorted_pts = sorted(((float(k), float(v)) for k, v in smile_smooth.items()), key=lambda x: x[0])
+            if len(sorted_pts) >= 2:
+                # 找 MP 索引
+                mp_idx = min(range(len(sorted_pts)), key=lambda i: abs(sorted_pts[i][0] - float(max_pain_now)))
+                WINDOW = 5
+                # 左斜率（不含 MP 自身）
+                l_start = max(0, mp_idx - WINDOW)
+                l_end = mp_idx - 1
+                if l_end >= l_start and l_end - l_start >= 1:
+                    l_pts = sorted_pts[l_start:l_end + 1]
+                    l_span = l_pts[-1][0] - l_pts[0][0]
+                    if l_span > 0:
+                        slope_down = (l_pts[-1][1] - l_pts[0][1]) / l_span
+                # 右斜率
+                r_start = mp_idx + 1
+                r_end = min(len(sorted_pts) - 1, mp_idx + WINDOW)
+                if r_end >= r_start and r_end - r_start >= 1:
+                    r_pts = sorted_pts[r_start:r_end + 1]
+                    r_span = r_pts[-1][0] - r_pts[0][0]
+                    if r_span > 0:
+                        slope_up = (r_pts[-1][1] - r_pts[0][1]) / r_span
+                # 比值 + 9 象限 regime
+                abs_d = abs(slope_down); abs_u = abs(slope_up)
+                if min(abs_d, abs_u) > 0:
+                    slope_ratio = max(abs_d, abs_u) / min(abs_d, abs_u)
+                if slope_ratio >= 2.5:   slope_regime = '强不对称'
+                elif slope_ratio >= 1.5: slope_regime = '一边主导'
+                elif slope_ratio >= 1.2: slope_regime = '略不对称'
+                else:                    slope_regime = '对称'
+        except Exception as e:
+            print(f'[_record_close_baseline] 斜率计算失败: {e}')
+
+    # v2.11.68: 累计 intraday_slots 整点历史（_state['_intraday_hourly_slots'] 在 compute_once 里写）
+    final_intraday_slots = intraday_slots if intraday_slots is not None else _state.get('_intraday_hourly_slots', [])
+
     _close_baseline = {
         'smooth': {k: float(v) for k, v in smile_smooth.items()},
         'raw': {k: dict(v) for k, v in smile_raw.items()},
@@ -133,6 +183,13 @@ def _record_close_baseline(smile_smooth, smile_raw, strike_oi, S, strike_vol=Non
         'ts': datetime.now().isoformat(),
         'contract': _state.get('active_contract'),
         'expiry': _state.get('expiry').isoformat() if _state.get('expiry') else None,
+        # === v2.11.68 新增 4 斜率字段 ===
+        'slope_down': round(slope_down, 2),
+        'slope_up': round(slope_up, 2),
+        'slope_ratio': round(slope_ratio, 3),
+        'slope_regime': slope_regime,
+        # === v2.11.68 整点历史 ===
+        'intraday_slots': list(final_intraday_slots),
     }
     # 新基准生效，清空所有报警追踪状态
     _iv_alert_sent_today.clear()
@@ -143,158 +200,8 @@ def _record_close_baseline(smile_smooth, smile_raw, strike_oi, S, strike_vol=Non
     _oi_alert_dynamic_baseline = {}
     _iv_alert_watermarks = {}
     _oi_alert_watermarks = {}
-    print(f"[iv_smile] 📌 收盘基准已记录: {len(smile_smooth)}档 S={S:.0f}")
-
-def _check_iv_alert(smile_smooth, smile_raw, strike_oi, S, max_pain):
-    """
-    检查IV和持仓变化，触发飞书报警（对比当日15:00基准，同档位方向至少隔15分钟）。
-    返回 (iv_alerts, oi_alerts) 列表。
-    iv_alerts 元素: (strike, side, level, cur_val, ref_val, change, ref_type)
-      ref_type: 'close' = 相对收盘基准, 'reversal' = 盘中反转（相对动态基准）
-    oi_alerts 元素: (strike, side, level, cur_val, prev_val, change)
-    level: 'significant' | 'major'
-    """
-    if not _FEISHU_WEBHOOK:
-        return [], []
-    if not _close_baseline.get('smooth'):
-        return [], []
-
-    now = datetime.now()
-    prev_smooth = _close_baseline['smooth']
-    prev_oi = _close_baseline.get('strike_oi', {})
-    prev_raw = _close_baseline.get('raw', {})
-
-    # 用ATM隐波判断波动环境（比全档位均值更准确）
-    atm = _state.get('atm_strike')
-    atm_iv = smile_smooth.get(atm) or smile_smooth.get(str(atm)) if atm else None
-    if not atm_iv:
-        vals = list(smile_smooth.values())
-        atm_iv = sum(vals) / len(vals) if vals else 0
-    iv_t = _get_iv_thresholds(atm_iv)
-
-    iv_alerts = []
-    oi_alerts = []
-
-    for strike, cur_iv in smile_smooth.items():
-        prev_iv = prev_smooth.get(strike)
-        if prev_iv and prev_iv > 0:
-            # 1) 相对收盘基准的变化
-            delta_close = cur_iv - prev_iv
-            abs_d_close = abs(delta_close)
-            # 2) 相对动态基准的变化（捕捉盘中二次变化，如先涨6%再跌8%=14%反转）
-            dyn_iv = _iv_alert_dynamic_baseline.get(strike)
-            delta_dyn = (cur_iv - dyn_iv) if dyn_iv is not None else None
-            abs_d_dyn = abs(delta_dyn) if delta_dyn is not None else 0
-            # 取两者中更大的变化幅度
-            if abs_d_dyn > abs_d_close:
-                delta, abs_d, ref_iv = delta_dyn, abs_d_dyn, dyn_iv
-                ref_type = 'reversal'
-            else:
-                delta, abs_d, ref_iv = delta_close, abs_d_close, prev_iv
-                ref_type = 'close'
-            if abs_d >= iv_t['significant']:
-                direction = 'up' if delta > 0 else 'down'
-                key = f"{strike}_{direction}"
-                dir_key = f"{strike}"
-                last_time = _iv_alert_last_send_time.get(key, 0)
-                last_dir = _iv_alert_last_direction.get(dir_key)
-                # 方向反转时重置冷却（急涨后急跌，或反之）
-                direction_reversed = (last_dir is not None and last_dir != direction)
-                if direction_reversed or (now.timestamp() - last_time >= _IV_ALERT_COOLDOWN):
-                    level = 'major' if abs_d >= iv_t['extreme'] else 'significant'
-                    iv_alerts.append((strike, 'both', level, cur_iv, ref_iv, delta, ref_type))
-                    _iv_alert_last_send_time[key] = now.timestamp()
-                    _iv_alert_last_direction[dir_key] = direction
-                    # 触发后更新动态基准 → 下次变化从此刻开始算
-                    _iv_alert_dynamic_baseline[strike] = cur_iv
-                    _raw_v = smile_raw.get(strike) or smile_raw.get(int(strike)) if str(strike).isdigit() else smile_raw.get(strike)
-                    if isinstance(_raw_v, dict):
-                        _iv_alert_dynamic_raw_baseline[strike] = dict(_raw_v)
-
-    # 持仓变化检测（Call/Put分别检测，含盘中反转）
-    for strike, cur_ois in strike_oi.items():
-        prev_ois = prev_oi.get(strike, {})
-        for side, cur_oi in cur_ois.items():
-            prev_oi_val = prev_ois.get(side, 0)
-            if prev_oi_val <= 0:
-                continue
-            # 当前OI归零 = 到期清零/深虚值无人持仓，不是异动，跳过
-            if cur_oi <= 0:
-                continue
-            # 1) 相对收盘基准
-            delta_close = cur_oi - prev_oi_val
-            ratio_close = delta_close / prev_oi_val
-            abs_r_close = abs(ratio_close)
-            # 2) 相对动态基准（捕捉盘中反转：先增仓30%再减仓20%）
-            dyn_key = f"{strike}_{side}"
-            dyn_oi = _oi_alert_dynamic_baseline.get(dyn_key)
-            if dyn_oi is not None and dyn_oi > 0:
-                delta_dyn = cur_oi - dyn_oi
-                ratio_dyn = delta_dyn / dyn_oi
-                abs_r_dyn = abs(ratio_dyn)
-            else:
-                ratio_dyn = None
-                abs_r_dyn = 0
-            # 取两者中更大的变化
-            if abs_r_dyn > abs_r_close:
-                delta_ratio, abs_d, ref_oi = ratio_dyn, abs_r_dyn, dyn_oi
-                oi_ref_type = 'reversal'
-            else:
-                delta_ratio, abs_d, ref_oi = ratio_close, abs_r_close, prev_oi_val
-                oi_ref_type = 'close'
-            t = _get_oi_thresholds(ref_oi)
-            if abs_d >= t['sigLow']:
-                direction = 'up' if delta_ratio > 0 else 'down'
-                key = f"oi_{strike}_{side}_{direction}"
-                dir_key = f"oi_{strike}_{side}"
-                last_time = _iv_alert_last_send_time.get(key, 0)
-                last_dir = _iv_alert_last_direction.get(dir_key)
-                direction_reversed = (last_dir is not None and last_dir != direction)
-                if direction_reversed or (now.timestamp() - last_time >= _IV_ALERT_COOLDOWN):
-                    level = 'major' if abs_d >= t['extreme'] else 'significant'
-                    oi_alerts.append((strike, side, level, cur_oi, ref_oi, delta_ratio, oi_ref_type))
-                    _iv_alert_last_send_time[key] = now.timestamp()
-                    _iv_alert_last_direction[dir_key] = direction
-                    # 触发后更新动态基准
-                    _oi_alert_dynamic_baseline[dyn_key] = cur_oi
-
-    # 发送飞书（仅当有变化时）
-    if not iv_alerts and not oi_alerts:
-        return iv_alerts, oi_alerts
-
-    lines = [f"【PTA期权异动监控】{now.strftime('%H:%M')}", f"期货价: {S:.0f}  最大痛点: {max_pain}"]
-    if iv_alerts:
-        lines.append("━━ IV变化 ━━")
-        for strike, side, level, cur_v, prv_v, chg, ref_type in iv_alerts:
-            if ref_type == 'reversal':
-                flag = '⚡' if level == 'major' else '🔶'
-                tag = '盘中反转 '
-            else:
-                flag = '🔴' if level == 'major' else '🟡'
-                tag = ''
-            lines.append(f"{flag} {tag}{strike}档: {prv_v*100:.1f}%→{cur_v*100:.1f}% ({'+'if chg>0 else ''}{chg*100:.1f}%)")
-    if oi_alerts:
-        lines.append("━━ 持仓变化 ━━")
-        for strike, side, level, cur_v, prv_v, chg, oi_ref_type in oi_alerts:
-            if oi_ref_type == 'reversal':
-                flag = '⚡' if level == 'major' else '🔶'
-                tag = '盘中反转 '
-            else:
-                flag = '🔴' if level == 'major' else '🟡'
-                tag = ''
-            side_label = 'Call' if side == 'C' else 'Put'
-            lines.append(f"{flag} {tag}{strike}/{side_label}: {prv_v:,}→{cur_v:,} ({'+'if chg>0 else ''}{chg*100:.1f}%)")
-
-    text = '\n'.join(lines)
-    try:
-        requests.post(_FEISHU_WEBHOOK,
-                      json={'msg_type': 'text', 'content': {'text': text}},
-                      timeout=10)
-        print(f"[iv_smile] 🚨 异动报警已发飞书: IV={len(iv_alerts)}档 OI={len(oi_alerts)}档")
-    except Exception as e:
-        print(f"[iv_smile] ❌ 飞书报警失败: {e}")
-
-    return iv_alerts, oi_alerts
+    _alert_last_level_sent.clear()  # v2.11.75+ 显著→重大升级追踪，防止同 strike+side+方向刷屏
+    print(f"[iv_smile] 📌 收盘基准已记录: {len(smile_smooth)}档 S={S:.0f} | slope_ratio={slope_ratio:.2f}({slope_regime}) | intraday_slots={len(final_intraday_slots)}")
 
 # ===================== 跨模块共享接口 =====================
 def get_shared_futures_price():
@@ -487,6 +394,12 @@ def _save_prev_baseline(snap_15, today_str):
             'last_update': f'{today_str}T15:00:00',
             'strike_oi': snap_15.get('strike_oi', {}),
             'strike_vol': snap_15.get('strike_vol', {}),
+            # === v2.11.68 新增 4 斜率字段 + intraday_slots 整点历史 ===
+            'slope_down':  snap_15.get('slope_down', 0),
+            'slope_up':    snap_15.get('slope_up', 0),
+            'slope_ratio': snap_15.get('slope_ratio', 0),
+            'slope_regime': snap_15.get('slope_regime', 'unknown'),
+            'intraday_slots': snap_15.get('intraday_slots', []),
         },
         'last_valid': {
             'futures_price': snap_15.get('S') or snap_15.get('futures_price'),
@@ -498,6 +411,8 @@ def _save_prev_baseline(snap_15, today_str):
             'svi_params': snap_15.get('svi_params'),
             'strike_oi': snap_15.get('strike_oi', {}),
             'strike_vol': snap_15.get('strike_vol', {}),
+            'net_gex': snap_15.get('net_gex', _state.get('net_gex', 0)),  # v2.11.68 净 GEX
+            'gex_flip': snap_15.get('gex_flip', _state.get('gex_flip', 0)),
         },
     }
     import tempfile
@@ -972,6 +887,15 @@ def _load_close_state():
                         val = cs_saved_state.get(key)
                         if val is not None:
                             _state[key] = val
+                    # v2.11.74+: 启动恢复时 F↔ATM 联动修正——
+                    # close_state.json 写盘时若 ATM 来自 14:43 旧值（S=5600 → ATM=5600），
+                    # 但 F 已是 7/2 真实收盘价 5458，跨过 50 点边界 → 立即修正 _state.atm_strike
+                    _cs_F = _state.get('futures_price')
+                    _cs_atm = _state.get('atm_strike')
+                    if _cs_F and _cs_atm and abs(float(_cs_F) - float(_cs_atm)) > 50.5:
+                        _cs_corrected = round(float(_cs_F) / 100) * 100
+                        print(f"[iv_smile] 📌 启动恢复 F↔ATM联动修正: ATM {_cs_atm} → {_cs_corrected} (F={_cs_F})")
+                        _state['atm_strike'] = _cs_corrected
                     for key in ('futures_price', 'atm_strike', 'max_pain', 'ref_strike',
                                  'smile_raw', 'smile_smooth', 'svi_params', 'strike_oi', 'strike_vol'):
                         val = cs_saved_valid.get(key)
@@ -1949,6 +1873,16 @@ def _ensure_today_close_baseline_after_21():
         if snap_ts[:10].replace('-', '') != today:
             print(f"[iv_smile] ⚠️ 今日15:00基准timestamp不匹配({snap_ts})，不切换")
             return False
+        # v2.11.74+: F↔ATM 联动修正（21:00 切换版）——
+        # snap_15.atm_strike 是 14:43 那次缓存（S=5600 → ATM=5600），
+        # 但 snap_15.futures_price 已经是 7/2 真实收盘价 5458。
+        # 联动修正：ATM = round(F/100)*100，写入即将调用的 _save_prev_baseline。
+        _snap_F = snap_15.get('S') or snap_15.get('futures_price')
+        _snap_atm = snap_15.get('atm_strike')
+        if _snap_F and _snap_atm and abs(float(_snap_F) - float(_snap_atm)) > 50.5:
+            _corrected_atm = str(round(float(_snap_F) / 100) * 100)
+            print(f"[iv_smile] 📌 21:00切换 F↔ATM联动修正: ATM {_snap_atm} → {_corrected_atm} (F={_snap_F})")
+            snap_15['atm_strike'] = _corrected_atm
         _close_baseline = {
             'smooth': snap_15.get('smooth', {}),
             'raw': snap_15.get('raw', {}),
@@ -2053,6 +1987,13 @@ _tqsdk_quotes = {}
 _tqsdk_restart_requested = False   # 请求重启 TqSdk 线程
 _tqsdk_reconnect_count = 0         # 累计重连次数
 _tqsdk_last_data_time = None      # 上次数据更新时间戳
+
+
+def request_tqsdk_restart():
+    """外部触发 TqSdk 线程重启（v2.11.73 watchdog 弹窗按钮调用）"""
+    global _tqsdk_restart_requested
+    _tqsdk_restart_requested = True
+    return True
 
 # ===================== 动态查主力合约 =====================
 
@@ -2972,15 +2913,53 @@ def calc_max_pain(opt_snap, S):
 
 def compute_once(force=False):
     """执行一次IV计算（每分钟实时触发）
-    
+
     只要TqSdk有数据就计算更新_state（GEX/MaxPain/IV等指标始终基于最新数据）。
     快照写入仅在交易时段进行，避免非交易时段产生脏快照。
     baseline(前次基准)由独立逻辑控制，每交易日21:00切换。
-    
+
     Args:
         force: True时强制写入快照（手动触发场景）
+
+    v2.11.73+: 加详细 trace 日志（直接 print），确认 return 路径
     """
-    global _state, _tqsdk_ready
+    global _state, _tqsdk_ready, _interval_snapshots, _interval_session_date, _interval_loaded_from_disk
+
+    # v2.11.73+: 函数入口 trace
+    print(f'[iv_smile.trace] compute_once enter force={force} snap_in_quotes={("snap" in _tqsdk_quotes)} snap_keys={list(_tqsdk_quotes.get("snap",{}).keys()) if _tqsdk_quotes.get("snap") else "empty"} _tqsdk_quotes_id={id(_tqsdk_quotes)}', flush=True)
+
+    # v2.11.64: 跨日自动重置内存快照
+    # 根因：进程长跑 24h+ 时，_interval_snapshots 内存里残留昨日数据，
+    # 今日 compute_once 触发时 interval_key (09:00/09:15/...) 撞上昨日同 key → 被 skip
+    # → 新 tick 进不去 → _state.futures_price 一直显示昨日 _last_valid 缓存
+    # 修复：检测到日期变化（按交易时段所属日期判断）时清空 _interval_snapshots 并加载今日磁盘快照
+    _today = datetime.now()
+    if _interval_session_date and _interval_session_date != _today.strftime('%Y%m%d'):
+        print(f"[iv_smile] 🔄 跨日检测: 内存 session={_interval_session_date} → 当前={_today.strftime('%Y%m%d')}，清空 _interval_snapshots ({len(_interval_snapshots)} 个槽位)")
+        _interval_snapshots = {}
+        _interval_loaded_from_disk = set()
+    _interval_session_date = _today.strftime('%Y%m%d')
+
+    # 跨日后第一次 compute：尝试从磁盘加载今日已有的快照（覆盖进程长跑 + 重启场景）
+    if not _interval_snapshots and _interval_session_date not in _interval_loaded_from_disk:
+        try:
+            _today_path = _get_snapshot_path(_interval_session_date)
+            if os.path.exists(_today_path):
+                with open(_today_path, 'r', encoding='utf-8') as f:
+                    _disk_payload = json.load(f)
+                _disk_snaps = _disk_payload.get('snapshots', {})
+                # 只加载 timestamp 属于今天的（防止 6/30 脏数据混入 7/1）
+                _loaded = 0
+                for _k, _v in _disk_snaps.items():
+                    _ts = (_v or {}).get('timestamp', '') if isinstance(_v, dict) else ''
+                    if _ts and _ts[:10].replace('-', '') == _interval_session_date:
+                        _interval_snapshots[_k] = _v
+                        _loaded += 1
+                if _loaded:
+                    print(f"[iv_smile] 📂 跨日后从磁盘恢复今日快照: {_loaded} 个槽位")
+                _interval_loaded_from_disk.add(_interval_session_date)
+        except Exception as _e:
+            print(f"[iv_smile] ⚠️ 跨日磁盘快照恢复失败: {_e}")
 
     # v2.11.62+: 即使 snap 还没到，但只要期货行情有价 + K线预热完成 → 视为 TqSdk 数据活跃
     # 解决中午时段期权 bid/ask 缺失导致启动期 60% 判定不通过、_tqsdk_ready 永远 False 的问题
@@ -2994,11 +2973,24 @@ def compute_once(force=False):
     if 'snap' not in _tqsdk_quotes:
         # 即使 data_ready=False，也要尝试从快照恢复数据（保持微笑曲线活跃）
         _restore_from_latest_snapshot()
-        print("[iv_smile] 数据尚未到达，已从快照恢复")
+        # v2.11.74+: snap 缺失时 K线 API 兜底（TqSdk 期权 tick 静默场景）
+        try:
+            _kline_f, _kline_src = _get_latest_tqsdk_futures_price()
+            if _kline_f:
+                _expected_atm2 = round(_kline_f / 100) * 100
+                if _state.get('atm_strike') != _expected_atm2 or _state.get('futures_price') != _kline_f:
+                    with _state['lock']:
+                        _state['futures_price'] = _kline_f
+                        _state['atm_strike'] = _expected_atm2
+                    print(f'[iv_smile] 📌 snap缺失，K线兜底 F={_kline_f} ATM={_expected_atm2} (src={_kline_src})')
+        except Exception as _e_kfb:
+            print(f'[iv_smile] ⚠️ K线兜底异常: {_e_kfb}')
+        print(f'[iv_smile.trace] compute_once return False: snap key not in _tqsdk_quotes _tqsdk_quotes_id={id(_tqsdk_quotes)} tqsdk_ready={_tqsdk_ready} _tqsdk_last_data_time={_tqsdk_last_data_time}', flush=True)
         return False
 
     snap = _tqsdk_quotes.get('snap')
     if not snap:
+        print(f'[iv_smile.trace] compute_once return False: snap is empty/None _tqsdk_quotes_id={id(_tqsdk_quotes)}', flush=True)
         return False
 
     # 1. 期货价格：优先用 last_price（真实成交价），盘中可用 bid/ask 中间价补充
@@ -3015,7 +3007,7 @@ def compute_once(force=False):
     if not S or S <= 0:
         S = _last_valid.get('futures_price')
     if not S or S <= 0:
-        print("[iv_smile] 无法获取期货价格")
+        print('[iv_smile.trace] compute_once return False: no S (fut.last/bid/ask/last_valid all empty)', flush=True)
         return False
 
     # PTA 最小变动价位=2，取偶数
@@ -3052,7 +3044,7 @@ def compute_once(force=False):
     # 3. 剩余期限（年）— 用交易日计算
     expiry = _state.get('expiry')
     if not expiry:
-        print("[iv_smile] 到期日未设置")
+        print('[iv_smile.trace] compute_once return False: expiry not set', flush=True)
         return False
     T = _calc_T_trading_days(expiry)
 
@@ -3084,7 +3076,20 @@ def compute_once(force=False):
             raw_iv[strike][opt_type] = iv
 
     if len(raw_iv) < 3:
-        print(f"[iv_smile] 有效期权太少: {len(raw_iv)}")
+        # v2.11.74+: raw_iv 不足（TqSdk 期权 tick 静默）兜底——
+        # K线 API 拿到的 F 是真的（来自 web_app_integrated 自己的 TqApi 实例），
+        # 同步 _state.futures_price + atm_strike，避免状态字段卡在 14:43 旧值。
+        # OI/Vol/smooth 保留原值或走 _last_valid，不污染。
+        try:
+            _expected_atm = round(S / 100) * 100
+            if S and _state.get('atm_strike') != _expected_atm:
+                with _state['lock']:
+                    _state['futures_price'] = S
+                    _state['atm_strike'] = _expected_atm
+                print(f'[iv_smile] 📌 raw_iv不足({len(raw_iv)})，兜底同步 F={S} ATM={_expected_atm}（OI/Vol 保留原值）')
+        except Exception as _e_fb:
+            print(f'[iv_smile] ⚠️ 兜底同步异常: {_e_fb}')
+        print(f'[iv_smile.trace] compute_once return False: raw_iv too few ({len(raw_iv)})', flush=True)
         return False
 
     # ATM行权价 = 最接近标的价的行权价
@@ -3114,7 +3119,7 @@ def compute_once(force=False):
     smooth_iv, svi = smooth_smile(K_list, IV_list, S, T)
 
     if not smooth_iv:
-        print(f"[iv_smile] SVI拟合失败，跳过")
+        print('[iv_smile.trace] compute_once return False: SVI fit failed (smooth_iv empty)', flush=True)
         return False
 
     with _state['lock']:
@@ -3197,13 +3202,67 @@ def compute_once(force=False):
         # 否则盘后/夜盘 last_update 会永远停在最后一次 14:59:xx,用户看到"最后更新 14:59"误以为停止刷新
         _state['last_update'] = now.isoformat()
 
+        # v2.11.68: 整点累积 _intraday_hourly_slots（10/11/14/15/21/22/23 整点）
+        INTRADAY_SLOT_HOURS = {10, 11, 14, 15, 21, 22, 23}
+        if now.hour in INTRADAY_SLOT_HOURS and now.minute < 1:
+            if '_intraday_hourly_slots' not in _state:
+                _state['_intraday_hourly_slots'] = []
+            last_slot = _state['_intraday_hourly_slots'][-1] if _state['_intraday_hourly_slots'] else None
+            expected_slot = f"{now.hour:02d}:00"
+            if not last_slot or last_slot.get('slot') != expected_slot:
+                # 计算当前斜率（同 _record_close_baseline 逻辑）
+                cur_slope_down, cur_slope_up, cur_slope_ratio, cur_slope_regime = 0.0, 0.0, 0.0, 'unknown'
+                if smooth_iv and max_pain:
+                    try:
+                        sorted_pts = sorted(((float(k), float(v)) for k, v in smooth_iv.items()), key=lambda x: x[0])
+                        if len(sorted_pts) >= 2:
+                            mp_idx = min(range(len(sorted_pts)), key=lambda i: abs(sorted_pts[i][0] - float(max_pain)))
+                            W = 5
+                            l_s = max(0, mp_idx - W); l_e = mp_idx - 1
+                            if l_e >= l_s and l_e - l_s >= 1:
+                                l_pts = sorted_pts[l_s:l_e + 1]
+                                l_span = l_pts[-1][0] - l_pts[0][0]
+                                if l_span > 0:
+                                    cur_slope_down = (l_pts[-1][1] - l_pts[0][1]) / l_span
+                            r_s = mp_idx + 1; r_e = min(len(sorted_pts) - 1, mp_idx + W)
+                            if r_e >= r_s and r_e - r_s >= 1:
+                                r_pts = sorted_pts[r_s:r_e + 1]
+                                r_span = r_pts[-1][0] - r_pts[0][0]
+                                if r_span > 0:
+                                    cur_slope_up = (r_pts[-1][1] - r_pts[0][1]) / r_span
+                            ad, au = abs(cur_slope_down), abs(cur_slope_up)
+                            if min(ad, au) > 0:
+                                cur_slope_ratio = max(ad, au) / min(ad, au)
+                            if cur_slope_ratio >= 2.5:   cur_slope_regime = '强不对称'
+                            elif cur_slope_ratio >= 1.5: cur_slope_regime = '一边主导'
+                            elif cur_slope_ratio >= 1.2: cur_slope_regime = '略不对称'
+                            else:                        cur_slope_regime = '对称'
+                    except Exception:
+                        pass
+                # 累计槽位
+                _state['_intraday_hourly_slots'].append({
+                    'slot': expected_slot,
+                    'F': float(S),
+                    'max_pain': float(max_pain) if max_pain else 0,
+                    'net_gex': float(_state.get('net_gex', 0) or 0),
+                    'gex_flip': float(_state.get('gex_flip', 0) or 0),
+                    'slope_down': round(cur_slope_down, 2),
+                    'slope_up': round(cur_slope_up, 2),
+                    'slope_ratio': round(cur_slope_ratio, 3),
+                    'slope_regime': cur_slope_regime,
+                    'ts': now.isoformat(),
+                })
+                print(f"[iv_smile] ⏰ 整点槽位累计: {expected_slot} F={S:.0f} slope={cur_slope_ratio:.2f}({cur_slope_regime})")
+                # 新一日开盘时清空（hour=10 且 slot='10:00' 且历史有其他日期的槽）
+                if expected_slot == '10:00':
+                    _state['_intraday_hourly_slots'] = [_state['_intraday_hourly_slots'][-1]]
+
     svi_str = (f"a={svi['a']:.4f} b={svi['b']:.4f} ρ={svi['rho']:.3f} ATMvol={svi['atm_vol']:.2%}") if svi else "失败"
     mp_str = f"MP={max_pain}" if max_pain else ""
     print(f"[iv_smile] ✅ S={S:.0f} {mp_str} 档位={len(raw_iv)} SVI({svi_str})")
 
-    # IV变化报警检查（对比当日15:00收盘基准）
-    _check_iv_alert(smooth_iv, raw_iv, strike_oi, S, max_pain)
-
+    # v2.11.75 之后 _check_iv_alert 已删除；报警逻辑全部由前端 alert_data 端点呈现。
+    # 期货价持续在 IV 曲线 + K 线图实时显示，OI/IV 异动标记在 alert_data 表格里呈现。
     # 15:00收盘时记录基准快照（每个交易日只记一次）
     # v2.11.53+ 修复: 守门条件从 `not _close_baseline` 改为"今天不是 baseline 的日期"。
     # 旧逻辑会让 6/18 启动后加载的 6/18 baseline 一直存在, 此后每天 15:00 都因 _close_baseline 已设而跳过,
@@ -3247,7 +3306,7 @@ def _refresh_t_offhours():
 def start_scheduler(interval_minutes=1):
     def loop():
         global _last_snapshot_minute
-        print(f"[iv_smile] 调度器启动，间隔={interval_minutes}分钟")
+        print(f"[iv_smile] 调度器启动，间隔={interval_minutes}分钟", flush=True)
         counter = 0
         offhours_t_counter = 0  # 休盘T刷新计数器
         _last_contract_roll_date = None  # 每日合约检查去重
@@ -3274,6 +3333,7 @@ def start_scheduler(interval_minutes=1):
                     print(f"[iv_smile] ⚠️ 14:55 合约检查异常: {e}")
 
             # 休盘时段：跳过compute_once，避免用datetime.now()算T导致IV虚高
+            print(f"[iv_smile.trace] scheduler loop iter={counter} is_trading={_is_trading_hours()}", flush=True)
             if _is_trading_hours():
                 compute_once()
                 offhours_t_counter = 0  # 开盘重置
@@ -3299,6 +3359,9 @@ def start_scheduler(interval_minutes=1):
                 if not _state['running']:
                     break
                 time.sleep(1)
+                # v2.11.73+: scheduler sleep trace (每 10s 一次, 看是否真在 sleep)
+                if _ % 10 == 0:
+                    print(f"[iv_smile.trace] scheduler sleep iter={_} counter={counter} running={_state['running']}", flush=True)
     t = Thread(target=loop, daemon=True)
     t.start()
     return t
@@ -3778,6 +3841,27 @@ def register_routes(app):
             _save_all_snapshots()
         return jsonify({'success': success, 'forced': force})
 
+    # v2.11.73+: TqSdk watchdog 状态查询
+    @app.route('/api/tqsdk_watchdog/status', methods=['GET'])
+    def tqsdk_watchdog_status():
+        try:
+            import tqsdk_watchdog as _wd
+            return jsonify({'success': True, **_wd.get_state()})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e), 'alert_level': 'red',
+                            'alert_message': f'❌ watchdog 模块未加载: {e}'})
+
+    # v2.11.73+: TqSdk watchdog 手动重启（触发 _tqsdk_restart_requested=True）
+    @app.route('/api/tqsdk_watchdog/restart', methods=['POST'])
+    def tqsdk_watchdog_restart():
+        try:
+            import tqsdk_watchdog as _wd
+            ok, msg = _wd.trigger_restart()
+            return jsonify({'success': ok, 'message': msg,
+                            'state': _wd.get_state()})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)})
+
     @app.route('/api/iv_smile/inject_oi', methods=['POST'])
     def iv_api_inject_oi():
         """手工注入当前持仓数据（不影响基准，仅更新当前OI用于计算变化量）"""
@@ -3922,41 +4006,8 @@ def register_routes(app):
 
         return jsonify({'success': False, 'error': '缺少rows或strike_ivs'})
 
-    @app.route('/api/iv_smile/alert/config', methods=['GET', 'POST'])
-    def iv_api_alert_config():
-        """查询/设置IV报警阈值和WebHook URL"""
-        global _IV_ALERT_THRESHOLD, _IV_ALERT_COOLDOWN, _FEISHU_WEBHOOK
-        from flask import request
-        if request.method == 'POST':
-            data = request.get_json() or {}
-            if 'threshold' in data:
-                _IV_ALERT_THRESHOLD = float(data['threshold'])
-            if 'cooldown' in data:
-                _IV_ALERT_COOLDOWN = int(data['cooldown'])
-            if 'webhook' in data:
-                _FEISHU_WEBHOOK = str(data['webhook'])
-            return jsonify({'ok': True, 'threshold': _IV_ALERT_THRESHOLD,
-                            'cooldown': _IV_ALERT_COOLDOWN,
-                            'webhook_set': bool(_FEISHU_WEBHOOK)})
-        return jsonify({
-            'threshold': _IV_ALERT_THRESHOLD,
-            'cooldown': _IV_ALERT_COOLDOWN,
-            'webhook_set': bool(_FEISHU_WEBHOOK),
-        })
-
-    @app.route('/api/iv_smile/alert/test', methods=['POST'])
-    def iv_api_alert_test():
-        """发送测试飞书消息"""
-        if not _FEISHU_WEBHOOK:
-            return jsonify({'ok': False, 'error': '未配置 WebHook'})
-        try:
-            requests.post(_FEISHU_WEBHOOK,
-                          json={'msg_type': 'text',
-                                'content': {'text': '【PTA期权IV报警】测试消息\n期货价: 6500  最大痛点: 6500\n测试档位: 6500档: 22.0%→28.0% (↑6.0%) ⭐'}},
-                          timeout=10)
-            return jsonify({'ok': True})
-        except Exception as e:
-            return jsonify({'ok': False, 'error': str(e)})
+    # v2.11.75+ 移除 /api/iv_smile/alert/config + /api/iv_smile/alert/test 飞书端点
+    # 飞书 webhook setter 已删除（飞书推送功能从未实装，移动端 UI 替代）
 
 
     @app.route('/api/iv_smile/_debug_baseline')
@@ -3969,6 +4020,45 @@ def register_routes(app):
         cb['_prev_day_baseline_oi_6000'] = (_prev_day_baseline or {}).get('strike_oi', {}).get('6000')
         cb['_state_strike_oi_6000'] = _state.get('strike_oi', {}).get('6000')
         return jsonify(cb)
+
+    @app.route('/api/iv_smile/_debug_tqsdk_quote')
+    def iv_api_debug_tqsdk_quote():
+        """v2.11.73 临时 debug: 返回 TqSdk 推过来的实际期货 quote 值
+
+        用于诊断 /api/iv_smile/status 期货价卡住不动问题:
+        - _tqsdk_quotes['snap'] 是 tqsdk_loop 每 5s 写入的最新快照
+        - snap.futures.last = TqSdk 推过来的 last_price (iv_smile compute_once 第一优先)
+        - 对比主页 K 线图 /api/kline/data 实际价,判断 TqSdk 模拟盘是否 tick 静止
+        """
+        import time as _t_debug
+        snap = _tqsdk_quotes.get('snap') or {}
+        fut_snap = snap.get('futures') or {}
+        opt_count = len(snap.get('options') or {})
+        # _tqsdk_last_data_time 是 tqsdk_loop 写盘时间戳 (time.time())
+        last_data_ts = _tqsdk_last_data_time
+        snap_age_sec = (_t_debug.time() - last_data_ts) if last_data_ts else None
+        # v2.11.73+: 看 compute_once 函数的 __globals__ 里的 _tqsdk_quotes 是否和当前一致
+        compute_once_quotes = compute_once.__globals__.get('_tqsdk_quotes')
+        same_id = compute_once_quotes is _tqsdk_quotes
+        return jsonify({
+            'now': _t_debug.strftime('%Y-%m-%d %H:%M:%S'),
+            '_tqsdk_quotes_id': id(_tqsdk_quotes),  # v2.11.73+: 对比 compute_once trace
+            '_tqsdk_quotes_has_snap': 'snap' in _tqsdk_quotes,
+            'compute_once_quotes_id': id(compute_once_quotes) if compute_once_quotes else None,
+            'compute_once_quotes_has_snap': ('snap' in compute_once_quotes) if compute_once_quotes else False,
+            'same_object': same_id,
+            'last_data_ts': last_data_ts,
+            'snap_age_sec': round(snap_age_sec, 1) if snap_age_sec is not None else None,
+            'fut_snap': fut_snap,
+            'state_futures_price': _state.get('futures_price'),
+            'state_atm_strike': _state.get('atm_strike'),
+            'state_max_pain': _state.get('max_pain'),
+            'state_last_update': _state.get('last_update'),
+            'options_in_snap': opt_count,
+            'active_contract': _state.get('active_contract'),
+            'tqsdk_ready': _tqsdk_ready,
+            'reconnect_count': _tqsdk_reconnect_count,
+        })
 
     @app.route('/api/iv_smile/_debug_alert_full')
     def iv_api_debug_alert_full():
@@ -4415,20 +4505,28 @@ def register_routes(app):
             oi_call_level = oi_call_level_close
             oi_put_level = oi_put_level_close
 
-            # IV弹窗必须联动同侧OI变化：close基准和watermark反转分别判断；IV-only只在T表标色。
-            linked_oi_keys = set()  # 已被IV+OI联动覆盖的OI，避免再弹单独持仓重大
+            # v2.11.75 报警规则重整：
+            # - close_items (路径A 隐波+持仓): 双维联动，要求 IV/OI 都达阈值
+            # - reversal_items (路径C 反转): IV 或 OI 反转即报，不联动（用户拍板反转不联动）
+            # - oi_alerts (路径B 纯持仓): 保留 call/put 两侧各报一次，重大才单独弹
+            linked_oi_keys = set()  # 已被 IV+OI 联动覆盖的OI，避免重复弹
+            # v2.11.76 拍板修复 Bug A: 双维联动必须 IV+OI 都超阈值（不是只看 IV）
+            # v2.11.76 拍板修复 Bug F: 既然 OI 必须超阈值，level 取两者中更高的就是确定值，简化掉 _better_level 复合
             def linked_iv_item(side, iv_level, iv_chg_val, oi_level_val, oi_chg_val):
+                # Bug A 修复: IV 必须超阈值且 OI 必须超阈值（双维联动）
                 if not iv_level or not oi_level_val:
                     return None
                 return {
                     'side': side,
-                    'level': _better_level(iv_level, oi_level_val),
+                    # Bug F 简化: IV 与 OI 必有 level，取较高者作为整体级别
+                    'level': 'major' if (iv_level == 'major' or oi_level_val == 'major') else 'significant',
                     'iv_level': iv_level,
                     'iv_chg': iv_chg_val,
                     'oi_level': oi_level_val,
                     'oi_chg': oi_chg_val,
                 }
 
+            # ===== 路径 A: close 双维 IV+OI 联动 =====
             close_items = []
             x = linked_iv_item('C', iv_call_level_close, iv_call_chg_close, oi_call_level_close, oi_chg_call)
             if x: close_items.append(x)
@@ -4440,6 +4538,7 @@ def register_routes(app):
                     linked_oi_keys.add((x['side'], 'close'))
                 iv_alerts.append({
                     'strike': int(strike), 'level': best_level, 'iv_chg': iv_chg_close, 'ref_type': 'close',
+                    'kind': 'iv_oi_dual',
                     'iv_call_level': next((x['iv_level'] for x in close_items if x['side'] == 'C'), ''),
                     'iv_put_level': next((x['iv_level'] for x in close_items if x['side'] == 'P'), ''),
                     'iv_call_chg': next((x['iv_chg'] for x in close_items if x['side'] == 'C'), None),
@@ -4451,17 +4550,23 @@ def register_routes(app):
                     'linked': True,
                 })
 
+            # ===== 路径 C: 盘中反转双维联动（IV 反转 + 持仓 close 联动）=====
+            # v2.11.76 拍板修复 Bug C: 反转路径的 OI 联动判断必须用 prev 收盘比（与 close 路径同口径）
+            # 不能用 watermark dyn 值——那是跟"最近极值"比，语义是另一回事。
             reversal_items = []
-            x = linked_iv_item('C', iv_call_level_dyn, iv_call_chg_dyn, oi_call_level_dyn, oi_chg_call_dyn)
+            # IV 反转：要求 IV 反转 + 持仓相对收盘也反向（OI 收盘联动）才报
+            x = linked_iv_item('C', iv_call_level_dyn, iv_call_chg_dyn, oi_call_level_close, oi_chg_call)
             if x: reversal_items.append(x)
-            x = linked_iv_item('P', iv_put_level_dyn, iv_put_chg_dyn, oi_put_level_dyn, oi_chg_put_dyn)
+            x = linked_iv_item('P', iv_put_level_dyn, iv_put_chg_dyn, oi_put_level_close, oi_chg_put)
             if x: reversal_items.append(x)
             if reversal_items:
                 best_level = 'major' if any(x['level'] == 'major' for x in reversal_items) else 'significant'
+                # 反转 IV 报：记到 linked_oi_keys 让 OI 单独反转不重复弹（避免同 strike 同时弹 iv反转 + oi反转 双重）
                 for x in reversal_items:
                     linked_oi_keys.add((x['side'], 'reversal'))
                 iv_alerts.append({
                     'strike': int(strike), 'level': best_level, 'iv_chg': None, 'ref_type': 'reversal',
+                    'kind': 'iv_reversal',
                     'iv_call_level': next((x['iv_level'] for x in reversal_items if x['side'] == 'C'), ''),
                     'iv_put_level': next((x['iv_level'] for x in reversal_items if x['side'] == 'P'), ''),
                     'iv_call_chg': next((x['iv_chg'] for x in reversal_items if x['side'] == 'C'), None),
@@ -4473,15 +4578,17 @@ def register_routes(app):
                     'linked': True,
                 })
 
-            # 持仓自身报警保留，但只保留“重大”单独弹窗；显著持仓已通过IV联动参与提示，避免刷屏。
-            if oi_call_level_close == 'major' and ('C', 'close') not in linked_oi_keys:
-                oi_alerts.append({'strike': int(strike), 'side': 'C', 'level': oi_call_level_close, 'oi_chg': oi_chg_call, 'ref_type': 'close', 'standalone': True})
-            if oi_put_level_close == 'major' and ('P', 'close') not in linked_oi_keys:
-                oi_alerts.append({'strike': int(strike), 'side': 'P', 'level': oi_put_level_close, 'oi_chg': oi_chg_put, 'ref_type': 'close', 'standalone': True})
-            if oi_call_level_dyn == 'major' and ('C', 'reversal') not in linked_oi_keys:
-                oi_alerts.append({'strike': int(strike), 'side': 'C', 'level': oi_call_level_dyn, 'oi_chg': oi_chg_call_dyn, 'ref_type': 'reversal', 'standalone': True})
-            if oi_put_level_dyn == 'major' and ('P', 'reversal') not in linked_oi_keys:
-                oi_alerts.append({'strike': int(strike), 'side': 'P', 'level': oi_put_level_dyn, 'oi_chg': oi_chg_put_dyn, 'ref_type': 'reversal', 'standalone': True})
+            # ===== 路径 B: 纯持仓（call/put 两侧各报一次）=====
+            # 用户明确：纯持仓 OI 也要报，且按 call/put 两侧各报一次。
+            # 调整：显著/重大都报，去掉 "只保留重大单独弹窗" 的限制。
+            if oi_call_level_close and ('C', 'close') not in linked_oi_keys:
+                oi_alerts.append({'strike': int(strike), 'side': 'C', 'level': oi_call_level_close, 'oi_chg': oi_chg_call, 'ref_type': 'close', 'kind': 'oi_only', 'standalone': True})
+            if oi_put_level_close and ('P', 'close') not in linked_oi_keys:
+                oi_alerts.append({'strike': int(strike), 'side': 'P', 'level': oi_put_level_close, 'oi_chg': oi_chg_put, 'ref_type': 'close', 'kind': 'oi_only', 'standalone': True})
+            if oi_call_level_dyn and ('C', 'reversal') not in linked_oi_keys:
+                oi_alerts.append({'strike': int(strike), 'side': 'C', 'level': oi_call_level_dyn, 'oi_chg': oi_chg_call_dyn, 'ref_type': 'reversal', 'kind': 'oi_reversal', 'standalone': True})
+            if oi_put_level_dyn and ('P', 'reversal') not in linked_oi_keys:
+                oi_alerts.append({'strike': int(strike), 'side': 'P', 'level': oi_put_level_dyn, 'oi_chg': oi_chg_put_dyn, 'ref_type': 'reversal', 'kind': 'oi_reversal', 'standalone': True})
 
             rows.append({
                 'strike': int(strike),
@@ -4894,6 +5001,7 @@ def register_routes(app):
         prev_T = T
         prev_r = r
         prev_last_update = None
+        cb = None  # v2.11.68: 初始化 cb（用于 4 斜率注入到 prev_summary）
 
         def _close_baseline_eligible(cb):
             """判断 _close_baseline 是否可用作'前次基准'，与 alert_data 端点逻辑完全对齐"""
@@ -4970,6 +5078,12 @@ def register_routes(app):
                 if prev_last_update is not None:
                     last_update = prev_last_update
                 prev_gex_bars, prev_pain_curve, prev_oi_dist, prev_summary = _calc_gex_pain_oi(prev_oi)
+                # v2.11.68: 注入 4 斜率字段到 prev_summary（来源：cb = _close_baseline）
+                if cb is not None and isinstance(prev_summary, dict):
+                    prev_summary['slope_down']   = float(cb.get('slope_down', 0) or 0)
+                    prev_summary['slope_up']     = float(cb.get('slope_up', 0) or 0)
+                    prev_summary['slope_ratio']  = float(cb.get('slope_ratio', 0) or 0)
+                    prev_summary['slope_regime'] = cb.get('slope_regime', 'unknown')
             finally:
                 F, T, r, expiry, smile_raw, smile_smooth, last_update, futures_price = _saved_globals
 
@@ -4983,6 +5097,12 @@ def register_routes(app):
             'prev_oi_dist': prev_oi_dist,
             'prev_summary': prev_summary,
             'baseline_label': baseline_label,
+            # === v2.11.68 新增：4 斜率字段（从 _close_baseline 透传）+ intraday_slots ===
+            'slope_down':  float(_close_baseline.get('slope_down', 0) or 0),
+            'slope_up':    float(_close_baseline.get('slope_up', 0) or 0),
+            'slope_ratio': float(_close_baseline.get('slope_ratio', 0) or 0),
+            'slope_regime': _close_baseline.get('slope_regime', 'unknown'),
+            'intraday_slots': _close_baseline.get('intraday_slots', []) or _state.get('_intraday_hourly_slots', []),
         })
 
 
