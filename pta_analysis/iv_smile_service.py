@@ -2180,10 +2180,18 @@ def _get_risk_free_rate_cached(T=None, force=False):
         except ValueError:
             pass
 
-    # 2) akshare 拉国债收益率
+    # 2) akshare 拉国债收益率(v2.11.82 R3-A: 加 8s 硬超时 + cache 保留旧值防失败立刻覆盖)
     try:
-        import akshare as ak
-        df = ak.bond_zh_us_rate()
+        import signal as _sig
+        class _AkshareTimeout(Exception): pass
+        def _on_timeout(s, f): raise _AkshareTimeout("akshare 8s timeout")
+        _sig.signal(_sig.SIGALRM, _on_timeout)
+        _sig.alarm(8)
+        try:
+            import akshare as ak
+            df = ak.bond_zh_us_rate()
+        finally:
+            _sig.alarm(0)
         if df is None or len(df) == 0:
             raise ValueError('akshare 返回空数据')
         last = df.iloc[-1]
@@ -2201,8 +2209,17 @@ def _get_risk_free_rate_cached(T=None, force=False):
         _rate_cache.update({'value': r, 'src': src, 'ts': now_ts})
         return r, src
     except Exception as e:
-        _rate_cache.update({'value': default_r, 'src': f'{default_src} akshare失败:{type(e).__name__}', 'ts': now_ts})
-        return default_r, f'{default_src} akshare失败:{type(e).__name__}'
+        # v2.11.82 R3-A: 失败时保留旧 cache(如果有),不要立刻覆盖成 default
+        # 旧 cache TTL 可能已过,但比起 default 2.25% 更接近真实利率
+        err_tag = type(e).__name__
+        if _rate_cache['value'] is not None:
+            # 保留旧值,只更新 src 提示失败
+            old_src = _rate_cache['src']
+            _rate_cache['src'] = f'{old_src} (refresh失败:{err_tag})'
+            return _rate_cache['value'], _rate_cache['src']
+        # 真没旧值才用 default
+        _rate_cache.update({'value': default_r, 'src': f'{default_src} (akshare失败:{err_tag})', 'ts': now_ts})
+        return default_r, f'{default_src} (akshare失败:{err_tag})'
 
 
 # ===================== Black76 (期货期权定价) =====================

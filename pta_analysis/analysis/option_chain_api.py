@@ -622,7 +622,13 @@ def _get_akshare_latest_price(expiry_code: str) -> float:
             print(f"[akshare] {sina_symbol} latest 60min close: {price}")
             return price
     except Exception as e:
-        print(f"[akshare] fallback price error: {e}")
+        # v2.11.82 R5-A: 限频 1h 1 条,避免日志膨胀(实测 grep 实际只 2 条,但 /tmp/flask.log 已 7.3GB)
+        import time as _t
+        now = _t.time()
+        last = getattr(_get_akshare_latest_price, '_last_err_log', 0)
+        if now - last > 3600:
+            print(f"[akshare] fallback price error: {e}")
+            _get_akshare_latest_price._last_err_log = now
     return 0
 
 

@@ -1742,7 +1742,10 @@ def _fetch_kline_data(symbol='TA609', period='5min', count=500,
     import re
     period_seconds_map = {
         '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '60min': 3600,
-        '1day': 86400, '1week': 604800, '1month': 2592000
+        '1day': 86400, '1week': 604800, '1month': 2592000,
+        # v2.11.82 R6-A: 前端部分代码用 'day' 简写,加别名避免 unsupported
+        'day': 86400, 'week': 604800, 'month': 2592000,
+        'd': 86400, 'w': 604800, 'm': 2592000,
     }
     tqsdk_symbol_map = {
         'TA0': 'KQ.m@CZCE.TA', 'TA909': 'CZCE.TA609', 'TA609': 'CZCE.TA609',
@@ -1933,7 +1936,10 @@ def api_kline_data():
     # 周期配置
     period_seconds_map = {
         '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '60min': 3600,
-        '1day': 86400, '1week': 604800, '1month': 2592000
+        '1day': 86400, '1week': 604800, '1month': 2592000,
+        # v2.11.82 R6-A: 前端部分代码用 'day' 简写,加别名避免 unsupported
+        'day': 86400, 'week': 604800, 'month': 2592000,
+        'd': 86400, 'w': 604800, 'm': 2592000,
     }
     
     m = re.match(r'^(\d+)min$', period)
