@@ -1,0 +1,79 @@
+# PTA分析平台Nginx配置
+server {
+    listen 80;
+    server_name 47.100.97.88;
+    
+    # 主页面（主服务8424）
+    location / {
+        proxy_pass http://127.0.0.1:8424/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+    
+    # 隐波微笑曲线页面（独立服务5002）
+    location /iv_smile {
+        # 合并到主服务8424
+        proxy_pass http://127.0.0.1:8424/iv_smile;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_http_version 1.1;
+    }
+    
+    # v2.11.83 F-A: status 端点 5s 缓存(报告方案 30s 太长,5s 更安全防 staleness)
+    location /api/iv_smile/status {
+        proxy_pass http://127.0.0.1:8424/api/iv_smile/status;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_hide_header Cache-Control;   # 清掉 Flask no-store
+        proxy_hide_header Pragma;
+        proxy_hide_header Expires;
+        add_header Cache-Control "max-age=5" always;
+        gzip on;                           # 强制 gzip(即便 < 1024 也压)
+    }
+    
+    # 隐波微笑曲线API（独立服务5002）
+    location /api/iv_smile/ {
+        proxy_pass http://127.0.0.1:8424/api/iv_smile/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        add_header Cache-Control "no-cache, must-revalidate";
+    }
+    
+    # 静态文件缓存 - v2.11.72: 改为 proxy_pass 到 Flask (nginx worker 无法 traverse /home/admin/.openclaw 700 权限)
+    location /static/ {
+        proxy_pass http://127.0.0.1:8424/static/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_http_version 1.1;
+        expires 1h;
+        add_header Cache-Control "public";
+    }
+    
+    # 其他API接口（主服务8424）
+    location /api/ {
+        proxy_pass http://127.0.0.1:8424/api/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        add_header Cache-Control "no-cache, must-revalidate";
+    }
+    
+    error_page 404 /404.html;
+    error_page 500 502 503 504 /50x.html;
+    
+    location = /50x.html {
+        root /usr/share/nginx/html;
+    }
+}

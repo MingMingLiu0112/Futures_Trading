@@ -949,6 +949,12 @@ def _strategy_report_periodic_scheduler(interval_minutes: int = 15):
     # 启动后第一次 sleep 到下一个整 15 分边界(09:00/09:15/09:30/...)
     # 注意:启动时间可能恰好就是整 15 分边界,此时应立即触发,不等下一拍
     while True:
+        # v2.11.83 G-A: 连续异常计数器(连续 5 次失败触发飞书告警)
+        global _strategy_report_consecutive_exc_count
+        try:
+            _strategy_report_consecutive_exc_count
+        except NameError:
+            _strategy_report_consecutive_exc_count = 0
         now = datetime.now()
         # 整 15 分边界 = 当前时间的 minute % 15 == 0
         if now.minute % 15 == 0 and now.second < 30:
@@ -980,6 +986,8 @@ def _strategy_report_periodic_scheduler(interval_minutes: int = 15):
             report = _generate_strategy_report(force_close=is_after_close)
             _maybe_write_close_report(report)
             print(f"[strategy-report] 周期刷新完成: {(time.time()-t0):.1f}s @ {now_run.strftime('%H:%M:%S')} mode={'close' if is_after_close else 'intraday'}")
+            # v2.11.83 G-A: 成功一次,重置连续异常计数
+            _strategy_report_consecutive_exc_count = 0
         except Exception as e:
             import logging
             logging.getLogger('werkzeug').error('[策略研报API] 周期刷新失败: %s', e)
@@ -988,6 +996,15 @@ def _strategy_report_periodic_scheduler(interval_minutes: int = 15):
             # skill pta-web-cache-periodic-refresh "致命陷阱:白名单跳过路径必须有 sleep")
             import time as _time_exc
             _time_exc.sleep(60)
+            # v2.11.83 G-A: 连续异常计数 + 飞书告警(连续 5 次 = 连续 5*15min=75min 异常)
+            _strategy_report_consecutive_exc_count += 1
+            if _strategy_report_consecutive_exc_count >= 5:
+                try:
+                    from macro.macro_news_v2 import send_text as _feishu_send
+                    _feishu_send(f"[PTA 告警] strategy-report scheduler 连续 {_strategy_report_consecutive_exc_count} 次异常\n最后错误: {str(e)[:200]}")
+                    print(f"[strategy-report] ⚠️ 飞书告警已发送(连续{_strategy_report_consecutive_exc_count}次)")
+                except Exception as _fe:
+                    print(f"[strategy-report] ⚠️ 飞书告警发送失败: {_fe}")
 
 
 @app.route('/api/strategy_report/manual_macro', methods=['GET', 'POST'])
