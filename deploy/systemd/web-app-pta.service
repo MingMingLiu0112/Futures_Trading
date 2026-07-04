@@ -1,0 +1,29 @@
+[Unit]
+Description=PTA Web Application (Chan Analysis)
+After=network.target
+# 限重启频率：60 秒窗口最多 3 次失败（start-limit 在 Unit 段）
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=admin
+WorkingDirectory=/home/admin/.openclaw/workspace/Futures_Trading/pta_analysis
+# 2026-07-04 修订：绝对路径 + 显式 PYTHONPATH（修复 ModuleNotFoundError: flask）
+# - 3.11.9/bin/python3 是软链 → 3.11.15，3.11.15 site-packages 没 flask
+# - 必须显式告诉 Python 找 3.11.9 的 site-packages
+Environment=PYTHONPATH=/home/admin/.pyenv/versions/3.11.9/lib/python3.11/site-packages
+Environment=HTTP_PROXY=http://127.0.0.1:7890
+Environment=HTTPS_PROXY=http://127.0.0.1:7890
+ExecStart=/home/admin/.pyenv/versions/3.11.9/bin/python3 web_app_integrated.py
+Restart=always
+RestartSec=5
+# v2.11.80 E: 内存兜底 - 1.5 GB 上限触发 systemd 主动重启
+# 实际稳态 RSS 约 930 MB, 留 600 MB 余量给极端情况
+MemoryMax=1500M
+RestartPreventExitStatus=
+StandardOutput=append:/home/admin/.openclaw/workspace/Futures_Trading/pta_analysis/web_app.log
+StandardError=append:/home/admin/.openclaw/workspace/Futures_Trading/pta_analysis/web_app_error.log
+
+[Install]
+WantedBy=multi-user.target

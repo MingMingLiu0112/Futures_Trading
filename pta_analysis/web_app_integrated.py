@@ -3164,7 +3164,7 @@ if __name__ == '__main__':
     # 初始化 IV Smile 服务（TqSdk 线程 + 调度器，内部自愈重连）
     import threading
     iv_smile_service._state['running'] = True
-    tqsdk_t = threading.Thread(target=iv_smile_service.tqsdk_loop, daemon=True)
+    tqsdk_t = threading.Thread(target=iv_smile_service.tqsdk_loop, daemon=True, name='tqsdk-loop')  # v2.11.80 D: 加 thread name
     tqsdk_t.start()
     print("[iv_smile] TqSdk线程已启动（内部自愈重连已启用）")
 
@@ -3206,7 +3206,7 @@ else:
         # IV Smile 服务初始化（WSGI 模式下启动 TqSdk 线程）
         import threading
         iv_smile_service._state['running'] = True
-        tqsdk_t = threading.Thread(target=iv_smile_service.tqsdk_loop, daemon=True)
+        tqsdk_t = threading.Thread(target=iv_smile_service.tqsdk_loop, daemon=True, name='tqsdk-loop')  # v2.11.80 D: 加 thread name
         tqsdk_t.start()
         print("[iv_smile] WSGI模式：TqSdk线程已启动（内部自愈重连已启用）")
         # 调度器立即启动，data_ready后compute_once自动生效

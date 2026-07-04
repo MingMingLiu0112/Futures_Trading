@@ -2533,25 +2533,48 @@ def _request_tqsdk_restart(reason=""):
 
 
 def tqsdk_loop():
-    """独立线程运行TQSdk事件循环（支持初始化超时自重启）"""
+    """独立线程运行TQSdk事件循环（支持初始化超时自重启）
+
+    v2.11.80 P1 fix: 重连策略升级
+    - 快重试阶段：max_restarts=10 次，每次间隔 3s（保留原行为，急性断线能立刻恢复）
+    - 慢重试阶段：10 次失败后进入"永不放弃"模式，每 60s 重试一次
+    - 这覆盖 TqSdk 每日 19:00-19:30 运维窗口 + 长时间断网场景
+    - v2.11.80 P2 fix: 退出前清理 asyncio pending task，消除 "Task was destroyed" 警告 + 慢泄漏
+    """
     global _tqsdk_ready, _tqsdk_quotes, _state, _option_symbols
     global _tqsdk_restart_requested, _tqsdk_reconnect_count, _tqsdk_last_data_time
 
     import asyncio
     from tqsdk import TqApi, TqAuth, TqKq
 
+    fast_max_restarts = 10       # 快重试次数
+    slow_retry_interval = 60     # 慢重试间隔（秒）
     connect_attempts = 0
-    max_restarts = 10  # 最多自动重连10次，避免无限循环
 
-    while _state['running'] and connect_attempts < max_restarts:
+    while _state['running']:
+        # v2.11.80 P1 fix: 永不放弃重连
+        # 快重试阶段 (connect_attempts < fast_max_restarts): 3 秒一次
+        # 慢重试阶段 (>= fast_max_restarts): 60 秒一次,无限重试
+        # 覆盖 TqSdk 19:00-19:30 每日运维 + 长时间断网场景
+        if connect_attempts >= fast_max_restarts:
+            print(f"[iv_smile] 🐢 进入慢重试模式：每 {slow_retry_interval}s 重试一次（永不放弃）", flush=True)
+            time.sleep(slow_retry_interval)
+            if not _state['running']:
+                break
+            # 重置计数让下一次连接成功时回到快模式（虽然实际不会回退,只为清空）
+            # 成功后下次 reconnect 时连_attempts 不会自动 reset,保留 slow 模式标志即可
+
         # 重置重启标志
         _tqsdk_restart_requested = False
         connect_attempts += 1
         _tqsdk_reconnect_count = connect_attempts - 1
 
-        if connect_attempts > 1:
-            print(f"[iv_smile] 🔄 第{connect_attempts-1}次重连中...（最多{max_restarts}次）")
-            time.sleep(3)  # 重连前等3秒
+        if connect_attempts > 1 and connect_attempts <= fast_max_restarts:
+            print(f"[iv_smile] 🔄 第{connect_attempts-1}次快重连中...（最多{fast_max_restarts}次）")
+            time.sleep(3)  # 快重连前等3秒
+        elif connect_attempts > fast_max_restarts + 1:
+            # 慢重试模式下,已经 sleep 过,不再额外等
+            pass
 
         try:
             loop = asyncio.new_event_loop()
@@ -2843,6 +2866,17 @@ def tqsdk_loop():
             # wait_update异常/主动请求重启：走外层重连，不退出线程
             if _tqsdk_restart_requested:
                 print("[iv_smile] 🔄 TqSdk 线程重启中...")
+                # v2.11.80: 主动重启时清 asyncio pending task
+                try:
+                    pending = asyncio.all_tasks(loop)
+                    for task in pending:
+                        if not task.done():
+                            task.cancel()
+                    if pending:
+                        loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                except Exception as _cleanup_e:
+                    print(f"[iv_smile] ⚠️ asyncio cleanup 异常: {_cleanup_e}")
+                connect_attempts = 0  # 主动重启时清空计数,下次进入快重试
                 continue
 
             # 非主动退出的异常，退出重试循环
@@ -2854,11 +2888,12 @@ def tqsdk_loop():
             print(f"[iv_smile] TQSdk线程异常: {e}")
             import traceback; traceback.print_exc()
             _tqsdk_ready = False
-            # 达到最大重连次数则放弃
-            if connect_attempts >= max_restarts:
-                print(f"[iv_smile] ❌ 已达最大重连次数（{max_restarts}），停止重连")
-                break
-            print(f"[iv_smile] 🔄 3秒后重连（第{connect_attempts}次）...")
+            # v2.11.80 P1 fix: 不再"达到最大重连次数则放弃"，永远继续重试
+            # 慢重试模式会自然限制频率
+            if connect_attempts >= fast_max_restarts:
+                print(f"[iv_smile] ⏳ 慢重试模式（每 {slow_retry_interval}s 一次）")
+            else:
+                print(f"[iv_smile] 🔄 3秒后重连（第{connect_attempts}次）...")
             time.sleep(3)
 
     _tqsdk_ready = False
@@ -3310,53 +3345,65 @@ def start_scheduler(interval_minutes=1):
         counter = 0
         offhours_t_counter = 0  # 休盘T刷新计数器
         _last_contract_roll_date = None  # 每日合约检查去重
+        # v2.11.80 P0 fix: 整个 while body 包 try/except
+        # 之前任何 compute_once / _check_and_save_close_state / _save_all_snapshots
+        # 抛异常 → scheduler thread 死 → T 表永远卡死 → 用户感觉"卡死" → 需 systemd 重启
         while _state['running']:
-            # 每日 14:55 强制合约切换（不依赖 TqSdk 自愈）
-            # 设计缺陷：get_active_ta_contract() 只在 tqsdk_loop 重连时被调用，
-            # 而 TqSdk 长连接不重启 → 进程永远锁死在启动时选中的合约。
-            # 5/29 启动后选 TA607，6/11 当日 14:35 后 iv_smile 一直显示旧值，
-            # 直到人工重启才发现问题。这里 14:55 主动请求重启 TqSdk 线程，
-            # 触发重新选合约 + 重新订阅。
-            now_check = datetime.now()
-            if (now_check.hour == 14 and now_check.minute == 55
-                    and _last_contract_roll_date != now_check.date()):
-                _last_contract_roll_date = now_check.date()
-                try:
-                    cur_active = _state.get('active_contract', '?')
-                    new_pref, new_expiry = get_active_ta_contract()
-                    if new_pref != cur_active:
-                        print(f"[iv_smile] 🔄 14:55 主力切换: {cur_active} → {new_pref} (到期 {new_expiry.date()})")
-                        _request_tqsdk_restart("daily 14:55 contract roll")
-                    else:
-                        print(f"[iv_smile] ✅ 14:55 合约检查通过: 仍为 {cur_active}")
-                except Exception as e:
-                    print(f"[iv_smile] ⚠️ 14:55 合约检查异常: {e}")
+            try:
+                # 每日 14:55 强制合约切换（不依赖 TqSdk 自愈）
+                # 设计缺陷：get_active_ta_contract() 只在 tqsdk_loop 重连时被调用，
+                # 而 TqSdk 长连接不重启 → 进程永远锁死在启动时选中的合约。
+                # 5/29 启动后选 TA607，6/11 当日 14:35 后 iv_smile 一直显示旧值，
+                # 直到人工重启才发现问题。这里 14:55 主动请求重启 TqSdk 线程，
+                # 触发重新选合约 + 重新订阅。
+                now_check = datetime.now()
+                if (now_check.hour == 14 and now_check.minute == 55
+                        and _last_contract_roll_date != now_check.date()):
+                    _last_contract_roll_date = now_check.date()
+                    try:
+                        cur_active = _state.get('active_contract', '?')
+                        new_pref, new_expiry = get_active_ta_contract()
+                        if new_pref != cur_active:
+                            print(f"[iv_smile] 🔄 14:55 主力切换: {cur_active} → {new_pref} (到期 {new_expiry.date()})")
+                            _request_tqsdk_restart("daily 14:55 contract roll")
+                        else:
+                            print(f"[iv_smile] ✅ 14:55 合约检查通过: 仍为 {new_pref}")
+                    except Exception as e:
+                        print(f"[iv_smile] ⚠️ 14:55 合约检查异常: {e}")
 
-            # 休盘时段：跳过compute_once，避免用datetime.now()算T导致IV虚高
-            # 2026-07-04: trace 默认关闭（设 IV_SMILE_TRACE=1 开启）—— 之前每分钟 6 条 sleep trace 一天 1 万条打爆日志
-            if os.getenv('IV_SMILE_TRACE'):
-                print(f"[iv_smile.trace] scheduler loop iter={counter} is_trading={_is_trading_hours()}", flush=True)
-            if _is_trading_hours():
-                compute_once()
-                offhours_t_counter = 0  # 开盘重置
-            else:
-                # 休盘边界（11:30/15:00/23:00）不重算IV/SVI，只复制最后有效状态补齐收盘快照
-                _check_and_save_close_state()
-                offhours_t_counter += 1
-                if offhours_t_counter >= 60:  # 60 × 1分钟 = 1小时
-                    _refresh_t_offhours()
-                    offhours_t_counter = 0
-            counter += 1
+                # 休盘时段：跳过compute_once，避免用datetime.now()算T导致IV虚高
+                # 2026-07-04: trace 默认关闭（设 IV_SMILE_TRACE=1 开启）—— 之前每分钟 6 条 sleep trace 一天 1 万条打爆日志
+                if os.getenv('IV_SMILE_TRACE'):
+                    print(f"[iv_smile.trace] scheduler loop iter={counter} is_trading={_is_trading_hours()}", flush=True)
+                if _is_trading_hours():
+                    compute_once()
+                    offhours_t_counter = 0  # 开盘重置
+                else:
+                    # 休盘边界（11:30/15:00/23:00）不重算IV/SVI，只复制最后有效状态补齐收盘快照
+                    _check_and_save_close_state()
+                    offhours_t_counter += 1
+                    if offhours_t_counter >= 60:  # 60 × 1分钟 = 1小时
+                        _refresh_t_offhours()
+                        offhours_t_counter = 0
+                counter += 1
 
-            # 每15分钟持久化一次快照（每刻钟整点：0,15,30,45分钟）
-            now = datetime.now()
-            current_15min = (now.hour * 60 + now.minute) // 15
-            if current_15min != _last_snapshot_minute:
-                _save_all_snapshots()
-                _last_snapshot_minute = current_15min
+                # 每15分钟持久化一次快照（每刻钟整点：0,15,30,45分钟）
+                now = datetime.now()
+                current_15min = (now.hour * 60 + now.minute) // 15
+                if current_15min != _last_snapshot_minute:
+                    _save_all_snapshots()
+                    _last_snapshot_minute = current_15min
 
-            if counter % 5 == 0:
-                print(f"[iv_smile] ⏰ 定时更新 S={_state.get('futures_price')} MP={_state.get('max_pain')}")
+                if counter % 5 == 0:
+                    print(f"[iv_smile] ⏰ 定时更新 S={_state.get('futures_price')} MP={_state.get('max_pain')}")
+            except Exception as e:
+                # v2.11.80 P0: scheduler 兜底 - 任何 compute_once/snapshot/close_state 异常
+                # 不再让 thread 死，仅 log 后 10s 后继续下一次 tick
+                import traceback
+                print(f"[iv_smile] ⚠️ scheduler loop 异常已捕获（不影响下次 tick）: {e}", flush=True)
+                traceback.print_exc()
+                time.sleep(10)
+
             for _ in range(interval_minutes * 60):
                 if not _state['running']:
                     break
@@ -3364,7 +3411,7 @@ def start_scheduler(interval_minutes=1):
                 # 2026-07-04: trace 默认关闭（设 IV_SMILE_TRACE=1 开启）
                 if os.getenv('IV_SMILE_TRACE') and _ % 10 == 0:
                     print(f"[iv_smile.trace] scheduler sleep iter={_} counter={counter} running={_state['running']}", flush=True)
-    t = Thread(target=loop, daemon=True)
+    t = Thread(target=loop, daemon=True, name='iv-smile-scheduler')  # v2.11.80 D: 加 thread name
     t.start()
     return t
 
