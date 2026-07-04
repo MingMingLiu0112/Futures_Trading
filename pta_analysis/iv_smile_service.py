@@ -3333,7 +3333,9 @@ def start_scheduler(interval_minutes=1):
                     print(f"[iv_smile] ⚠️ 14:55 合约检查异常: {e}")
 
             # 休盘时段：跳过compute_once，避免用datetime.now()算T导致IV虚高
-            print(f"[iv_smile.trace] scheduler loop iter={counter} is_trading={_is_trading_hours()}", flush=True)
+            # 2026-07-04: trace 默认关闭（设 IV_SMILE_TRACE=1 开启）—— 之前每分钟 6 条 sleep trace 一天 1 万条打爆日志
+            if os.getenv('IV_SMILE_TRACE'):
+                print(f"[iv_smile.trace] scheduler loop iter={counter} is_trading={_is_trading_hours()}", flush=True)
             if _is_trading_hours():
                 compute_once()
                 offhours_t_counter = 0  # 开盘重置
@@ -3359,8 +3361,8 @@ def start_scheduler(interval_minutes=1):
                 if not _state['running']:
                     break
                 time.sleep(1)
-                # v2.11.73+: scheduler sleep trace (每 10s 一次, 看是否真在 sleep)
-                if _ % 10 == 0:
+                # 2026-07-04: trace 默认关闭（设 IV_SMILE_TRACE=1 开启）
+                if os.getenv('IV_SMILE_TRACE') and _ % 10 == 0:
                     print(f"[iv_smile.trace] scheduler sleep iter={_} counter={counter} running={_state['running']}", flush=True)
     t = Thread(target=loop, daemon=True)
     t.start()

@@ -1,0 +1,16 @@
+[Unit]
+Description=PTA Web Application (Chan Analysis)
+After=network.target
+
+[Service]
+Type=simple
+User=admin
+WorkingDirectory=/home/admin/.openclaw/workspace/Futures_Trading/pta_analysis
+ExecStart=/home/admin/.pyenv/versions/3.11.9/bin/python3 web_app_integrated.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/home/admin/.openclaw/workspace/Futures_Trading/pta_analysis/web_app.log
+StandardError=append:/home/admin/.openclaw/workspace/Futures_Trading/pta_analysis/web_app_error.log
+
+[Install]
+WantedBy=multi-user.target

@@ -26,6 +26,8 @@ PTA产业基本面分析模块 v5
 import akshare as ak
 import pandas as pd
 import numpy as np
+import re                  # 2026-07-04: 修复 'name re is not defined' — _load_px_chain_spot 等 6 处用到 re.search/sub/findall
+import traceback           # 2026-07-04: 错误日志需要完整堆栈
 from datetime import datetime, timedelta
 import warnings
 import requests

@@ -3772,6 +3772,27 @@ function getStrategyReportEndpoint() {
                 }
 
                 intraday = intraday || d.intraday_analysis || d.market_brief;
+
+                // v2.11.77b: 从 /api/decision_layer 注入四维决策（PAIN 结构 / GEX 机制 / 资金意图 / 情绪确认）
+                // 后端 generate_report() 不拼这字段（独立 daemon 维护），前端异步取，注入到 intraday.decision_layer
+                // 取不到时静默 → renderDecisionLayerBlock 走 fallback "决策层数据未生成（可手动跑 judge_state.py 验证）"
+                try {
+                    const dlResp = await fetch('/api/decision_layer', { cache: 'no-store' });
+                    const dlData = await dlResp.json();
+                    if (dlData && dlData.success && dlData.decision_layer) {
+                        intraday = intraday || {};
+                        intraday.decision_layer = dlData.decision_layer;
+                        intraday._decision_layer_meta = {
+                            last_refresh_at: dlData.last_refresh_at,
+                            last_data_update: dlData.last_data_update,
+                            futures_price: dlData.futures_price,
+                            max_pain: dlData.max_pain,
+                        };
+                    }
+                } catch (e) {
+                    // 静默失败:后端可能还没启动 daemon 或 cache 还没生成
+                }
+
                 let html = '';
                 if (reportResult.stale) {
                     html += `<div style="background:#b71c1c;color:#fff;padding:5px 10px;font-size:10px;margin-bottom:8px;border-radius:4px;">
@@ -4819,6 +4840,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.77</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.78</div>
 </body>
 </html>

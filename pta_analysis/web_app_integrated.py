@@ -89,6 +89,12 @@ STRATEGY_CLOSE_REPORT_DIR = os.path.join(WORKSPACE, 'data', 'reports')
 _strategy_report_lock = threading.Lock()
 _strategy_report_refreshing = False
 
+# ==================== 决策层独立调度服务（v2.11.77b）====================
+# 复用 scripts/decision_layer_service.py 的 daemon 线程与 cache
+# 路径：data/fundamental/decision_layer_cache.json
+# 调度：每 15 分钟整点对齐跑一次（与研报刷新节奏一致）
+DECISION_LAYER_CACHE_PATH = os.path.join(STRATEGY_REPORT_DIR, 'decision_layer_cache.json')
+
 def _get_vol_cache(key, ttl_minutes=5):
     if key in _volatility_cache:
         if key in _volatility_cache_time:
@@ -936,6 +942,10 @@ def _strategy_report_periodic_scheduler(interval_minutes: int = 15):
     - 00:00-08:59 不刷新(无交易时段,刷新也浪费)
     """
     from datetime import datetime, timedelta
+    # v2.11.77b P0 fix: import time 必须放函数顶部,不能放 if 块内条件导入
+    # 否则 sleep_sec <= 0 时 time 变量未绑定,后面 time.time() 会 UnboundLocalError
+    # 触发死循环刷屏(CPU 50% + /tmp/flask.log 撑大)
+    import time
     # 启动后第一次 sleep 到下一个整 15 分边界(09:00/09:15/09:30/...)
     # 注意:启动时间可能恰好就是整 15 分边界,此时应立即触发,不等下一拍
     while True:
@@ -953,7 +963,6 @@ def _strategy_report_periodic_scheduler(interval_minutes: int = 15):
         sleep_sec = (boundary_dt - now).total_seconds()
         if sleep_sec > 0:
             print(f"[strategy-report] 周期调度:下次刷新 @ {boundary_dt.strftime('%H:%M:%S')} (sleep {sleep_sec:.0f}s)")
-            import time
             time.sleep(sleep_sec)
         try:
             t0 = time.time()
@@ -975,6 +984,10 @@ def _strategy_report_periodic_scheduler(interval_minutes: int = 15):
             import logging
             logging.getLogger('werkzeug').error('[策略研报API] 周期刷新失败: %s', e)
             print(f"[strategy-report] 周期刷新失败: {e}")
+            # v2.11.77b P0 fix: except 后必须 sleep,避免下一次失败立刻重试触发死循环刷屏(参见
+            # skill pta-web-cache-periodic-refresh "致命陷阱:白名单跳过路径必须有 sleep")
+            import time as _time_exc
+            _time_exc.sleep(60)
 
 
 @app.route('/api/strategy_report/manual_macro', methods=['GET', 'POST'])
@@ -1138,6 +1151,55 @@ def api_strategy_report_refresh():
         if cached:
             cached = _override_report_with_kline_price(cached)
             return jsonify({'success': True, 'data': cached, 'cached': True, 'stale': True, 'manual': True, 'error': str(e)})
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================
+# 决策层独立调度（v2.11.77b）
+# - /api/decision_layer        GET   读 cache（前端 fetch）
+# - /api/decision_layer/refresh POST  手动触发刷新（调试/紧急用）
+# ============================================================
+@app.route('/api/decision_layer', methods=['GET'])
+def api_decision_layer():
+    """读取决策层 cache，供前端 kline_lightweight.html 注入 intraday.decision_layer 字段"""
+    try:
+        if not os.path.exists(DECISION_LAYER_CACHE_PATH):
+            return jsonify({
+                'success': False,
+                'available': False,
+                'error': '决策层 cache 尚未生成（首次调度或服务刚启动）',
+            }), 200
+        with open(DECISION_LAYER_CACHE_PATH, 'r', encoding='utf-8') as f:
+            cache = json.load(f)
+        decision_layer = cache.get('decision_layer')
+        if not decision_layer:
+            return jsonify({
+                'success': False,
+                'available': False,
+                'error': 'cache 存在但 decision_layer 字段为空',
+            }), 200
+        return jsonify({
+            'success': True,
+            'available': True,
+            'decision_layer': decision_layer,
+            'last_refresh_at': (cache.get('_meta') or {}).get('last_refresh_at'),
+            'last_data_update': cache.get('last_data_update'),
+            'futures_price': cache.get('futures_price'),
+            'max_pain': cache.get('max_pain'),
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/decision_layer/refresh', methods=['POST'])
+def api_decision_layer_refresh():
+    """手动触发决策层刷新（force=True，跳过 15min mtime 检查）"""
+    try:
+        from scripts import decision_layer_service
+        result = decision_layer_service.refresh_decision_layer(force=True)
+        status = 200 if result.get('success') else 500
+        return jsonify(result), status
+    except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -3128,6 +3190,14 @@ if __name__ == '__main__':
     srt = threading.Thread(target=_strategy_report_periodic_scheduler, kwargs={'interval_minutes': 15}, daemon=True, name='strategy-report-periodic')
     srt.start()
 
+    # v2.11.77b: 决策层独立调度服务（每 15 分钟整点对齐）
+    try:
+        from scripts import decision_layer_service as _dls
+        _dls.start()
+        print("[decision_layer_service] 决策层 daemon 已启动（v2.11.77b）")
+    except Exception as _e:
+        print(f"[decision_layer_service] ⚠️ 启动失败: {_e}")
+
     app.run(host='0.0.0.0', port=8424, debug=False, threaded=True)
 else:
     # gunicorn / uwsgi 等 WSGI 服务器启动时初始化数据库
@@ -3144,3 +3214,10 @@ else:
         # 策略研报独立周期调度（WSGI 模式同样启用）
         srt = threading.Thread(target=_strategy_report_periodic_scheduler, kwargs={'interval_minutes': 15}, daemon=True, name='strategy-report-periodic')
         srt.start()
+        # v2.11.77b: 决策层独立调度服务（WSGI 模式同样启用）
+        try:
+            from scripts import decision_layer_service as _dls
+            _dls.start()
+            print("[decision_layer_service] WSGI模式：决策层 daemon 已启动（v2.11.77b）")
+        except Exception as _e:
+            print(f"[decision_layer_service] ⚠️ WSGI启动失败: {_e}")
