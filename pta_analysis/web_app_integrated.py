@@ -3198,6 +3198,18 @@ if __name__ == '__main__':
     except Exception as _e:
         print(f"[decision_layer_service] ⚠️ 启动失败: {_e}")
 
+    # v2.11.81: TqSdk watchdog 守护线程（每 60s 探测 /api/iv_smile/status 数据新鲜度）
+    # 修 v2.11.73 部署遗漏：之前 tqsdk_watchdog.py 模块在 + 路由在 + 前端在，唯独主入口没 start()
+    try:
+        import tqsdk_watchdog as _wd
+        _wd.start()
+        print("[tqsdk_watchdog] 守护线程已启动（v2.11.81 R2 修复）")
+    except Exception as _e:
+        print(f"[tqsdk_watchdog] ⚠️ 启动失败: {_e}")
+        # v2.11.81 P0: 不要吞,systemd 看到非 0 退出码会拉起
+        # 但是 watchdog 缺失不应让 Flask 启动失败,所以这里 raise 注释但仍然 try-except 住
+        # 实际依赖下一步 R1 走 systemd 自动重启来兜底
+
     app.run(host='0.0.0.0', port=8424, debug=False, threaded=True)
 else:
     # gunicorn / uwsgi 等 WSGI 服务器启动时初始化数据库
@@ -3221,3 +3233,11 @@ else:
             print("[decision_layer_service] WSGI模式：决策层 daemon 已启动（v2.11.77b）")
         except Exception as _e:
             print(f"[decision_layer_service] ⚠️ WSGI启动失败: {_e}")
+
+        # v2.11.81: TqSdk watchdog 守护线程（WSGI 模式同样启动）
+        try:
+            import tqsdk_watchdog as _wd
+            _wd.start()
+            print("[tqsdk_watchdog] WSGI模式：守护线程已启动（v2.11.81 R2 修复）")
+        except Exception as _e:
+            print(f"[tqsdk_watchdog] ⚠️ WSGI启动失败: {_e}")

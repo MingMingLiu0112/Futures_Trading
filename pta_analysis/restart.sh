@@ -42,10 +42,18 @@ if systemctl is-active --quiet web-app-pta.service 2>/dev/null; then
     sleep 2
 fi
 
-# ===== 4. 用绝对路径启动服务 =====
-nohup /home/admin/.pyenv/versions/3.11.9/bin/python3 web_app_integrated.py >> /tmp/flask.log 2>&1 &
-NEW_PID=$!
-echo "Started PID: $NEW_PID"
+# ===== 4. v2.11.81 R1: 走 systemd 启动,让 MemoryMax=1500M / RestartPreventExitStatus / NRestarts 真正生效 =====
+# 之前用 nohup 直接启动 → systemd 看不到进程 → 内存兜底失效
+# 现在调 `systemctl start` 让 systemd 拉起 web-app-pta.service,
+#    systemd 才会按 [Service] MemoryMax 1.5G 触发主动重启
+sudo systemctl start web-app-pta.service 2>/dev/null || systemctl start web-app-pta.service 2>/dev/null
+
+# 等待 systemd 拉起（systemd 重启=80ms + Flask 启动=~5s）
+sleep 8
+
+# 找到 systemd 拉起的 Flask PID（用于后面的 ps -p 验证）
+NEW_PID=$(systemctl show web-app-pta.service -p MainPID --value 2>/dev/null)
+echo "Started PID (systemd MainPID): $NEW_PID"
 echo "PYTHONPATH=$PYTHONPATH"
 
 # ===== 5. 验证启动 =====
