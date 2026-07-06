@@ -1232,7 +1232,9 @@ def _find_last_trading_day_before(day, max_lookback=8):
         day = day.date()
     for delta in range(1, max_lookback + 1):
         d = day - timedelta(days=delta)
-        if _is_trading_day(d):
+        # 用自然日中午判断“交易日”，避免 date 被 _is_trading_day() 转成 00:00 后，
+        # 周六 00:00-02:30 的“周五夜盘延续”特例把周六误判为上一交易日。
+        if _is_trading_day(datetime.combine(d, datetime.min.time()).replace(hour=12)):
             return d
     return None
 
@@ -1246,8 +1248,17 @@ def _is_post_holiday_first_trading_day(day):
     prev_td = _find_last_trading_day_before(day)
     if not prev_td:
         return False
-    # 节后首日：上一交易日距今天超过 1 天（即中间隔了周末或节假日）
-    return (day - prev_td).days > 1
+    # 节后首日只针对法定节假日后的第一个交易日，不把普通周末后的周一算作“节后”。
+    # 否则周一 09:00 后会错误切到周五，并让前次基准预期落到周六，反复刷
+    # “iv_snapshots_YYYYMMDD 不存在”。
+    gap_days = (day - prev_td).days
+    if gap_days <= 1:
+        return False
+    for delta in range(1, gap_days):
+        d = prev_td + timedelta(days=delta)
+        if _is_cn_holiday(d):
+            return True
+    return False
 
 
 def _cb_should_apply(cb_date, now_dt):
@@ -2741,7 +2752,10 @@ def tqsdk_loop():
             _integrity_alert_start = None
             while _state['running'] and not _tqsdk_restart_requested:
                 try:
-                    api.wait_update(deadline=loop.time() + 1.0)
+                    # TqSdk wait_update(deadline=...) 使用墙钟 time.time() 语义。
+                    # 不能用 asyncio loop.time()（monotonic，通常远小于 epoch 秒），否则 deadline 等于“过去时间”，
+                    # 底层 epoll_wait(timeout=0) 忙轮询，单线程长期吃满一个 CPU 核。
+                    api.wait_update(deadline=time.time() + 1.0)
 
                     # 每5秒快照一次（用于compute_once）
                     counter += 1
