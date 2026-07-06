@@ -2860,9 +2860,14 @@ def tqsdk_loop():
                         except Exception as e:
                             print(f"[iv_smile] ⚠️ _prev_day_baseline 切换检测失败: {e}")
 
-                    # 每30秒检查档数完整性（防止 TqSdk 推送档数减少导致 T表/PCR 算错）
+                    # 每30秒检查档数完整性（防止 TqSdk 推送档数减少导致 T表/PCR 算错）。
+                    # 只在交易时段触发重连：收盘/休盘后深档报价自然可能减少，继续按 80% 阈值重连会
+                    # 造成每 3~5 分钟一次 TqSdk 重连风暴，既涨日志又抖内存，且盘后无交易意义。
                     if time.time() - _last_integrity_check_time >= 30:
                         _last_integrity_check_time = time.time()
+                        if not _is_trading_hours():
+                            _integrity_alert_start = None
+                            continue
                         # 实际档数 = smile_raw 收到的行权价数（每个行权价同时有 C 和 P）
                         with _state['lock']:
                             _actual_strike_count = len(_state.get('smile_raw', {}))
