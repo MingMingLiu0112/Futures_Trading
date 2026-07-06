@@ -647,6 +647,24 @@ def _daily_close_report_path(date_text=None):
     return os.path.join(STRATEGY_CLOSE_REPORT_DIR, f'daily_close_report_{date_text}.json')
 
 
+def _today_close_report_ready(now=None):
+    """今日收盘报告已存在且结构完整则返回路径；用于盘后调度跳过重复全量重算。"""
+    now = now or dt_datetime.now()
+    if now.hour < 15:
+        return None
+    path = _daily_close_report_path(now.strftime('%Y%m%d'))
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            report = json.load(f)
+        if not _close_report_needs_rebuild(report):
+            return path
+    except Exception:
+        return None
+    return None
+
+
 def _maybe_write_close_report(report):
     now = dt_datetime.now()
     if now.hour < 15:
@@ -915,9 +933,12 @@ def _trigger_strategy_report_background_refresh():
             with _strategy_report_lock:
                 # 15:00 后切到 close 模式，确保主页刷新立即带上收盘复盘数据
                 # v2.11.48+: 21:00-23:00 夜盘时段仍按 intraday 模式跑,让 save_intraday_snapshot 把夜盘槽位归档
-                now_h = dt_datetime.now().hour
+                now_dt = dt_datetime.now()
+                now_h = now_dt.hour
                 in_night_session = 21 <= now_h < 23
                 is_after_close = (now_h >= 15) and not in_night_session
+                if is_after_close and _today_close_report_ready(now_dt):
+                    return
                 report = _generate_strategy_report(force_close=is_after_close)
                 _maybe_write_close_report(report)
         except Exception as e:
@@ -983,6 +1004,12 @@ def _strategy_report_periodic_scheduler(interval_minutes: int = 15):
             # 夜盘 21:00-23:00 强制 intraday 模式(即便 hour>=15)
             in_night_session = 21 <= now_run.hour < 23
             is_after_close = (now_run.hour >= 15) and not in_night_session
+            if is_after_close:
+                close_path = _today_close_report_ready(now_run)
+                if close_path:
+                    print(f"[strategy-report] 盘后收盘报告已存在，跳过重复全量刷新: {os.path.basename(close_path)}")
+                    _strategy_report_consecutive_exc_count = 0
+                    continue
             report = _generate_strategy_report(force_close=is_after_close)
             _maybe_write_close_report(report)
             print(f"[strategy-report] 周期刷新完成: {(time.time()-t0):.1f}s @ {now_run.strftime('%H:%M:%S')} mode={'close' if is_after_close else 'intraday'}")
