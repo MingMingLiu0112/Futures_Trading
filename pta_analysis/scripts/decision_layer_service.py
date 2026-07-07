@@ -108,13 +108,16 @@ def _build_decision_layer_payload(gex: dict, alert_data: dict, curve: dict) -> D
     }
 
     # ============================================================
-    # v2.11.85a 增量: Strike 级别权重 + 性质分组聚合 (飞书 §2.3.1.d)
-    # 独立计算 + try/except 保护, 失败不影响现有决策层输出.
-    # 数据源: /api/options/chain (T 表, 含 call_oi_change/iv_change 字段).
-    # 前端: renderL3StrikeDetail (kline_lightweight.html) 通过 dq.threshold_version === 'v2.11.85a' 分支显示.
+    # v2.11.85a 替换: 用 compute_weighted_nature 完全替换老 _compute_nature_and_synthesis 路径
+    # 老算法产出的 call_role / put_role / role_summary / standardized_label / strike_modifier /
+    # data_quality (v2.11.84) 全部用 v2.11.85a 输出覆盖
+    # 老算法产出的 put_nature / call_nature / nature_label / business_meaning / pcr / shape / position 保留
+    # 数据源: /api/options/chain (T 表, 含 call_oi_change/iv_change 字段)
+    # 前端: renderL3StrikeDetail (kline_lightweight.html) 改读 strike_role[] + weighted_verdict
+    # judge_state.py narrative 增加 v2.11.85a weighted summary
     # ============================================================
     try:
-        from compute_weighted_nature import compute_weighted_nature as _cwn
+        from scripts.compute_weighted_nature import compute_weighted_nature as _cwn
         import urllib.request
         with urllib.request.urlopen(
             'http://127.0.0.1:8424/api/options/chain?main_only=true', timeout=5
@@ -124,21 +127,98 @@ def _build_decision_layer_payload(gex: dict, alert_data: dict, curve: dict) -> D
         F = float((chain_data or {}).get('underlying_price') or 0)
         weighted = _cwn(strike_rows, F)
         if weighted:
-            # 把 strike_role 加到 L3 (layer3 是资金意图层)
-            payload['layer3']['strike_role'] = weighted['Call']['strike_role']
-            payload['layer3']['weighted_pct'] = weighted['Call']['weighted_pct']
-            payload['layer3']['weighted_label'] = weighted['Call']['label']
-            payload['layer3']['weighted_verdict'] = weighted['Call']['verdict']
-            payload['layer3']['direction'] = weighted['Call']['direction']
-            # L3.funding_intent 旁路: Put 端单独存到 layer3.put_strike_role
-            payload['layer3']['put_strike_role'] = weighted['Put']['strike_role']
-            payload['layer3']['put_weighted_pct'] = weighted['Put']['weighted_pct']
-            payload['layer3']['put_direction'] = weighted['Put']['direction']
-            payload['layer3']['put_verdict'] = weighted['Put']['verdict']
-            # data_quality (前端 dq.* 分支识别用)
+            # ---------- v2.11.85a: 用 strike_role[] 重算 call_role / put_role 兼容老前端 ----------
+            def _rebuild_role_dict(strike_role_list):
+                """从 v2.11.85a 的 strike_role[] 重算老 call_role / put_role dict 结构
+                老结构: {spec_trim:[], spec_add:[], hedge_sell:[], hedge_buy:[], close_push:[], double_exit:[], role_summary, _top_n}
+                """
+                d = {'spec_trim': [], 'spec_add': [], 'hedge_sell': [],
+                     'hedge_buy': [], 'close_push': [], 'double_exit': [], 'mixed_neutral': []}
+                for s in (strike_role_list or []):
+                    nat = s.get('nature', '')
+                    row = {
+                        'strike': s.get('strike'),
+                        'nature': nat,
+                        'oi_delta_pct': s.get('oi_pct'),
+                        'iv_delta_pp': s.get('iv_pp'),
+                        'oi_chg': s.get('oi_chg'),
+                        'moneyness': s.get('moneyness'),
+                        'contribution': s.get('contribution'),
+                        'weight': s.get('weight'),
+                    }
+                    # v2.11.85a 性质映射到 v2.11.63d 老分类
+                    NAT_MAP = {
+                        'hedge_sell': 'hedge_sell',
+                        'hedge_buy': 'hedge_buy',
+                        'spec_add': 'spec_add',
+                        'spec_trim': 'spec_trim',
+                        'close_push': 'close_push',
+                        'double_exit': 'double_exit',
+                        'passive_close': 'close_push',
+                        'noise_close': 'double_exit',
+                        'quote_adjust': 'double_exit',
+                        'spec_buy_lotto': 'spec_add',
+                        'mixed_neutral': 'mixed_neutral',
+                    }
+                    key = NAT_MAP.get(nat, 'spec_trim')
+                    if key not in d:
+                        d[key] = []
+                    d[key].append(row)
+                # role_summary: 按 contribution 降序取 Top 5
+                top_n = 5
+                sorted_sr = sorted((strike_role_list or []), key=lambda x: -abs(x.get('contribution', 0)))
+                NATURE_LABEL = {
+                    'hedge_sell': '产业收租', 'hedge_buy': '产业买保',
+                    'spec_add': '投机加仓', 'spec_trim': '投机撤退',
+                    'close_push': '卖方平仓', 'double_exit': '双边撤退',
+                    'passive_close': '被动平仓', 'noise_close': '噪声平仓',
+                    'quote_adjust': '报价调整', 'spec_buy_lotto': '投机彩票',
+                    'mixed_neutral': '中性',
+                }
+                def _fmt(r):
+                    sv = r.get('strike')
+                    side_letter = 'C' if r.get('side') == 'Call' else 'P'
+                    nat_lbl = NATURE_LABEL.get(r.get('nature'), r.get('nature', '?'))
+                    oi_pct = r.get('oi_pct')
+                    iv_pp = r.get('iv_pp')
+                    oi_str = f'{oi_pct:+.1f}%' if oi_pct is not None else '--'
+                    iv_str = f'{iv_pp:+.2f}pp' if iv_pp is not None else '--'
+                    return f'{sv}{side_letter}({nat_lbl} OI{oi_str} IV{iv_str})'
+                d['role_summary'] = ' / '.join(_fmt(r) for r in sorted_sr[:top_n]) or '无显著方向分化'
+                d['_top_n'] = top_n
+                return d
+
+            call_role_new = _rebuild_role_dict(weighted['Call']['strike_role'])
+            put_role_new = _rebuild_role_dict(weighted['Put']['strike_role'])
+
+            # ---------- v2.11.85a: 替换 L3 老字段（用新算法产出）----------
+            payload['layer3']['call_role'] = call_role_new
+            payload['layer3']['put_role'] = put_role_new
+            payload['layer3']['call_role_summary'] = call_role_new['role_summary']
+            payload['layer3']['put_role_summary'] = put_role_new['role_summary']
+            payload['layer3']['standardized_label'] = weighted['Call']['label'] + ' / ' + weighted['Put']['label']
+            payload['layer3']['standardized_intensity'] = (
+                '强' if (weighted['Call']['main_pct'] > 60 or weighted['Put']['main_pct'] > 60) else
+                ('中' if (weighted['Call']['main_pct'] > 40 or weighted['Put']['main_pct'] > 40) else '弱')
+            )
+            payload['layer3']['strike_modifier'] = (
+                f'Call {weighted["Call"]["verdict"]} | Put {weighted["Put"]["verdict"]}'
+            )
             payload['layer3']['data_quality'] = weighted['data_quality']
+            # v2.11.85a 增量字段（前端新渲染用）
+            payload['layer3']['strike_role'] = weighted['Call']['strike_role']
+            payload['layer3']['put_strike_role'] = weighted['Put']['strike_role']
+            payload['layer3']['weighted_pct'] = weighted['Call']['weighted_pct']
+            payload['layer3']['put_weighted_pct'] = weighted['Put']['weighted_pct']
+            payload['layer3']['weighted_label'] = weighted['Call']['label']
+            payload['layer3']['put_weighted_label'] = weighted['Put']['label']
+            payload['layer3']['weighted_verdict'] = weighted['Call']['verdict']
+            payload['layer3']['put_weighted_verdict'] = weighted['Put']['verdict']
+            payload['layer3']['direction'] = weighted['Call']['direction']
+            payload['layer3']['put_direction'] = weighted['Put']['direction']
+            payload['layer3']['weighted_version'] = 'v2.11.85a'
             _logger.info(
-                '%s v2.11.85a strike_role OK: Call=%s (%.1f%%) Put=%s (%.1f%%)',
+                '%s v2.11.85a replace OK: Call=%s (%.1f%%) Put=%s (%.1f%%)',
                 LOG_TAG,
                 weighted['Call']['main_nat'] or 'none',
                 weighted['Call']['main_pct'],
@@ -146,9 +226,8 @@ def _build_decision_layer_payload(gex: dict, alert_data: dict, curve: dict) -> D
                 weighted['Put']['main_pct'],
             )
     except Exception as e:
-        # 增量挂接失败 → 不写 strike_role 字段, 现有 L1/L2/L3/L4 输出不变.
-        # iv_smile 页面完全不依赖 strike_role, 不会受影响.
-        _logger.warning('%s v2.11.85a strike_role skipped: %s', LOG_TAG, e)
+        # 增量挂接失败 → 老字段保留（_compute_nature_and_synthesis 已有兜底），前端仍能渲染
+        _logger.warning('%s v2.11.85a replace skipped, fallback to old: %s', LOG_TAG, e)
 
     return payload
 

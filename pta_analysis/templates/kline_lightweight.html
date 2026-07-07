@@ -3008,34 +3008,54 @@ function getStrategyReportEndpoint() {
                         return html;
                     }
 
-                    // v2.11.68 A1 方案：L3 展开时渲染 24 行 strike 事实 + Put/Call 角色总结
+                    // v2.11.85a: L3 展开时渲染 strike_role 列表（按 contribution 降序）+ weighted_verdict 大标题
+                    // 老 24 行表（hedge_sell/hedge_buy/spec_add/spec_trim/close_push）改为按贡献度排序的 strike 列表
+                    // 后端 payload['layer3'].call_role / put_role 已重算为兼容老 dict 结构，但优先用 strike_role[] 直接渲染
                     function renderL3StrikeDetail(L3) {
                         if (!L3) return '<div style="color:#888;font-size:10px;">无 L3 数据</div>';
                         const callRole = L3.call_role || {};
                         const putRole = L3.put_role || {};
+                        // v2.11.85a 优先用 strike_role[] 直接渲染；老 dict 兜底
+                        const callStrikeRole = L3.strike_role || [];
+                        const putStrikeRole = L3.put_strike_role || [];
+                        const weightedVerdict = L3.weighted_verdict || '';
+                        const putWeightedVerdict = L3.put_weighted_verdict || '';
+                        const weightedLabel = L3.weighted_label || '';
+                        const putWeightedLabel = L3.put_weighted_label || '';
+                        const callDirection = L3.direction || '';
+                        const putDirection = L3.put_direction || '';
                         const fmtPct = (x) => x == null ? '--' : (x >= 0 ? '+' : '') + Number(x).toFixed(1) + '%';
                         const fmtPP  = (x) => x == null ? '--' : (x >= 0 ? '+' : '') + Number(x).toFixed(2) + 'pp';
-                        // v2.11.68 A1 增强: strike 字符串加 nature 标签
+                        // v2.11.85a: 性质标签表（含 v2.11.85a 新增的 passive_close/noise_close/quote_adjust/spec_buy_lotto）
                         const NATURE_LABEL = {
                             'spec_buy': '投机买', 'spec_add': '投机加',
                             'spec_trim': '投机撤', 'close_push': '卖方平',
                             'hedge_buy': '产业买保', 'hedge_sell': '产业收租',
-                            'double_exit': '双边撤', 'mixed_neutral': '中性'
+                            'double_exit': '双边撤', 'mixed_neutral': '中性',
+                            'passive_close': '被动平', 'noise_close': '噪声平',
+                            'quote_adjust': '报价调', 'spec_buy_lotto': '投机彩票',
                         };
-                        const fmtStrikeRow = (s, side) => {
+                        // v2.11.85a: strike 行渲染（含 moneyness / contribution / weight）
+                        const fmtStrikeRowV2 = (s) => {
                             if (!s) return null;
-                            const letter = side === 'call' ? 'C' : 'P';
                             const sv = s.strike;
-                            const sStr = sv != null ? `${Math.round(sv)}${letter}` : '--';
+                            const sStr = sv != null ? `${Math.round(sv)}${s.side === 'Call' ? 'C' : 'P'}` : '--';
                             const nat = NATURE_LABEL[s.nature] || s.nature || '?';
-                            return `<span title="nature=${s.nature}">${sStr} ${nat} OI${fmtPct(s.oi_delta_pct)} IV${fmtPP(s.iv_delta_pp)}</span>`;
+                            const money = s.moneyness || '';
+                            const contrib = s.contribution != null ? `贡献${(s.contribution*100).toFixed(1)}%` : '';
+                            return `<span title="nature=${s.nature} moneyness=${money} oi_chg=${s.oi_chg} impact=${s.impact}">${sStr} ${nat} OI${fmtPct(s.oi_pct)} IV${fmtPP(s.iv_pp)} ${contrib}</span>`;
                         };
-                        const callStr = (key) => (callRole[key] || []).map(s => fmtStrikeRow(s, 'call')).filter(Boolean).join('<br>') || '--';
-                        const putStr = (key) => (putRole[key] || []).map(s => fmtStrikeRow(s, 'put')).filter(Boolean).join('<br>') || '--';
+                        const callStr = (key) => (callRole[key] || []).map(s => fmtStrikeRowV2(s)).filter(Boolean).join('<br>') || '--';
+                        const putStr = (key) => (putRole[key] || []).map(s => fmtStrikeRowV2(s)).filter(Boolean).join('<br>') || '--';
                         const callSummary = callRole.role_summary || '无显著方向分化';
                         const putSummary = putRole.role_summary || '无显著方向分化';
                         const topN = callRole._top_n || 5;
-                        // Put 端 + Call 端 6 大性质
+                        // v2.11.85a: callStrikeRole 按 contribution 降序排（取前 8）
+                        const callTopList = (callStrikeRole || []).slice().sort((a,b) => (b.contribution||0) - (a.contribution||0)).slice(0, 8);
+                        const putTopList = (putStrikeRole || []).slice().sort((a,b) => (b.contribution||0) - (a.contribution||0)).slice(0, 8);
+                        const callStrikeHtml = callTopList.length ? callTopList.map(fmtStrikeRowV2).filter(Boolean).join('<br>') : '--';
+                        const putStrikeHtml = putTopList.length ? putTopList.map(fmtStrikeRowV2).filter(Boolean).join('<br>') : '--';
+                        // Put 端 + Call 端 6 大性质（保留老 24 行表结构，兼容老字段）
                         const rows = [
                             {label: '产业卖权收租 (OI↑IV↓)', key: 'hedge_sell'},
                             {label: '产业买保 (OI↑IV—)',      key: 'hedge_buy'},
@@ -3079,18 +3099,50 @@ function getStrategyReportEndpoint() {
                                 ${strikeMod ? `<span style="color:#888;">| 形态修正:</span><span style="color:#9bc;">${cell(strikeMod)}</span>` : ''}
                             </div>
                         </div>`;
+                        // v2.11.85a: weighted_verdict 大标题（Call / Put 各一行）
+                        const weightedVerdictHtml = (weightedVerdict || putWeightedVerdict) ? `
+                            <div style="margin:0 0 6px 0;padding:6px 8px;background:#1a1a25;border-radius:3px;border-left:2px solid #9b59b6;">
+                                <div style="color:#9b59b6;font-size:10px;font-weight:bold;margin-bottom:3px;">⚖️ v2.11.85a 加权判定</div>
+                                <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:10px;line-height:1.5;">
+                                    <div style="flex:1 1 220px;background:#101018;padding:3px 6px;border-radius:2px;">
+                                        <span style="color:#4a90e2;font-weight:500;">📈 Call:</span>
+                                        <span style="color:#cfcfcf;">${weightedLabel || '<i style="color:#888;">(无)</i>'}</span>
+                                        <span style="color:#888;"> | </span>
+                                        <span style="color:${callDirection === '看多' ? '#ef5350' : (callDirection === '看空' ? '#5d5' : '#888')};">${callDirection || '-'}</span>
+                                        <div style="color:#aaa;font-size:9px;margin-top:2px;">${weightedVerdict || ''}</div>
+                                    </div>
+                                    <div style="flex:1 1 220px;background:#101018;padding:3px 6px;border-radius:2px;">
+                                        <span style="color:#e2904a;font-weight:500;">📉 Put:</span>
+                                        <span style="color:#cfcfcf;">${putWeightedLabel || '<i style="color:#888;">(无)</i>'}</span>
+                                        <span style="color:#888;"> | </span>
+                                        <span style="color:${putDirection === '看空' ? '#5d5' : (putDirection === '看多' ? '#ef5350' : '#888')};">${putDirection || '-'}</span>
+                                        <div style="color:#aaa;font-size:9px;margin-top:2px;">${putWeightedVerdict || ''}</div>
+                                    </div>
+                                </div>
+                            </div>` : '';
+                        // v2.11.85a: strike_role 列表（按 contribution 降序，取 Top 8）
+                        const strikeRoleListHtml = (callStrikeHtml !== '--' || putStrikeHtml !== '--') ? `
+                            <div style="margin:0 0 6px 0;padding:4px 6px;background:#0e0e16;border:1px solid #2a2a36;border-radius:3px;">
+                                <div style="color:#9bc;font-size:10px;font-weight:500;margin-bottom:3px;">🎯 Strike 详情 (Top 8 按贡献度)</div>
+                                <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                                    <div style="flex:1 1 240px;color:#cfcfcf;font-size:10px;line-height:1.5;">${callStrikeHtml}</div>
+                                    <div style="flex:1 1 240px;color:#cfcfcf;font-size:10px;line-height:1.5;">${putStrikeHtml}</div>
+                                </div>
+                            </div>` : '';
                         // 数据质量
                         const dq = L3.data_quality || {};
                         let dqHtml = '';
                         if (dq.confidence) {
                             const dqColor = dq.confidence === 'high' ? '#5d5' : (dq.confidence === 'medium' ? '#da4' : '#e55');
-                            // v2.11.84: iv_threshold_pp 在 v2.11.84 是 5.0(=5%)需显示成 % 而非 pp
-                            const ivDisplay = dq.threshold_version === 'v2.11.84'
-                                ? `${dq.iv_threshold_pp}%`  // 5.0 → "5%"
-                                : `${dq.iv_threshold_pp}pp`; // 旧: 0.15 → "0.15pp"
-                            dqHtml = `<div style="margin:0 0 6px 0;color:${dqColor};font-size:9px;">📊 数据质量: ${dq.confidence.toUpperCase()} (Call ${dq.eligible_call}/${dq.total_strikes} 档有效, Put ${dq.eligible_put}/${dq.total_strikes}, OI≥${dq.oi_threshold}手, IV≥${ivDisplay})</div>`;
+                            // v2.11.85a: iv_threshold_pct 是 5.0（百分比），iv_threshold_pp 是 0.5（pp）
+                            const ver = dq.threshold_version || 'unknown';
+                            const ivDisplay = ver === 'v2.11.85a'
+                                ? `${dq.iv_threshold_pct}% / ${dq.iv_threshold_pp}pp`
+                                : `${dq.iv_threshold_pp}%`;
+                            dqHtml = `<div style="margin:0 0 6px 0;color:${dqColor};font-size:9px;">📊 数据质量: ${dq.confidence.toUpperCase()} (${ver} Call ${dq.eligible_call||'-'}/${dq.total_strikes||'-'} 档有效, Put ${dq.eligible_put||'-'}/${dq.total_strikes||'-'}, OI≥${dq.oi_threshold}手, IV≥${ivDisplay})</div>`;
                         }
-                        return `${synthHtml}
+                        return `${weightedVerdictHtml}
+                            ${strikeRoleListHtml}
                             ${dqHtml}
                             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
                                 <div style="flex:1 1 240px;background:#101018;padding:4px 6px;border-radius:2px;border-left:2px solid #4a90e2;">
@@ -4844,6 +4896,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.85</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.85a</div>
 </body>
 </html>

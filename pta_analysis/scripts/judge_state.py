@@ -1197,8 +1197,23 @@ def format_report(result: Dict) -> str:
             lines.append(f'  Call 角色: {L3["call_role_summary"]}')
         if L3.get('put_role_summary'):
             lines.append(f'  Put 角色: {L3["put_role_summary"]}')
+        # v2.11.85a: 加权判定明细
+        if L3.get('weighted_version') == 'v2.11.85a':
+            lines.append(f'  ⚖️ v2.11.85a 加权: Call {L3.get("weighted_label","-")} | Put {L3.get("put_weighted_label","-")}')
+            if L3.get('weighted_verdict'):
+                lines.append(f'    Call verdict: {L3["weighted_verdict"]}')
+            if L3.get('put_weighted_verdict'):
+                lines.append(f'    Put verdict: {L3["put_weighted_verdict"]}')
+            if L3.get('direction'):
+                lines.append(f'    Call 方向: {L3["direction"]}')
+            if L3.get('put_direction'):
+                lines.append(f'    Put 方向: {L3["put_direction"]}')
         lines.append(f'  PCR: now={L3["pcr_now"]:.3f} | prev={L3["pcr_prev"]:.3f} | delta={L3["pcr_delta"]:+.3f} ({L3["pcr_label"]})')
-        lines.append(f'  数据质量: {L3.get("data_quality")}')
+        dq = L3.get("data_quality") or {}
+        if dq:
+            dq_ver = dq.get('threshold_version','?')
+            dq_str = f'  数据质量({dq_ver}): confidence={dq.get("confidence","-")}, OI≥{dq.get("oi_threshold","-")}, IV≥{dq.get("iv_threshold_pct") or dq.get("iv_threshold_pp")}-门槛, eligible_call={dq.get("eligible_call","-")}/{dq.get("total_strikes","-")}'
+            lines.append(dq_str)
     else:
         lines.append(f'  ⚠️ {L3.get("note", "数据不可用")}')
     lines.append(f'  ➜ 评分: {L3["layer_score"]:+.2f}')
