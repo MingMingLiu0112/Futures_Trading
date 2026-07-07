@@ -894,8 +894,13 @@ _NATURE_IV_ABS_THRESHOLD = 0.5   # |delta_pp| ≥ 0.5pp 算"上升"或"下降"�
 # v2.11.63e: strike 级别判定门槛（解决软肋 2/3：数据噪声污染）
 # 实战教训: PTA 主力单 strike OI 显著信号通常 1000+ 手，<200 手基本是噪声
 # 6600-8100C 等深度虚值档 IV 字段缺失（None/0），不能参与判定
-_STRIKE_MIN_OI = 200            # strike OI 门槛（取 max(oi_cur, oi_prev)，过滤深度虚值档）
-_STRIKE_IV_FLOOR = 0.10         # strike IV 数据有效性门槛（< 0.1% 视为缺失，郑商所实际报价精度 0.5pp）
+_STRIKE_MIN_OI = 1000           # v2.11.84 升级: 200 → 1000 (飞书文档双门槛)
+                                # 实证:PTA 单 strike OI 常态 30K-150K,
+                                # 1000 过滤掉 deep OTM 噪声档(无意义的"鬼影仓位")
+                                # 保留真正有大资金进出的 strike (实战命中验证见 skill v2.11.84)
+_STRIKE_IV_FLOOR = 5.0          # v2.11.84 升级: 0.10% → 5.0% (飞书文档双门槛)
+                                # 实证:PTA 主力 IV 平时 20-35%, 5% 是"显著 IV 报价"门槛
+                                # < 5% 多为报价缺失/数据无效,不参与判定
 _STRIKE_IV_THRESHOLD_PP = 0.15  # strike 级别 IV 变化阈值（vs 全档 0.5pp）
                                 # 配合 _STRIKE_MIN_OI 后，单 strike IV 显著变化通常 0.1-0.5pp
                                 # 0.01pp 已被证明过细（数据噪声会被误判）
@@ -1438,7 +1443,7 @@ def _compute_nature_and_synthesis(iv_table_rows: list, atm_strike,
     put_role  = _synthesize_strike_roles(put_strikes,  futures_price, max_pain, 'put')
 
     # v2.11.63e: data_quality 字段 —— 让前端/统计脚本知道这次判定置信度
-    # 总行数（scope） / 有效 strike 数（参与判定） / 过滤数（OI<200 或 IV 缺失）
+    # v2.11.84 升级: 过滤阈值改为 OI<1000 + IV<5%
     total_strikes = len(scope)
     eligible_call = len(call_strikes)
     eligible_put  = len(put_strikes)
@@ -1448,8 +1453,9 @@ def _compute_nature_and_synthesis(iv_table_rows: list, atm_strike,
         'eligible_call': eligible_call,
         'eligible_put': eligible_put,
         'filtered_count': filtered_count,
-        'oi_threshold': _STRIKE_MIN_OI,
-        'iv_threshold_pp': _STRIKE_IV_THRESHOLD_PP,
+        'oi_threshold': _STRIKE_MIN_OI,           # v2.11.84: 1000 手
+        'iv_threshold_pp': _STRIKE_IV_FLOOR,      # v2.11.84: 5.0 (即 5%)
+        'threshold_version': 'v2.11.84',           # 标记本次升级
         'confidence': 'high' if (eligible_call >= 5 and eligible_put >= 5) else ('medium' if (eligible_call >= 3 and eligible_put >= 3) else 'low'),
     }
 

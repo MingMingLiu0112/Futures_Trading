@@ -3084,7 +3084,11 @@ function getStrategyReportEndpoint() {
                         let dqHtml = '';
                         if (dq.confidence) {
                             const dqColor = dq.confidence === 'high' ? '#5d5' : (dq.confidence === 'medium' ? '#da4' : '#e55');
-                            dqHtml = `<div style="margin:0 0 6px 0;color:${dqColor};font-size:9px;">📊 数据质量: ${dq.confidence.toUpperCase()} (Call ${dq.eligible_call}/${dq.total_strikes} 档有效, Put ${dq.eligible_put}/${dq.total_strikes}, OI≥${dq.oi_threshold}手, IV≥${dq.iv_threshold_pp}pp)</div>`;
+                            // v2.11.84: iv_threshold_pp 在 v2.11.84 是 5.0(=5%)需显示成 % 而非 pp
+                            const ivDisplay = dq.threshold_version === 'v2.11.84'
+                                ? `${dq.iv_threshold_pp}%`  // 5.0 → "5%"
+                                : `${dq.iv_threshold_pp}pp`; // 旧: 0.15 → "0.15pp"
+                            dqHtml = `<div style="margin:0 0 6px 0;color:${dqColor};font-size:9px;">📊 数据质量: ${dq.confidence.toUpperCase()} (Call ${dq.eligible_call}/${dq.total_strikes} 档有效, Put ${dq.eligible_put}/${dq.total_strikes}, OI≥${dq.oi_threshold}手, IV≥${ivDisplay})</div>`;
                         }
                         return `${synthHtml}
                             ${dqHtml}
@@ -4501,8 +4505,8 @@ function getStrategyReportEndpoint() {
             setInterval(pollTa606Price, 60000);
             // 期权链数据每5分钟自动刷新（保持OI/IV等数据时效性）
             setInterval(loadOptionChain, 5 * 60 * 1000);
-            // 每10秒增量刷新K线
-            setInterval(incrementalUpdate, 10000);
+            // v2.11.83 R4: 每60秒增量刷新K线（30s→60s 进一步减负:对齐1min K线天然周期,TqSdk调用再-50%, Flask内存估再省50MB）
+            setInterval(incrementalUpdate, 60000);
         });
     </script>
 
@@ -4840,6 +4844,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.83</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.84</div>
 </body>
 </html>
