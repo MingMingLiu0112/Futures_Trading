@@ -98,7 +98,7 @@ def _build_decision_layer_payload(gex: dict, alert_data: dict, curve: dict) -> D
     # final: 综合判断（接受 list）
     final = js.synthesize_decision([l1, l2, l3, l4])
 
-    return {
+    payload = {
         'layer1': l1,
         'layer2': l2,
         'layer3': l3,
@@ -106,6 +106,51 @@ def _build_decision_layer_payload(gex: dict, alert_data: dict, curve: dict) -> D
         'final': final,
         'generated_at': datetime.now().isoformat(timespec='seconds'),
     }
+
+    # ============================================================
+    # v2.11.85a 增量: Strike 级别权重 + 性质分组聚合 (飞书 §2.3.1.d)
+    # 独立计算 + try/except 保护, 失败不影响现有决策层输出.
+    # 数据源: /api/options/chain (T 表, 含 call_oi_change/iv_change 字段).
+    # 前端: renderL3StrikeDetail (kline_lightweight.html) 通过 dq.threshold_version === 'v2.11.85a' 分支显示.
+    # ============================================================
+    try:
+        from compute_weighted_nature import compute_weighted_nature as _cwn
+        import urllib.request
+        with urllib.request.urlopen(
+            'http://127.0.0.1:8424/api/options/chain?main_only=true', timeout=5
+        ) as resp:
+            chain_data = json.loads(resp.read())
+        strike_rows = (chain_data or {}).get('strike_rows') or []
+        F = float((chain_data or {}).get('underlying_price') or 0)
+        weighted = _cwn(strike_rows, F)
+        if weighted:
+            # 把 strike_role 加到 L3 (layer3 是资金意图层)
+            payload['layer3']['strike_role'] = weighted['Call']['strike_role']
+            payload['layer3']['weighted_pct'] = weighted['Call']['weighted_pct']
+            payload['layer3']['weighted_label'] = weighted['Call']['label']
+            payload['layer3']['weighted_verdict'] = weighted['Call']['verdict']
+            payload['layer3']['direction'] = weighted['Call']['direction']
+            # L3.funding_intent 旁路: Put 端单独存到 layer3.put_strike_role
+            payload['layer3']['put_strike_role'] = weighted['Put']['strike_role']
+            payload['layer3']['put_weighted_pct'] = weighted['Put']['weighted_pct']
+            payload['layer3']['put_direction'] = weighted['Put']['direction']
+            payload['layer3']['put_verdict'] = weighted['Put']['verdict']
+            # data_quality (前端 dq.* 分支识别用)
+            payload['layer3']['data_quality'] = weighted['data_quality']
+            _logger.info(
+                '%s v2.11.85a strike_role OK: Call=%s (%.1f%%) Put=%s (%.1f%%)',
+                LOG_TAG,
+                weighted['Call']['main_nat'] or 'none',
+                weighted['Call']['main_pct'],
+                weighted['Put']['main_nat'] or 'none',
+                weighted['Put']['main_pct'],
+            )
+    except Exception as e:
+        # 增量挂接失败 → 不写 strike_role 字段, 现有 L1/L2/L3/L4 输出不变.
+        # iv_smile 页面完全不依赖 strike_role, 不会受影响.
+        _logger.warning('%s v2.11.85a strike_role skipped: %s', LOG_TAG, e)
+
+    return payload
 
 
 # ============================================================
