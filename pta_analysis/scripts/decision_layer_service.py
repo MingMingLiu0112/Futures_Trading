@@ -147,6 +147,9 @@ def _build_decision_layer_payload(gex: dict, alert_data: dict, curve: dict) -> D
                         'weight': s.get('weight'),
                     }
                     # v2.11.85a 性质映射到 v2.11.63d 老分类
+                    # v2.11.85b 修复 5500P 错放: spec_buy_directional 必须显式映射
+                    # 原版 NAT_MAP 漏掉这一行 → .get() fallback 到 'spec_trim'
+                    #   业务语义 180° 反转（方向性投机看空 → 显示成撤退离场）
                     NAT_MAP = {
                         'hedge_sell': 'hedge_sell',
                         'hedge_buy': 'hedge_buy',
@@ -154,13 +157,19 @@ def _build_decision_layer_payload(gex: dict, alert_data: dict, curve: dict) -> D
                         'spec_trim': 'spec_trim',
                         'close_push': 'close_push',
                         'double_exit': 'double_exit',
-                        'passive_close': 'close_push',
-                        'noise_close': 'double_exit',
-                        'quote_adjust': 'double_exit',
-                        'spec_buy_lotto': 'spec_add',
+                        'passive_close': 'passive_close',
+                        'noise_close': 'noise_ignore',
+                        'noise_open': 'noise_ignore',
+                        'quote_adjust': 'noise_ignore',
+                        'theta_decay': 'noise_ignore',
+                        'spec_buy_lotto': 'spec_buy_lotto',
+                        'spec_buy_directional': 'spec_add',
+                        'hedge_rolling': 'hedge_rolling',
+                        'supply_overhang': 'supply_overhang',
                         'mixed_neutral': 'mixed_neutral',
+                        'static': 'noise_ignore',
                     }
-                    key = NAT_MAP.get(nat, 'spec_trim')
+                    key = NAT_MAP.get(nat, 'noise_ignore')
                     if key not in d:
                         d[key] = []
                     d[key].append(row)

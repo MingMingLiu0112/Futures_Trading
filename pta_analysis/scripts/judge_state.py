@@ -1151,46 +1151,76 @@ def synthesize_decision(layers: List[Dict]) -> Dict:
 # 报告输出（分层展示 + 总结论）
 # ============================================================
 def format_report(result: Dict) -> str:
-    """分层报告：4 层独立 + 总结论（按用户要求）"""
-    L1, L2, L3, L4 = result['layer1'], result['layer2'], result['layer3'], result['layer4']
-    final = result['final']
+    """分层报告：4 层独立 + 总结论（按用户要求）
+
+    v2.11.85b 兼容: contract/atm_strike/tqsdk_ready/last_update 缺省时用 .get 兜底
+    允许从 decision_layer_cache.json 直接构造 result 调用（不需要外部 gex/alert_data）
+    """
+    L1 = result.get('layer1', {})
+    L2 = result.get('layer2', {})
+    L3 = result.get('layer3', {})
+    L4 = result.get('layer4', {})
+    final = result.get('final', {})
+    contract = result.get('contract', '-')
+    futures_price = result.get('futures_price', 0) or 0
+    atm_strike = result.get('atm_strike', 0) or 0
+    max_pain = result.get('max_pain', 0) or 0
+    generated_at = result.get('generated_at', '-')
+    last_update = result.get('last_update', '')
+    tqsdk_ready = result.get('tqsdk_ready')
 
     lines = []
     lines.append('=' * 72)
-    lines.append(f'📊 PTA 期权决策报告（v2.11.65）')
-    lines.append(f'生成时间: {result["generated_at"]}')
-    lines.append(f'合约: {result["contract"]} | 期货价: {result["futures_price"]:.0f} | ATM: {result["atm_strike"]:.0f} | MP: {result["max_pain"]:.0f}')
-    if result.get('last_update'):
-        lines.append(f'最后更新: {result["last_update"]} | TqSdk: {"✅ 就绪" if result.get("tqsdk_ready") else "⚠️ 未就绪"}')
+    lines.append('📊 PTA 期权四维决策报告（v2.11.85b）')
+    lines.append(f'生成时间: {generated_at}')
+    lines.append(f'合约: {contract} | 期货价: {futures_price:.0f} | ATM: {atm_strike:.0f} | MP: {max_pain:.0f}')
+    if last_update:
+        ready_str = '✅ 就绪' if tqsdk_ready else ('⚠️ 未就绪' if tqsdk_ready is False else '-')
+        lines.append(f'最后更新: {last_update} | TqSdk: {ready_str}')
     lines.append('=' * 72)
     lines.append('')
 
     # ---- 第一层：PAIN 结构（35%） ----
-    lines.append(f'【第一层】PAIN 结构（权重 {L1["weight"]*100:.0f}%）')
-    lines.append(f'  维度: 形态={L1["shape"]} | 位置={L1["position"]} | GEX={L1["gex_dir"]} | P vs Flip={L1["p_vs_flip"]}')
-    lines.append(f'  业务: {L1["matrix_meaning"]}')
-    lines.append(f'  PCR: {L1["pcr_meaning"]}（加成 {L1["pcr_modifier"]:+.1f}）')
-    lines.append(f'  评分逻辑: {L1["score_detail"]}')
-    lines.append(f'  ➜ 评分: {L1["layer_score"]:+.2f}')
+    lines.append(f'【第一层】PAIN 结构（权重 {L1.get("weight",0)*100:.0f}%）')
+    if L1:
+        lines.append(f'  维度: 形态={L1.get("shape","-")} | 位置={L1.get("position","-")} | GEX={L1.get("gex_dir","-")} | P vs Flip={L1.get("p_vs_flip","-")}')
+        if L1.get('matrix_meaning'):
+            lines.append(f'  业务: {L1["matrix_meaning"]}')
+        if L1.get('pcr_meaning'):
+            lines.append(f'  PCR: {L1["pcr_meaning"]}（加成 {L1.get("pcr_modifier",0):+.1f}）')
+        if L1.get('score_detail'):
+            lines.append(f'  评分逻辑: {L1["score_detail"]}')
+        lines.append(f'  ➜ 评分: {L1.get("layer_score",0):+.2f}')
+    else:
+        lines.append('  ⚠️ 数据不可用')
     lines.append('')
 
     # ---- 第二层：GEX 机制（25%） ----
-    lines.append(f'【第二层】GEX 机制（权重 {L2["weight"]*100:.0f}%）')
-    lines.append(f'  维度: GEX={L2["gex_dir"]} | P vs Flip={L2["p_vs_flip"]}')
-    lines.append(f'  业务: {L2["matrix_meaning"]}')
-    lines.append(f'  评分逻辑: {L2["score_detail"]}')
-    lines.append(f'  ➜ 评分: {L2["layer_score"]:+.2f}')
+    lines.append(f'【第二层】GEX 机制（权重 {L2.get("weight",0)*100:.0f}%）')
+    if L2:
+        lines.append(f'  维度: GEX={L2.get("gex_dir","-")} | P vs Flip={L2.get("p_vs_flip","-")}')
+        if L2.get('matrix_meaning'):
+            lines.append(f'  业务: {L2["matrix_meaning"]}')
+        if L2.get('score_detail'):
+            lines.append(f'  评分逻辑: {L2["score_detail"]}')
+        lines.append(f'  ➜ 评分: {L2.get("layer_score",0):+.2f}')
+    else:
+        lines.append('  ⚠️ 数据不可用')
     lines.append('')
 
     # ---- 第三层：资金意图（25%） ----
-    lines.append(f'【第三层】资金意图（权重 {L3["weight"]*100:.0f}%）')
+    lines.append(f'【第三层】资金意图（权重 {L3.get("weight",0)*100:.0f}%）')
     if L3.get('available'):
-        lines.append(f'  Put 性质: {L3["put_nature"]} ({L3["put_nature_label"]})')
-        lines.append(f'    业务: {L3["put_business_meaning"]}')
-        lines.append(f'  Call 性质: {L3["call_nature"]} ({L3["call_nature_label"]})')
-        lines.append(f'    业务: {L3["call_business_meaning"]}')
-        lines.append(f'  原始 label: {L3["raw_label"]} ({L3["raw_intensity"]})')
-        lines.append(f'  ✅ 标准化 label: {L3["standardized_label"]} ({L3["standardized_intensity"]})')
+        lines.append(f'  Put 性质: {L3.get("put_nature","-")} ({L3.get("put_nature_label","")})')
+        if L3.get('put_business_meaning'):
+            lines.append(f'    业务: {L3["put_business_meaning"]}')
+        lines.append(f'  Call 性质: {L3.get("call_nature","-")} ({L3.get("call_nature_label","")})')
+        if L3.get('call_business_meaning'):
+            lines.append(f'    业务: {L3["call_business_meaning"]}')
+        if L3.get('raw_label'):
+            lines.append(f'  原始 label: {L3["raw_label"]} ({L3.get("raw_intensity","")})')
+        if L3.get('standardized_label'):
+            lines.append(f'  ✅ 标准化 label: {L3["standardized_label"]} ({L3.get("standardized_intensity","")})')
         if L3.get('strike_modifier'):
             lines.append(f'  strike 修正: {L3["strike_modifier"]}')
         if L3.get('call_role_summary'):
@@ -1208,41 +1238,52 @@ def format_report(result: Dict) -> str:
                 lines.append(f'    Call 方向: {L3["direction"]}')
             if L3.get('put_direction'):
                 lines.append(f'    Put 方向: {L3["put_direction"]}')
-        lines.append(f'  PCR: now={L3["pcr_now"]:.3f} | prev={L3["pcr_prev"]:.3f} | delta={L3["pcr_delta"]:+.3f} ({L3["pcr_label"]})')
-        dq = L3.get("data_quality") or {}
+        if L3.get('pcr_now') is not None:
+            lines.append(f'  PCR: now={L3["pcr_now"]:.3f} | prev={L3.get("pcr_prev",0):.3f} | delta={L3.get("pcr_delta",0):+.3f} ({L3.get("pcr_label","")})')
+        dq = L3.get('data_quality') or {}
         if dq:
-            dq_ver = dq.get('threshold_version','?')
+            dq_ver = dq.get('threshold_version', '?')
             dq_str = f'  数据质量({dq_ver}): confidence={dq.get("confidence","-")}, OI≥{dq.get("oi_threshold","-")}, IV≥{dq.get("iv_threshold_pct") or dq.get("iv_threshold_pp")}-门槛, eligible_call={dq.get("eligible_call","-")}/{dq.get("total_strikes","-")}'
             lines.append(dq_str)
     else:
         lines.append(f'  ⚠️ {L3.get("note", "数据不可用")}')
-    lines.append(f'  ➜ 评分: {L3["layer_score"]:+.2f}')
+    lines.append(f'  ➜ 评分: {L3.get("layer_score",0):+.2f}')
     lines.append('')
 
     # ---- 第四层：情绪确认（15%） ----
-    lines.append(f'【第四层】情绪确认（权重 {L4["weight"]*100:.0f}%）')
-    lines.append(f'  成交 PCR: now={L4["vol_pcr"]:.3f} | prev={L4["vol_pcr_prev"]:.3f}')
-    lines.append(f'  持仓 PCR: now={L4["pos_pcr"]:.3f} | prev={L4["pos_pcr_prev"]:.3f}')
-    if L4["atm_iv_call"]:
-        lines.append(f'  ATM 隐波: Call={L4["atm_iv_call"]*100:.2f}% | Put={L4["atm_iv_put"]*100:.2f}%')
-    if L4["prev_f"]:
-        lines.append(f'  趋势: F {L4["prev_f"]:.0f} → {L4["cur_f"]:.0f} ({L4["trend"]}, {L4["trend_diff"]:+.0f})')
-    lines.append(f'  评分逻辑: {L4["score_detail"]}')
-    lines.append(f'  ➜ 评分: {L4["layer_score"]:+.2f}')
+    lines.append(f'【第四层】情绪确认（权重 {L4.get("weight",0)*100:.0f}%）')
+    if L4:
+        if L4.get('vol_pcr') is not None:
+            lines.append(f'  成交 PCR: now={L4["vol_pcr"]:.3f} | prev={L4.get("vol_pcr_prev",0):.3f}')
+        if L4.get('pos_pcr') is not None:
+            lines.append(f'  持仓 PCR: now={L4["pos_pcr"]:.3f} | prev={L4.get("pos_pcr_prev",0):.3f}')
+        if L4.get('atm_iv_call'):
+            lines.append(f'  ATM 隐波: Call={L4["atm_iv_call"]*100:.2f}% | Put={L4.get("atm_iv_put",0)*100:.2f}%')
+        if L4.get('prev_f'):
+            lines.append(f'  趋势: F {L4["prev_f"]:.0f} → {L4.get("cur_f",0):.0f} ({L4.get("trend","")}, {L4.get("trend_diff",0):+.0f})')
+        if L4.get('score_detail'):
+            lines.append(f'  评分逻辑: {L4["score_detail"]}')
+        lines.append(f'  ➜ 评分: {L4.get("layer_score",0):+.2f}')
+    else:
+        lines.append('  ⚠️ 数据不可用')
     lines.append('')
 
     # ---- 总结论（按用户要求：分层展示 + 总结论） ----
     lines.append('=' * 72)
     lines.append('🎯 综合判断（按权重叠加）')
     lines.append('=' * 72)
-    for line in final['summary_lines']:
-        lines.append(f'  {line}')
+    if final.get('summary_lines'):
+        for line in final['summary_lines']:
+            lines.append(f'  {line}')
+    else:
+        lines.append(f'  决策: {final.get("decision","-")} | 总分: {final.get("total_score",0):+.3f} | 置信度: {final.get("confidence","-")}')
     lines.append('')
-    lines.append('📋 各层贡献:')
-    for bd in final['layer_breakdown']:
-        lines.append(f'  {bd}')
-    if final['contradiction']:
-        lines.append(f'  ⚠️ 四层信号方向矛盾（{", ".join(final["signs"])}）→ 决策降级为观望')
+    if final.get('layer_breakdown'):
+        lines.append('📋 各层贡献:')
+        for bd in final['layer_breakdown']:
+            lines.append(f'  {bd}')
+    if final.get('contradiction'):
+        lines.append(f'  ⚠️ 四层信号方向矛盾（{", ".join(final.get("signs", []))}）→ 决策降级为观望')
 
     lines.append('')
     lines.append('=' * 72)

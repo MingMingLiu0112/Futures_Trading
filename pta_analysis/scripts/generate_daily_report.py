@@ -3504,6 +3504,43 @@ def generate_intraday_analysis(report: Dict) -> Dict:
         "",
         f"一句话总结：当前不是强多盘，主线{futures_bias}；看{_fmt_num(max_pain)}是否守住——守住则向{_fmt_num(max_pain)}—{_fmt_num(max_call)}区间收敛，跌破则负Gamma会放大下跌。",
     ]
+
+    # v2.11.85b: 把四维决策评分段插到 narrative 头部（之前 format_report 函数从未接入业务）
+    try:
+        # format_report 在 judge_state.py（同级模块），需显式导入
+        # Flask 进程 sys.path 不含 scripts/，需手动加
+        import sys as _sys
+        _scripts_dir = os.path.dirname(os.path.abspath(__file__))
+        if _scripts_dir not in _sys.path:
+            _sys.path.insert(0, _scripts_dir)
+        from judge_state import format_report as _format_report
+        _dl_cache_path = os.path.join(_scripts_dir, '..', 'data', 'fundamental', 'decision_layer_cache.json')
+        if os.path.exists(_dl_cache_path):
+            import json as _json
+            with open(_dl_cache_path, 'r', encoding='utf-8') as _f:
+                _cache = _json.load(_f)
+            _dl = _cache.get('decision_layer', {})
+            if _dl and _dl.get('layer1'):
+                _opt = report.get('option', {}) or {}
+                _result = {
+                    'contract': _opt.get('active_contract') or _opt.get('contract') or '-',
+                    'futures_price': _cache.get('futures_price') or _opt.get('futures_price') or 0,
+                    'atm_strike': _opt.get('atm_strike') or 0,
+                    'max_pain': _cache.get('max_pain') or 0,
+                    'generated_at': _dl.get('generated_at') or '-',
+                    'last_update': _cache.get('last_data_update') or '',
+                    'tqsdk_ready': None,
+                    'layer1': _dl.get('layer1', {}),
+                    'layer2': _dl.get('layer2', {}),
+                    'layer3': _dl.get('layer3', {}),
+                    'layer4': _dl.get('layer4', {}),
+                    'final': _dl.get('final', {}),
+                }
+                _four_layer_text = _format_report(_result)
+                sections = [_four_layer_text, ''] + sections
+    except Exception as _e:
+        print(f'[v2.11.85b] format_report 注入跳过: {_e}')
+
     narrative = '\n'.join(sections)
 
     return {

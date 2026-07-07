@@ -3055,13 +3055,18 @@ function getStrategyReportEndpoint() {
                         const putTopList = (putStrikeRole || []).slice().sort((a,b) => (b.contribution||0) - (a.contribution||0)).slice(0, 8);
                         const callStrikeHtml = callTopList.length ? callTopList.map(fmtStrikeRowV2).filter(Boolean).join('<br>') : '--';
                         const putStrikeHtml = putTopList.length ? putTopList.map(fmtStrikeRowV2).filter(Boolean).join('<br>') : '--';
-                        // Put 端 + Call 端 6 大性质（保留老 24 行表结构，兼容老字段）
+                        // v2.11.85b: 7 栏目表（新增被动平仓 + 深度档噪声 + 投机彩票 + 卖压 + 套保移仓）
                         const rows = [
                             {label: '产业卖权收租 (OI↑IV↓)', key: 'hedge_sell'},
                             {label: '产业买保 (OI↑IV—)',      key: 'hedge_buy'},
                             {label: '投机端加仓 (OI↑IV↑)',     key: 'spec_add'},
                             {label: '投机/对冲撤退 (OI↓IV↓/—)', key: 'spec_trim'},
                             {label: '卖方平仓 (OI↓IV↑)',        key: 'close_push'},
+                            {label: '被动平仓 (OI↓IV—)',        key: 'passive_close'},
+                            {label: '套保移仓 (深度ITM OI↑IV↑)', key: 'hedge_rolling'},
+                            {label: '卖压 (OI—IV↓)',            key: 'supply_overhang'},
+                            {label: '投机彩票 (深度OTM OI↑IV↑)', key: 'spec_buy_lotto'},
+                            {label: '深度档噪声(报价调/平)',     key: 'noise_ignore'},
                         ];
                         let tableRows = '';
                         rows.forEach(r => {
@@ -4896,6 +4901,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.85a</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.85b</div>
 </body>
 </html>
