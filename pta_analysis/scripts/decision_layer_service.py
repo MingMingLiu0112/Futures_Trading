@@ -71,14 +71,18 @@ def _load_judge_state_module():
 # ============================================================
 # v2.11.85d: PCR + Skew 交叉验证数据契约层（飞书 §2.3.2 附录）
 # ============================================================
-def _build_cross_validation_inputs(chain_data, alert_data, gex, weighted):
-    """从 T 表 + alert_data + gex 提取 PCR 驱动因素 + Skew 驱动因素 + 资金活跃度
+def _build_cross_validation_inputs(alert_data, gex, weighted, _legacy_chain_data=None):
+    """从 alert_data + gex 提取 PCR 驱动因素 + Skew 驱动因素 + 资金活跃度
 
+    v2.11.85e: L3 数据源统一为 alert_data, 删除 chain_data 依赖
+      strike_rows = alert_data.rows (含 oi_call/iv_call/iv_call_prev)
+      _calc_fund_activity 已支持双 schema 自动探测
     输出 dict 结构: see SKILL.md pta-decision-layer-service-85d-cross-validation
     """
-    strike_rows = (chain_data or {}).get('strike_rows') or []
+    rows_ad = (alert_data or {}).get('rows', []) or []
+    strike_rows = rows_ad
     if not strike_rows:
-        return {'available': False, 'note': 'strike_rows 为空'}
+        return {'available': False, 'note': 'alert_data.rows 为空'}
 
     from scripts.compute_weighted_nature import (
         _calc_fund_activity, _classify_iv_reliability
@@ -312,24 +316,31 @@ def _build_decision_layer_payload(gex: dict, alert_data: dict, curve: dict) -> D
     }
 
     # ============================================================
-    # v2.11.85a 替换: 用 compute_weighted_nature 完全替换老 _compute_nature_and_synthesis 路径
-    # 老算法产出的 call_role / put_role / role_summary / standardized_label / strike_modifier /
-    # data_quality (v2.11.84) 全部用 v2.11.85a 输出覆盖
-    # 老算法产出的 put_nature / call_nature / nature_label / business_meaning / pcr / shape / position 保留
-    # 数据源: /api/options/chain (T 表, 含 call_oi_change/iv_change 字段)
-    # 前端: renderL3StrikeDetail (kline_lightweight.html) 改读 strike_role[] + weighted_verdict
-    # judge_state.py narrative 增加 v2.11.85a weighted summary
+    # v2.11.85e: L3 strike 详情数据源统一为 /api/iv_smile/alert_data.rows
+    # 历史 v2.11.85a-d 走 /api/options/chain (T 表快照, 含 call_oi_change/iv_change)
+    #   → 同一 strike 的 OI/IV 在 chain vs alert_data 不一致
+    #   → 导致 L3 strike_role 与 L3 PCR/Skew 段口径不同 (性质判定方向相反)
+    # 现在: 数据源统一走 alert_data (TqSdk 真实当前值 + 前次基准缓存)
+    # 前端: renderL3StrikeDetail 10 栏目表 NAT_MAP 早已对齐, 无需改
+    # 兼容: compute_weighted_nature 内 _compute_side / _calc_fund_activity 加了 schema
+    #       自动探测 (alert_data vs chain_legacy), 老调用方仍能跑 chain 口径
     # ============================================================
     try:
         from scripts.compute_weighted_nature import compute_weighted_nature as _cwn
         import urllib.request
+        # v2.11.85e: 拉 alert_data 而非 chain
         with urllib.request.urlopen(
-            'http://127.0.0.1:8424/api/options/chain?main_only=true', timeout=5
+            'http://127.0.0.1:8424/api/iv_smile/alert_data', timeout=5
         ) as resp:
-            chain_data = json.loads(resp.read())
-        strike_rows = (chain_data or {}).get('strike_rows') or []
-        F = float((chain_data or {}).get('underlying_price') or 0)
-        weighted = _cwn(strike_rows, F)
+            alert_data_raw = json.loads(resp.read())
+        alert_rows = (alert_data_raw or {}).get('rows') or []
+        # alert_data 没顶层 futures_price, 从 gex.summary 拿
+        F = float(
+            (alert_data_raw or {}).get('futures_price')
+            or (gex or {}).get('summary', {}).get('futures_price')
+            or 0
+        )
+        weighted = _cwn(alert_rows, F)
         if weighted:
             # ---------- v2.11.85a: 用 strike_role[] 重算 call_role / put_role 兼容老前端 ----------
             def _rebuild_role_dict(strike_role_list):
@@ -431,11 +442,18 @@ def _build_decision_layer_payload(gex: dict, alert_data: dict, curve: dict) -> D
             payload['layer3']['direction'] = weighted['Call']['direction']
             payload['layer3']['put_direction'] = weighted['Put']['direction']
             payload['layer3']['weighted_version'] = 'v2.11.85a'
+            # v2.11.85d: 折叠行必须跟随新加权算法，避免继续显示老 _compute_nature_and_synthesis 的
+            # "Put spec_buy + Call spec_buy → 信号矛盾"，与 standardized_label/详情区互相打架。
+            payload['layer3']['logic_brief'] = (
+                f"Call {weighted['Call']['label']} ({weighted['Call']['main_pct']:.1f}%) / "
+                f"Put {weighted['Put']['label']} ({weighted['Put']['main_pct']:.1f}%)"
+            )
 
             # v2.11.85d: PCR + Skew 交叉验证数据契约（飞书文档 §2.3.2 附录）
             # 这些字段供 Step 2 综合判定函数消费，不影响现有 verdict 字段
+            # v2.11.85e: chain_data 已删除, 直接传 alert_data
             try:
-                cross_val_inputs = _build_cross_validation_inputs(chain_data, alert_data, gex, weighted)
+                cross_val_inputs = _build_cross_validation_inputs(alert_data, gex, weighted)
                 payload['layer3']['cross_validation'] = cross_val_inputs
                 # Step 2: 综合判定（4 子规则）→ 6 档置信度
                 try:

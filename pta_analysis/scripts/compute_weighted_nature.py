@@ -108,13 +108,32 @@ def _judge(oi_pct, iv_pp, mn):
 
 
 def _compute_side(strike_rows, futures_price, side):
-    """单端 (Call/Put) 达标 strike + 综合权重 + SCORE_性质"""
+    """单端 (Call/Put) 达标 strike + 综合权重 + SCORE_性质
+
+    v2.11.85e: 数据源统一为 /api/iv_smile/alert_data.rows
+      alert_data 字段: oi_call / oi_call_prev / iv_call / iv_call_prev
+      (Put 端: oi_put / oi_put_prev / iv_put / iv_put_prev)
+      IV 变化用 iv_cur - iv_prev (alert_data 里 iv_call_chg 是 null)
+      OI 绝对变化用 oi_cur - oi_prev (不依赖 oi_chg 百分比反推)
+      alert_data 没有 OI 变化 % → 把 oi_pct 设为 oi_chg_abs/prev_oi*100 给 _judge 用
+      兼容: 如果 r 里没有 oi_call 而有 call_oi → fallback 回原 chain schema
+    """
     if not strike_rows or futures_price <= 0:
         return None
-    oi_fld = f'{side.lower()}_oi'
-    oi_chg_fld = f'{side.lower()}_oi_change'  # %
-    iv_fld = f'{side.lower()}_iv'
-    iv_chg_fld = f'{side.lower()}_iv_change'  # pp
+    lower = side.lower()
+    # v2.11.85e: 检测数据源 schema — alert_data 用 oi_call/oi_put, chain 用 call_oi/put_oi
+    if any(('oi_' + lower) in r for r in strike_rows[:3] if isinstance(r, dict)):
+        oi_fld = 'oi_' + lower           # alert_data: oi_call / oi_put
+        oi_prev_fld = 'oi_' + lower + '_prev'
+        iv_fld = 'iv_' + lower           # alert_data: iv_call / iv_put
+        iv_prev_fld = 'iv_' + lower + '_prev'
+        schema = 'alert_data'
+    else:
+        oi_fld = lower + '_oi'           # chain: call_oi / put_oi
+        oi_chg_fld = lower + '_oi_change'
+        iv_fld = lower + '_iv'
+        iv_chg_fld = lower + '_iv_change'
+        schema = 'chain_legacy'
 
     rows = []
     for r in strike_rows:
@@ -124,17 +143,29 @@ def _compute_side(strike_rows, futures_price, side):
             if oi_cur < MIN_OI or iv_cur < MIN_IV_PCT:
                 continue
             s = int(r['strike'])
-            oi_pct = float(r.get(oi_chg_fld) or 0)  # T 表字段: %
-            iv_pp = float(r.get(iv_chg_fld) or 0)   # T 表字段: pp
-            if iv_pp is None:
-                continue
 
-            # 还原 prev_oi 用于算 |ΔOI| 绝对量 (分母 Contribution 用)
-            if abs(oi_pct - (-100)) < 1e-9:
-                prev_oi = 0
+            if schema == 'alert_data':
+                # v2.11.85e: alert_data 直接给 prev 值, 不再用 % 反推
+                prev_oi = float(r.get(oi_prev_fld) or 0)
+                oi_chg_abs = oi_cur - prev_oi
+                # _judge 要 % 形式, alert_data 没 oi_chg % → 现算
+                if prev_oi > 0:
+                    oi_pct = (oi_chg_abs / prev_oi) * 100.0
+                else:
+                    oi_pct = -100.0 if oi_chg_abs < 0 else 0.0
+                prev_iv = float(r.get(iv_prev_fld) or 0)
+                iv_pp = iv_cur - prev_iv
             else:
-                prev_oi = oi_cur / (1.0 + oi_pct / 100.0)
-            oi_chg_abs = oi_cur - prev_oi
+                # 原 chain schema 兼容路径
+                oi_pct = float(r.get(oi_chg_fld) or 0)  # T 表字段: %
+                iv_pp = float(r.get(iv_chg_fld) or 0)   # T 表字段: pp
+                if iv_pp is None:
+                    continue
+                if abs(oi_pct - (-100)) < 1e-9:
+                    prev_oi = 0
+                else:
+                    prev_oi = oi_cur / (1.0 + oi_pct / 100.0)
+                oi_chg_abs = oi_cur - prev_oi
 
             mn = _moneyness(s, futures_price, side)
             nat, w_sig = _judge(oi_pct, iv_pp, mn)
@@ -144,6 +175,7 @@ def _compute_side(strike_rows, futures_price, side):
                 'oi_chg_abs': oi_chg_abs,
                 'moneyness': mn, 'nature': nat,
                 'weight_signal': w_sig,
+                '_schema': schema,
             })
         except Exception as e:
             logger.debug('[compute_weighted] skip row: %s', e)
@@ -229,17 +261,27 @@ def _calc_fund_activity(strike_rows, side):
     }
 
     计算方法: 达标 strike 的 |ΔOI_绝对量| 之和
-       - OI 过滤: call_oi / put_oi >= MIN_OI (1000 手)
-       - IV 过滤: call_iv / put_iv >= MIN_IV_PCT (5%)
+       - OI 过滤: oi_call / oi_put >= MIN_OI (1000 手)  [v2.11.85e: alert_data schema]
+       - IV 过滤: iv_call / iv_put >= MIN_IV_PCT (5%)
        - 只统计合格 strike 的变化量
+    v2.11.85e: 数据源统一为 alert_data, OI 直接相减, IV 用 cur - prev
     """
     if not strike_rows:
         return {'level': '极低', 'abs_oi_chg': 0, 'avg_iv_pp': 0.0}
 
-    oi_fld = f'{side.lower()}_oi'
-    iv_fld = f'{side.lower()}_iv'
-    oi_chg_fld = f'{side.lower()}_oi_change'  # %
-    iv_chg_fld = f'{side.lower()}_iv_change'  # pp
+    lower = side.lower()
+    if any(('oi_' + lower) in r for r in strike_rows[:3] if isinstance(r, dict)):
+        oi_fld = 'oi_' + lower
+        oi_prev_fld = 'oi_' + lower + '_prev'
+        iv_fld = 'iv_' + lower
+        iv_prev_fld = 'iv_' + lower + '_prev'
+        schema = 'alert_data'
+    else:
+        oi_fld = lower + '_oi'
+        iv_fld = lower + '_iv'
+        oi_chg_fld = lower + '_oi_change'
+        iv_chg_fld = lower + '_iv_change'
+        schema = 'chain_legacy'
 
     abs_oi_sum = 0.0
     iv_pp_weighted_sum = 0.0
@@ -250,15 +292,21 @@ def _calc_fund_activity(strike_rows, side):
         iv_cur = float(r.get(iv_fld) or 0)
         if oi_cur < MIN_OI or iv_cur < MIN_IV_PCT:
             continue
-        oi_pct = float(r.get(oi_chg_fld) or 0)
-        iv_pp = float(r.get(iv_chg_fld) or 0)
 
-        # 还原 |ΔOI| 绝对量
-        if abs(oi_pct - (-100)) < 1e-9:
-            prev_oi = 0
+        if schema == 'alert_data':
+            prev_oi = float(r.get(oi_prev_fld) or 0)
+            oi_chg_abs = abs(oi_cur - prev_oi)
+            prev_iv = float(r.get(iv_prev_fld) or 0)
+            iv_pp = iv_cur - prev_iv
         else:
-            prev_oi = oi_cur / (1.0 + oi_pct / 100.0)
-        oi_chg_abs = abs(oi_cur - prev_oi)
+            oi_pct = float(r.get(oi_chg_fld) or 0)
+            iv_pp = float(r.get(iv_chg_fld) or 0)
+            if abs(oi_pct - (-100)) < 1e-9:
+                prev_oi = 0
+            else:
+                prev_oi = oi_cur / (1.0 + oi_pct / 100.0)
+            oi_chg_abs = abs(oi_cur - prev_oi)
+
         abs_oi_sum += oi_chg_abs
 
         # 用 |ΔOI| 加权平均 IV 变化（更重视大资金 strike 的 IV 变化）
