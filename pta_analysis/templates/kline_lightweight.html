@@ -2897,7 +2897,7 @@ function getStrategyReportEndpoint() {
                     // ============================================================
                     function renderDecisionLayerBlock(d) {
                         if (!d) {
-                            return `<div style="margin:8px 0 10px 0;"><div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">🧭 四维决策（v2.11.85f 资金意图综合）</div><div style="color:#888;font-size:11px;font-style:italic;padding:4px 0;">决策层数据未生成（可手动跑 <code>python3 scripts/judge_state.py</code> 验证）</div></div>`;
+                            return `<div style="margin:8px 0 10px 0;"><div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">🧭 四维决策（v2.11.85g 资金意图综合）</div><div style="color:#888;font-size:11px;font-style:italic;padding:4px 0;">决策层数据未生成（可手动跑 <code>python3 scripts/judge_state.py</code> 验证）</div></div>`;
                         }
                         const L1 = d.layer1 || {}, L2 = d.layer2 || {}, L3 = d.layer3 || {}, L4 = d.layer4 || {};
                         const fin = d.final || {};
@@ -2963,7 +2963,7 @@ function getStrategyReportEndpoint() {
                         const contradiction = fin.contradiction;
                         const decisionColor = (totalScore == null) ? '#888' : (totalScore >= 0.2 ? '#26a69a' : (totalScore <= -0.2 ? '#ef5350' : '#ffd700'));
                         let html = `<div style="margin:14px 0 10px 0;padding:10px 12px;background:#15151f;border-left:3px solid #ffd700;border-radius:5px;">`;
-                        html += `<div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:8px;">🧭 四维决策（v2.11.85f 资金意图综合）</div>`;
+                        html += `<div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:8px;">🧭 四维决策（v2.11.85g 资金意图综合）</div>`;
                         // 决策 banner
                         html += `<div style="margin:4px 0 10px 0;padding:8px 10px;background:#101018;border-left:3px solid ${decisionColor};border-radius:3px;">
                             <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
@@ -2983,7 +2983,7 @@ function getStrategyReportEndpoint() {
                         const l3Brief = L3.logic_brief
                             ? `${cell(L3.logic_brief)} <span style="color:#888;">| ${l3Label}</span>${l3PcrDelta}`
                             : `Put ${cell(L3.put_nature || '?')} + Call ${cell(L3.call_nature || '?')} <span style="color:#888;">| ${l3Label}</span>${l3PcrDelta}`;
-                        // v2.11.85f: 折叠态顶部一行"🎯 综合结论"（飞书 §2.3.1 + §2.3.2 联合摘要）
+                        // v2.11.85g: 折叠态顶部一行"🎯 综合结论"（飞书 §2.3.1 + §2.3.2 联合摘要）
                         const _fsBrief = L3.funding_signal || {};
                         const _fsCvBrief = L3.funding_signal_cv || {};
                         const _fsBriefLabel = _fsBrief.signal_label || '';
@@ -3102,19 +3102,6 @@ function getStrategyReportEndpoint() {
                                 <td style="color:#ddd;padding:3px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;width:36%;font-size:10px;line-height:1.55;">${ps}</td>
                             </tr>`;
                         });
-                        return `${fundingSignalHtml}
-                            ${weightedVerdictHtml}
-                            ${strikeRoleListHtml}
-                            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
-                                <div style="flex:1 1 240px;background:#101018;padding:4px 6px;border-radius:2px;border-left:2px solid #4a90e2;">
-                                    <div style="color:#9bc;font-size:10px;font-weight:500;margin-bottom:2px;">📈 Call 角色分布 (Top ${topN})</div>
-                                    <div style="color:#cfcfcf;font-size:10px;line-height:1.5;">${cell(callSummary)}</div>
-                                </div>
-                                <div style="flex:1 1 240px;background:#101018;padding:4px 6px;border-radius:2px;border-left:2px solid #e2904a;">
-                                    <div style="color:#9bc;font-size:10px;font-weight:500;margin-bottom:2px;">📉 Put 角色分布 (Top ${topN})</div>
-                                    <div style="color:#cfcfcf;font-size:10px;line-height:1.5;">${cell(putSummary)}</div>
-                                </div>
-                            </div>
                         const weightedVerdictHtml = (weightedVerdict || putWeightedVerdict) ? `
                             <div style="margin:0 0 6px 0;padding:6px 8px;background:#1a1a25;border-radius:3px;border-left:2px solid #9b59b6;">
                                 <div style="color:#9b59b6;font-size:10px;font-weight:bold;margin-bottom:3px;">⚖️ v2.11.85e 加权判定</div>
@@ -4956,6 +4943,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.85f</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.85g</div>
 </body>
 </html>
