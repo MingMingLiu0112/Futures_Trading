@@ -68,6 +68,210 @@ def _load_judge_state_module():
     return module
 
 
+# ============================================================
+# v2.11.85d: PCR + Skew 交叉验证数据契约层（飞书 §2.3.2 附录）
+# ============================================================
+def _build_cross_validation_inputs(chain_data, alert_data, gex, weighted):
+    """从 T 表 + alert_data + gex 提取 PCR 驱动因素 + Skew 驱动因素 + 资金活跃度
+
+    输出 dict 结构: see SKILL.md pta-decision-layer-service-85d-cross-validation
+    """
+    strike_rows = (chain_data or {}).get('strike_rows') or []
+    if not strike_rows:
+        return {'available': False, 'note': 'strike_rows 为空'}
+
+    from scripts.compute_weighted_nature import (
+        _calc_fund_activity, _classify_iv_reliability
+    )
+
+    # ---------- PCR 驱动因素 ----------
+    rows_ad = (alert_data or {}).get('rows', []) or []
+    call_oi_now = sum((r.get('oi_call') or 0) for r in rows_ad)
+    put_oi_now  = sum((r.get('oi_put')  or 0) for r in rows_ad)
+    call_oi_prev = sum((r.get('oi_call_prev') or 0) for r in rows_ad)
+    put_oi_prev  = sum((r.get('oi_put_prev')  or 0) for r in rows_ad)
+    pcr_now  = (put_oi_now / call_oi_now) if call_oi_now else 0
+    pcr_prev = (put_oi_prev / call_oi_prev) if call_oi_prev else 0
+    pcr_delta = pcr_now - pcr_prev
+
+    if pcr_delta > 0.01:
+        pcr_direction = 'up'
+    elif pcr_delta < -0.01:
+        pcr_direction = 'down'
+    else:
+        pcr_direction = 'flat'
+
+    call_oi_chg = call_oi_now - call_oi_prev
+    put_oi_chg = put_oi_now - put_oi_prev
+    put_up = put_oi_chg > 0
+    call_dn = call_oi_chg < 0
+    if pcr_direction == 'up' and put_up and call_dn:
+        pcr_drive = 'both'
+    elif pcr_direction == 'up' and put_up:
+        pcr_drive = 'put_oi_up'
+    elif pcr_direction == 'up' and call_dn:
+        pcr_drive = 'call_oi_down'
+    elif pcr_direction == 'down' and put_oi_chg < 0 and call_oi_chg > 0:
+        pcr_drive = 'both'
+    elif pcr_direction == 'down' and put_oi_chg < 0:
+        pcr_drive = 'put_oi_down'
+    elif pcr_direction == 'down' and call_oi_chg > 0:
+        pcr_drive = 'call_oi_up'
+    else:
+        pcr_drive = 'flat'
+
+    # ---------- Skew 变化（v2.11.85d 修订：ATM ±5 档简单平均口径）----------
+    # 旧口径: 全档 OI 加权平均 IV → 受深度虚值档 OI 拉偏
+    # 新口径: ATM ±5 档（11 档）Call/Put 简单平均 IV → 覆盖完整轻度虚实值区
+    #   - ±3 档是 7 档（1.72%-5.17% moneyness），太窄
+    #   - ±5 档是 11 档（1.72%-8.62% moneyness），覆盖 OTM/ITM_slight 全段
+    #   - 最大 8.62% < 10% OTM_deep 边界，不会引入深度虚值（spec_buy_lotto 噪音）
+    #   - 5300-5400 含产业买保深度 ITM；6200-6300 含产业卖权收租虚值区
+    # 业务映射:
+    #   skew_delta = (Put_avg - Call_avg)_now - (Put_avg - Call_avg)_prev
+    #   正值 > +0.3pp → Skew 加深（Put 端相对变贵 → 强化 Put 端看空）
+    #   负值 < -0.3pp → Skew 减轻（Call 端相对变贵 → 强化 Call 端看多）
+    #   |delta| ≤ 0.3pp → Skew flat
+    # 注: 数据源是 alert_data.rows[].iv_call/iv_put，prev 用 alert_data.rows[].iv_call_prev（前日 15:00 收盘）
+    #     维持前日基准 → 日内多次 refresh 相对同一基准，delta 反映日内动态
+
+    # 数据源: alert_data.atm_strike + alert_data.rows[].iv_call/iv_put/iv_call_prev/iv_put_prev
+    # 注: chain_data.strike_rows 里的 call_iv 和 put_iv 是同一个值（SVI 拟合后的 avg IV），
+    #     算不出真实 Skew。必须用 alert_data.rows 里分开的 iv_call / iv_put。
+    atm_strike = (alert_data or {}).get('atm_strike') or 0
+    curve = []
+    for r in rows_ad:
+        sv = r.get('strike')
+        if sv is None:
+            continue
+        curve.append({
+            'strike': sv,
+            'call_iv':      r.get('iv_call'),
+            'put_iv':       r.get('iv_put'),
+            'call_iv_prev': r.get('iv_call_prev'),
+            'put_iv_prev':  r.get('iv_put_prev'),
+        })
+
+    # 找 ATM 位置
+    if atm_strike and curve:
+        strikes_list = [c['strike'] for c in curve if c.get('strike') is not None]
+        if atm_strike in strikes_list:
+            atm_idx = strikes_list.index(atm_strike)
+            neighbor = curve[max(0, atm_idx-5):atm_idx+6]  # ATM ±5 档（11 档）
+        else:
+            # ATM 不在 curve 里 → 取最接近的
+            closest = min(strikes_list, key=lambda s: abs(s - atm_strike))
+            atm_idx = strikes_list.index(closest)
+            neighbor = curve[max(0, atm_idx-5):atm_idx+6]
+    else:
+        # 没 ATM 信息 → 取 curve 中间 11 档
+        n = len(curve)
+        if n >= 11:
+            neighbor = curve[n//2-5:n//2+6]
+        else:
+            neighbor = curve
+
+    # 计算简单平均（仅用有值的 strike）
+    c_iv_now_list  = [c.get('call_iv')      for c in neighbor if c.get('call_iv')      is not None]
+    p_iv_now_list  = [c.get('put_iv')       for c in neighbor if c.get('put_iv')       is not None]
+    c_iv_prev_list = [c.get('call_iv_prev') for c in neighbor if c.get('call_iv_prev') is not None]
+    p_iv_prev_list = [c.get('put_iv_prev')  for c in neighbor if c.get('put_iv_prev')  is not None]
+
+    def _safe_mean(lst):
+        return sum(lst) / len(lst) if lst else 0
+
+    # 注：call_iv / put_iv 是百分比数字（如 28.79 = 28.79%），直接相减就是 pp 变化
+    #     不需要 *100（那会把 28.79 变成 2879%）
+    call_iv_now_avg  = _safe_mean(c_iv_now_list)
+    put_iv_now_avg   = _safe_mean(p_iv_now_list)
+    call_iv_prev_avg = _safe_mean(c_iv_prev_list)
+    put_iv_prev_avg  = _safe_mean(p_iv_prev_list)
+
+    skew_now  = put_iv_now_avg  - call_iv_now_avg
+    skew_prev = put_iv_prev_avg - call_iv_prev_avg
+    skew_delta_pp = skew_now - skew_prev
+
+    # 业务映射方向 A: put_iv - call_iv 差值 = "Skew"
+    SKEW_DEEPEN_THRESHOLD = 0.3  # pp（业务口径，与 IV 变化幅度 0.5/1.5pp 子规则分档对齐）
+    if skew_delta_pp > SKEW_DEEPEN_THRESHOLD:
+        skew_direction = 'deepen'
+    elif skew_delta_pp < -SKEW_DEEPEN_THRESHOLD:
+        skew_direction = 'flatten'
+    else:
+        skew_direction = 'flat'
+
+    # 驱动因素分解：deepen 时是谁推动的？
+    put_iv_up = (put_iv_now_avg - put_iv_prev_avg) > 0.1
+    call_iv_dn = (call_iv_now_avg - call_iv_prev_avg) < -0.1
+    put_iv_dn = (put_iv_now_avg - put_iv_prev_avg) < -0.1
+    call_iv_up = (call_iv_now_avg - call_iv_prev_avg) > 0.1
+    if skew_direction == 'deepen' and put_iv_up and call_iv_dn:
+        skew_drive = 'both'
+    elif skew_direction == 'deepen' and put_iv_up:
+        skew_drive = 'put_iv_up'
+    elif skew_direction == 'deepen' and call_iv_dn:
+        skew_drive = 'call_iv_down'
+    elif skew_direction == 'flatten' and put_iv_dn and call_iv_up:
+        skew_drive = 'both'
+    elif skew_direction == 'flatten' and put_iv_dn:
+        skew_drive = 'put_iv_down'
+    elif skew_direction == 'flatten' and call_iv_up:
+        skew_drive = 'call_iv_up'
+    else:
+        skew_drive = 'flat'
+
+    # ---------- 资金活跃度（call/put 两端）----------
+    fund_call = _calc_fund_activity(strike_rows, 'Call')
+    fund_put  = _calc_fund_activity(strike_rows, 'Put')
+
+    # ---------- Skew 变化可靠性（call/put 两端，基于 ATM 邻域简单平均变化）----------
+    # v2.11.85d 修订: 用 ATM ±3 档简单平均 IV 变化代替全档 OI 加权
+    iv_rel_call = _classify_iv_reliability(call_iv_now_avg - call_iv_prev_avg)
+    iv_rel_put  = _classify_iv_reliability(put_iv_now_avg - put_iv_prev_avg)
+
+    return {
+        'available': True,
+        'threshold_version': 'v2.11.85d',
+        'pcr': {
+            'now': round(pcr_now, 4),
+            'prev': round(pcr_prev, 4),
+            'delta': round(pcr_delta, 4),
+            'call_oi_now': call_oi_now,
+            'put_oi_now': put_oi_now,
+            'call_oi_prev': call_oi_prev,
+            'put_oi_prev': put_oi_prev,
+            'call_oi_chg': call_oi_chg,
+            'put_oi_chg': put_oi_chg,
+            'direction': pcr_direction,
+            'drive': pcr_drive,
+        },
+        'skew': {
+            'now': round(skew_now, 3),         # 当前 (Put - Call) 差值，单位 pp
+            'prev': round(skew_prev, 3),        # 前次 (Put - Call) 差值，单位 pp
+            'delta_pp': round(skew_delta_pp, 3),# 变化量 = now - prev
+            'call_iv_now': round(call_iv_now_avg, 3),
+            'put_iv_now': round(put_iv_now_avg, 3),
+            'call_iv_prev': round(call_iv_prev_avg, 3),
+            'put_iv_prev': round(put_iv_prev_avg, 3),
+            'call_iv_chg_pp': round(call_iv_now_avg - call_iv_prev_avg, 3),
+            'put_iv_chg_pp': round(put_iv_now_avg - put_iv_prev_avg, 3),
+            'direction': skew_direction,        # 'deepen' / 'flatten' / 'flat'
+            'drive': skew_drive,
+            'method': 'atm_neighbor_simple_avg',  # v2.11.85d 修订口径
+            'neighbor_window': len(neighbor),     # 邻域 strike 数（应为 7）
+            'atm_strike': atm_strike,
+        },
+        'fund_activity': {
+            'Call': fund_call,
+            'Put':  fund_put,
+        },
+        'iv_reliability': {
+            'Call': iv_rel_call,
+            'Put':  iv_rel_put,
+        },
+    }
+
+
 def _fetch_iv_smile_data() -> Dict[str, Any]:
     """复用 judge_state.py 的 fetch_iv_smile_data（避免重复实现 + 代理设置）"""
     js = _load_judge_state_module()
@@ -138,6 +342,7 @@ def _build_decision_layer_payload(gex: dict, alert_data: dict, curve: dict) -> D
                     nat = s.get('nature', '')
                     row = {
                         'strike': s.get('strike'),
+                        'side': s.get('side'),  # v2.11.85c: 加 side 字段，修复前端 7 栏目表 Call 端 strike 后缀 fallback 'P' bug
                         'nature': nat,
                         'oi_delta_pct': s.get('oi_pct'),
                         'iv_delta_pp': s.get('iv_pp'),
@@ -226,6 +431,24 @@ def _build_decision_layer_payload(gex: dict, alert_data: dict, curve: dict) -> D
             payload['layer3']['direction'] = weighted['Call']['direction']
             payload['layer3']['put_direction'] = weighted['Put']['direction']
             payload['layer3']['weighted_version'] = 'v2.11.85a'
+
+            # v2.11.85d: PCR + Skew 交叉验证数据契约（飞书文档 §2.3.2 附录）
+            # 这些字段供 Step 2 综合判定函数消费，不影响现有 verdict 字段
+            try:
+                cross_val_inputs = _build_cross_validation_inputs(chain_data, alert_data, gex, weighted)
+                payload['layer3']['cross_validation'] = cross_val_inputs
+                # Step 2: 综合判定（4 子规则）→ 6 档置信度
+                try:
+                    from scripts.compute_weighted_nature import cross_validate_funding
+                    cv_result = cross_validate_funding(cross_val_inputs)
+                    payload['layer3']['cross_validation_verdict'] = cv_result
+                except Exception as cv2_e:
+                    _logger.warning('%s v2.11.85d cross_validate_funding skipped: %s', LOG_TAG, cv2_e)
+                    payload['layer3']['cross_validation_verdict'] = {'error': str(cv2_e)}
+            except Exception as cv_e:
+                _logger.warning('%s v2.11.85d cross_validation skipped: %s', LOG_TAG, cv_e)
+                payload['layer3']['cross_validation'] = {'available': False, 'note': str(cv_e)}
+
             _logger.info(
                 '%s v2.11.85a replace OK: Call=%s (%.1f%%) Put=%s (%.1f%%)',
                 LOG_TAG,

@@ -2897,7 +2897,7 @@ function getStrategyReportEndpoint() {
                     // ============================================================
                     function renderDecisionLayerBlock(d) {
                         if (!d) {
-                            return `<div style="margin:8px 0 10px 0;"><div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">🧭 四维决策（v2.11.68+）</div><div style="color:#888;font-size:11px;font-style:italic;padding:4px 0;">决策层数据未生成（可手动跑 <code>python3 scripts/judge_state.py</code> 验证）</div></div>`;
+                            return `<div style="margin:8px 0 10px 0;"><div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">🧭 四维决策（v2.11.85d PCR×Skew 交叉验证）</div><div style="color:#888;font-size:11px;font-style:italic;padding:4px 0;">决策层数据未生成（可手动跑 <code>python3 scripts/judge_state.py</code> 验证）</div></div>`;
                         }
                         const L1 = d.layer1 || {}, L2 = d.layer2 || {}, L3 = d.layer3 || {}, L4 = d.layer4 || {};
                         const fin = d.final || {};
@@ -2963,7 +2963,7 @@ function getStrategyReportEndpoint() {
                         const contradiction = fin.contradiction;
                         const decisionColor = (totalScore == null) ? '#888' : (totalScore >= 0.2 ? '#26a69a' : (totalScore <= -0.2 ? '#ef5350' : '#ffd700'));
                         let html = `<div style="margin:14px 0 10px 0;padding:10px 12px;background:#15151f;border-left:3px solid #ffd700;border-radius:5px;">`;
-                        html += `<div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:8px;">🧭 四维决策（v2.11.68+）</div>`;
+                        html += `<div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:8px;">🧭 四维决策（v2.11.85d PCR×Skew 交叉验证）</div>`;
                         // 决策 banner
                         html += `<div style="margin:4px 0 10px 0;padding:8px 10px;background:#101018;border-left:3px solid ${decisionColor};border-radius:3px;">
                             <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
@@ -2987,14 +2987,17 @@ function getStrategyReportEndpoint() {
                         // L4: 情绪确认（用 signals 列表前 3 个）
                         const l4Signals = Array.isArray(L4.signals) ? L4.signals.slice(0, 3).join(' | ') : '';
                         html += layerRow(4, '情绪确认', L4.weight || 0.15, L4.layer_score, l4Signals, false, L4);
-                        // v2.11.68 A1 方案：L3 折叠展开（24 行 strike 事实 + Put/Call 角色）
+                        // v2.11.85d: L3 折叠展开（加权判定 + PCR×Skew 交叉验证 + Top 8 strike 贡献 + 角色分布）
                         // 默认收起，点击 ▶ 展开查看详情；折叠时 L3 行保持简洁
                         const l3ExpandId = 'l3-expand-' + Math.random().toString(36).slice(2, 8);
                         const hasL3Detail = (L3.call_role && Object.keys(L3.call_role).length > 1)
-                                          || (L3.put_role && Object.keys(L3.put_role).length > 1);
+                                          || (L3.put_role && Object.keys(L3.put_role).length > 1)
+                                          || (Array.isArray(L3.strike_role) && L3.strike_role.length > 0)
+                                          || (Array.isArray(L3.put_strike_role) && L3.put_strike_role.length > 0)
+                                          || L3.weighted_verdict || L3.put_weighted_verdict;
                         if (hasL3Detail) {
                             html += `<div style="margin:8px 0 0 0;">
-                                <div id="${l3ExpandId}-btn" style="color:#4fc3f7;font-size:10px;cursor:pointer;line-height:1.5;user-select:none;" onclick="document.getElementById('${l3ExpandId}').style.display==='none'?(()=>{document.getElementById('${l3ExpandId}').style.display='block';document.getElementById('${l3ExpandId}-btn').textContent='▼ 收起 24 行 strike 事实';})():(()=>{document.getElementById('${l3ExpandId}').style.display='none';document.getElementById('${l3ExpandId}-btn').textContent='▶ 展开 24 行 strike 事实';})()">▶ 展开 24 行 strike 事实</div>
+                                <div id="${l3ExpandId}-btn" style="color:#4fc3f7;font-size:10px;cursor:pointer;line-height:1.5;user-select:none;" onclick="document.getElementById('${l3ExpandId}').style.display==='none'?(()=>{document.getElementById('${l3ExpandId}').style.display='block';document.getElementById('${l3ExpandId}-btn').textContent='▼ 收起 L3 Top贡献+角色分布';})():(()=>{document.getElementById('${l3ExpandId}').style.display='none';document.getElementById('${l3ExpandId}-btn').textContent='▶ 展开 L3 Top贡献+角色分布';})()">▶ 展开 L3 Top贡献+角色分布</div>
                                 <div id="${l3ExpandId}" style="display:none;margin-top:6px;padding:8px;background:#0e0e16;border:1px solid #2a2a36;border-radius:3px;">${renderL3StrikeDetail(L3)}</div>
                             </div>`;
                         }
@@ -3055,18 +3058,23 @@ function getStrategyReportEndpoint() {
                         const putTopList = (putStrikeRole || []).slice().sort((a,b) => (b.contribution||0) - (a.contribution||0)).slice(0, 8);
                         const callStrikeHtml = callTopList.length ? callTopList.map(fmtStrikeRowV2).filter(Boolean).join('<br>') : '--';
                         const putStrikeHtml = putTopList.length ? putTopList.map(fmtStrikeRowV2).filter(Boolean).join('<br>') : '--';
-                        // v2.11.85b: 7 栏目表（新增被动平仓 + 深度档噪声 + 投机彩票 + 卖压 + 套保移仓）
+                        // v2.11.85d: 10 栏目表
+                        // 桶名严格对齐后端 _rebuild_role_dict 的 NAT_MAP（scripts/decision_layer_service.py:148）
+                        //   spec_add ← v2.11.85a spec_buy_directional（OI↑IV↑ ATM/OTM_slight/ITM_slight）
+                        //   double_exit ← v2.11.85a double_exit（OI↓IV↓）
+                        //   noise_ignore ← noise_close / noise_open / quote_adjust / theta_decay / static
+                        // 注意: 老的 spec_trim 桶在后端 NAT_MAP 里没有任何 source 映射，永远空
                         const rows = [
-                            {label: '产业卖权收租 (OI↑IV↓)', key: 'hedge_sell'},
-                            {label: '产业买保 (OI↑IV—)',      key: 'hedge_buy'},
-                            {label: '投机端加仓 (OI↑IV↑)',     key: 'spec_add'},
-                            {label: '投机/对冲撤退 (OI↓IV↓/—)', key: 'spec_trim'},
+                            {label: '产业卖权收租 (OI↑IV↓)',   key: 'hedge_sell'},
+                            {label: '产业买保 (OI↑IV—)',        key: 'hedge_buy'},
+                            {label: '投机买入 (OI↑IV↑)',        key: 'spec_add'},
+                            {label: '双边撤退 (OI↓IV↓)',        key: 'double_exit'},
                             {label: '卖方平仓 (OI↓IV↑)',        key: 'close_push'},
                             {label: '被动平仓 (OI↓IV—)',        key: 'passive_close'},
                             {label: '套保移仓 (深度ITM OI↑IV↑)', key: 'hedge_rolling'},
                             {label: '卖压 (OI—IV↓)',            key: 'supply_overhang'},
                             {label: '投机彩票 (深度OTM OI↑IV↑)', key: 'spec_buy_lotto'},
-                            {label: '深度档噪声(报价调/平)',     key: 'noise_ignore'},
+                            {label: '深度档噪声(报价调/平)',    key: 'noise_ignore'},
                         ];
                         let tableRows = '';
                         rows.forEach(r => {
@@ -3146,7 +3154,8 @@ function getStrategyReportEndpoint() {
                                 : `${dq.iv_threshold_pp}%`;
                             dqHtml = `<div style="margin:0 0 6px 0;color:${dqColor};font-size:9px;">📊 数据质量: ${dq.confidence.toUpperCase()} (${ver} Call ${dq.eligible_call||'-'}/${dq.total_strikes||'-'} 档有效, Put ${dq.eligible_put||'-'}/${dq.total_strikes||'-'}, OI≥${dq.oi_threshold}手, IV≥${ivDisplay})</div>`;
                         }
-                        return `${weightedVerdictHtml}
+                        return `${synthHtml}
+                            ${weightedVerdictHtml}
                             ${strikeRoleListHtml}
                             ${dqHtml}
                             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
@@ -3834,8 +3843,8 @@ function getStrategyReportEndpoint() {
 
                 intraday = intraday || d.intraday_analysis || d.market_brief;
 
-                // v2.11.77b: 从 /api/decision_layer 注入四维决策（PAIN 结构 / GEX 机制 / 资金意图 / 情绪确认）
-                // 后端 generate_report() 不拼这字段（独立 daemon 维护），前端异步取，注入到 intraday.decision_layer
+                // v2.11.85d: 从 /api/decision_layer 注入四维决策（PAIN 结构 / GEX 机制 / 资金意图 / 情绪确认 + PCR×Skew 交叉验证）
+                // 后端 decision_layer_service 独立维护 cache，前端异步取，注入到 intraday.decision_layer
                 // 取不到时静默 → renderDecisionLayerBlock 走 fallback "决策层数据未生成（可手动跑 judge_state.py 验证）"
                 try {
                     const dlResp = await fetch('/api/decision_layer', { cache: 'no-store' });
@@ -4901,6 +4910,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.85b</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.85d</div>
 </body>
 </html>

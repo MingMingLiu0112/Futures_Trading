@@ -2748,8 +2748,11 @@ def tqsdk_loop():
             _last_integrity_restart_time = 0.0
             # 期望档数（行权价数）= option_symbols 去重后的 strike 数
             _expected_strike_count = len(set(s[1] for s in option_symbols))
-            # 档数不达标起始时间（持续低于 80% 才报警，避免误报）
+            # 档数不达标起始时间（持续低于动态阈值才报警，避免误报）
             _integrity_alert_start = None
+            # v2.11.81+ R3: 30 分钟滑动窗口记录完整性历史 + 当前 OI 推送档数（动态阈值用）
+            _ratios_history = []  # [(ts, ratio_int), ...]
+            _actual_strikes_history = set()  # 当前窗口内收到 OI>0 的 strike 集合
             while _state['running'] and not _tqsdk_restart_requested:
                 try:
                     # TqSdk wait_update(deadline=...) 使用墙钟 time.time() 语义。
@@ -2868,11 +2871,29 @@ def tqsdk_loop():
                         if not _is_trading_hours():
                             _integrity_alert_start = None
                             continue
-                        # 实际档数 = smile_raw 收到的行权价数（每个行权价同时有 C 和 P）
+                        # v2.11.81+ R3: 完整性指标改为 "snapshot 收到 OI>0 的 strike 数"。
+                        # 之前用 smile_raw (IV 算出来的档数) 在午后 sim 期权 deep 端没 bid 时
+                        # 跌到 22/37=59.5%,触发每 3 分钟误重启循环,导致 F 价/OI 缓存失效。
+                        # OI 是 sim 总会推送的字段(只要合约未到期),能真实反映 sim 数据源推送覆盖度。
+                        _snap_options = _tqsdk_quotes.get('snap', {}).get('options', {}) if isinstance(_tqsdk_quotes.get('snap'), dict) else {}
+                        _actual_strikes = {sym_obj[1] for sym_obj in _option_symbols if (lambda q: (q.get('open_interest') or 0) > 0)(_snap_options.get(sym_obj[0], {}))} if _snap_options else set()
+                        # 退化路径: snap 还没到时用 smile_raw (保持向后兼容)
                         with _state['lock']:
-                            _actual_strike_count = len(_state.get('smile_raw', {}))
+                            if not _actual_strikes:
+                                _actual_strike_count = len(_state.get('smile_raw', {}))
+                            else:
+                                _actual_strike_count = len(_actual_strikes)
                         ratio = _actual_strike_count / _expected_strike_count if _expected_strike_count else 0
-                        if ratio < 0.80:
+                        # 30 分钟滑动窗口:只保留最近 30 分钟 ratio 采样
+                        _now_ts = time.time()
+                        _ratios_history = [(t, r) for t, r in _ratios_history if t > _now_ts - 1800]
+                        _ratios_history.append((_now_ts, ratio))
+                        _recent_min_ratio = min((r for _, r in _ratios_history), default=ratio)
+                        # 动态阈值 = max(0.30, 历史最低 × 0.7)
+                        # 当历史最低已经从高位跌下来后,阈值跟着降,避免误报"档数进一步减少"
+                        # 兜底 0.30 保留对"sim 几乎全断"的兜底保护
+                        _dynamic_threshold = max(0.30, _recent_min_ratio * 0.7)
+                        if ratio < _dynamic_threshold:
                             if _integrity_alert_start is None:
                                 _integrity_alert_start = time.time()
                             else:
@@ -2880,14 +2901,14 @@ def tqsdk_loop():
                                 if _alert_dur >= 180:  # 持续 3 分钟
                                     # 最小重连间隔 5 分钟（避免重连风暴）
                                     if time.time() - _last_integrity_restart_time >= 300:
-                                        print(f"[iv_smile] ⚠️ 档数不达标 {_actual_strike_count}/{_expected_strike_count}={ratio:.1%} 持续 {_alert_dur:.0f}s，触发 TqSdk 重连")
-                                        _request_tqsdk_restart(f"integrity {ratio:.1%}")
+                                        print(f"[iv_smile] ⚠️ 档数不达标 {_actual_strike_count}/{_expected_strike_count}={ratio:.1%} < 动态阈值 {_dynamic_threshold:.1%} (历史最低 {_recent_min_ratio:.1%}) 持续 {_alert_dur:.0f}s，触发 TqSdk 重连")
+                                        _request_tqsdk_restart(f"integrity {ratio:.1%} < dyn_thr {_dynamic_threshold:.1%}")
                                         _last_integrity_restart_time = time.time()
                                         _integrity_alert_start = None
                         else:
                             # 档数达标，重置报警计时
                             if _integrity_alert_start is not None:
-                                print(f"[iv_smile] ✅ 档数恢复 {_actual_strike_count}/{_expected_strike_count}={ratio:.1%}")
+                                print(f"[iv_smile] ✅ 档数恢复 {_actual_strike_count}/{_expected_strike_count}={ratio:.1%} (动态阈值 {_dynamic_threshold:.1%})")
                                 _integrity_alert_start = None
 
                 except Exception as e:

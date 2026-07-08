@@ -197,6 +197,263 @@ def _to_dir(scores, side):
     return '中性'
 
 
+# ============================================================
+# v2.11.85d: 持仓 PCR + Skew 交叉验证框架辅助函数
+# 飞书文档 §2.3.2 附录"持仓PCR+SKEW交叉验证框架优化"
+# ============================================================
+
+# 资金活跃度等级（基于单方向总 OI 增量，单位：手）
+FUND_ACTIVITY_THRESHOLDS = [
+    ('极低', 0,      2000),    # < 2000 手
+    ('低',   2000,   5000),    # 2000-5000 手
+    ('中',   5000,   15000),   # 5000-15000 手
+    ('高',   15000,  float('inf')),  # > 15000 手
+]
+
+# Skew 变化可靠性（基于 IV 变化绝对幅度，单位：pp）
+IV_RELIABILITY_THRESHOLDS = [
+    ('弱信号', 0,   0.5),
+    ('中等',   0.5, 1.5),
+    ('强信号', 1.5, float('inf')),
+]
+
+
+def _calc_fund_activity(strike_rows, side):
+    """计算单方向（Call/Put）的资金活跃度等级
+
+    输入: T 表 strike_rows + side ('Call'/'Put')
+    输出: dict {
+        'level': '极低'/'低'/'中'/'高',
+        'abs_oi_chg': 总绝对变化量（手）,
+        'avg_iv_pp':  加权平均 IV 变化（pp）,
+    }
+
+    计算方法: 达标 strike 的 |ΔOI_绝对量| 之和
+       - OI 过滤: call_oi / put_oi >= MIN_OI (1000 手)
+       - IV 过滤: call_iv / put_iv >= MIN_IV_PCT (5%)
+       - 只统计合格 strike 的变化量
+    """
+    if not strike_rows:
+        return {'level': '极低', 'abs_oi_chg': 0, 'avg_iv_pp': 0.0}
+
+    oi_fld = f'{side.lower()}_oi'
+    iv_fld = f'{side.lower()}_iv'
+    oi_chg_fld = f'{side.lower()}_oi_change'  # %
+    iv_chg_fld = f'{side.lower()}_iv_change'  # pp
+
+    abs_oi_sum = 0.0
+    iv_pp_weighted_sum = 0.0
+    weight_sum = 0.0
+
+    for r in strike_rows:
+        oi_cur = float(r.get(oi_fld) or 0)
+        iv_cur = float(r.get(iv_fld) or 0)
+        if oi_cur < MIN_OI or iv_cur < MIN_IV_PCT:
+            continue
+        oi_pct = float(r.get(oi_chg_fld) or 0)
+        iv_pp = float(r.get(iv_chg_fld) or 0)
+
+        # 还原 |ΔOI| 绝对量
+        if abs(oi_pct - (-100)) < 1e-9:
+            prev_oi = 0
+        else:
+            prev_oi = oi_cur / (1.0 + oi_pct / 100.0)
+        oi_chg_abs = abs(oi_cur - prev_oi)
+        abs_oi_sum += oi_chg_abs
+
+        # 用 |ΔOI| 加权平均 IV 变化（更重视大资金 strike 的 IV 变化）
+        iv_pp_weighted_sum += abs(iv_pp) * oi_chg_abs
+        weight_sum += oi_chg_abs
+
+    avg_iv_pp = iv_pp_weighted_sum / weight_sum if weight_sum > 0 else 0.0
+
+    level = '极低'
+    for lv, lo, hi in FUND_ACTIVITY_THRESHOLDS:
+        if lo <= abs_oi_sum < hi:
+            level = lv
+            break
+
+    return {
+        'level': level,
+        'abs_oi_chg': round(abs_oi_sum, 1),
+        'avg_iv_pp': round(avg_iv_pp, 3),
+    }
+
+
+def _classify_iv_reliability(iv_pp):
+    """根据 IV 变化绝对幅度判定可靠性等级
+
+    输入: iv_pp (绝对值)
+    输出: '弱信号' / '中等' / '强信号'
+    """
+    abs_iv = abs(iv_pp) if iv_pp is not None else 0
+    for lv, lo, hi in IV_RELIABILITY_THRESHOLDS:
+        if lo <= abs_iv < hi:
+            return lv
+    return '弱信号'
+
+
+# ============================================================
+# v2.11.85d: PCR × Skew 交叉验证综合判定（飞书 §2.3.2 附录）
+# 4 个子规则 + 6 档置信度等级
+# ============================================================
+
+# 综合置信度等级（输出字符串）
+CV_LEVELS = ['强确认', '确认', '弱确认', '无修正', '忽略噪音']
+CV_LEVEL_RANK = {lv: i for i, lv in enumerate(CV_LEVELS)}  # 越小越强
+# 资金活跃度 → 排序值（越小越强）
+FUND_RANK = {'高': 0, '中': 1, '低': 2, '极低': 3}
+# IV 可靠性 → 排序值（越小越强）
+IV_RANK = {'强信号': 0, '中等': 1, '弱信号': 2}
+
+
+def _cv_min(a, b):
+    """综合置信度：取较弱的那一档（保守）"""
+    return a if CV_LEVEL_RANK[a] > CV_LEVEL_RANK[b] else b
+
+
+def _cv_apply_rule_consistent(fund_level, iv_rel):
+    """子规则 1：方向一致时，资金活跃度 × IV 变化幅度 → 综合置信度
+
+    飞书附录 表"子规则 1" 8 行映射
+    """
+    f = FUND_RANK.get(fund_level, 3)
+    i = IV_RANK.get(iv_rel, 2)
+
+    if fund_level == '极低' or iv_rel == '弱信号':
+        # 极低资金 或 弱信号 IV → 都降级
+        if iv_rel == '弱信号' and fund_level == '极低':
+            return '忽略噪音'
+        return '弱确认（降级）' if fund_level != '极低' else '忽略噪音'
+
+    # 高 / 中 / 低 资金 × 强 / 中 / 弱 IV
+    # 映射表（高/中/低, 强/中/弱）
+    table = {
+        ('高', '强信号'): '强确认',     # 信号置信度极高，坚定执行
+        ('高', '中等'):   '确认',         # 信号可靠，维持原始判定
+        ('高', '弱信号'): '弱确认',       # 资金大量涌入但 IV 未明显变化（可能是卖权收租），方向参考，仓位减半
+        ('中', '强信号'): '确认',
+        ('中', '中等'):   '弱确认',
+        ('中', '弱信号'): '弱确认（降级）',
+        ('低', '强信号'): '弱确认（降级）',
+        ('低', '中等'):   '弱确认（降级）',
+        ('低', '弱信号'): '忽略噪音',
+    }
+    return table.get((fund_level, iv_rel), '无修正')
+
+
+def _cv_apply_rule_contradictory(fund_level, iv_rel):
+    """子规则 2：方向矛盾时，大资金方主导（非简单观望）
+
+    飞书附录 表"子规则 2" 9 行映射
+    """
+    if fund_level == '极低' or iv_rel == '弱信号':
+        if fund_level == '极低' and iv_rel == '弱信号':
+            return '忽略噪音'
+        return '无修正'
+
+    table = {
+        ('高', '强信号'): '强确认',         # 大资金方完全主导
+        ('高', '中等'):   '确认',           # 大资金方明显占优
+        ('高', '弱信号'): '弱确认',
+        ('中', '强信号'): '弱确认',
+        ('中', '中等'):   '弱确认（降级）',
+        ('中', '弱信号'): '忽略噪音',
+        ('低', '强信号'): '弱确认（降级）',
+        ('低', '中等'):   '无修正',
+        ('低', '弱信号'): '忽略噪音',
+    }
+    return table.get((fund_level, iv_rel), '无修正')
+
+
+def _cv_apply_rule_pcr_flat(skew_dir, iv_rel):
+    """子规则 3：PCR 平稳 + Skew 变化 → IV 变化可能是噪音
+
+    飞书附录 表"子规则 3" 3 行映射
+    """
+    if iv_rel == '强信号':
+        return '弱确认'         # IV 变化大但 PCR 无验证，可能是做市商报价调整或 Theta decay
+    elif iv_rel == '中等':
+        return '无修正'         # IV 变化未达"显著"，不纳入交叉验证
+    else:
+        return '忽略噪音'
+
+
+def cross_validate_funding(cv_inputs):
+    """主入口：综合判定函数
+
+    输入: cv_inputs = _build_cross_validation_inputs 的输出
+    输出: dict {
+        'call': {'verdict': '强确认/...', 'rationale': '...', 'subrule': 1/2/3/4},
+        'put':  { 同上 },
+        'consistency': 'consistent' / 'contradictory' / 'pcr_flat',
+        'pcr_direction': 'up/down/flat',
+        'skew_direction': 'deepen/flatten/flat',
+    }
+    """
+    if not cv_inputs or not cv_inputs.get('available'):
+        return {
+            'call': {'verdict': '无修正', 'rationale': 'cross_validation 不可用', 'subrule': 4},
+            'put':  {'verdict': '无修正', 'rationale': 'cross_validation 不可用', 'subrule': 4},
+            'consistency': 'unavailable',
+        }
+
+    pcr_dir = cv_inputs['pcr']['direction']
+    skew_dir = cv_inputs['skew']['direction']
+    fund_call = cv_inputs['fund_activity']['Call']['level']
+    fund_put  = cv_inputs['fund_activity']['Put']['level']
+    iv_call = cv_inputs['iv_reliability']['Call']
+    iv_put  = cv_inputs['iv_reliability']['Put']
+
+    # 一致性判定：PCR↑ + Skew加深 都看空 / PCR↓ + Skew减轻 都看多 → 一致
+    # 业务映射：
+    #   PCR↑ → 看空方向（Put 资金涌入）
+    #   Skew加深 → 看空方向（Put 端溢价上升）
+    #   PCR↓ → 看多方向
+    #   Skew减轻 → 看多方向
+    if pcr_dir == 'flat' or skew_dir == 'flat':
+        consistency = 'pcr_flat'  # 子规则 3 / 4 适用
+    elif (pcr_dir == 'up' and skew_dir == 'deepen') or (pcr_dir == 'down' and skew_dir == 'flatten'):
+        consistency = 'consistent'  # 同向
+    else:
+        consistency = 'contradictory'  # 反向
+
+    result = {
+        'call': {},
+        'put': {},
+        'consistency': consistency,
+        'pcr_direction': pcr_dir,
+        'skew_direction': skew_dir,
+    }
+
+    for side, fund_lv, iv_rel in [('call', fund_call, iv_call), ('put', fund_put, iv_put)]:
+        if consistency == 'consistent':
+            verdict = _cv_apply_rule_consistent(fund_lv, iv_rel)
+            subrule = 1
+            rationale = f'子规则1（方向一致）: 资金[{fund_lv}] × IV[{iv_rel}]'
+        elif consistency == 'contradictory':
+            verdict = _cv_apply_rule_contradictory(fund_lv, iv_rel)
+            subrule = 2
+            rationale = f'子规则2（方向矛盾大资金方主导）: 资金[{fund_lv}] × IV[{iv_rel}]'
+        else:  # pcr_flat
+            if iv_rel == '强信号':
+                verdict = _cv_apply_rule_pcr_flat(skew_dir, iv_rel)
+                subrule = 3
+                rationale = f'子规则3（PCR平稳+Skew变化）: Skew[{skew_dir}] + IV[{iv_rel}]'
+            else:
+                verdict = '无修正'
+                subrule = 4
+                rationale = f'子规则4（无法判定）: PCR平稳 + IV变化<0.5pp'
+
+        result[side] = {
+            'verdict': verdict,
+            'rationale': rationale,
+            'subrule': subrule,
+        }
+
+    return result
+
+
 def compute_weighted_nature(strike_rows, futures_price):
     """主入口: 输入 T 表 strike_rows + F, 输出 strike_role + weighted_pct
 
