@@ -689,13 +689,33 @@ def synthesize_funding_signal(call_main_nat: str, put_main_nat: str,
         sig_dir = '矛盾'
     else:  # 中性 / 无方向 / 箱体震荡
         sig_dir = '中性'
+    # v2.11.85f: judge_state.L891/912 的 PUT_DIR/CALL_DIR 是 label_standardize 函数内局部常量,
+    # _js 模块级访问不到,这里本地复制一份 5 档方向映射
+    _PUT_DIR_LOCAL = {
+        'spec_buy': '看空', 'spec_buy_directional': '看空', 'close_push': '看空',
+        'spec_buy_lotto': '偏空',
+        'hedge_buy': '偏多',
+        'hedge_sell': '中性', 'double_exit': '中性', 'supply_overhang': '中性',
+        'mixed_neutral': '中性', 'passive_close': '中性', 'noise_close': '中性',
+        'noise_open': '中性', 'theta_decay': '中性', 'quote_adjust': '中性',
+        'static': '中性', 'hedge_rolling': '中性',
+    }
+    _CALL_DIR_LOCAL = {
+        'spec_buy': '看多', 'spec_buy_directional': '看多', 'close_push': '看多',
+        'spec_buy_lotto': '偏多',
+        'hedge_buy': '偏空',
+        'hedge_sell': '中性', 'double_exit': '中性', 'supply_overhang': '中性',
+        'mixed_neutral': '中性', 'passive_close': '中性', 'noise_close': '中性',
+        'noise_open': '中性', 'theta_decay': '中性', 'quote_adjust': '中性',
+        'static': '中性', 'hedge_rolling': '中性',
+    }
     return {
         'signal_label': label,
         'signal_strength': strength,
         'signal_direction': sig_dir,
-        'p_dir': _js.PUT_DIR_V85E.get(put_main_nat, '中性') if hasattr(_js, 'PUT_DIR_V85E') else '中性',
-        'c_dir': _js.CALL_DIR_V85E.get(call_main_nat, '中性') if hasattr(_js, 'CALL_DIR_V85E') else '中性',
-        'source': '飞书 §2.3.1 Put端与Call端合成信号矩阵 (v2.11.85e)',
+        'p_dir': _PUT_DIR_LOCAL.get(put_main_nat, '中性'),
+        'c_dir': _CALL_DIR_LOCAL.get(call_main_nat, '中性'),
+        'source': '飞书 §2.3.1 Put端与Call端合成信号矩阵 (v2.11.85f)',
     }
 
 

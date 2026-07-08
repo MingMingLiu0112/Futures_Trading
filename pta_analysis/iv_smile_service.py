@@ -3773,8 +3773,12 @@ def register_routes(app):
                         # 仅在 prev_smooth 覆盖范围内才插值；超出首末两档的恒定延伸会产生
                         # 误导性的平台（5000-5300 全是 0.3541、7500-8100 全是 0.3666），
                         # 让用户误以为前次曲线有那些档的数据
-                        entry['smooth_prev'] = float(v_interp)
-                        entry['prev_avg'] = float(v_interp)
+                        v_left = prev_smooth.get(str(left))
+                        v_right = prev_smooth.get(str(right))
+                        if v_left is not None and v_right is not None:
+                            v_interp = v_left + (v_right - v_left) * (k_int - left) / (right - left)
+                            entry['smooth_prev'] = float(v_interp)
+                            entry['prev_avg'] = float(v_interp)
                     # 超出 prev_smooth 首/末端的档：不填 prev_smooth_prev，让前次曲线在那些
                     # 区域自然断开（ECharts scatter 模式下会显示 gap）
                 # 前次原始 Call/Put IV

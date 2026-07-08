@@ -2983,7 +2983,21 @@ function getStrategyReportEndpoint() {
                         const l3Brief = L3.logic_brief
                             ? `${cell(L3.logic_brief)} <span style="color:#888;">| ${l3Label}</span>${l3PcrDelta}`
                             : `Put ${cell(L3.put_nature || '?')} + Call ${cell(L3.call_nature || '?')} <span style="color:#888;">| ${l3Label}</span>${l3PcrDelta}`;
-                        html += layerRow(3, '资金意图', L3.weight || 0.25, L3.layer_score, l3Brief, true, L3);
+                        // v2.11.85f: 折叠态顶部一行"🎯 综合结论"（飞书 §2.3.1 + §2.3.2 联合摘要）
+                        const _fsBrief = L3.funding_signal || {};
+                        const _fsCvBrief = L3.funding_signal_cv || {};
+                        const _fsBriefLabel = _fsBrief.signal_label || '';
+                        const _fsBriefStrength = _fsBrief.signal_strength || '';
+                        const _fsBriefCv = _fsCvBrief.verdict || '';
+                        let _fsBriefColor = '#888';
+                        if (_fsBriefStrength === '强' || _fsBriefCv === '确认' || _fsBriefCv === '强确认') _fsBriefColor = '#26a69a';
+                        else if (_fsBriefStrength === '中' || _fsBriefCv === '弱确认') _fsBriefColor = '#ffd700';
+                        else if (_fsBriefStrength.includes('观望') || _fsBriefCv === '无修正' || _fsBriefCv === '忽略噪音') _fsBriefColor = '#888';
+                        const _fsBriefHtml = _fsBriefLabel ? `<div style="margin:2px 0 0 0;font-size:10px;color:${_fsBriefColor};">
+                            <span style="color:#888;">🎯 综合:</span> <b>${cell(_fsBriefLabel)}</b>
+                            ${_fsBriefCv ? `<span style="color:#888;"> | ${cell(_fsBriefCv)}</span>` : ''}
+                        </div>` : '';
+                        html += layerRow(3, '资金意图', L3.weight || 0.25, L3.layer_score, l3Brief + _fsBriefHtml, true, L3);
                         // L4: 情绪确认（用 signals 列表前 3 个）
                         const l4Signals = Array.isArray(L4.signals) ? L4.signals.slice(0, 3).join(' | ') : '';
                         html += layerRow(4, '情绪确认', L4.weight || 0.15, L4.layer_score, l4Signals, false, L4);
@@ -2997,7 +3011,7 @@ function getStrategyReportEndpoint() {
                                           || L3.weighted_verdict || L3.put_weighted_verdict;
                         if (hasL3Detail) {
                             html += `<div style="margin:8px 0 0 0;">
-                                <div id="${l3ExpandId}-btn" style="color:#4fc3f7;font-size:10px;cursor:pointer;line-height:1.5;user-select:none;" onclick="document.getElementById('${l3ExpandId}').style.display==='none'?(()=>{document.getElementById('${l3ExpandId}').style.display='block';document.getElementById('${l3ExpandId}-btn').textContent='▼ 收起 L3 PCR×Skew确认+Top贡献+角色分布';})():(()=>{document.getElementById('${l3ExpandId}').style.display='none';document.getElementById('${l3ExpandId}-btn').textContent='▶ 展开 L3 PCR×Skew确认+Top贡献+角色分布';})()">▶ 展开 L3 PCR×Skew确认+Top贡献+角色分布</div>
+                                <div id="${l3ExpandId}-btn" style="color:#4fc3f7;font-size:10px;cursor:pointer;line-height:1.5;user-select:none;" onclick="document.getElementById('${l3ExpandId}').style.display==='none'?(()=>{document.getElementById('${l3ExpandId}').style.display='block';document.getElementById('${l3ExpandId}-btn').textContent='▼ 收起 L3 综合结论详情';})():(()=>{document.getElementById('${l3ExpandId}').style.display='none';document.getElementById('${l3ExpandId}-btn').textContent='▶ 展开 L3 综合结论详情';})()">▶ 展开 L3 综合结论详情</div>
                                 <div id="${l3ExpandId}" style="display:none;margin-top:6px;padding:8px;background:#0e0e16;border:1px solid #2a2a36;border-radius:3px;">${renderL3StrikeDetail(L3)}</div>
                             </div>`;
                         }
@@ -3088,33 +3102,19 @@ function getStrategyReportEndpoint() {
                                 <td style="color:#ddd;padding:3px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;width:36%;font-size:10px;line-height:1.55;">${ps}</td>
                             </tr>`;
                         });
-                        // v2.11.68 A1 增强: 业务意义判定（信号判定）
-                        const putBiz = L3.put_business_meaning || '';
-                        const callBiz = L3.call_business_meaning || '';
-                        const stdLabel = L3.standardized_label || L3.raw_label || '未判定';
-                        const stdIntensity = L3.standardized_intensity || L3.raw_intensity || '弱';
-                        const strikeMod = L3.strike_modifier || '';
-                        const synthHtml = `<div style="margin:0 0 8px 0;padding:6px 8px;background:#1a1a25;border-radius:3px;border-left:2px solid #ffd700;">
-                            <div style="color:#ffd700;font-size:10px;font-weight:bold;margin-bottom:4px;">📊 资金意图信号判定</div>
-                            <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:10px;line-height:1.5;">
-                                <div style="flex:1 1 220px;background:#101018;padding:3px 6px;border-radius:2px;">
-                                    <span style="color:#e2904a;font-weight:500;">📉 Put 端:</span>
-                                    <span style="color:#cfcfcf;">${putBiz || '<i style="color:#888;">(无)</i>'}</span>
+                        return `${fundingSignalHtml}
+                            ${weightedVerdictHtml}
+                            ${strikeRoleListHtml}
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+                                <div style="flex:1 1 240px;background:#101018;padding:4px 6px;border-radius:2px;border-left:2px solid #4a90e2;">
+                                    <div style="color:#9bc;font-size:10px;font-weight:500;margin-bottom:2px;">📈 Call 角色分布 (Top ${topN})</div>
+                                    <div style="color:#cfcfcf;font-size:10px;line-height:1.5;">${cell(callSummary)}</div>
                                 </div>
-                                <div style="flex:1 1 220px;background:#101018;padding:3px 6px;border-radius:2px;">
-                                    <span style="color:#4a90e2;font-weight:500;">📈 Call 端:</span>
-                                    <span style="color:#cfcfcf;">${callBiz || '<i style="color:#888;">(无)</i>'}</span>
+                                <div style="flex:1 1 240px;background:#101018;padding:4px 6px;border-radius:2px;border-left:2px solid #e2904a;">
+                                    <div style="color:#9bc;font-size:10px;font-weight:500;margin-bottom:2px;">📉 Put 角色分布 (Top ${topN})</div>
+                                    <div style="color:#cfcfcf;font-size:10px;line-height:1.5;">${cell(putSummary)}</div>
                                 </div>
                             </div>
-                            <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap;font-size:10px;align-items:center;">
-                                <span style="color:#888;">合成:</span>
-                                <b style="color:#ffd700;">${cell(stdLabel)}</b>
-                                <span style="color:#888;">| 强度:</span>
-                                <b style="color:${stdIntensity === '强' ? '#ef5350' : (stdIntensity === '中' ? '#ffd700' : '#888')};">${cell(stdIntensity)}</b>
-                                ${strikeMod ? `<span style="color:#888;">| 形态修正:</span><span style="color:#9bc;">${cell(strikeMod)}</span>` : ''}
-                            </div>
-                        </div>`;
-                        // v2.11.85d: weighted_verdict 大标题（Call / Put 各一行）
                         const weightedVerdictHtml = (weightedVerdict || putWeightedVerdict) ? `
                             <div style="margin:0 0 6px 0;padding:6px 8px;background:#1a1a25;border-radius:3px;border-left:2px solid #9b59b6;">
                                 <div style="color:#9b59b6;font-size:10px;font-weight:bold;margin-bottom:3px;">⚖️ v2.11.85e 加权判定</div>
@@ -3177,35 +3177,6 @@ function getStrategyReportEndpoint() {
                                 <div style="color:#888;font-size:9px;margin-top:3px;line-height:1.5;">${cell(fsCvRationale)}</div>
                                 ` : ''}
                             </div>` : '';
-                        // v2.11.85d: PCR×Skew 交叉验证确认（强/弱确认 + 子规则依据）
-                        const callCv = crossVerdict.call || {};
-                        const putCv = crossVerdict.put || {};
-                        const pcr = crossValidation.pcr || {};
-                        const skew = crossValidation.skew || {};
-                        const fundAct = crossValidation.fund_activity || {};
-                        const ivRel = crossValidation.iv_reliability || {};
-                        const cvColor = (v) => v === '强确认' ? '#26a69a' : (v === '弱确认' ? '#ffd700' : (v === '否定' ? '#ef5350' : '#aaa'));
-                        const cvHtml = (callCv.verdict || putCv.verdict || crossVerdict.consistency) ? `
-                            <div style="margin:0 0 6px 0;padding:6px 8px;background:#1a1a25;border-radius:3px;border-left:2px solid #26a69a;">
-                                <div style="color:#26a69a;font-size:10px;font-weight:bold;margin-bottom:3px;">✅ v2.11.85e PCR×Skew 交叉验证</div>
-                                <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:10px;line-height:1.5;">
-                                    <div style="flex:1 1 220px;background:#101018;padding:3px 6px;border-radius:2px;">
-                                        <span style="color:#4a90e2;font-weight:500;">📈 Call:</span>
-                                        <b style="color:${cvColor(callCv.verdict)};">${cell(callCv.verdict || '-')}</b>
-                                        <span style="color:#888;"> | 资金:${cell((fundAct.Call||{}).level || '-')} IV:${cell(ivRel.Call || '-')}</span>
-                                        <div style="color:#aaa;font-size:9px;margin-top:2px;">${cell(callCv.rationale || '')}</div>
-                                    </div>
-                                    <div style="flex:1 1 220px;background:#101018;padding:3px 6px;border-radius:2px;">
-                                        <span style="color:#e2904a;font-weight:500;">📉 Put:</span>
-                                        <b style="color:${cvColor(putCv.verdict)};">${cell(putCv.verdict || '-')}</b>
-                                        <span style="color:#888;"> | 资金:${cell((fundAct.Put||{}).level || '-')} IV:${cell(ivRel.Put || '-')}</span>
-                                        <div style="color:#aaa;font-size:9px;margin-top:2px;">${cell(putCv.rationale || '')}</div>
-                                    </div>
-                                </div>
-                                <div style="margin-top:4px;color:#888;font-size:9px;line-height:1.5;">
-                                    PCR: ${cell(pcr.prev)}→${cell(pcr.now)} (${cell(pcr.direction || '-')}, Δ${cell(pcr.delta)}) ｜ Skew: ${cell(skew.prev)}→${cell(skew.now)} (${cell(skew.direction || '-')}, Δ${cell(skew.delta_pp)}pp) ｜ 一致性: ${cell(crossVerdict.consistency || '-')}
-                                </div>
-                            </div>` : '';
                         // v2.11.85d: strike_role 列表（按 contribution 降序，取 Top 8）
                         const strikeRoleListHtml = (callStrikeHtml !== '--' || putStrikeHtml !== '--') ? `
                             <div style="margin:0 0 6px 0;padding:4px 6px;background:#0e0e16;border:1px solid #2a2a36;border-radius:3px;">
@@ -3227,12 +3198,7 @@ function getStrategyReportEndpoint() {
                                 : `${dq.iv_threshold_pp}%`;
                             dqHtml = `<div style="margin:0 0 6px 0;color:${dqColor};font-size:9px;">📊 数据质量: ${dq.confidence.toUpperCase()} (${ver} Call ${dq.eligible_call||'-'}/${dq.total_strikes||'-'} 档有效, Put ${dq.eligible_put||'-'}/${dq.total_strikes||'-'}, OI≥${dq.oi_threshold}手, IV≥${ivDisplay})</div>`;
                         }
-                        return `${synthHtml}
-                            ${fundingSignalHtml}
-                            ${weightedVerdictHtml}
-                            ${cvHtml}
-                            ${strikeRoleListHtml}
-                            ${dqHtml}
+                        const _rolesHtml = `
                             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
                                 <div style="flex:1 1 240px;background:#101018;padding:4px 6px;border-radius:2px;border-left:2px solid #4a90e2;">
                                     <div style="color:#9bc;font-size:10px;font-weight:500;margin-bottom:2px;">📈 Call 角色分布 (Top ${topN})</div>
@@ -3242,7 +3208,12 @@ function getStrategyReportEndpoint() {
                                     <div style="color:#9bc;font-size:10px;font-weight:500;margin-bottom:2px;">📉 Put 角色分布 (Top ${topN})</div>
                                     <div style="color:#cfcfcf;font-size:10px;line-height:1.5;">${cell(putSummary)}</div>
                                 </div>
-                            </div>
+                            </div>`;
+                        return `${strikeRoleListHtml}
+                            ${_rolesHtml}
+                            ${weightedVerdictHtml}
+                            ${fundingSignalHtml}
+                            ${dqHtml}
                             <table style="width:100%;border-collapse:collapse;font-size:10px;line-height:1.4;background:#0f0f18;border:1px solid #2a2a36;">
                                 <thead><tr>
                                     <th style="color:#aaa;text-align:left;padding:3px 5px;border-bottom:1px solid #333;font-weight:500;">角色</th>
