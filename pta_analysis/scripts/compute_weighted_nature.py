@@ -11,6 +11,8 @@ v2.11.85a Strike 级别权重 + 性质分组聚合算法（飞书文档 §2.3.1 
 """
 import math
 import logging
+import os
+from typing import Any, Dict, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -108,13 +110,32 @@ def _judge(oi_pct, iv_pp, mn):
 
 
 def _compute_side(strike_rows, futures_price, side):
-    """单端 (Call/Put) 达标 strike + 综合权重 + SCORE_性质"""
+    """单端 (Call/Put) 达标 strike + 综合权重 + SCORE_性质
+
+    v2.11.85e: 数据源统一为 /api/iv_smile/alert_data.rows
+      alert_data 字段: oi_call / oi_call_prev / iv_call / iv_call_prev
+      (Put 端: oi_put / oi_put_prev / iv_put / iv_put_prev)
+      IV 变化用 iv_cur - iv_prev (alert_data 里 iv_call_chg 是 null)
+      OI 绝对变化用 oi_cur - oi_prev (不依赖 oi_chg 百分比反推)
+      alert_data 没有 OI 变化 % → 把 oi_pct 设为 oi_chg_abs/prev_oi*100 给 _judge 用
+      兼容: 如果 r 里没有 oi_call 而有 call_oi → fallback 回原 chain schema
+    """
     if not strike_rows or futures_price <= 0:
         return None
-    oi_fld = f'{side.lower()}_oi'
-    oi_chg_fld = f'{side.lower()}_oi_change'  # %
-    iv_fld = f'{side.lower()}_iv'
-    iv_chg_fld = f'{side.lower()}_iv_change'  # pp
+    lower = side.lower()
+    # v2.11.85e: 检测数据源 schema — alert_data 用 oi_call/oi_put, chain 用 call_oi/put_oi
+    if any(('oi_' + lower) in r for r in strike_rows[:3] if isinstance(r, dict)):
+        oi_fld = 'oi_' + lower           # alert_data: oi_call / oi_put
+        oi_prev_fld = 'oi_' + lower + '_prev'
+        iv_fld = 'iv_' + lower           # alert_data: iv_call / iv_put
+        iv_prev_fld = 'iv_' + lower + '_prev'
+        schema = 'alert_data'
+    else:
+        oi_fld = lower + '_oi'           # chain: call_oi / put_oi
+        oi_chg_fld = lower + '_oi_change'
+        iv_fld = lower + '_iv'
+        iv_chg_fld = lower + '_iv_change'
+        schema = 'chain_legacy'
 
     rows = []
     for r in strike_rows:
@@ -124,17 +145,29 @@ def _compute_side(strike_rows, futures_price, side):
             if oi_cur < MIN_OI or iv_cur < MIN_IV_PCT:
                 continue
             s = int(r['strike'])
-            oi_pct = float(r.get(oi_chg_fld) or 0)  # T 表字段: %
-            iv_pp = float(r.get(iv_chg_fld) or 0)   # T 表字段: pp
-            if iv_pp is None:
-                continue
 
-            # 还原 prev_oi 用于算 |ΔOI| 绝对量 (分母 Contribution 用)
-            if abs(oi_pct - (-100)) < 1e-9:
-                prev_oi = 0
+            if schema == 'alert_data':
+                # v2.11.85e: alert_data 直接给 prev 值, 不再用 % 反推
+                prev_oi = float(r.get(oi_prev_fld) or 0)
+                oi_chg_abs = oi_cur - prev_oi
+                # _judge 要 % 形式, alert_data 没 oi_chg % → 现算
+                if prev_oi > 0:
+                    oi_pct = (oi_chg_abs / prev_oi) * 100.0
+                else:
+                    oi_pct = -100.0 if oi_chg_abs < 0 else 0.0
+                prev_iv = float(r.get(iv_prev_fld) or 0)
+                iv_pp = iv_cur - prev_iv
             else:
-                prev_oi = oi_cur / (1.0 + oi_pct / 100.0)
-            oi_chg_abs = oi_cur - prev_oi
+                # 原 chain schema 兼容路径
+                oi_pct = float(r.get(oi_chg_fld) or 0)  # T 表字段: %
+                iv_pp = float(r.get(iv_chg_fld) or 0)   # T 表字段: pp
+                if iv_pp is None:
+                    continue
+                if abs(oi_pct - (-100)) < 1e-9:
+                    prev_oi = 0
+                else:
+                    prev_oi = oi_cur / (1.0 + oi_pct / 100.0)
+                oi_chg_abs = oi_cur - prev_oi
 
             mn = _moneyness(s, futures_price, side)
             nat, w_sig = _judge(oi_pct, iv_pp, mn)
@@ -144,6 +177,7 @@ def _compute_side(strike_rows, futures_price, side):
                 'oi_chg_abs': oi_chg_abs,
                 'moneyness': mn, 'nature': nat,
                 'weight_signal': w_sig,
+                '_schema': schema,
             })
         except Exception as e:
             logger.debug('[compute_weighted] skip row: %s', e)
@@ -229,17 +263,27 @@ def _calc_fund_activity(strike_rows, side):
     }
 
     计算方法: 达标 strike 的 |ΔOI_绝对量| 之和
-       - OI 过滤: call_oi / put_oi >= MIN_OI (1000 手)
-       - IV 过滤: call_iv / put_iv >= MIN_IV_PCT (5%)
+       - OI 过滤: oi_call / oi_put >= MIN_OI (1000 手)  [v2.11.85e: alert_data schema]
+       - IV 过滤: iv_call / iv_put >= MIN_IV_PCT (5%)
        - 只统计合格 strike 的变化量
+    v2.11.85e: 数据源统一为 alert_data, OI 直接相减, IV 用 cur - prev
     """
     if not strike_rows:
         return {'level': '极低', 'abs_oi_chg': 0, 'avg_iv_pp': 0.0}
 
-    oi_fld = f'{side.lower()}_oi'
-    iv_fld = f'{side.lower()}_iv'
-    oi_chg_fld = f'{side.lower()}_oi_change'  # %
-    iv_chg_fld = f'{side.lower()}_iv_change'  # pp
+    lower = side.lower()
+    if any(('oi_' + lower) in r for r in strike_rows[:3] if isinstance(r, dict)):
+        oi_fld = 'oi_' + lower
+        oi_prev_fld = 'oi_' + lower + '_prev'
+        iv_fld = 'iv_' + lower
+        iv_prev_fld = 'iv_' + lower + '_prev'
+        schema = 'alert_data'
+    else:
+        oi_fld = lower + '_oi'
+        iv_fld = lower + '_iv'
+        oi_chg_fld = lower + '_oi_change'
+        iv_chg_fld = lower + '_iv_change'
+        schema = 'chain_legacy'
 
     abs_oi_sum = 0.0
     iv_pp_weighted_sum = 0.0
@@ -250,15 +294,21 @@ def _calc_fund_activity(strike_rows, side):
         iv_cur = float(r.get(iv_fld) or 0)
         if oi_cur < MIN_OI or iv_cur < MIN_IV_PCT:
             continue
-        oi_pct = float(r.get(oi_chg_fld) or 0)
-        iv_pp = float(r.get(iv_chg_fld) or 0)
 
-        # 还原 |ΔOI| 绝对量
-        if abs(oi_pct - (-100)) < 1e-9:
-            prev_oi = 0
+        if schema == 'alert_data':
+            prev_oi = float(r.get(oi_prev_fld) or 0)
+            oi_chg_abs = abs(oi_cur - prev_oi)
+            prev_iv = float(r.get(iv_prev_fld) or 0)
+            iv_pp = iv_cur - prev_iv
         else:
-            prev_oi = oi_cur / (1.0 + oi_pct / 100.0)
-        oi_chg_abs = abs(oi_cur - prev_oi)
+            oi_pct = float(r.get(oi_chg_fld) or 0)
+            iv_pp = float(r.get(iv_chg_fld) or 0)
+            if abs(oi_pct - (-100)) < 1e-9:
+                prev_oi = 0
+            else:
+                prev_oi = oi_cur / (1.0 + oi_pct / 100.0)
+            oi_chg_abs = abs(oi_cur - prev_oi)
+
         abs_oi_sum += oi_chg_abs
 
         # 用 |ΔOI| 加权平均 IV 变化（更重视大资金 strike 的 IV 变化）
@@ -541,6 +591,322 @@ def compute_weighted_nature(strike_rows, futures_price):
     except Exception as e:
         logger.warning('[compute_weighted_nature] 异常, 返回 None: %s', e)
         return None
+
+
+# ============================================================
+# v2.11.85e: 资金意图层综合结论 + PCR×Skew 交叉验证
+# 严格按飞书 §2.3.1 第三层 Put端与Call端合成信号矩阵 + §2.3.2 附录交叉验证框架
+# ============================================================
+
+# 飞书 §2.3.1 14 行表的方向枚举（5 档）
+DIRECTION_5 = ('看空', '偏空', '中性', '偏多', '看多')
+
+# v2.11.85e: 把 _to_dir 输出（业务语义丰富）映射到飞书 5 档
+DIR_BUSINESS_TO_5 = {
+    '看多':       '看多',
+    '偏多(弱)':   '偏多',
+    '偏多(防御)': '偏多',
+    '看空':       '看空',
+    '偏空(弱)':   '偏空',
+    '偏空(防御)': '偏空',
+    '中性':       '中性',
+    'unknown':    '中性',
+}
+
+
+def _to_dir_5(scores_or_dir: dict, side: str = None) -> str:
+    """v2.11.85e: _to_dir 输出 → 飞书 5 档方向（看空/偏空/中性/偏多/看多）
+
+    输入可以是:
+      - scores dict (weighted_pct 形式) + side ('Call'/'Put') → 自动调 _to_dir
+      - 已经计算好的 _to_dir 字符串 ('看多'/'偏多(弱)'/...)
+    """
+    if isinstance(scores_or_dir, str):
+        return DIR_BUSINESS_TO_5.get(scores_or_dir, '中性')
+    if isinstance(scores_or_dir, dict):
+        return DIR_BUSINESS_TO_5.get(_to_dir(scores_or_dir, side or 'Call'), '中性')
+    return '中性'
+
+
+def synthesize_funding_signal(call_main_nat: str, put_main_nat: str,
+                              pcr_now: float = 0, pcr_prev: float = 0,
+                              strike_modifier: str = '') -> Dict[str, Any]:
+    """v2.11.85e: 资金意图层综合结论（严格按飞书 §2.3.1 第三层合成信号矩阵）
+
+    输入:
+      call_main_nat: Call 端加权判定主信号 (spec_buy_directional, hedge_sell 等)
+      put_main_nat:  Put 端加权判定主信号
+      pcr_now: 当前 PCR
+      pcr_prev: 前次 PCR (用于恐慌出清 / 乐观消退 早返)
+      strike_modifier: strike 级别修正项（v2.11.63d，慢牛/慢熊）
+
+    输出:
+      {
+        'signal_label': str,     # 业务标签（飞书 14 行表）
+        'signal_strength': str,  # 强/中/中弱/弱/极弱(观望)
+        'signal_direction': str, # 综合方向（看多/看空/中性/矛盾）
+        'p_dir': str,             # Put 端业务方向
+        'c_dir': str,             # Call 端业务方向
+        'source': str,            # 飞书协议引用
+      }
+
+    调用 judge_state.label_standardize 完成查表（§2.3.1 第三层）
+    """
+    import importlib.util as _ilu
+    _spec = _ilu.spec_from_file_location('judge_state',
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'judge_state.py'))
+    _js = _ilu.module_from_spec(_spec)
+    # v2.11.85e: judge_state L67 import generate_daily_report 依赖 requests 模块,
+    # 缺 requests 时跳过其副作用但仍暴露 label_standardize
+    try:
+        _spec.loader.exec_module(_js)
+    except (ImportError, ModuleNotFoundError):
+        # 缺 requests 时: 把 label_standardize + PCR 常量复制出来本地调用
+        import re as _re
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'judge_state.py')) as _f:
+            _src = _f.read()
+        # 提取 PCR_* 常量定义行
+        for line in _src.split('\n'):
+            if _re.match(r'^(PCR_FEAR_LOW|PCR_FEAR_HIGH|PCR_NEUTRAL_LOW|PCR_NEUTRAL_HIGH)\s*=', line):
+                exec(line, _js.__dict__)
+        # 提取 label_standardize 函数（整个 def 块）
+        m = _re.search(r'^def label_standardize.*?(?=^def |\Z)', _src, _re.MULTILINE | _re.DOTALL)
+        if m:
+            exec(m.group(0), _js.__dict__)
+    label, strength = _js.label_standardize(
+        put_nature=put_main_nat,
+        call_nature=call_main_nat,
+        strike_modifier=strike_modifier,
+        pcr_now=pcr_now,
+        pcr_prev=pcr_prev,
+    )
+    # 综合方向从 label 推断（用于交叉验证的子规则方向一致性判定）
+    if '看空' in label and '看多' not in label:
+        sig_dir = '看空'
+    elif '看多' in label and '看空' not in label:
+        sig_dir = '看多'
+    elif '分歧' in label or '矛盾' in label:
+        sig_dir = '矛盾'
+    else:  # 中性 / 无方向 / 箱体震荡
+        sig_dir = '中性'
+    return {
+        'signal_label': label,
+        'signal_strength': strength,
+        'signal_direction': sig_dir,
+        'p_dir': _js.PUT_DIR_V85E.get(put_main_nat, '中性') if hasattr(_js, 'PUT_DIR_V85E') else '中性',
+        'c_dir': _js.CALL_DIR_V85E.get(call_main_nat, '中性') if hasattr(_js, 'CALL_DIR_V85E') else '中性',
+        'source': '飞书 §2.3.1 Put端与Call端合成信号矩阵 (v2.11.85e)',
+    }
+
+
+def _iv_change_bucket(iv_change_pp: float) -> str:
+    """v2.11.85e: IV 变化幅度分档（飞书附录第二步 Skew变化可靠性系数）
+
+    <0.5pp: 弱信号
+    0.5-1.5pp: 中等信号
+    >1.5pp: 强信号
+    """
+    a = abs(iv_change_pp or 0)
+    if a < 0.5:
+        return '弱信号'
+    elif a < 1.5:
+        return '中等'
+    else:
+        return '强信号'
+
+
+def _fund_activity_bucket(abs_oi_chg: float) -> str:
+    """v2.11.85e: 资金活跃度分档（飞书附录第一步）
+
+    <2000: 极低
+    2000-5000: 低
+    5000-15000: 中
+    >15000: 高
+    """
+    a = abs(abs_oi_chg or 0)
+    if a < 2000:
+        return '极低'
+    elif a < 5000:
+        return '低'
+    elif a < 15000:
+        return '中'
+    else:
+        return '高'
+
+
+def cross_validate_synthesized_signal(synth_label: str, synth_direction: str,
+                                       pcr_dir: str, skew_dir: str,
+                                       fund_call_abs: float, fund_put_abs: float,
+                                       iv_call_chg: float, iv_put_chg: float,
+                                       skew_delta_pp: float = 0) -> Dict[str, Any]:
+    """v2.11.85e: 按飞书 §2.3.2 附录交叉验证框架验证资金意图综合结论
+
+    流程: 三步走 + 一个前置 + 4 个子规则
+      Step 1: 资金活跃度分档 (max(call, put))
+      Step 2: Skew 变化可靠性 (|Skew delta_pp|)
+      前置: 方向一致性 (synth_direction vs PCR+Skew 方向)
+      子规则 1: 方向一致 → fund × IV 评级
+      子规则 2: 方向矛盾 → fund × IV 评级 (大资金方主导)
+      子规则 3: PCR 平稳 + Skew 有方向 → IV 评级
+      子规则 4: PCR 平稳 + IV 弱 → 无修正
+
+    输入:
+      synth_label: 飞书 §2.3.1 合成信号标签 (e.g. "多空分歧(极端)")
+      synth_direction: 综合方向 ('看多'/'看空'/'中性'/'矛盾')
+      pcr_dir: 'up'/'down'/'flat'
+      skew_dir: 'deepen'/'flatten'/'flat'
+      fund_call_abs: Call 端总 |ΔOI| (手)
+      fund_put_abs: Put 端总 |ΔOI| (手)
+      iv_call_chg: Call IV 变化 (pp)
+      iv_put_chg: Put IV 变化 (pp)
+
+    输出:
+      {
+        'verdict': str,           # '强确认'/'确认'/'弱确认'/'弱确认(降级)'/'无修正'/'忽略噪音'
+        'subrule': 1/2/3/4,
+        'rationale': str,         # 飞书附录引用
+        'consistency': str,       # 'consistent'/'contradictory'/'pcr_flat'
+        'fund_bucket': str,       # '极低'/'低'/'中'/'高'
+        'iv_bucket': str,         # '弱信号'/'中等'/'强信号'
+        'source': str,
+      }
+    """
+    # Step 1: 资金活跃度（取两端较大者 = 大资金方）
+    fund_bucket_call = _fund_activity_bucket(fund_call_abs)
+    fund_bucket_put = _fund_activity_bucket(fund_put_abs)
+    # 整体资金活跃度: 取 max(call, put) 的绝对 OI 变化分档
+    fund_abs = max(fund_call_abs or 0, fund_put_abs or 0)
+    fund_bucket = _fund_activity_bucket(fund_abs)
+
+    # Step 2: Skew 变化可靠性（用 |Skew delta| 绝对值）
+    # 优先用传入的 skew_delta_pp，否则从 call/put IV 变化估算
+    if skew_delta_pp:
+        iv_pp_for_bucket = skew_delta_pp
+    else:
+        # 估算: Skew = put_iv - call_iv, delta = (put_iv_now - put_iv_prev) - (call_iv_now - call_iv_prev)
+        iv_pp_for_bucket = (iv_put_chg or 0) - (iv_call_chg or 0)
+    iv_bucket = _iv_change_bucket(iv_pp_for_bucket)
+
+    # 前置: 方向一致性（合成信号方向 vs PCR+Skew 方向）
+    # PCR 方向: up=看空(>0.01), down=看多(<-0.01), flat=平稳
+    # Skew 方向: deepen=看空(delta>+0.3pp), flatten=看多(delta<-0.3pp), flat=平稳
+    # 合成信号方向: 看多 / 看空 / 中性 / 矛盾(分裂)
+
+    # 子规则 3/4 的前置: PCR 平稳
+    if pcr_dir == 'flat':
+        consistency = 'pcr_flat'
+    else:
+        # 合成信号 vs PCR+Skew 方向一致性
+        pcr_skew_dir = '看空' if pcr_dir == 'up' else '看多'
+        if synth_direction == '看多' and pcr_skew_dir == '看多':
+            consistency = 'consistent'
+        elif synth_direction == '看空' and pcr_skew_dir == '看空':
+            consistency = 'consistent'
+        elif synth_direction in ('中性', '矛盾'):
+            # 中性/矛盾的合成信号 vs 明确 PCR+Skew 方向 → 矛盾
+            consistency = 'contradictory'
+        elif synth_direction != pcr_skew_dir:
+            consistency = 'contradictory'
+        else:
+            consistency = 'contradictory'  # 兜底
+
+    # 注意: PCR 平稳时子规则 3/4 应用（不论合成信号方向如何）
+
+    # 子规则
+    if consistency == 'consistent':
+        # 子规则 1: 方向一致
+        if fund_bucket == '极低' and iv_bucket == '弱信号':
+            verdict = '忽略噪音'
+            rationale = f'子规则1: 低资金+弱IV=忽略噪音（fund={fund_bucket}, iv={iv_bucket}）'
+        elif fund_bucket == '极低':
+            verdict = '弱确认（降级）'
+            rationale = f'子规则1: 极低资金降级（fund={fund_bucket}, iv={iv_bucket}）'
+        elif iv_bucket == '弱信号':
+            # 高/中资金 + 弱 IV → 弱确认
+            if fund_bucket == '高':
+                verdict = '弱确认'
+                rationale = f'子规则1: 高资金+弱IV=弱确认（卖权收租可能）'
+            else:
+                verdict = '弱确认（降级）'
+                rationale = f'子规则1: 中资金+弱IV=弱确认降级'
+        else:
+            table_s1 = {
+                ('高', '强信号'):   '强确认',
+                ('高', '中等'):     '确认',
+                ('中', '强信号'):   '确认',
+                ('中', '中等'):     '弱确认',
+                ('中', '弱信号'):   '弱确认（降级）',
+                ('低', '强信号'):   '弱确认（降级）',
+                ('低', '中等'):     '弱确认（降级）',
+                ('低', '弱信号'):   '忽略噪音',
+            }
+            verdict = table_s1.get((fund_bucket, iv_bucket), '无修正')
+            rationale = f'子规则1: 方向一致 fund={fund_bucket} × iv={iv_bucket}'
+        return {
+            'verdict': verdict, 'subrule': 1, 'rationale': rationale,
+            'consistency': consistency, 'fund_bucket': fund_bucket, 'iv_bucket': iv_bucket,
+            'source': '飞书 §2.3.2 附录交叉验证 (v2.11.85e)',
+        }
+    elif consistency == 'contradictory':
+        # 子规则 2: 方向矛盾 - 大资金方主导
+        if fund_bucket == '极低' and iv_bucket == '弱信号':
+            verdict = '忽略噪音'
+            rationale = f'子规则2: 矛盾+极低资金+弱IV=忽略噪音'
+        elif fund_bucket == '极低':
+            verdict = '无修正'
+            rationale = f'子规则2: 矛盾+极低资金=无修正'
+        elif iv_bucket == '弱信号':
+            if fund_bucket == '高':
+                verdict = '弱确认'
+                rationale = f'子规则2: 矛盾+高资金+弱IV=弱确认（大资金涌入但IV未变）'
+            else:
+                verdict = '忽略噪音'
+                rationale = f'子规则2: 矛盾+中资金+弱IV=忽略噪音'
+        else:
+            table_s2 = {
+                ('高', '强信号'):   '强确认',
+                ('高', '中等'):     '确认',
+                ('高', '弱信号'):   '弱确认',
+                ('中', '强信号'):   '弱确认',
+                ('中', '中等'):     '弱确认（降级）',
+                ('中', '弱信号'):   '忽略噪音',
+                ('低', '强信号'):   '弱确认（降级）',
+                ('低', '中等'):     '无修正',
+                ('低', '弱信号'):   '忽略噪音',
+            }
+            verdict = table_s2.get((fund_bucket, iv_bucket), '无修正')
+            rationale = f'子规则2: 方向矛盾 fund={fund_bucket} × iv={iv_bucket}（大资金方主导）'
+        return {
+            'verdict': verdict, 'subrule': 2, 'rationale': rationale,
+            'consistency': consistency, 'fund_bucket': fund_bucket, 'iv_bucket': iv_bucket,
+            'source': '飞书 §2.3.2 附录交叉验证 (v2.11.85e)',
+        }
+    else:
+        # consistency == 'pcr_flat' → 子规则 3 / 4
+        if iv_bucket == '强信号':
+            verdict = '弱确认'
+            rationale = f'子规则3: PCR平稳+Skew有方向+强IV=弱确认（可能是做市商调整）'
+            return {
+                'verdict': verdict, 'subrule': 3, 'rationale': rationale,
+                'consistency': consistency, 'fund_bucket': fund_bucket, 'iv_bucket': iv_bucket,
+                'source': '飞书 §2.3.2 附录交叉验证 (v2.11.85e)',
+            }
+        elif iv_bucket == '中等':
+            verdict = '无修正'
+            rationale = f'子规则3/4: PCR平稳+中IV=无修正'
+            return {
+                'verdict': verdict, 'subrule': 3, 'rationale': rationale,
+                'consistency': consistency, 'fund_bucket': fund_bucket, 'iv_bucket': iv_bucket,
+                'source': '飞书 §2.3.2 附录交叉验证 (v2.11.85e)',
+            }
+        else:
+            verdict = '无修正'
+            rationale = f'子规则4: PCR平稳+弱IV=无修正'
+            return {
+                'verdict': verdict, 'subrule': 4, 'rationale': rationale,
+                'consistency': consistency, 'fund_bucket': fund_bucket, 'iv_bucket': iv_bucket,
+                'source': '飞书 §2.3.2 附录交叉验证 (v2.11.85e)',
+            }
 
 
 # 自检

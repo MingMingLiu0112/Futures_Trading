@@ -859,38 +859,78 @@ def judge_layer3_funding_intent(alert_data: Dict, gex: Dict, layer1: Dict,
     }
 
 
-def label_standardize(put_nature: str, call_nature: str, strike_modifier: str,
-                      pcr_now: float, pcr_prev: float) -> Tuple[str, str]:
-    """P0 fix: 按 skill v2.11.63a 第三层合成信号表 + v2.11.63d 修订 把现成函数 label 标准化
+def label_standardize(put_nature: str, call_nature: str, strike_modifier: str = '',
+                      pcr_now: float = 0, pcr_prev: float = 0) -> Tuple[str, str]:
+    """v2.11.85e: 严格按飞书 §2.3.1 Put端与Call端合成信号矩阵（14 行）查表
 
-    skill 第三层合成信号表（line 526-532）:
-      Put 性质 | Call 性质 | 合成信号        | 信号强度
-      同向加强   | 同向加强   | 信号共振        | 强
-      同向       | 中性      | 单边信号        | 中
-      中性       | 同向      | 单边信号        | 中
-      反向       | 反向      | 信号矛盾        | 观望
-      一边明确   | 另一边反向 | 信号冲突        | 观望
+    飞书原版矩阵（line 590-654，Put 方向 × Call 方向 = 合成信号 + 信号强度）：
+      看空   偏空   看空共振             强
+      偏空   偏空   看空共振（弱化）     中
+      看空   中性   单边偏空             中
+      偏空   中性   单边偏空（弱）       中（弱）
+      中性   偏空   单边偏空（防御）     中
+      偏多   看多   看多共振             强
+      偏多   偏多   看多共振（弱化）     中
+      偏多   中性   单边偏多             中
+      中性   偏多   单边偏多（防御）     中
+      偏多   偏空   多空分歧             弱（观望）
+      偏空   偏多   多空分歧             弱（观望）
+      看空   看多   多空分歧（极端）     极弱（观望）
+      看空   偏多   多空分歧             弱（观望）
+      偏空   看多   多空分歧             弱（观望）
+      中性   中性   无方向               极弱（观望）
+      中性（套保卖权）中性（套保卖权）箱体震荡   中
 
-    v2.11.63a 示例 2 关键: Put 套保卖权 + Call 投机买权 = "多空分歧 → 观望"
-    （不是"单边看多"！）
-
-    v2.11.63d 修订: 双侧中性 + strike 修正 → 中性偏慢牛/慢熊/多空分化
+    v2.11.63a/v2.11.85d 老实现只有 5 行表（看多/看空/中性 3 档方向），按飞书 14 行表
+    应扩到 5 档方向：看空 / 偏空 / 中性 / 偏多 / 看多
     """
-    # 业务方向映射
+    # v2.11.85e: 业务方向映射（5 档：看空/偏空/中性/偏多/看多）
+    # Put 端：spec_buy/close_push 主动看空; spec_buy_directional = spec_buy (主动看空);
+    #         spec_buy_lotto 偏空弱; hedge_buy 防御偏多（软底）; hedge_sell 套保卖权中性;
+    #         double_exit/supply_overhang/... 中性
     PUT_DIR = {
-        'spec_buy': '看空', 'close_push': '看空',
-        'hedge_buy': '中性', 'hedge_sell': '中性',
-        'double_exit': '中性', 'mixed_neutral': '中性',
+        'spec_buy':             '看空',
+        'spec_buy_directional': '看空',
+        'close_push':           '看空',
+        'spec_buy_lotto':       '偏空',
+        'hedge_buy':            '偏多',
+        'hedge_sell':           '中性',
+        'double_exit':          '中性',
+        'supply_overhang':      '中性',
+        'mixed_neutral':        '中性',
+        'passive_close':        '中性',
+        'noise_close':          '中性',
+        'noise_open':           '中性',
+        'theta_decay':          '中性',
+        'quote_adjust':         '中性',
+        'static':               '中性',
+        'hedge_rolling':        '中性',
     }
+    # Call 端：spec_buy/close_push 主动看多; spec_buy_directional = spec_buy (主动看多);
+    #          spec_buy_lotto 偏多弱; hedge_buy 防御偏空（软顶）; hedge_sell 套保卖权中性;
+    #          double_exit/supply_overhang/... 中性
     CALL_DIR = {
-        'spec_buy': '看多', 'close_push': '看多',
-        'hedge_buy': '中性', 'hedge_sell': '中性',
-        'double_exit': '中性', 'mixed_neutral': '中性',
+        'spec_buy':             '看多',
+        'spec_buy_directional': '看多',
+        'close_push':           '看多',
+        'spec_buy_lotto':       '偏多',
+        'hedge_buy':            '偏空',
+        'hedge_sell':           '中性',
+        'double_exit':          '中性',
+        'supply_overhang':      '中性',
+        'mixed_neutral':        '中性',
+        'passive_close':        '中性',
+        'noise_close':          '中性',
+        'noise_open':           '中性',
+        'theta_decay':          '中性',
+        'quote_adjust':         '中性',
+        'static':               '中性',
+        'hedge_rolling':        '中性',
     }
-    p_dir = PUT_DIR.get(put_nature, 'unknown')
-    c_dir = CALL_DIR.get(call_nature, 'unknown')
+    p_dir = PUT_DIR.get(put_nature, '中性')
+    c_dir = CALL_DIR.get(call_nature, '中性')
 
-    # P1 fix: PCR 恐慌出清信号（必须在双侧中性判定之前，否则被提前 return）
+    # P1 fix: PCR 恐慌出清信号（必须在常规查表之前，否则被提前 return 吞掉）
     # 阈值放宽：prev > 1.5 + now < 1.2 → 恐慌出清（多头）
     #         prev < 0.6 + now > 0.8 → 乐观消退（空头）
     if pcr_prev > 0 and pcr_now > 0:
@@ -899,25 +939,45 @@ def label_standardize(put_nature: str, call_nature: str, strike_modifier: str,
         if pcr_prev < PCR_FEAR_LOW and pcr_now > PCR_NEUTRAL_LOW:
             return '乐观消退中（空头）', '中'
 
-    # skill 查表
-    if p_dir == '看多' and c_dir == '看多':
-        return '看多共振', '强'
-    if p_dir == '看空' and c_dir == '看空':
-        return '看空共振', '强'
-    if p_dir == '看空' and c_dir == '看多':
-        return '信号矛盾', '观望'
-    if p_dir == '看多' and c_dir == '看空':
-        return '信号矛盾', '观望'
+    # v2.11.85e: 飞书 §2.3.1 双侧套保卖权 → 箱体震荡（中）
+    if put_nature == 'hedge_sell' and call_nature == 'hedge_sell':
+        return '箱体震荡', '中'
 
-    # 一边中性 + 一边有方向：skill 表说"单边信号" → "中"
-    # 但 skill v2.11.63a 示例 2 明确: Put 中性(hedge_sell) + Call 看多(spec_buy) = **多空分歧**
-    # 这里统一用"多空分歧" 标签（比"单边看多"更精确）
-    if p_dir == '中性' and c_dir in ('看多', '看空'):
-        return '多空分歧（看空方不站队）', '观望'
-    if c_dir == '中性' and p_dir in ('看多', '看空'):
-        return '多空分歧（看多方不站队）', '观望'
+    # v2.11.85e: 严格按飞书 14 行表查表（仅覆盖飞书明确列出的组合）
+    table_14 = {
+        ('看空', '偏空'): ('看空共振', '强'),
+        ('偏空', '偏空'): ('看空共振（弱化）', '中'),
+        ('看空', '中性'): ('单边偏空', '中'),
+        ('偏空', '中性'): ('单边偏空（弱）', '中（弱）'),
+        ('中性', '偏空'): ('单边偏空（防御）', '中'),
+        ('偏多', '看多'): ('看多共振', '强'),
+        ('偏多', '偏多'): ('看多共振（弱化）', '中'),
+        ('偏多', '中性'): ('单边偏多', '中'),
+        ('中性', '偏多'): ('单边偏多（防御）', '中'),
+        ('偏多', '偏空'): ('多空分歧', '弱（观望）'),
+        ('偏空', '偏多'): ('多空分歧', '弱（观望）'),
+        ('看空', '看多'): ('多空分歧（极端）', '极弱（观望）'),
+        ('看空', '偏多'): ('多空分歧', '弱（观望）'),
+        ('偏空', '看多'): ('多空分歧', '弱（观望）'),
+        ('中性', '中性'): ('无方向', '极弱（观望）'),
+    }
+    if (p_dir, c_dir) in table_14:
+        return table_14[(p_dir, c_dir)]
 
-    # 双侧中性
+    # v2.11.85e: 飞书 14 行表未覆盖的"主动+中性"组合兜底（业务上对称扩展）
+    # 飞书原表只列了 (中性, 偏X) 和 (偏X, 中性) 两种"主动+中性"
+    # 但实战中 (中性, 看多/看空) 也常见（产业套保卖权 + 投机主动买 Call/Put）
+    # 按对称扩展兜底到最近的"单边+防御"信号:
+    if p_dir == '中性' and c_dir == '看多':
+        return '单边偏多（防御）', '中'
+    if p_dir == '中性' and c_dir == '看空':
+        return '单边偏空（防御）', '中'
+    if p_dir == '看多' and c_dir == '中性':
+        return '单边偏多', '中'  # 注意飞书表只有 (偏多, 中性) → 单边偏多，看多+中性兜底到同一档
+    if p_dir == '看空' and c_dir == '中性':
+        return '单边偏空', '中'  # 同理
+
+    # v2.11.63d: 双侧中性 + strike 修正 → 多空分化
     if p_dir == '中性' and c_dir == '中性':
         if strike_modifier:
             has_bull = '慢牛' in strike_modifier
@@ -928,7 +988,7 @@ def label_standardize(put_nature: str, call_nature: str, strike_modifier: str,
                 return '中性偏慢牛', '弱'
             if has_bear:
                 return '中性偏慢熊', '弱'
-        return '中性', '观望'
+        return '无方向', '极弱（观望）'
 
     return 'unknown', ''
 

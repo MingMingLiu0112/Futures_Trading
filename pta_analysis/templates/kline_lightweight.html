@@ -2897,7 +2897,7 @@ function getStrategyReportEndpoint() {
                     // ============================================================
                     function renderDecisionLayerBlock(d) {
                         if (!d) {
-                            return `<div style="margin:8px 0 10px 0;"><div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">🧭 四维决策（v2.11.85d PCR×Skew 交叉验证）</div><div style="color:#888;font-size:11px;font-style:italic;padding:4px 0;">决策层数据未生成（可手动跑 <code>python3 scripts/judge_state.py</code> 验证）</div></div>`;
+                            return `<div style="margin:8px 0 10px 0;"><div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">🧭 四维决策（v2.11.85f 资金意图综合）</div><div style="color:#888;font-size:11px;font-style:italic;padding:4px 0;">决策层数据未生成（可手动跑 <code>python3 scripts/judge_state.py</code> 验证）</div></div>`;
                         }
                         const L1 = d.layer1 || {}, L2 = d.layer2 || {}, L3 = d.layer3 || {}, L4 = d.layer4 || {};
                         const fin = d.final || {};
@@ -2963,7 +2963,7 @@ function getStrategyReportEndpoint() {
                         const contradiction = fin.contradiction;
                         const decisionColor = (totalScore == null) ? '#888' : (totalScore >= 0.2 ? '#26a69a' : (totalScore <= -0.2 ? '#ef5350' : '#ffd700'));
                         let html = `<div style="margin:14px 0 10px 0;padding:10px 12px;background:#15151f;border-left:3px solid #ffd700;border-radius:5px;">`;
-                        html += `<div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:8px;">🧭 四维决策（v2.11.85d PCR×Skew 交叉验证）</div>`;
+                        html += `<div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:8px;">🧭 四维决策（v2.11.85f 资金意图综合）</div>`;
                         // 决策 banner
                         html += `<div style="margin:4px 0 10px 0;padding:8px 10px;background:#101018;border-left:3px solid ${decisionColor};border-radius:3px;">
                             <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
@@ -2997,7 +2997,7 @@ function getStrategyReportEndpoint() {
                                           || L3.weighted_verdict || L3.put_weighted_verdict;
                         if (hasL3Detail) {
                             html += `<div style="margin:8px 0 0 0;">
-                                <div id="${l3ExpandId}-btn" style="color:#4fc3f7;font-size:10px;cursor:pointer;line-height:1.5;user-select:none;" onclick="document.getElementById('${l3ExpandId}').style.display==='none'?(()=>{document.getElementById('${l3ExpandId}').style.display='block';document.getElementById('${l3ExpandId}-btn').textContent='▼ 收起 L3 Top贡献+角色分布';})():(()=>{document.getElementById('${l3ExpandId}').style.display='none';document.getElementById('${l3ExpandId}-btn').textContent='▶ 展开 L3 Top贡献+角色分布';})()">▶ 展开 L3 Top贡献+角色分布</div>
+                                <div id="${l3ExpandId}-btn" style="color:#4fc3f7;font-size:10px;cursor:pointer;line-height:1.5;user-select:none;" onclick="document.getElementById('${l3ExpandId}').style.display==='none'?(()=>{document.getElementById('${l3ExpandId}').style.display='block';document.getElementById('${l3ExpandId}-btn').textContent='▼ 收起 L3 PCR×Skew确认+Top贡献+角色分布';})():(()=>{document.getElementById('${l3ExpandId}').style.display='none';document.getElementById('${l3ExpandId}-btn').textContent='▶ 展开 L3 PCR×Skew确认+Top贡献+角色分布';})()">▶ 展开 L3 PCR×Skew确认+Top贡献+角色分布</div>
                                 <div id="${l3ExpandId}" style="display:none;margin-top:6px;padding:8px;background:#0e0e16;border:1px solid #2a2a36;border-radius:3px;">${renderL3StrikeDetail(L3)}</div>
                             </div>`;
                         }
@@ -3011,7 +3011,7 @@ function getStrategyReportEndpoint() {
                         return html;
                     }
 
-                    // v2.11.85a: L3 展开时渲染 strike_role 列表（按 contribution 降序）+ weighted_verdict 大标题
+                    // v2.11.85d: 加权判定 + PCR×Skew 交叉验证确认 + Top 8 strike 贡献 + 10 类角色分布
                     // 老 24 行表（hedge_sell/hedge_buy/spec_add/spec_trim/close_push）改为按贡献度排序的 strike 列表
                     // 后端 payload['layer3'].call_role / put_role 已重算为兼容老 dict 结构，但优先用 strike_role[] 直接渲染
                     function renderL3StrikeDetail(L3) {
@@ -3023,6 +3023,8 @@ function getStrategyReportEndpoint() {
                         const putStrikeRole = L3.put_strike_role || [];
                         const weightedVerdict = L3.weighted_verdict || '';
                         const putWeightedVerdict = L3.put_weighted_verdict || '';
+                        const crossVerdict = L3.cross_validation_verdict || {};
+                        const crossValidation = L3.cross_validation || {};
                         const weightedLabel = L3.weighted_label || '';
                         const putWeightedLabel = L3.put_weighted_label || '';
                         const callDirection = L3.direction || '';
@@ -3112,28 +3114,99 @@ function getStrategyReportEndpoint() {
                                 ${strikeMod ? `<span style="color:#888;">| 形态修正:</span><span style="color:#9bc;">${cell(strikeMod)}</span>` : ''}
                             </div>
                         </div>`;
-                        // v2.11.85a: weighted_verdict 大标题（Call / Put 各一行）
+                        // v2.11.85d: weighted_verdict 大标题（Call / Put 各一行）
                         const weightedVerdictHtml = (weightedVerdict || putWeightedVerdict) ? `
                             <div style="margin:0 0 6px 0;padding:6px 8px;background:#1a1a25;border-radius:3px;border-left:2px solid #9b59b6;">
-                                <div style="color:#9b59b6;font-size:10px;font-weight:bold;margin-bottom:3px;">⚖️ v2.11.85a 加权判定</div>
+                                <div style="color:#9b59b6;font-size:10px;font-weight:bold;margin-bottom:3px;">⚖️ v2.11.85e 加权判定</div>
                                 <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:10px;line-height:1.5;">
                                     <div style="flex:1 1 220px;background:#101018;padding:3px 6px;border-radius:2px;">
                                         <span style="color:#4a90e2;font-weight:500;">📈 Call:</span>
                                         <span style="color:#cfcfcf;">${weightedLabel || '<i style="color:#888;">(无)</i>'}</span>
                                         <span style="color:#888;"> | </span>
-                                        <span style="color:${callDirection === '看多' ? '#ef5350' : (callDirection === '看空' ? '#5d5' : '#888')};">${callDirection || '-'}</span>
+                                        <span style="color:${(callDirection === '看多' || callDirection === '偏多') ? '#ef5350' : ((callDirection === '看空' || callDirection === '偏空') ? '#5d5' : '#888')};">${callDirection || '-'}</span>
                                         <div style="color:#aaa;font-size:9px;margin-top:2px;">${weightedVerdict || ''}</div>
                                     </div>
                                     <div style="flex:1 1 220px;background:#101018;padding:3px 6px;border-radius:2px;">
                                         <span style="color:#e2904a;font-weight:500;">📉 Put:</span>
                                         <span style="color:#cfcfcf;">${putWeightedLabel || '<i style="color:#888;">(无)</i>'}</span>
                                         <span style="color:#888;"> | </span>
-                                        <span style="color:${putDirection === '看空' ? '#5d5' : (putDirection === '看多' ? '#ef5350' : '#888')};">${putDirection || '-'}</span>
+                                        <span style="color:${(putDirection === '看空' || putDirection === '偏空') ? '#5d5' : ((putDirection === '看多' || putDirection === '偏多') ? '#ef5350' : '#888')};">${putDirection || '-'}</span>
                                         <div style="color:#aaa;font-size:9px;margin-top:2px;">${putWeightedVerdict || ''}</div>
                                     </div>
                                 </div>
                             </div>` : '';
-                        // v2.11.85a: strike_role 列表（按 contribution 降序，取 Top 8）
+                        // v2.11.85e: 资金意图综合结论（严格按飞书 §2.3.1 第三层 Put端与Call端合成信号矩阵）
+                        const fundingSignal = L3.funding_signal || {};
+                        const fundingSignalCv = L3.funding_signal_cv || {};
+                        const fsLabel = fundingSignal.signal_label || '';
+                        const fsStrength = fundingSignal.signal_strength || '';
+                        const fsDirection = fundingSignal.signal_direction || '中性';
+                        const fsCvVerdict = fundingSignalCv.verdict || '';
+                        const fsCvSubrule = fundingSignalCv.subrule || 0;
+                        const fsCvRationale = fundingSignalCv.rationale || '';
+                        // 合成信号颜色: 强=绿, 中=黄, 弱=灰, 观望=暗
+                        const fsStrengthColor = (fsStrength === '强' || fsStrength === '强') ? '#26a69a'
+                            : (fsStrength === '中') ? '#ffd700'
+                            : (fsStrength === '中（弱）') ? '#ffb74d'
+                            : (fsStrength === '弱（观望）' || fsStrength === '极弱（观望）') ? '#888'
+                            : '#888';
+                        // 交叉验证 verdict 颜色
+                        const fsCvColor = (fsCvVerdict === '强确认' || fsCvVerdict === '确认') ? '#26a69a'
+                            : (fsCvVerdict === '弱确认' || fsCvVerdict === '弱确认（降级）') ? '#ffd700'
+                            : (fsCvVerdict === '无修正' || fsCvVerdict === '忽略噪音') ? '#888'
+                            : '#aaa';
+                        const fundingSignalHtml = fsLabel ? `
+                            <div style="margin:0 0 6px 0;padding:8px 10px;background:#1a1a25;border-radius:3px;border-left:2px solid ${fsStrengthColor};">
+                                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px;">
+                                    <span style="color:${fsStrengthColor};font-size:11px;font-weight:bold;">🎯 资金意图综合</span>
+                                    <span style="color:#888;font-size:9px;">飞书 §2.3.1 第三层合成信号矩阵</span>
+                                </div>
+                                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12px;margin-bottom:4px;">
+                                    <b style="color:${fsStrengthColor};font-size:13px;">${cell(fsLabel)}</b>
+                                    <span style="color:#888;">|</span>
+                                    <span style="color:#888;font-size:10px;">强度:</span>
+                                    <b style="color:${fsStrengthColor};">${cell(fsStrength)}</b>
+                                </div>
+                                ${fsCvVerdict ? `
+                                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11px;margin-top:4px;padding-top:4px;border-top:1px solid #2a2a36;">
+                                    <span style="color:#9bc;font-size:10px;font-weight:bold;">🔍 §2.3.2 附录交叉验证</span>
+                                    <span style="color:#888;font-size:9px;">子规则 ${fsCvSubrule}</span>
+                                    <span style="color:#888;">|</span>
+                                    <b style="color:${fsCvColor};">${cell(fsCvVerdict)}</b>
+                                </div>
+                                <div style="color:#888;font-size:9px;margin-top:3px;line-height:1.5;">${cell(fsCvRationale)}</div>
+                                ` : ''}
+                            </div>` : '';
+                        // v2.11.85d: PCR×Skew 交叉验证确认（强/弱确认 + 子规则依据）
+                        const callCv = crossVerdict.call || {};
+                        const putCv = crossVerdict.put || {};
+                        const pcr = crossValidation.pcr || {};
+                        const skew = crossValidation.skew || {};
+                        const fundAct = crossValidation.fund_activity || {};
+                        const ivRel = crossValidation.iv_reliability || {};
+                        const cvColor = (v) => v === '强确认' ? '#26a69a' : (v === '弱确认' ? '#ffd700' : (v === '否定' ? '#ef5350' : '#aaa'));
+                        const cvHtml = (callCv.verdict || putCv.verdict || crossVerdict.consistency) ? `
+                            <div style="margin:0 0 6px 0;padding:6px 8px;background:#1a1a25;border-radius:3px;border-left:2px solid #26a69a;">
+                                <div style="color:#26a69a;font-size:10px;font-weight:bold;margin-bottom:3px;">✅ v2.11.85e PCR×Skew 交叉验证</div>
+                                <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:10px;line-height:1.5;">
+                                    <div style="flex:1 1 220px;background:#101018;padding:3px 6px;border-radius:2px;">
+                                        <span style="color:#4a90e2;font-weight:500;">📈 Call:</span>
+                                        <b style="color:${cvColor(callCv.verdict)};">${cell(callCv.verdict || '-')}</b>
+                                        <span style="color:#888;"> | 资金:${cell((fundAct.Call||{}).level || '-')} IV:${cell(ivRel.Call || '-')}</span>
+                                        <div style="color:#aaa;font-size:9px;margin-top:2px;">${cell(callCv.rationale || '')}</div>
+                                    </div>
+                                    <div style="flex:1 1 220px;background:#101018;padding:3px 6px;border-radius:2px;">
+                                        <span style="color:#e2904a;font-weight:500;">📉 Put:</span>
+                                        <b style="color:${cvColor(putCv.verdict)};">${cell(putCv.verdict || '-')}</b>
+                                        <span style="color:#888;"> | 资金:${cell((fundAct.Put||{}).level || '-')} IV:${cell(ivRel.Put || '-')}</span>
+                                        <div style="color:#aaa;font-size:9px;margin-top:2px;">${cell(putCv.rationale || '')}</div>
+                                    </div>
+                                </div>
+                                <div style="margin-top:4px;color:#888;font-size:9px;line-height:1.5;">
+                                    PCR: ${cell(pcr.prev)}→${cell(pcr.now)} (${cell(pcr.direction || '-')}, Δ${cell(pcr.delta)}) ｜ Skew: ${cell(skew.prev)}→${cell(skew.now)} (${cell(skew.direction || '-')}, Δ${cell(skew.delta_pp)}pp) ｜ 一致性: ${cell(crossVerdict.consistency || '-')}
+                                </div>
+                            </div>` : '';
+                        // v2.11.85d: strike_role 列表（按 contribution 降序，取 Top 8）
                         const strikeRoleListHtml = (callStrikeHtml !== '--' || putStrikeHtml !== '--') ? `
                             <div style="margin:0 0 6px 0;padding:4px 6px;background:#0e0e16;border:1px solid #2a2a36;border-radius:3px;">
                                 <div style="color:#9bc;font-size:10px;font-weight:500;margin-bottom:3px;">🎯 Strike 详情 (Top 8 按贡献度)</div>
@@ -3155,7 +3228,9 @@ function getStrategyReportEndpoint() {
                             dqHtml = `<div style="margin:0 0 6px 0;color:${dqColor};font-size:9px;">📊 数据质量: ${dq.confidence.toUpperCase()} (${ver} Call ${dq.eligible_call||'-'}/${dq.total_strikes||'-'} 档有效, Put ${dq.eligible_put||'-'}/${dq.total_strikes||'-'}, OI≥${dq.oi_threshold}手, IV≥${ivDisplay})</div>`;
                         }
                         return `${synthHtml}
+                            ${fundingSignalHtml}
                             ${weightedVerdictHtml}
+                            ${cvHtml}
                             ${strikeRoleListHtml}
                             ${dqHtml}
                             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
@@ -4910,6 +4985,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.85d</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.85f</div>
 </body>
 </html>
