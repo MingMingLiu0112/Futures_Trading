@@ -28,6 +28,116 @@ IV_THRESH_PP = 0.5
 OI_THRESH_PCT = 1.0
 # 主导阈值 (飞书 §规则 2)
 PCT_STRONG = 60.0
+
+# ============================================================
+# v2.11.85f: 子规则 2b 新资金方向分层 —— NAT_DIR + nature 分类
+# 飞书 §2.3.1 单合约性质判定，方向词按 NAT_MAP（Call/Put 端方向相反）
+# close_push 方向说明:
+#   OI↓ IV↑ → 平仓者预期反向 → Call close_push = 平 Call 多头 → 预期标的不涨/微跌
+#   NAT_MAP 给: Call close_push → '看多' (反向逻辑) / Put close_push → '看空'
+# ============================================================
+NAT_DIR_CALL = {
+    'spec_buy_directional': '看多', 'spec_buy_lotto': '偏多',
+    'hedge_buy': '偏空',           # Call 端产业买 Call = 锁定卖出价 → 看空标的
+    'close_push': '看多',          # Call 端 close_push = 平 Call 多头 → 反向看多
+    'hedge_sell': '中性', 'double_exit': '中性', 'supply_overhang': '中性',
+    'mixed_neutral': '中性', 'passive_close': '中性', 'noise_close': '中性',
+    'noise_open': '中性', 'theta_decay': '中性', 'quote_adjust': '中性',
+    'static': '中性', 'hedge_rolling': '中性',
+}
+NAT_DIR_PUT = {
+    'spec_buy_directional': '看空', 'spec_buy_lotto': '偏空',
+    'hedge_buy': '偏多',           # Put 端产业买 Put = 锁定买入价/套保 → 看多标的
+    'close_push': '看空',          # Put 端 close_push = 平 Put 空头 → 反向看空
+    'hedge_sell': '中性', 'double_exit': '中性', 'supply_overhang': '中性',
+    'mixed_neutral': '中性', 'passive_close': '中性', 'noise_close': '中性',
+    'noise_open': '中性', 'theta_decay': '中性', 'quote_adjust': '中性',
+    'static': '中性', 'hedge_rolling': '中性',
+}
+
+# nature 分类（按 OI 净变化是否代表新增方向性观点）
+NEW_FUND_NATURES = {'spec_buy_directional', 'spec_buy_lotto', 'hedge_buy'}
+# hedge_sell = 卖权收租（新开仓但中性，归中性新开仓）
+NEUTRAL_NEW_NATURES = {'hedge_sell'}
+# 存量调整（OI↓ 但 close_push 仍带方向，double_exit/passive_close 中性）
+STOCK_ADJ_NATURES = {'close_push', 'double_exit', 'passive_close'}
+# 噪音（不计入方向判定）
+NOISE_NATURES = {'noise_open', 'noise_close', 'quote_adjust',
+                 'theta_decay', 'supply_overhang', 'static', 'hedge_rolling'}
+
+# 新资金 vs 存量 主导阈值（飞书 §2.3.2 子规则 2b 拍板）
+NEW_FUND_DOMINANCE_RATIO = 1.5  # |新资金| > |存量| × 1.5 → 新资金主导
+
+
+def _calc_fund_flow_split(strike_role_list, side):
+    """v2.11.85f: 按 strike_role 计算该端的新资金 vs 存量调整拆分（按 NAT_DIR 方向加权）
+
+    输入: strike_role_list = weighted[side]['strike_role']
+          side = 'Call' / 'Put'
+    输出: {
+        'new_fund_net_long': int,      # 新资金 NAT_DIR='看多'/'偏多' 的 OI 净
+        'new_fund_net_short': int,     # 新资金 NAT_DIR='看空'/'偏空' 的 OI 净
+        'new_fund_net_neutral': int,   # 新资金中性 (hedge_sell) 的 OI 净
+        'stock_adj_net_long': int,     # 存量 NAT_DIR='看多'/'偏多' 的 OI 净
+        'stock_adj_net_short': int,    # 存量 NAT_DIR='看空'/'偏空' 的 OI 净
+        'oi_total_chg': int,           # 净 OI 变化（用于对照）
+        'dominant_nature': str,        # abs(oi_chg) 最大的 nature（含噪音）
+        'new_fund_dominant_nature': str,  # 新资金中 abs(oi_chg) 最大的 nature
+    }
+    """
+    nat_dir_map = NAT_DIR_CALL if side == 'Call' else NAT_DIR_PUT
+
+    new_long = new_short = new_neutral = 0
+    stock_long = stock_short = 0
+    oi_total = 0.0
+    nature_oi = {}            # nature → abs(oi_chg) 累计（找 dominant_nature 用）
+    new_fund_nature_oi = {}   # 仅新资金 nature → abs 累计（找 new_fund_dominant 用）
+
+    for s in (strike_role_list or []):
+        nat = s.get('nature')
+        # ⚠️ 前置 A 已确认: strike_role 里 OI 绝对变化字段 = 'oi_chg'
+        try:
+            oi_chg = float(s.get('oi_chg') or 0)
+        except (TypeError, ValueError):
+            continue
+
+        oi_total += oi_chg
+        nature_oi[nat] = nature_oi.get(nat, 0) + abs(oi_chg)
+        direction = nat_dir_map.get(nat, '中性')
+
+        if nat in NEW_FUND_NATURES:
+            if direction in ('看多', '偏多'):
+                new_long += oi_chg
+            elif direction in ('看空', '偏空'):
+                new_short += oi_chg
+            else:
+                new_neutral += oi_chg
+            new_fund_nature_oi[nat] = new_fund_nature_oi.get(nat, 0) + abs(oi_chg)
+        elif nat in NEUTRAL_NEW_NATURES:
+            new_neutral += oi_chg
+            new_fund_nature_oi[nat] = new_fund_nature_oi.get(nat, 0) + abs(oi_chg)
+        elif nat in STOCK_ADJ_NATURES:
+            if direction in ('看多', '偏多'):
+                stock_long += oi_chg
+            elif direction in ('看空', '偏空'):
+                stock_short += oi_chg
+            # stock 中性不计入 stock_long/short
+        # NOISE_NATURES 不计入
+
+    dominant_nature = max(nature_oi, key=nature_oi.get) if nature_oi else 'unknown'
+    new_fund_dominant = max(new_fund_nature_oi, key=new_fund_nature_oi.get) \
+        if new_fund_nature_oi else 'unknown'
+
+    return {
+        'new_fund_net_long': round(new_long),
+        'new_fund_net_short': round(new_short),
+        'new_fund_net_neutral': round(new_neutral),
+        'stock_adj_net_long': round(stock_long),
+        'stock_adj_net_short': round(stock_short),
+        'oi_total_chg': round(oi_total),
+        'dominant_nature': dominant_nature,
+        'new_fund_dominant_nature': new_fund_dominant,
+    }
 PCT_MID = 40.0
 
 
@@ -432,13 +542,26 @@ def _cv_apply_rule_pcr_flat(skew_dir, iv_rel):
 def cross_validate_funding(cv_inputs):
     """主入口：综合判定函数
 
+    v2.11.85f: 子规则 2（矛盾场景）追加新资金方向分层
+      - 新资金 vs 存量调整 NAT_DIR 方向加权（不是单纯 OI 符号）
+      - 仅当新资金主导（|新| > |存量| × 1.5）时给 verdict_direction
+      - 存量主导时 verdict_direction=None（让原 9 行表结论主导）
+      - 综合两端 new_fund_direction (看空/看多/多空博弈/None)
+
     输入: cv_inputs = _build_cross_validation_inputs 的输出
     输出: dict {
-        'call': {'verdict': '强确认/...', 'rationale': '...', 'subrule': 1/2/3/4},
+        'call': {'verdict': ..., 'rationale': ..., 'subrule': 1/2/3/4,
+                 'verdict_direction': 看空/看多/None (v2.11.85f 新增),
+                 'fund_flow_verdict': 新资金主导/存量调整主导/资金僵持 (v2.11.85f 新增),
+                 'new_fund_net_long/short/neutral': int,
+                 'stock_adj_net_long/short': int,
+                 'new_fund_dominant_nature': str,
+                 'dominant_nature': str},
         'put':  { 同上 },
         'consistency': 'consistent' / 'contradictory' / 'pcr_flat',
         'pcr_direction': 'up/down/flat',
         'skew_direction': 'deepen/flatten/flat',
+        'new_fund_direction': 看空/看多/多空博弈/None (v2.11.85f 新增, 仅 contradictory 时计算),
     }
     """
     if not cv_inputs or not cv_inputs.get('available'):
@@ -476,6 +599,9 @@ def cross_validate_funding(cv_inputs):
         'skew_direction': skew_dir,
     }
 
+    # v2.11.85f: 子规则 2b 仅在 contradictory 时启用
+    fund_flow = cv_inputs.get('fund_flow', {}) if consistency == 'contradictory' else {}
+
     for side, fund_lv, iv_rel in [('call', fund_call, iv_call), ('put', fund_put, iv_put)]:
         if consistency == 'consistent':
             verdict = _cv_apply_rule_consistent(fund_lv, iv_rel)
@@ -485,6 +611,65 @@ def cross_validate_funding(cv_inputs):
             verdict = _cv_apply_rule_contradictory(fund_lv, iv_rel)
             subrule = 2
             rationale = f'子规则2（方向矛盾大资金方主导）: 资金[{fund_lv}] × IV[{iv_rel}]'
+
+            # ============================================================
+            # v2.11.85f: 子规则 2b 新资金方向分层
+            # 仅当本端 fund_flow 数据存在时计算
+            # ============================================================
+            ff = fund_flow.get(side.capitalize(), {})
+            new_long  = ff.get('new_fund_net_long', 0)
+            new_short = ff.get('new_fund_net_short', 0)
+            new_neutral = ff.get('new_fund_net_neutral', 0)
+            stock_long = ff.get('stock_adj_net_long', 0)
+            stock_short = ff.get('stock_adj_net_short', 0)
+            new_dom = ff.get('new_fund_dominant_nature', 'unknown')
+            dominant = ff.get('dominant_nature', 'unknown')
+
+            abs_new = abs(new_long) + abs(new_short) + abs(new_neutral)
+            abs_stock = abs(stock_long) + abs(stock_short)
+
+            # 新资金 vs 存量 主导判定
+            if abs_new > abs_stock * NEW_FUND_DOMINANCE_RATIO:
+                flow_verdict = '新资金主导'
+            elif abs_stock > abs_new * NEW_FUND_DOMINANCE_RATIO:
+                flow_verdict = '存量调整主导'
+            else:
+                flow_verdict = '资金僵持'
+
+            # 方向判定: 仅当新资金主导时给方向
+            if flow_verdict == '新资金主导':
+                if new_long > abs(new_short):
+                    direction = '看多'
+                elif abs(new_short) > new_long:
+                    direction = '看空'
+                else:
+                    direction = None  # 新资金内部多空均衡
+            else:
+                direction = None  # 存量主导/僵持 → 不给方向,让 9 行表结论主导
+
+            rationale += (
+                f' | 新资金[L:{new_long:+.0f}/S:{new_short:+.0f}/N:{new_neutral:+.0f}] '
+                f'存量[L:{stock_long:+.0f}/S:{stock_short:+.0f}] '
+                f'新主导[{new_dom}] {flow_verdict}'
+            )
+
+            result[side] = {
+                'verdict': verdict,
+                'rationale': rationale,
+                'subrule': subrule,
+                # v2.11.85f 新增字段
+                'verdict_direction': direction,
+                'fund_flow_verdict': flow_verdict,
+                'new_fund_net_long': new_long,
+                'new_fund_net_short': new_short,
+                'new_fund_net_neutral': new_neutral,
+                'stock_adj_net_long': stock_long,
+                'stock_adj_net_short': stock_short,
+                'new_fund_dominant_nature': new_dom,
+                'dominant_nature': dominant,
+            }
+            continue  # 子规则 2 已在上面赋值 result[side], 跳过下面的 else 分支
+
         else:  # pcr_flat
             if iv_rel == '强信号':
                 verdict = _cv_apply_rule_pcr_flat(skew_dir, iv_rel)
@@ -495,11 +680,89 @@ def cross_validate_funding(cv_inputs):
                 subrule = 4
                 rationale = f'子规则4（无法判定）: PCR平稳 + IV变化<0.5pp'
 
-        result[side] = {
+        # 子规则 1/3/4 不变, 但 v2.11.85f 透传 fund_flow 字段供前端展示
+        side_data = {
             'verdict': verdict,
             'rationale': rationale,
             'subrule': subrule,
         }
+        # v2.11.85f: 即使非 contradictory, 也透传 fund_flow 字段（如果有）
+        if fund_flow:
+            ff = fund_flow.get(side.capitalize(), {})
+            side_data['fund_flow_verdict'] = (
+                '新资金主导' if (abs(ff.get('new_fund_net_long', 0)) +
+                                 abs(ff.get('new_fund_net_short', 0)) +
+                                 abs(ff.get('new_fund_net_neutral', 0))) >
+                                (abs(ff.get('stock_adj_net_long', 0)) +
+                                 abs(ff.get('stock_adj_net_short', 0))) * NEW_FUND_DOMINANCE_RATIO
+                else '存量调整主导' if (abs(ff.get('stock_adj_net_long', 0)) +
+                                        abs(ff.get('stock_adj_net_short', 0))) >
+                                       (abs(ff.get('new_fund_net_long', 0)) +
+                                        abs(ff.get('new_fund_net_short', 0)) +
+                                        abs(ff.get('new_fund_net_neutral', 0))) * NEW_FUND_DOMINANCE_RATIO
+                else '资金僵持'
+            )
+            side_data['new_fund_net_long'] = ff.get('new_fund_net_long', 0)
+            side_data['new_fund_net_short'] = ff.get('new_fund_net_short', 0)
+            side_data['new_fund_net_neutral'] = ff.get('new_fund_net_neutral', 0)
+            side_data['stock_adj_net_long'] = ff.get('stock_adj_net_long', 0)
+            side_data['stock_adj_net_short'] = ff.get('stock_adj_net_short', 0)
+            side_data['new_fund_dominant_nature'] = ff.get('new_fund_dominant_nature', 'unknown')
+            side_data['dominant_nature'] = ff.get('dominant_nature', 'unknown')
+            side_data['verdict_direction'] = None  # 仅 contradictory 时计算
+        result[side] = side_data
+
+    # ============================================================
+    # v2.11.85f: 综合两端 new_fund_direction（仅 contradictory 时有意义）
+    # ============================================================
+    if consistency == 'contradictory':
+        ff_c = fund_flow.get('Call', {})
+        ff_p = fund_flow.get('Put', {})
+        c_long = ff_c.get('new_fund_net_long', 0)
+        c_short = ff_c.get('new_fund_net_short', 0)
+        p_long = ff_p.get('new_fund_net_long', 0)
+        p_short = ff_p.get('new_fund_net_short', 0)
+        abs_c_new = abs(c_long) + abs(c_short) + abs(ff_c.get('new_fund_net_neutral', 0))
+        abs_p_new = abs(p_long) + abs(p_short) + abs(ff_p.get('new_fund_net_neutral', 0))
+        abs_c_stock = abs(ff_c.get('stock_adj_net_long', 0)) + abs(ff_c.get('stock_adj_net_short', 0))
+        abs_p_stock = abs(ff_p.get('stock_adj_net_long', 0)) + abs(ff_p.get('stock_adj_net_short', 0))
+        c_new_dom = abs_c_new > abs_c_stock * NEW_FUND_DOMINANCE_RATIO
+        p_new_dom = abs_p_new > abs_p_stock * NEW_FUND_DOMINANCE_RATIO
+
+        # 标的看多力 = Call 多 - Put 多(反向)
+        # 标的看空力 = Put 空 - Call 空(反向)
+        bull_force = c_long - p_long
+        bear_force = p_short - c_short
+
+        if c_new_dom and p_new_dom:
+            # 两端都新资金主导 → 比较力量
+            if bear_force > bull_force and bear_force > 0:
+                result['new_fund_direction'] = '看空'
+            elif bull_force > bear_force and bull_force > 0:
+                result['new_fund_direction'] = '看多'
+            else:
+                result['new_fund_direction'] = '多空博弈'
+        elif c_new_dom and not p_new_dom:
+            # 只有 Call 新资金主导
+            if c_long > abs(c_short):
+                result['new_fund_direction'] = '看多'
+            elif abs(c_short) > c_long:
+                result['new_fund_direction'] = '看空'
+            else:
+                result['new_fund_direction'] = None
+        elif p_new_dom and not c_new_dom:
+            # 只有 Put 新资金主导
+            if p_short > abs(p_long):
+                result['new_fund_direction'] = '看空'
+            elif abs(p_long) > p_short:
+                result['new_fund_direction'] = '看多'
+            else:
+                result['new_fund_direction'] = None
+        else:
+            # 两端存量主导或僵持 → 不给方向
+            result['new_fund_direction'] = None
+    else:
+        result['new_fund_direction'] = None
 
     return result
 

@@ -2897,7 +2897,7 @@ function getStrategyReportEndpoint() {
                     // ============================================================
                     function renderDecisionLayerBlock(d) {
                         if (!d) {
-                            return `<div style="margin:8px 0 10px 0;"><div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">🧭 四维决策（v2.11.85g 资金意图综合）</div><div style="color:#888;font-size:11px;font-style:italic;padding:4px 0;">决策层数据未生成（可手动跑 <code>python3 scripts/judge_state.py</code> 验证）</div></div>`;
+                            return `<div style="margin:8px 0 10px 0;"><div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">🧭 四维决策（v2.11.85h 资金意图综合+子规则2b新资金分层）</div><div style="color:#888;font-size:11px;font-style:italic;padding:4px 0;">决策层数据未生成（可手动跑 <code>python3 scripts/judge_state.py</code> 验证）</div></div>`;
                         }
                         const L1 = d.layer1 || {}, L2 = d.layer2 || {}, L3 = d.layer3 || {}, L4 = d.layer4 || {};
                         const fin = d.final || {};
@@ -2963,7 +2963,7 @@ function getStrategyReportEndpoint() {
                         const contradiction = fin.contradiction;
                         const decisionColor = (totalScore == null) ? '#888' : (totalScore >= 0.2 ? '#26a69a' : (totalScore <= -0.2 ? '#ef5350' : '#ffd700'));
                         let html = `<div style="margin:14px 0 10px 0;padding:10px 12px;background:#15151f;border-left:3px solid #ffd700;border-radius:5px;">`;
-                        html += `<div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:8px;">🧭 四维决策（v2.11.85g 资金意图综合）</div>`;
+                        html += `<div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:8px;">🧭 四维决策（v2.11.85h 资金意图综合+子规则2b新资金分层）</div>`;
                         // 决策 banner
                         html += `<div style="margin:4px 0 10px 0;padding:8px 10px;background:#101018;border-left:3px solid ${decisionColor};border-radius:3px;">
                             <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
@@ -4943,6 +4943,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.85g</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.85h</div>
 </body>
 </html>

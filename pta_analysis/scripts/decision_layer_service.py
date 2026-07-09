@@ -77,6 +77,9 @@ def _build_cross_validation_inputs(alert_data, gex, weighted, _legacy_chain_data
     v2.11.85e: L3 数据源统一为 alert_data, 删除 chain_data 依赖
       strike_rows = alert_data.rows (含 oi_call/iv_call/iv_call_prev)
       _calc_fund_activity 已支持双 schema 自动探测
+    v2.11.85f: 暴露 fund_flow 字段 (Call/Put 两端新资金/存量拆分),
+      由 compute_weighted_nature._calc_fund_flow_split 计算,
+      供 cross_validate_funding 子规则 2b 判定方向用
     输出 dict 结构: see SKILL.md pta-decision-layer-service-85d-cross-validation
     """
     rows_ad = (alert_data or {}).get('rows', []) or []
@@ -85,7 +88,7 @@ def _build_cross_validation_inputs(alert_data, gex, weighted, _legacy_chain_data
         return {'available': False, 'note': 'alert_data.rows 为空'}
 
     from scripts.compute_weighted_nature import (
-        _calc_fund_activity, _classify_iv_reliability
+        _calc_fund_activity, _classify_iv_reliability, _calc_fund_flow_split,
     )
 
     # ---------- PCR 驱动因素 ----------
@@ -235,7 +238,7 @@ def _build_cross_validation_inputs(alert_data, gex, weighted, _legacy_chain_data
 
     return {
         'available': True,
-        'threshold_version': 'v2.11.85d',
+        'threshold_version': 'v2.11.85h',
         'pcr': {
             'now': round(pcr_now, 4),
             'prev': round(pcr_prev, 4),
@@ -272,6 +275,19 @@ def _build_cross_validation_inputs(alert_data, gex, weighted, _legacy_chain_data
         'iv_reliability': {
             'Call': iv_rel_call,
             'Put':  iv_rel_put,
+        },
+        # v2.11.85f: 新资金 vs 存量调整拆分（NAT_DIR 方向加权）
+        # 由 compute_weighted_nature._calc_fund_flow_split 计算
+        # 供 cross_validate_funding 子规则 2b 在 contradictory 场景给方向
+        'fund_flow': {
+            'Call': _calc_fund_flow_split(
+                (weighted or {}).get('Call', {}).get('strike_role', []),
+                'Call',
+            ),
+            'Put':  _calc_fund_flow_split(
+                (weighted or {}).get('Put', {}).get('strike_role', []),
+                'Put',
+            ),
         },
     }
 
