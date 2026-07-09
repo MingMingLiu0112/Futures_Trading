@@ -77,6 +77,12 @@ app = Flask(__name__, static_folder=None)
 app.config["DATABASE"] = DB_PATH
 app.config["WORKSPACE"] = WORKSPACE
 
+# 主页标的价短缓存：前端会频繁轮询 /api/pta/underlying_price。
+# 若每次都直连 TqSdk，会反复建 websocket 连接并抬高内存/CPU。
+_UNDERLYING_PRICE_CACHE = {'expiry_code': None, 'price': 0.0, 'source': 'none', 'ts': 0.0}
+_UNDERLYING_PRICE_CACHE_LOCK = threading.Lock()
+_UNDERLYING_PRICE_CACHE_TTL = 10.0
+
 # ==================== 波动率API缓存 ====================
 _volatility_cache = {}
 _volatility_cache_time = {}
@@ -433,6 +439,18 @@ def api_underlying_price():
         price = 0
         price_source = 'none'
         expiry_code = oca.get_homepage_near_expiry()
+        now_ts = time.time()
+        with _UNDERLYING_PRICE_CACHE_LOCK:
+            cached = dict(_UNDERLYING_PRICE_CACHE)
+        if (cached.get('expiry_code') == expiry_code and cached.get('price', 0) > 0
+                and now_ts - float(cached.get('ts') or 0) < _UNDERLYING_PRICE_CACHE_TTL):
+            return jsonify({
+                'success': True,
+                'underlying_price': float(cached['price']),
+                'symbol': expiry_code,
+                'timestamp': dt_datetime.now().isoformat(),
+                'source': f"cache_{cached.get('source', 'unknown')}"
+            })
         try:
             shared_contract = iv_smile_service._state.get('active_contract')
         except Exception:
@@ -481,12 +499,21 @@ def api_underlying_price():
                     price_source = 'akshare_main'
             except Exception:
                 pass
+        final_source = price_source if price and expiry_code else 'fallback'
+        if price and expiry_code:
+            with _UNDERLYING_PRICE_CACHE_LOCK:
+                _UNDERLYING_PRICE_CACHE.update({
+                    'expiry_code': expiry_code,
+                    'price': float(price),
+                    'source': final_source,
+                    'ts': time.time(),
+                })
         return jsonify({
             'success': True,
             'underlying_price': price,
             'symbol': expiry_code,
             'timestamp': dt_datetime.now().isoformat(),
-            'source': price_source if price and expiry_code else 'fallback'
+            'source': final_source
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
