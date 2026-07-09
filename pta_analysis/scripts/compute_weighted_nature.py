@@ -59,9 +59,11 @@ NAT_DIR_PUT = {
 NEW_FUND_NATURES = {'spec_buy_directional', 'spec_buy_lotto', 'hedge_buy'}
 # hedge_sell = 卖权收租（新开仓但中性，归中性新开仓）
 NEUTRAL_NEW_NATURES = {'hedge_sell'}
-# 存量调整（OI↓ 但 close_push 仍带方向，double_exit/passive_close 中性）
-STOCK_ADJ_NATURES = {'close_push', 'double_exit', 'passive_close'}
-# 噪音（不计入方向判定）
+# 存量调整（OI↓ 但 close_push 仍带方向，double_exit 是中性撤退）
+STOCK_ADJ_NATURES = {'close_push', 'double_exit'}
+# v2.11.85h: passive_close 是被动平仓（OI↓ IV—），无方向性, 不算存量调整也不算噪音
+PASSIVE_NATURES = {'passive_close'}
+# 噪音（不计入方向判定, 不计入 dominant_nature）
 NOISE_NATURES = {'noise_open', 'noise_close', 'quote_adjust',
                  'theta_decay', 'supply_overhang', 'static', 'hedge_rolling'}
 
@@ -102,7 +104,9 @@ def _calc_fund_flow_split(strike_role_list, side):
             continue
 
         oi_total += oi_chg
-        nature_oi[nat] = nature_oi.get(nat, 0) + abs(oi_chg)
+        # v2.11.85h 修订: dominant_nature 排除噪音（passive_close/noise_* 等无方向性变化不算"主导"）
+        if nat not in NOISE_NATURES:
+            nature_oi[nat] = nature_oi.get(nat, 0) + abs(oi_chg)
         direction = nat_dir_map.get(nat, '中性')
 
         if nat in NEW_FUND_NATURES:
@@ -122,7 +126,9 @@ def _calc_fund_flow_split(strike_role_list, side):
             elif direction in ('看空', '偏空'):
                 stock_short += oi_chg
             # stock 中性不计入 stock_long/short
-        # NOISE_NATURES 不计入
+        elif nat in PASSIVE_NATURES:
+            pass  # 被动平仓无方向, 不计入 stock/long/short, 也不计入 nature_oi (已在上面 if nat not in NOISE_NATURES 排除)
+        # NOISE_NATURES 不计入 (包括 nature_oi)
 
     dominant_nature = max(nature_oi, key=nature_oi.get) if nature_oi else 'unknown'
     new_fund_dominant = max(new_fund_nature_oi, key=new_fund_nature_oi.get) \
