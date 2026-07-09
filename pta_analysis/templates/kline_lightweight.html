@@ -2984,8 +2984,28 @@ function getStrategyReportEndpoint() {
                             ? `${cell(L3.logic_brief)} <span style="color:#888;">| ${l3Label}</span>${l3PcrDelta}`
                             : `Put ${cell(L3.put_nature || '?')} + Call ${cell(L3.call_nature || '?')} <span style="color:#888;">| ${l3Label}</span>${l3PcrDelta}`;
                         // v2.11.85g: 折叠态顶部一行"🎯 综合结论"（飞书 §2.3.1 + §2.3.2 联合摘要）
+                        // v2.11.85h: + fund_flow_verdict (新资金主导/存量调整/僵持) + new_fund_direction (矛盾场景方向)
                         const _fsBrief = L3.funding_signal || {};
                         const _fsCvBrief = L3.funding_signal_cv || {};
+                        const _ffBrief = (L3.cross_validation_verdict || {}).fund_flow_verdict
+                            || (((L3.cross_validation || {}).fund_flow || {}).Call
+                                && ((L3.cross_validation || {}).fund_flow || {}).Put
+                                ? (() => {
+                                    const c = ((L3.cross_validation || {}).fund_flow || {}).Call || {};
+                                    const p = ((L3.cross_validation || {}).fund_flow || {}).Put || {};
+                                    const cNew = (c.new_fund_net_long||0) + (c.new_fund_net_short||0) + (c.new_fund_net_neutral||0);
+                                    const pNew = (p.new_fund_net_long||0) + (p.new_fund_net_short||0) + (p.new_fund_net_neutral||0);
+                                    const cStock = Math.abs(c.stock_adj_net_long||0) + Math.abs(c.stock_adj_net_short||0);
+                                    const pStock = Math.abs(p.stock_adj_net_long||0) + Math.abs(p.stock_adj_net_short||0);
+                                    const maxNew = Math.max(cNew, pNew);
+                                    const maxStock = Math.max(cStock, pStock);
+                                    if (maxNew > maxStock * 1.5) return '新资金主导';
+                                    if (maxStock > maxNew * 1.5) return '存量调整主导';
+                                    return '资金僵持';
+                                })()
+                                : '');
+                        const _newFundDir = (L3.cross_validation_verdict || {}).new_fund_direction || '';
+                        const _consistency = (L3.cross_validation_verdict || {}).consistency || '';
                         const _fsBriefLabel = _fsBrief.signal_label || '';
                         const _fsBriefStrength = _fsBrief.signal_strength || '';
                         const _fsBriefCv = _fsCvBrief.verdict || '';
@@ -2993,9 +3013,15 @@ function getStrategyReportEndpoint() {
                         if (_fsBriefStrength === '强' || _fsBriefCv === '确认' || _fsBriefCv === '强确认') _fsBriefColor = '#26a69a';
                         else if (_fsBriefStrength === '中' || _fsBriefCv === '弱确认') _fsBriefColor = '#ffd700';
                         else if (_fsBriefStrength.includes('观望') || _fsBriefCv === '无修正' || _fsBriefCv === '忽略噪音') _fsBriefColor = '#888';
+                        // v2.11.85h: 资金流颜色（矛盾场景下方向颜色敏感）
+                        const _ffDirColor = _newFundDir === '看空' ? '#5d5'
+                            : (_newFundDir === '看多' ? '#ef5350'
+                            : (_newFundDir === '多空博弈' ? '#ffd700' : '#888'));
                         const _fsBriefHtml = _fsBriefLabel ? `<div style="margin:2px 0 0 0;font-size:10px;color:${_fsBriefColor};">
                             <span style="color:#888;">🎯 综合:</span> <b>${cell(_fsBriefLabel)}</b>
                             ${_fsBriefCv ? `<span style="color:#888;"> | ${cell(_fsBriefCv)}</span>` : ''}
+                            ${_ffBrief ? `<span style="color:#888;"> | </span><span style="color:#9bc;font-weight:500;">资金流:</span> <b>${cell(_ffBrief)}</b>` : ''}
+                            ${_newFundDir ? `<span style="color:#888;"> | </span><span style="color:#888;font-weight:500;">方向:</span> <b style="color:${_ffDirColor};">${cell(_newFundDir)}</b>` : ''}
                         </div>` : '';
                         html += layerRow(3, '资金意图', L3.weight || 0.25, L3.layer_score, l3Brief + _fsBriefHtml, true, L3);
                         // L4: 情绪确认（用 signals 列表前 3 个）
@@ -3163,6 +3189,83 @@ function getStrategyReportEndpoint() {
                                 </div>
                                 <div style="color:#888;font-size:9px;margin-top:3px;line-height:1.5;">${cell(fsCvRationale)}</div>
                                 ` : ''}
+                                ${(() => {
+                                    // v2.11.85h: 子规则 2b 新资金方向分层展示
+                                    const cv = L3.cross_validation_verdict || {};
+                                    const cv_ff = L3.cross_validation || {};
+                                    const ff = cv_ff.fund_flow || {};
+                                    if (!cv.call && !cv.put) return '';
+                                    const callV = cv.call || {};
+                                    const putV = cv.put || {};
+                                    const fundFlowVerdict = callV.fund_flow_verdict || putV.fund_flow_verdict || '';
+                                    const newDir = cv.new_fund_direction || '';
+                                    const consistency = cv.consistency || '';
+                                    if (!fundFlowVerdict && !newDir) return '';
+                                    const ffColor = fundFlowVerdict === '新资金主导' ? '#26a69a'
+                                        : (fundFlowVerdict === '存量调整主导' ? '#ffd700' : '#888');
+                                    const dirColor = newDir === '看空' ? '#5d5'
+                                        : (newDir === '看多' ? '#ef5350'
+                                        : (newDir === '多空博弈' ? '#ffd700' : '#888'));
+                                    const callDirTag = callV.verdict_direction ? `<span style="color:#4a90e2;">Call:</span> <b style="color:${callV.verdict_direction === '看空' ? '#5d5' : (callV.verdict_direction === '看多' ? '#ef5350' : '#888')};">${cell(callV.verdict_direction)}</b>` : '';
+                                    const putDirTag = putV.verdict_direction ? `<span style="color:#e2904a;">Put:</span> <b style="color:${putV.verdict_direction === '看空' ? '#5d5' : (putV.verdict_direction === '看多' ? '#ef5350' : '#888')};">${cell(putV.verdict_direction)}</b>` : '';
+                                    const newFundNature = callV.new_fund_dominant_nature || putV.new_fund_dominant_nature || '';
+                                    const NATURE_TXT = {
+                                        'spec_buy_directional': '投机买入', 'spec_buy_lotto': '投机彩票',
+                                        'hedge_buy': '产业买保', 'hedge_sell': '产业收租',
+                                        'close_push': '卖方平仓', 'double_exit': '双边撤退',
+                                        'passive_close': '被动平仓', 'hedge_rolling': '套保移仓',
+                                        'noise_open': '噪声开', 'noise_close': '噪声平',
+                                        'quote_adjust': '报价调', 'supply_overhang': '卖压',
+                                        'theta_decay': 'Theta', 'static': '静态',
+                                    };
+                                    const newFundTxt = newFundNature ? NATURE_TXT[newFundNature] || newFundNature : '';
+                                    return `
+                                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11px;margin-top:4px;padding-top:4px;border-top:1px solid #2a2a36;">
+                                    <span style="color:#9bc;font-size:10px;font-weight:bold;">🆕 §2.3.2 子规则 2b 新资金分层</span>
+                                    <span style="color:#888;font-size:9px;">v2.11.85h</span>
+                                    <span style="color:#888;">|</span>
+                                    <span style="color:#888;font-weight:500;">资金流:</span> <b style="color:${ffColor};">${cell(fundFlowVerdict || '--')}</b>
+                                    ${newFundTxt ? `<span style="color:#888;">|</span><span style="color:#888;font-weight:500;">新主导:</span> <span style="color:#cfcfcf;">${cell(newFundTxt)}</span>` : ''}
+                                    ${(callDirTag || putDirTag) ? `<span style="color:#888;">|</span><span style="color:#888;font-weight:500;">单端:</span> ${callDirTag} ${putDirTag}` : ''}
+                                    ${newDir && (consistency === 'contradictory' || consistency === 'consistent') ? `<span style="color:#888;">|</span><span style="color:#888;font-weight:500;">综合:</span> <b style="color:${dirColor};font-size:12px;">${cell(newDir)}</b>` : ''}
+                                </div>
+                                ${(() => {
+                                    // 详细拆分表（Call/Put 两端）
+                                    if (!ff.Call || !ff.Put) return '';
+                                    const fmtOI = (x) => x == null ? '--' : (x >= 0 ? '+' : '') + Number(x).toFixed(0);
+                                    const cells = (side) => {
+                                        const d = ff[side] || {};
+                                        return `
+                                            <td style="padding:3px 5px;border-bottom:1px solid #1e1e28;font-size:10px;color:#cfcfcf;">${fmtOI(d.new_fund_net_long)}</td>
+                                            <td style="padding:3px 5px;border-bottom:1px solid #1e1e28;font-size:10px;color:#cfcfcf;">${fmtOI(d.new_fund_net_short)}</td>
+                                            <td style="padding:3px 5px;border-bottom:1px solid #1e1e28;font-size:10px;color:#888;">${fmtOI(d.new_fund_net_neutral)}</td>
+                                            <td style="padding:3px 5px;border-bottom:1px solid #1e1e28;font-size:10px;color:#cfcfcf;">${fmtOI(d.stock_adj_net_long)}</td>
+                                            <td style="padding:3px 5px;border-bottom:1px solid #1e1e28;font-size:10px;color:#cfcfcf;">${fmtOI(d.stock_adj_net_short)}</td>`;
+                                    };
+                                    return `
+                                <table style="width:100%;border-collapse:collapse;margin-top:4px;background:#101018;border:1px solid #1e1e28;">
+                                    <thead><tr>
+                                        <th style="color:#888;text-align:left;padding:2px 5px;font-size:9px;font-weight:500;"></th>
+                                        <th style="color:#5d5;text-align:right;padding:2px 5px;font-size:9px;font-weight:500;">新多</th>
+                                        <th style="color:#ef5350;text-align:right;padding:2px 5px;font-size:9px;font-weight:500;">新空</th>
+                                        <th style="color:#666;text-align:right;padding:2px 5px;font-size:9px;font-weight:500;">新中性</th>
+                                        <th style="color:#888;text-align:right;padding:2px 5px;font-size:9px;font-weight:500;">存多</th>
+                                        <th style="color:#888;text-align:right;padding:2px 5px;font-size:9px;font-weight:500;">存空</th>
+                                    </tr></thead>
+                                    <tbody>
+                                        <tr>
+                                            <td style="padding:3px 5px;border-bottom:1px solid #1e1e28;font-size:10px;color:#4a90e2;">Call</td>
+                                            ${cells('Call')}
+                                        </tr>
+                                        <tr>
+                                            <td style="padding:3px 5px;font-size:10px;color:#e2904a;">Put</td>
+                                            ${cells('Put')}
+                                        </tr>
+                                    </tbody>
+                                </table>`;
+                                })()}
+                                `;
+                                })()}
                             </div>` : '';
                         // v2.11.85d: strike_role 列表（按 contribution 降序，取 Top 8）
                         const strikeRoleListHtml = (callStrikeHtml !== '--' || putStrikeHtml !== '--') ? `

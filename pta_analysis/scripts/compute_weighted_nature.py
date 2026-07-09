@@ -599,8 +599,9 @@ def cross_validate_funding(cv_inputs):
         'skew_direction': skew_dir,
     }
 
-    # v2.11.85f: 子规则 2b 仅在 contradictory 时启用
-    fund_flow = cv_inputs.get('fund_flow', {}) if consistency == 'contradictory' else {}
+    # v2.11.85f: 子规则 2b 仅在 contradictory 时启用判定
+    # 但 v2.11.85h 修订: consistent 场景也透传 fund_flow 字段供前端展示
+    fund_flow = cv_inputs.get('fund_flow', {}) or {}
 
     for side, fund_lv, iv_rel in [('call', fund_call, iv_call), ('put', fund_put, iv_put)]:
         if consistency == 'consistent':
@@ -689,19 +690,29 @@ def cross_validate_funding(cv_inputs):
         # v2.11.85f: 即使非 contradictory, 也透传 fund_flow 字段（如果有）
         if fund_flow:
             ff = fund_flow.get(side.capitalize(), {})
-            side_data['fund_flow_verdict'] = (
-                '新资金主导' if (abs(ff.get('new_fund_net_long', 0)) +
-                                 abs(ff.get('new_fund_net_short', 0)) +
-                                 abs(ff.get('new_fund_net_neutral', 0))) >
-                                (abs(ff.get('stock_adj_net_long', 0)) +
-                                 abs(ff.get('stock_adj_net_short', 0))) * NEW_FUND_DOMINANCE_RATIO
-                else '存量调整主导' if (abs(ff.get('stock_adj_net_long', 0)) +
-                                        abs(ff.get('stock_adj_net_short', 0))) >
-                                       (abs(ff.get('new_fund_net_long', 0)) +
-                                        abs(ff.get('new_fund_net_short', 0)) +
-                                        abs(ff.get('new_fund_net_neutral', 0))) * NEW_FUND_DOMINANCE_RATIO
-                else '资金僵持'
-            )
+            new_long_v  = ff.get('new_fund_net_long', 0)
+            new_short_v = ff.get('new_fund_net_short', 0)
+            new_neutral_v = ff.get('new_fund_net_neutral', 0)
+            stock_long_v = ff.get('stock_adj_net_long', 0)
+            stock_short_v = ff.get('stock_adj_net_short', 0)
+            abs_new_v = abs(new_long_v) + abs(new_short_v) + abs(new_neutral_v)
+            abs_stock_v = abs(stock_long_v) + abs(stock_short_v)
+            # v2.11.85h: consistent 也给 verdict_direction（按新资金主导判定）
+            if abs_new_v > abs_stock_v * NEW_FUND_DOMINANCE_RATIO:
+                flow_verdict_v = '新资金主导'
+                if new_long_v > abs(new_short_v):
+                    direction_v = '看多'
+                elif abs(new_short_v) > new_long_v:
+                    direction_v = '看空'
+                else:
+                    direction_v = None
+            elif abs_stock_v > abs_new_v * NEW_FUND_DOMINANCE_RATIO:
+                flow_verdict_v = '存量调整主导'
+                direction_v = None
+            else:
+                flow_verdict_v = '资金僵持'
+                direction_v = None
+            side_data['fund_flow_verdict'] = flow_verdict_v
             side_data['new_fund_net_long'] = ff.get('new_fund_net_long', 0)
             side_data['new_fund_net_short'] = ff.get('new_fund_net_short', 0)
             side_data['new_fund_net_neutral'] = ff.get('new_fund_net_neutral', 0)
@@ -709,7 +720,7 @@ def cross_validate_funding(cv_inputs):
             side_data['stock_adj_net_short'] = ff.get('stock_adj_net_short', 0)
             side_data['new_fund_dominant_nature'] = ff.get('new_fund_dominant_nature', 'unknown')
             side_data['dominant_nature'] = ff.get('dominant_nature', 'unknown')
-            side_data['verdict_direction'] = None  # 仅 contradictory 时计算
+            side_data['verdict_direction'] = direction_v  # v2.11.85h: consistent 也给方向
         result[side] = side_data
 
     # ============================================================
