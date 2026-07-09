@@ -3236,16 +3236,19 @@ function getStrategyReportEndpoint() {
                                     const cells = (side) => {
                                         const d = ff[side] || {};
                                         return `
-                                            <td style="padding:3px 5px;border-bottom:1px solid #1e1e28;font-size:10px;color:#cfcfcf;">${fmtOI(d.new_fund_net_long)}</td>
-                                            <td style="padding:3px 5px;border-bottom:1px solid #1e1e28;font-size:10px;color:#cfcfcf;">${fmtOI(d.new_fund_net_short)}</td>
-                                            <td style="padding:3px 5px;border-bottom:1px solid #1e1e28;font-size:10px;color:#888;">${fmtOI(d.new_fund_net_neutral)}</td>
-                                            <td style="padding:3px 5px;border-bottom:1px solid #1e1e28;font-size:10px;color:#cfcfcf;">${fmtOI(d.stock_adj_net_long)}</td>
-                                            <td style="padding:3px 5px;border-bottom:1px solid #1e1e28;font-size:10px;color:#cfcfcf;">${fmtOI(d.stock_adj_net_short)}</td>`;
+                                            <td style="padding:2px 5px;border-bottom:1px solid #1e1e28;font-size:10px;color:#cfcfcf;text-align:right;">${fmtOI(d.new_fund_net_long)}</td>
+                                            <td style="padding:2px 5px;border-bottom:1px solid #1e1e28;font-size:10px;color:#cfcfcf;text-align:right;">${fmtOI(d.new_fund_net_short)}</td>
+                                            <td style="padding:2px 5px;border-bottom:1px solid #1e1e28;font-size:10px;color:#888;text-align:right;">${fmtOI(d.new_fund_net_neutral)}</td>
+                                            <td style="padding:2px 5px;border-bottom:1px solid #1e1e28;font-size:10px;color:#cfcfcf;text-align:right;">${fmtOI(d.stock_adj_net_long)}</td>
+                                            <td style="padding:2px 5px;border-bottom:1px solid #1e1e28;font-size:10px;color:#cfcfcf;text-align:right;">${fmtOI(d.stock_adj_net_short)}</td>`;
                                     };
                                     return `
-                                <table style="width:100%;border-collapse:collapse;margin-top:4px;background:#101018;border:1px solid #1e1e28;">
+                                <table style="width:100%;border-collapse:collapse;margin-top:4px;background:#101018;border:1px solid #1e1e28;table-layout:fixed;">
+                                    <colgroup>
+                                        <col style="width:60px;"><col><col><col><col><col>
+                                    </colgroup>
                                     <thead><tr>
-                                        <th style="color:#888;text-align:center;padding:2px 5px;font-size:9px;font-weight:500;width:60px;">端</th>
+                                        <th style="color:#888;text-align:center;padding:2px 5px;font-size:9px;font-weight:500;">端</th>
                                         <th style="color:#5d5;text-align:right;padding:2px 5px;font-size:9px;font-weight:500;">新多</th>
                                         <th style="color:#ef5350;text-align:right;padding:2px 5px;font-size:9px;font-weight:500;">新空</th>
                                         <th style="color:#666;text-align:right;padding:2px 5px;font-size:9px;font-weight:500;">新中性</th>
@@ -3254,11 +3257,11 @@ function getStrategyReportEndpoint() {
                                     </tr></thead>
                                     <tbody>
                                         <tr>
-                                            <td style="padding:3px 5px;border-bottom:1px solid #1e1e28;font-size:10px;color:#4a90e2;text-align:center;font-weight:bold;">Call</td>
+                                            <td style="padding:2px 5px;border-bottom:1px solid #1e1e28;font-size:10px;color:#4a90e2;text-align:center;font-weight:bold;">Call</td>
                                             ${cells('Call')}
                                         </tr>
                                         <tr>
-                                            <td style="padding:3px 5px;font-size:10px;color:#e2904a;text-align:center;font-weight:bold;">Put</td>
+                                            <td style="padding:2px 5px;font-size:10px;color:#e2904a;text-align:center;font-weight:bold;">Put</td>
                                             ${cells('Put')}
                                         </tr>
                                     </tbody>

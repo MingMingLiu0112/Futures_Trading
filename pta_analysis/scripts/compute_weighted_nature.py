@@ -673,10 +673,18 @@ def cross_validate_funding(cv_inputs):
             else:
                 direction = None  # 存量主导/僵持 → 不给方向,让 9 行表结论主导
 
+            # v2.11.85h+ (A 拍板): rationale 删 `新主导[{new_dom}]` 段
+            #   理由: strike 详情已列出每个 nature, rationale 重复展示"新资金最大项"冗余且易误读为方向主导
+            #   资金流判定本身 (fund_flow_verdict) 已说清资金方向, 不再附新主导 nature
+            #   改写 flow_verdict → "资金流:{verdict}(不参与方向)" 让"不参与方向"显式可读
+            if flow_verdict == '新资金主导':
+                flow_label = f'资金流:{flow_verdict}'
+            else:
+                flow_label = f'资金流:{flow_verdict}(不参与方向)'
             rationale += (
                 f' | 新资金[L:{new_long:+.0f}/S:{new_short:+.0f}/N:{new_neutral:+.0f}] '
                 f'存量[L:{stock_long:+.0f}/S:{stock_short:+.0f}] '
-                f'新主导[{new_dom}] {flow_verdict}'
+                f'{flow_label}'
             )
 
             result[side] = {
