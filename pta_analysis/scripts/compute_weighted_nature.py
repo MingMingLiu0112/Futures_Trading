@@ -92,8 +92,9 @@ def _calc_fund_flow_split(strike_role_list, side):
     new_long = new_short = new_neutral = 0
     stock_long = stock_short = 0
     oi_total = 0.0
-    nature_oi = {}            # nature → abs(oi_chg) 累计（找 dominant_nature 用）
-    new_fund_nature_oi = {}   # 仅新资金 nature → abs 累计（找 new_fund_dominant 用）
+    nature_oi = {}            # nature → abs(oi_chg) 累计（找 dominant_nature 用, 仅 fallback）
+    nature_weight = {}        # nature → weight (impact × contribution) 累计（业务口径, 优先用）
+    new_fund_nature_weight = {}  # 仅新资金 nature → weight 加权
 
     for s in (strike_role_list or []):
         nat = s.get('nature')
@@ -102,11 +103,18 @@ def _calc_fund_flow_split(strike_role_list, side):
             oi_chg = float(s.get('oi_chg') or 0)
         except (TypeError, ValueError):
             continue
+        try:
+            weight_v = float(s.get('weight') or 0)
+        except (TypeError, ValueError):
+            weight_v = 0.0
 
         oi_total += oi_chg
-        # v2.11.85h 修订: dominant_nature 排除噪音（passive_close/noise_* 等无方向性变化不算"主导"）
-        if nat not in NOISE_NATURES:
+        # v2.11.85h 修订: dominant_nature 用 weight (impact × contribution) 加权
+        #          业务口径与 _compute_side L333 scores 一致 (那里累加的是 r['weight'])
+        #          排除噪音和被动平仓
+        if nat not in NOISE_NATURES and nat not in PASSIVE_NATURES:
             nature_oi[nat] = nature_oi.get(nat, 0) + abs(oi_chg)
+            nature_weight[nat] = nature_weight.get(nat, 0) + abs(weight_v)
         direction = nat_dir_map.get(nat, '中性')
 
         if nat in NEW_FUND_NATURES:
@@ -116,10 +124,10 @@ def _calc_fund_flow_split(strike_role_list, side):
                 new_short += oi_chg
             else:
                 new_neutral += oi_chg
-            new_fund_nature_oi[nat] = new_fund_nature_oi.get(nat, 0) + abs(oi_chg)
+            new_fund_nature_weight[nat] = new_fund_nature_weight.get(nat, 0) + abs(weight_v)
         elif nat in NEUTRAL_NEW_NATURES:
             new_neutral += oi_chg
-            new_fund_nature_oi[nat] = new_fund_nature_oi.get(nat, 0) + abs(oi_chg)
+            new_fund_nature_weight[nat] = new_fund_nature_weight.get(nat, 0) + abs(weight_v)
         elif nat in STOCK_ADJ_NATURES:
             if direction in ('看多', '偏多'):
                 stock_long += oi_chg
@@ -127,12 +135,23 @@ def _calc_fund_flow_split(strike_role_list, side):
                 stock_short += oi_chg
             # stock 中性不计入 stock_long/short
         elif nat in PASSIVE_NATURES:
-            pass  # 被动平仓无方向, 不计入 stock/long/short, 也不计入 nature_oi (已在上面 if nat not in NOISE_NATURES 排除)
-        # NOISE_NATURES 不计入 (包括 nature_oi)
+            pass  # 被动平仓无方向, 不计入 stock/long/short, 不计入 nature_weight
+        # NOISE_NATURES 不计入 (包括 nature_weight)
 
-    dominant_nature = max(nature_oi, key=nature_oi.get) if nature_oi else 'unknown'
-    new_fund_dominant = max(new_fund_nature_oi, key=new_fund_nature_oi.get) \
-        if new_fund_nature_oi else 'unknown'
+    # v2.11.85h: dominant_nature 按 weight (impact × contribution) 加权排序
+    #          业务口径与 _compute_side L333 scores 一致
+    #          fallback 到 abs(oi_chg) (仅在 weight 全为 0 时)
+    if nature_weight and any(v > 0 for v in nature_weight.values()):
+        dominant_nature = max(nature_weight, key=nature_weight.get)
+    else:
+        dominant_nature = max(nature_oi, key=nature_oi.get) if nature_oi else 'unknown'
+    # new_fund_dominant 也用 weight 加权
+    if new_fund_nature_weight and any(v > 0 for v in new_fund_nature_weight.values()):
+        new_fund_dominant = max(new_fund_nature_weight, key=new_fund_nature_weight.get)
+    elif new_fund_nature_oi:
+        new_fund_dominant = max(new_fund_nature_oi, key=new_fund_nature_oi.get)
+    else:
+        new_fund_dominant = 'unknown'
 
     return {
         'new_fund_net_long': round(new_long),
