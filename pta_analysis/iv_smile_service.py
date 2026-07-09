@@ -803,8 +803,11 @@ def _load_eod_state():
 
 def _load_close_state():
     """
-    启动时加载收盘快照恢复 _state 和 _last_valid。
-    返回 True 表示成功恢复，False 表示无可用数据。
+    启动时加载收盘快照。
+
+    返回值语义：True 仅表示本函数实际恢复了 current `_state`；
+    只恢复 `_close_baseline` / prev_baseline 不算 True。
+    调用方会用该返回值决定是否允许更新的 close_boundary interval snapshot 接管 `_state`。
 
     如果 _eod_state_loaded=True（EOD 收盘快照已先恢复 _state），
     本函数**只**设 _close_baseline（前次基准），不再覆盖 _state。
@@ -821,6 +824,8 @@ def _load_close_state():
     之前 L945 直接 return True，导致 _state 在盘后启动时永远 None，status/gex 端点无数据。
     """
     global _state, _last_valid, _close_baseline
+    current_state_restored = False
+
     # v2.11.54+: 优先从 prev_baseline.json 加载（不会因 close_state.json 被覆盖而丢"前次基准"）
     prev_baseline_loaded = False
     if os.path.exists(_PREV_BASELINE_FILE):
@@ -901,6 +906,7 @@ def _load_close_state():
                         val = cs_saved_valid.get(key)
                         if val is not None:
                             _last_valid[key] = val
+                    current_state_restored = True
                     print(f"[iv_smile] 💾 从 close_state.json 恢复 _state (盘后 current): "
                           f"ts={cs_ts[:19]} S={cs_saved_state.get('futures_price')} "
                           f"MP={cs_saved_state.get('max_pain')} OI={len(cs_saved_state.get('strike_oi') or {})}档")
@@ -909,7 +915,7 @@ def _load_close_state():
         except Exception as e:
             print(f"[iv_smile] ⚠️ 从 close_state.json 恢复 _state 失败: {e}")
 
-    return prev_baseline_loaded
+    return current_state_restored
 
     if not os.path.exists(_CLOSE_STATE_FILE):
         return False
@@ -1483,7 +1489,7 @@ def _load_previous_day_snapshots():
     # === 0a. 优先从 EOD 收盘快照恢复 _state（盘后/夜盘启动时立即有 OI/Vol/S/MP） ===
     eod_restored = _load_eod_state()
 
-    # === 0b. 从日内收盘快照恢复 _state 和 _close_baseline（如果 EOD 未加载） ===
+    # === 0b. 从日内收盘快照恢复 current _state（如适用）并加载 _close_baseline ===
     close_restored = _load_close_state()
 
     today = datetime.now().strftime('%Y%m%d')

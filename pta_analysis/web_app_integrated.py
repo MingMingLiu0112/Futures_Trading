@@ -81,7 +81,7 @@ app.config["WORKSPACE"] = WORKSPACE
 # 若每次都直连 TqSdk，会反复建 websocket 连接并抬高内存/CPU。
 _UNDERLYING_PRICE_CACHE = {'expiry_code': None, 'price': 0.0, 'source': 'none', 'ts': 0.0}
 _UNDERLYING_PRICE_CACHE_LOCK = threading.Lock()
-_UNDERLYING_PRICE_CACHE_TTL = 10.0
+_UNDERLYING_PRICE_CACHE_TTL = 60.0
 
 # ==================== 波动率API缓存 ====================
 _volatility_cache = {}
@@ -472,7 +472,21 @@ def api_underlying_price():
                     print(f"[api_underlying_price] 跳过缓存共享价 {shared_price} source={shared_source}，改走直连")
             except Exception:
                 price = 0
-        # 2) 合约不一致或共享价只是缓存 → 用 TqSdk/akshare 直连该合约
+        # 2) 复用期权链 5 分钟缓存里的标的价，避免前端轮询导致频繁创建临时 TqSdk websocket。
+        if price <= 0:
+            try:
+                api = oca.get_option_api()
+                cached_chain = getattr(api, '_cache', None)
+                cached_ts = getattr(api, '_last_update', None)
+                if cached_chain and cached_ts and now_ts - float(cached_ts) < 300:
+                    cached_underlying = cached_chain.get('underlying') or cached_chain.get('near_expiry')
+                    cached_price = float(cached_chain.get('underlying_price') or 0)
+                    if cached_underlying == expiry_code and cached_price > 0:
+                        price = cached_price
+                        price_source = 'option_chain_cache'
+            except Exception:
+                pass
+        # 3) 合约不一致且无可用缓存 → 用 TqSdk/akshare 直连该合约。
         if price <= 0:
             try:
                 from analysis.option_chain_api import get_tq_futures_price_by_expiry
@@ -1975,7 +1989,7 @@ def _get_yesterday_close_akshare(symbol='TA0'):
 # 休盘时数据不变，取一次缓存即可；盘中适当刷新
 import time as _time_mod
 _kline_tqsdk_cache = {}       # key: f"{symbol}_{period}" -> {'data': ..., 'ts': time.time(), 'yesterday_close': ...}
-_KLINE_CACHE_TTL = 2          # 主页K线必须准实时；短缓存只用于避免频繁创建TqApi连接
+_KLINE_CACHE_TTL = 60         # 前端按分钟轮询；60秒缓存避免每次请求都新建TqApi连接
 _KLINE_TQSDK_RETRY_COOLDOWN = 60  # TqSdk临时失败后1分钟再试，不再永久降级到akshare
 _kline_tqsdk_lock = threading.Lock()
 _kline_tqsdk_failed = False   # 默认启用TqSdk；akshare仅作为明确fallback
@@ -2235,7 +2249,9 @@ def _kline_warmup_scheduler():
         _kline_warmup()
     except Exception as e:
         app.logger.warning(f'[K线预热] 线程异常: {e}')
-threading.Thread(target=_kline_warmup_scheduler, daemon=True, name='kline-warmup').start()
+# 禁用启动预热：它会连续创建多个临时 TqSdk 连接，在小内存宿主机上造成启动期 RSS 快速上冲。
+# 首次 K 线请求按需加载，并由 _KLINE_CACHE_TTL 缓存。
+# threading.Thread(target=_kline_warmup_scheduler, daemon=True, name='kline-warmup').start()
 
 
 

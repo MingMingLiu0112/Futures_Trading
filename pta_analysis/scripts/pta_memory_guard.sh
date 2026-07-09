@@ -10,8 +10,8 @@ PATTERN="^${PYTHON_BIN} web_app_integrated.py$"
 MAX_RSS_KB=${MAX_RSS_KB:-1258291}
 LOG=${LOG:-/tmp/pta_memory_guard.log}
 
-pid=$(pgrep -f "$PATTERN" | head -1 || true)
-if [[ -z "$pid" ]]; then
+pids=$(pgrep -f "$PATTERN" || true)
+if [[ -z "$pids" ]]; then
   printf '%s app not running, starting\n' "$(date '+%F %T')" >> "$LOG"
   cd "$APP_DIR"
   PYTHONPATH="${PYTHONPATH:-/home/admin/.pyenv/versions/3.11.9/lib/python3.11/site-packages}" \
@@ -19,6 +19,20 @@ if [[ -z "$pid" ]]; then
   exit 0
 fi
 
+# 防止手工/守护重复拉起：多进程时只保留最新一个。
+count=$(printf '%s\n' "$pids" | wc -l)
+if (( count > 1 )); then
+  newest=$(printf '%s\n' "$pids" | sort -n | tail -1)
+  printf '%s multiple app processes: %s; keep %s\n' "$(date '+%F %T')" "$pids" "$newest" >> "$LOG"
+  for old_pid in $pids; do
+    [[ "$old_pid" == "$newest" ]] && continue
+    kill "$old_pid" 2>/dev/null || true
+  done
+  sleep 3
+  pids="$newest"
+fi
+
+pid=$(printf '%s\n' "$pids" | head -1)
 rss=$(ps -o rss= -p "$pid" | awk '{print $1+0}')
 if (( rss > MAX_RSS_KB )); then
   printf '%s rss=%sKB > %sKB, restarting pid=%s\n' "$(date '+%F %T')" "$rss" "$MAX_RSS_KB" "$pid" >> "$LOG"
