@@ -1000,6 +1000,9 @@ def _strategy_report_periodic_scheduler(interval_minutes: int = 15):
             # 00:00-08:59 跳过(无交易,生成也无意义)。
             if now_run.hour < 9:
                 print(f"[strategy-report] 非交易时段 {now_run.strftime('%H:%M:%S')} 跳过")
+                # 整 15 分边界的前 30 秒会被视为“立即触发”。这里如果直接 continue，
+                # 会在同一个边界窗口内空转刷屏，把 web_app.log 快速打爆。
+                time.sleep(60)
                 continue
             # 夜盘 21:00-23:00 强制 intraday 模式(即便 hour>=15)
             in_night_session = 21 <= now_run.hour < 23
