@@ -1119,23 +1119,31 @@ def cross_validate_synthesized_signal(synth_label: str, synth_direction: str,
     # Skew 方向: deepen=看空(delta>+0.3pp), flatten=看多(delta<-0.3pp), flat=平稳
     # 合成信号方向: 看多 / 看空 / 中性 / 矛盾(分裂)
 
-    # 子规则 3/4 的前置: PCR 平稳
-    if pcr_dir == 'flat':
-        consistency = 'pcr_flat'
+    # v2.11.85j: 业务逻辑修复 — consistency 完全基于 PCR+Skew 真实方向冲突判定,
+    # 不再被 synth_direction ("中性" / "矛盾") 强制映射成 contradictory (那是误判)
+    #
+    # PCR+Skew 业务映射:
+    #   PCR↑ (up)      → 看空方向 (Put 资金涌入)
+    #   PCR↓ (down)    → 看多方向 (Call OI 占比上升)
+    #   Skew deepen    → 看空方向 (Put 端溢价上升)
+    #   Skew flatten   → 看多方向 (Put 端溢价收敛)
+    #
+    # consistency 矩阵:
+    #   PCR↑ + Skew deepen  → 都看空 → consistent    (子规则 1)
+    #   PCR↓ + Skew flatten → 都看多 → consistent    (子规则 1, 当前数据)
+    #   PCR↑ + Skew flatten → PCR 看空 vs Skew 看多 → contradictory (子规则 2)
+    #   PCR↓ + Skew deepen  → PCR 看多 vs Skew 看空 → contradictory (子规则 2)
+    #   任意一方 flat      → pcr_flat (子规则 3/4)
+
+    pcr_skew_dir = '看空' if pcr_dir == 'up' else ('看多' if pcr_dir == 'down' else None)
+    skew_view = '看空' if skew_dir == 'deepen' else ('看多' if skew_dir == 'flatten' else None)
+
+    if pcr_skew_dir is None or skew_view is None:
+        consistency = 'pcr_flat'  # 任意一方 flat → 子规则 3/4 适用
+    elif pcr_skew_dir == skew_view:
+        consistency = 'consistent'  # 同向 → 子规则 1
     else:
-        # 合成信号 vs PCR+Skew 方向一致性
-        pcr_skew_dir = '看空' if pcr_dir == 'up' else '看多'
-        if synth_direction == '看多' and pcr_skew_dir == '看多':
-            consistency = 'consistent'
-        elif synth_direction == '看空' and pcr_skew_dir == '看空':
-            consistency = 'consistent'
-        elif synth_direction in ('中性', '矛盾'):
-            # 中性/矛盾的合成信号 vs 明确 PCR+Skew 方向 → 矛盾
-            consistency = 'contradictory'
-        elif synth_direction != pcr_skew_dir:
-            consistency = 'contradictory'
-        else:
-            consistency = 'contradictory'  # 兜底
+        consistency = 'contradictory'  # 真实方向冲突 → 子规则 2 (大资金方主导)
 
     # 注意: PCR 平稳时子规则 3/4 应用（不论合成信号方向如何）
 
