@@ -30,6 +30,18 @@ OI_THRESH_PCT = 1.0
 PCT_STRONG = 60.0
 
 # ============================================================
+# v2.11.85k: 4 个子规则的层级关系（飞书 §2.3.2 附录）
+#   子规则 1: 方向一致（PCR×Skew 同向）→ fund × IV 评级
+#   子规则 2: 方向矛盾（PCR×Skew 反向）→ 哪边资金活跃度高哪边主导
+#     └─ 子规则 2b: 仅当 2 命中（consistency='contradictory'）时启用
+#                   新资金 vs 存量 主导判定 + 方向加权（"新"是分子，"存量"是分母）
+#                   主导阈值: |新资金| > |存量调整| × NEW_FUND_DOMINANCE_RATIO (=1.5)
+#                   存量主导/僵持时 verdict_direction=None, 不参与方向, 让子规则 2 的 9 行表结论主导
+#   子规则 3: PCR 平稳 + Skew 变化 → IV 评级
+#   子规则 4: PCR 平稳 + IV 弱 → 无修正
+#
+# ⚠️ 2b 是 2 的子节点, 不是并列规则; consistent / pcr_flat 都不进入 2b
+# ============================================================
 # v2.11.85f: 子规则 2b 新资金方向分层 —— NAT_DIR + nature 分类
 # 飞书 §2.3.1 单合约性质判定，方向词按 NAT_MAP（Call/Put 端方向相反）
 # close_push 方向说明:
@@ -634,9 +646,49 @@ def cross_validate_funding(cv_inputs):
             subrule = 1
             rationale = f'子规则1（方向一致）: 资金[{fund_lv}] × IV[{iv_rel}]'
         elif consistency == 'contradictory':
+            # ============================================================
+            # v2.11.85k: 子规则 2 内部步骤明确化
+            #   2a: 大资金方主导（fund 活跃度高的一端 → 方向）
+            #   2b: 两端活跃度相当 → 新资金 vs 存量资金方向加权
+            # 业务逻辑:
+            #   - fund_activity 高的一端 = 大资金方主导, 直接给 verdict_direction
+            #   - 两端 fund_activity 相当 (|新| ~ |存量|) 时, 才进入 2b 看新资金/存量方向
+            # v2.11.85k 修订: 2a/2b 标注只在 call 端(主导端)写一次, put 端不再重复
+            #   原因: 两端各写会显示"本端大/对端大"相反描述, 读起来像两条独立信息
+            #   实际整段交叉验证只有一条 2a 结论 + 一条 2b 结论
+            # ============================================================
+            fund_lv_other = fund_put if side == 'call' else fund_call
+            this_rank = FUND_RANK.get(fund_lv, 3)
+            other_rank = FUND_RANK.get(fund_lv_other, 3)
+
+            # 2a 判定: 大资金方在哪一端
+            if this_rank < other_rank:
+                # 本端资金更大 → 本端是主导端
+                is_dominant_side = (side == 'call')
+            elif other_rank < this_rank:
+                # 对端资金更大 → 对端是主导端
+                is_dominant_side = (side == 'put')
+            else:
+                # 两端活跃度相当
+                is_dominant_side = None  # 进入 2b 模式
+
+            # 2a 标注只在主导端(call 端优先)写一次, 另一端不重复
+            if side == 'call':
+                if is_dominant_side is True:
+                    sub2a_note = f'2a大资金方主导(Call{fund_lv}>Put{fund_lv_other})'
+                elif is_dominant_side is False:
+                    sub2a_note = f'2a大资金方主导(Put{fund_lv_other}>Call{fund_lv})'
+                else:
+                    sub2a_note = '2a活跃度相当→2b新资金/存量方向加权'
+            else:  # put 端不重复 2a 标注
+                sub2a_note = ''  # 由 call 端统一说
+
             verdict = _cv_apply_rule_contradictory(fund_lv, iv_rel)
             subrule = 2
-            rationale = f'子规则2（方向矛盾大资金方主导）: 资金[{fund_lv}] × IV[{iv_rel}]'
+            if sub2a_note:
+                rationale = f'子规则2（方向矛盾）: 资金[{fund_lv}] × IV[{iv_rel}] | {sub2a_note}'
+            else:
+                rationale = f'子规则2（方向矛盾）: 资金[{fund_lv}] × IV[{iv_rel}]'
 
             # ============================================================
             # v2.11.85f: 子规则 2b 新资金方向分层
@@ -681,11 +733,15 @@ def cross_validate_funding(cv_inputs):
                 flow_label = f'资金流:{flow_verdict}'
             else:
                 flow_label = f'资金流:{flow_verdict}(不参与方向)'
-            rationale += (
-                f' | 新资金[L:{new_long:+.0f}/S:{new_short:+.0f}/N:{new_neutral:+.0f}] '
-                f'存量[L:{stock_long:+.0f}/S:{stock_short:+.0f}] '
-                f'{flow_label}'
-            )
+            # v2.11.85k: rationale 拼接明确标 "2b新资金/存量" 段, 与 2a 标注对齐
+            # 2b 段只在 call 端写一次, put 端不再重复 (同 2a 修订原则)
+            if side == 'call':
+                rationale += (
+                    f' | 2b新资金/存量[L:{new_long:+.0f}/S:{new_short:+.0f}/N:{new_neutral:+.0f}] '
+                    f'存量[L:{stock_long:+.0f}/S:{stock_short:+.0f}] '
+                    f'{flow_label}'
+                )
+            # put 端跳过 2b 段拼接 (由 call 端统一展示)
 
             result[side] = {
                 'verdict': verdict,

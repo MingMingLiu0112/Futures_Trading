@@ -2897,7 +2897,7 @@ function getStrategyReportEndpoint() {
                     // ============================================================
                     function renderDecisionLayerBlock(d) {
                         if (!d) {
-                            return `<div style="margin:8px 0 10px 0;"><div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">🧭 四维决策（v2.11.85i 资金意图综合+子规则2b新资金分层）</div><div style="color:#888;font-size:11px;font-style:italic;padding:4px 0;">决策层数据未生成（可手动跑 <code>python3 scripts/judge_state.py</code> 验证）</div></div>`;
+                            return `<div style="margin:8px 0 10px 0;"><div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">🧭 四维决策（v2.11.85k 资金意图综合+子规则2b新资金分层）</div><div style="color:#888;font-size:11px;font-style:italic;padding:4px 0;">决策层数据未生成（可手动跑 <code>python3 scripts/judge_state.py</code> 验证）</div></div>`;
                         }
                         const L1 = d.layer1 || {}, L2 = d.layer2 || {}, L3 = d.layer3 || {}, L4 = d.layer4 || {};
                         const fin = d.final || {};
@@ -2963,7 +2963,7 @@ function getStrategyReportEndpoint() {
                         const contradiction = fin.contradiction;
                         const decisionColor = (totalScore == null) ? '#888' : (totalScore >= 0.2 ? '#26a69a' : (totalScore <= -0.2 ? '#ef5350' : '#ffd700'));
                         let html = `<div style="margin:14px 0 10px 0;padding:10px 12px;background:#15151f;border-left:3px solid #ffd700;border-radius:5px;">`;
-                        html += `<div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:8px;">🧭 四维决策（v2.11.85i 资金意图综合+子规则2b新资金分层）</div>`;
+                        html += `<div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:8px;">🧭 四维决策（v2.11.85k 资金意图综合+子规则2b新资金分层）</div>`;
                         // 决策 banner
                         html += `<div style="margin:4px 0 10px 0;padding:8px 10px;background:#101018;border-left:3px solid ${decisionColor};border-radius:3px;">
                             <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
@@ -3130,7 +3130,7 @@ function getStrategyReportEndpoint() {
                         });
                         const weightedVerdictHtml = (weightedVerdict || putWeightedVerdict) ? `
                             <div style="margin:0 0 6px 0;padding:6px 8px;background:#1a1a25;border-radius:3px;border-left:2px solid #9b59b6;">
-                                <div style="color:#9b59b6;font-size:10px;font-weight:bold;margin-bottom:3px;">⚖️ v2.11.85e 加权判定</div>
+                                <div style="color:#9b59b6;font-size:10px;font-weight:bold;margin-bottom:3px;">⚖️ v2.11.85k 加权判定</div>
                                 <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:10px;line-height:1.5;">
                                     <div style="flex:1 1 220px;background:#101018;padding:3px 6px;border-radius:2px;">
                                         <span style="color:#4a90e2;font-weight:500;">📈 Call:</span>
@@ -3163,6 +3163,9 @@ function getStrategyReportEndpoint() {
                             : (fsStrength === '中（弱）') ? '#ffb74d'
                             : (fsStrength === '弱（观望）' || fsStrength === '极弱（观望）') ? '#888'
                             : '#888';
+                        // v2.11.85k: 子规则 2b 仅在子规则 2（contradictory 场景）才显示,
+                        //   consistent / pcr_flat 时不出现这一块, 让 2b 成为 2 的子节点
+                        const _isCv2 = (fsCvSubrule === 2);
                         // 交叉验证 verdict 颜色
                         const fsCvColor = (fsCvVerdict === '强确认' || fsCvVerdict === '确认') ? '#26a69a'
                             : (fsCvVerdict === '弱确认' || fsCvVerdict === '弱确认（降级）') ? '#ffd700'
@@ -3183,14 +3186,14 @@ function getStrategyReportEndpoint() {
                                 ${fsCvVerdict ? `
                                 <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11px;margin-top:4px;padding-top:4px;border-top:1px solid #2a2a36;">
                                     <span style="color:#9bc;font-size:10px;font-weight:bold;">🔍 §2.3.2 附录交叉验证</span>
-                                    <span style="color:#888;font-size:9px;">子规则 ${fsCvSubrule}</span>
+                                    <span style="color:#888;font-size:9px;">子规则 ${fsCvSubrule}${_isCv2 ? ' · 含 2b 新资金分层' : ''}</span>
                                     <span style="color:#888;">|</span>
                                     <b style="color:${fsCvColor};">${cell(fsCvVerdict)}</b>
                                 </div>
                                 <div style="color:#888;font-size:9px;margin-top:3px;line-height:1.5;">${cell(fsCvRationale)}</div>
-                                ` : ''}
                                 ${(() => {
-                                    // v2.11.85h: 子规则 2b 新资金方向分层展示
+                                    // v2.11.85k: 子规则 2b 嵌套在子规则 2 内, 仅 contradictory 场景显示
+                                    if (!_isCv2) return '';
                                     const cv = L3.cross_validation_verdict || {};
                                     const cv_ff = L3.cross_validation || {};
                                     const ff = cv_ff.fund_flow || {};
@@ -3199,7 +3202,6 @@ function getStrategyReportEndpoint() {
                                     const putV = cv.put || {};
                                     const fundFlowVerdict = callV.fund_flow_verdict || putV.fund_flow_verdict || '';
                                     const newDir = cv.new_fund_direction || '';
-                                    const consistency = cv.consistency || '';
                                     if (!fundFlowVerdict && !newDir) return '';
                                     const ffColor = fundFlowVerdict === '新资金主导' ? '#26a69a'
                                         : (fundFlowVerdict === '存量调整主导' ? '#ffd700' : '#888');
@@ -3219,18 +3221,19 @@ function getStrategyReportEndpoint() {
                                         'theta_decay': 'Theta', 'static': '静态',
                                     };
                                     const newFundTxt = newFundNature ? NATURE_TXT[newFundNature] || newFundNature : '';
+                                    // v2.11.85k: 缩进 18px 让 2b 视觉上嵌入"🔍 交叉验证"块
                                     return `
-                                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11px;margin-top:4px;padding-top:4px;border-top:1px solid #2a2a36;">
-                                    <span style="color:#9bc;font-size:10px;font-weight:bold;">🆕 §2.3.2 子规则 2b 新资金分层</span>
-                                    <span style="color:#888;font-size:9px;">v2.11.85j</span>
+                                <div style="margin:4px 0 0 18px;padding:6px 0 0 10px;border-left:2px solid #2a3a4a;display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11px;">
+                                    <span style="color:#9bc;font-size:10px;font-weight:bold;">└─ 🆕 子规则 2b 新资金分层</span>
+                                    <span style="color:#888;font-size:9px;">v2.11.85k</span>
                                     <span style="color:#888;">|</span>
                                     <span style="color:#888;font-weight:500;">资金流:</span> <b style="color:${ffColor};">${cell(fundFlowVerdict || '--')}</b>
                                     ${newFundTxt ? `<span style="color:#888;">|</span><span style="color:#888;font-weight:500;">新主导:</span> <span style="color:#cfcfcf;">${cell(newFundTxt)}</span>` : ''}
                                     ${(callDirTag || putDirTag) ? `<span style="color:#888;">|</span><span style="color:#888;font-weight:500;">单端:</span> ${callDirTag} ${putDirTag}` : ''}
-                                    ${newDir && (consistency === 'contradictory' || consistency === 'consistent') ? `<span style="color:#888;">|</span><span style="color:#888;font-weight:500;">综合:</span> <b style="color:${dirColor};font-size:12px;">${cell(newDir)}</b>` : ''}
+                                    ${newDir ? `<span style="color:#888;">|</span><span style="color:#888;font-weight:500;">综合:</span> <b style="color:${dirColor};font-size:12px;">${cell(newDir)}</b>` : ''}
                                 </div>
                                 ${(() => {
-                                    // 详细拆分表（Call/Put 两端）
+                                    // 详细拆分表（Call/Put 两端）—— 同样嵌入 2b 内
                                     if (!ff.Call || !ff.Put) return '';
                                     const fmtOI = (x) => x == null ? '--' : (x >= 0 ? '+' : '') + Number(x).toFixed(0);
                                     const cells = (side) => {
@@ -3243,7 +3246,8 @@ function getStrategyReportEndpoint() {
                                             <td style="padding:2px 5px;border-bottom:1px solid #1e1e28;font-size:10px;color:#cfcfcf;text-align:right;">${fmtOI(d.stock_adj_net_short)}</td>`;
                                     };
                                     return `
-                                <table style="width:100%;border-collapse:collapse;margin-top:4px;background:#101018;border:1px solid #1e1e28;table-layout:fixed;">
+                                <div style="margin:4px 0 0 18px;padding-left:10px;border-left:2px solid #2a3a4a;">
+                                <table style="width:100%;border-collapse:collapse;margin-top:2px;background:#101018;border:1px solid #1e1e28;table-layout:fixed;">
                                     <colgroup>
                                         <col style="width:60px;"><col><col><col><col><col>
                                     </colgroup>
@@ -3265,10 +3269,12 @@ function getStrategyReportEndpoint() {
                                             ${cells('Put')}
                                         </tr>
                                     </tbody>
-                                </table>`;
+                                </table>
+                                </div>`;
                                 })()}
                                 `;
                                 })()}
+                                ` : ''}
                             </div>` : '';
                         // v2.11.85d: strike_role 列表（按 contribution 降序，取 Top 8）
                         const strikeRoleListHtml = (callStrikeHtml !== '--' || putStrikeHtml !== '--') ? `
@@ -5049,6 +5055,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.85j</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.85k</div>
 </body>
 </html>
