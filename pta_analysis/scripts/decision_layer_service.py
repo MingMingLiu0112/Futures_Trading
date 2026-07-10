@@ -479,6 +479,28 @@ def _build_decision_layer_payload(gex: dict, alert_data: dict, curve: dict) -> D
                     from scripts.compute_weighted_nature import cross_validate_funding
                     cv_result = cross_validate_funding(cross_val_inputs)
                     payload['layer3']['cross_validation_verdict'] = cv_result
+                    # v2.11.85k: 把 cv 输出的 verdict/rationale/subrule/fund_flow_verdict/verdict_direction
+                    #   merge 回 call_role / put_role 顶层字段
+                    #   修复: 之前 _rebuild_role_dict 输出后, 这俩字段被覆盖为空, 前端展开区读不到 rationale
+                    #   merge 是叠加, 不破坏 NAT_MAP 分桶(7 类老字段保留)
+                    for side_key in ('call', 'put'):
+                        cv_side = cv_result.get(side_key, {}) or {}
+                        if side_key == 'call':
+                            call_role_new.update({k: v for k, v in cv_side.items() if k in (
+                                'verdict', 'rationale', 'subrule',
+                                'verdict_direction', 'fund_flow_verdict',
+                                'new_fund_net_long', 'new_fund_net_short', 'new_fund_net_neutral',
+                                'stock_adj_net_long', 'stock_adj_net_short',
+                                'new_fund_dominant_nature', 'dominant_nature',
+                            )})
+                        else:
+                            put_role_new.update({k: v for k, v in cv_side.items() if k in (
+                                'verdict', 'rationale', 'subrule',
+                                'verdict_direction', 'fund_flow_verdict',
+                                'new_fund_net_long', 'new_fund_net_short', 'new_fund_net_neutral',
+                                'stock_adj_net_long', 'stock_adj_net_short',
+                                'new_fund_dominant_nature', 'dominant_nature',
+                            )})
                 except Exception as cv2_e:
                     _logger.warning('%s v2.11.85d cross_validate_funding skipped: %s', LOG_TAG, cv2_e)
                     payload['layer3']['cross_validation_verdict'] = {'error': str(cv2_e)}
