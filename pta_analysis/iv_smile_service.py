@@ -3417,22 +3417,27 @@ def start_scheduler(interval_minutes=1):
                 # 设计缺陷：get_active_ta_contract() 只在 tqsdk_loop 重连时被调用，
                 # 而 TqSdk 长连接不重启 → 进程永远锁死在启动时选中的合约。
                 # 5/29 启动后选 TA607，6/11 当日 14:35 后 iv_smile 一直显示旧值，
-                # 直到人工重启才发现问题。这里 14:55 主动请求重启 TqSdk 线程，
-                # 触发重新选合约 + 重新订阅。
+                # 直到人工重启才发现问题。这里在 14:55-15:05 区间每分钟检查
+                # （每天首次命中触发），捕获 _pick 在 15:00 后返回下一月合约的窗口，
+                # 主动请求重启 TqSdk 线程，触发重新选合约 + 重新订阅。
+                # v2.11.85x 修复：原 14:55 单点触发因 hour=14<15 导致 _pick 仍返回当日
+                # 到期合约，new_pref != cur_active 为 False，不触发 restart。
+                # 改成 14:55-15:05 区间每天首次命中触发，15:00 后第一次 tick 即切换。
                 now_check = datetime.now()
-                if (now_check.hour == 14 and now_check.minute == 55
-                        and _last_contract_roll_date != now_check.date()):
+                minutes_since_midnight = now_check.hour * 60 + now_check.minute
+                if (14 * 60 + 55) <= minutes_since_midnight < (15 * 60 + 5) \
+                        and _last_contract_roll_date != now_check.date():
                     _last_contract_roll_date = now_check.date()
                     try:
                         cur_active = _state.get('active_contract', '?')
                         new_pref, new_expiry = get_active_ta_contract()
                         if new_pref != cur_active:
-                            print(f"[iv_smile] 🔄 14:55 主力切换: {cur_active} → {new_pref} (到期 {new_expiry.date()})")
-                            _request_tqsdk_restart("daily 14:55 contract roll")
+                            print(f"[iv_smile] 🔄 {now_check.strftime('%H:%M')} 主力切换: {cur_active} → {new_pref} (到期 {new_expiry.date()})")
+                            _request_tqsdk_restart(f"daily contract roll {cur_active}→{new_pref}")
                         else:
-                            print(f"[iv_smile] ✅ 14:55 合约检查通过: 仍为 {new_pref}")
+                            print(f"[iv_smile] ✅ {now_check.strftime('%H:%M')} 合约检查通过: 仍为 {new_pref}")
                     except Exception as e:
-                        print(f"[iv_smile] ⚠️ 14:55 合约检查异常: {e}")
+                        print(f"[iv_smile] ⚠️ 合约检查异常: {e}")
 
                 # 休盘时段：跳过compute_once，避免用datetime.now()算T导致IV虚高
                 # 2026-07-04: trace 默认关闭（设 IV_SMILE_TRACE=1 开启）—— 之前每分钟 6 条 sleep trace 一天 1 万条打爆日志
