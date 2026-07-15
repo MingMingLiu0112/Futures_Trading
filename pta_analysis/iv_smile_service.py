@@ -422,6 +422,13 @@ def _save_prev_baseline(snap_15, today_str):
             with os.fdopen(fd, 'w', encoding='utf-8') as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
             os.replace(tmp_path, _PREV_BASELINE_FILE)
+            # [v2.11.88+] 强制 fsync 刷盘,防止 restart/kill 时只到 page cache,
+            # 导致 _save_prev_baseline 写盘后 mtime 改了但内容丢失
+            try:
+                with open(_PREV_BASELINE_FILE, 'r', encoding='utf-8') as _ff:
+                    os.fsync(_ff.fileno())
+            except Exception:
+                pass
             print(f"[iv_smile] 💾 prev_baseline.json 已更新为今日15:00 ({today_str}): "
                   f"smooth={len(payload['state']['smile_smooth'])}档 "
                   f"oi={len(payload['state']['strike_oi'])}档 "
@@ -704,6 +711,13 @@ def _save_eod_state(eod_point='23:00'):
             with os.fdopen(fd, 'w', encoding='utf-8') as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
             os.replace(tmp_path, _EOD_STATE_FILE)
+            # [v2.11.88+] 强制 fsync 刷盘,防止 restart/kill 时只到 page cache,
+            # 导致 _save_eod_state 写盘后 mtime 改了但内容丢失
+            try:
+                with open(_EOD_STATE_FILE, 'r', encoding='utf-8') as _ff:
+                    os.fsync(_ff.fileno())
+            except Exception:
+                pass
         except BaseException:
             try:
                 os.unlink(tmp_path)
@@ -734,6 +748,20 @@ def _load_eod_state():
         saved_valid = payload.get('last_valid', {})
         eod_point = payload.get('eod_point', '')
         ts = payload.get('timestamp', '')
+
+        # [v2.11.88+] 严格陈旧度守卫: 全局拒绝 > 7 天陈旧 eod_state.json (与 ts_date==today 无关)
+        # 历史教训: 7/15 重启后磁盘 eod_state.json ts=7/3 (13 天前), 之前只在非今天分支检查,
+        # 容易遗留这种"今天启动但内容陈旧"的脏数据. 必须在 boundary check 之前, 否则被早退短路.
+        try:
+            _ts_date_str = ts[:10] if len(ts) >= 10 else ''
+            if _ts_date_str:
+                _ts_dt = datetime.strptime(_ts_date_str, '%Y-%m-%d')
+                _age_days = (datetime.now() - _ts_dt).days
+                if _age_days > 7:
+                    print(f"[iv_smile] ❌ eod_state.json ts={ts} 距今 {_age_days} 天, > 7 天阈值视为污染,拒绝加载 (改走 close_state 路径)")
+                    return False
+        except Exception:
+            pass
 
         # [v2.11.42+] 边界优先：若今日 10:15/11:30/15:00/23:00 close_boundary 快照
         # 存在且比 eod_state.json 新，则跳过 EOD 加载，让 15min 恢复路径接管。
@@ -836,6 +864,26 @@ def _load_close_state():
             saved_valid = payload.get('last_valid', {})
             ts = payload.get('timestamp', '')
             close_point = payload.get('close_point', '15:00')
+            # [v2.11.88+] 全程守卫: 任何 > 7 天的 prev_baseline.json 都视为陈旧污染, 直接 raise 跳出整个 try 块
+            # 设计教训: 不能用 try/except hack (try/except ValueError 会让 raise 之后继续往下走)  
+            # 必须 raise 真正中断整个块, 让 except Exception as e (外层) 捕获
+            # 关键格式: ts = "20260703T15:00:00" (无分隔符), 不能用 strptime '%Y-%m-%d'
+            _stale_baseline = False
+            try:
+                _ts_clean = ts.replace('-', '').replace('T', '')[:8] if ts else ''  # 提取 8 位日期
+                if _ts_clean and _ts_clean.isdigit() and len(_ts_clean) == 8:
+                    _ts_dt = datetime.strptime(_ts_clean, '%Y%m%d')
+                    _age_days = (datetime.now() - _ts_dt).days
+                    if _age_days > 7:
+                        print(f"[iv_smile] ⏭️ prev_baseline.json ts={ts} 距今 {_age_days} 天, > 7 天阈值视为陈旧数据, raise 跳过后续加载 (避免污染 _close_baseline)")
+                        _stale_baseline = True
+                        raise RuntimeError(f"stale_baseline_{_age_days}d")
+            except RuntimeError:
+                raise
+            except Exception:
+                pass
+            if _stale_baseline:
+                raise RuntimeError("stale_baseline_route_b")
             if close_point != '15:00':
                 print(f"[iv_smile] ⚠️ prev_baseline.json 的 close_point={close_point!r}（非 15:00），视为污染数据，丢弃。")
             elif not saved_state.get('smile_smooth') or not saved_state.get('futures_price'):
