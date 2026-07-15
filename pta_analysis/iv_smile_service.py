@@ -5090,6 +5090,35 @@ def register_routes(app):
                     days_left = 0
             else:
                 days_left = None
+            # v2.11.87+: 动态阈值三因子 (iv_percentile / oi_total_now / T_days_remaining)
+            # iv_percentile 从 /api/options/vol_cone 拿（缓存 60s 避免热路径阻塞）
+            # 不放在主路径避免每 tick HTTP 调用 → 整分钟才触发一次
+            try:
+                now_min = int(datetime.now().timestamp()) // 60
+                iv_pct_cache = getattr(_calc_gex_pain_oi, '_iv_pct_cache', None)
+                if iv_pct_cache is None or (now_min - iv_pct_cache.get('minute', -1)) >= 1:
+                    # 缓存 > 1 分钟（或首次），重新拉一次
+                    import requests as _req_iv
+                    try:
+                        _r = _req_iv.get('http://127.0.0.1:8424/api/options/vol_cone',
+                                          timeout=2, proxies={'http': None, 'https': None})
+                        if _r.ok:
+                            _d = _r.json()
+                            iv_pct_val = _d.get('iv_percentile')
+                            atm_iv_val = _d.get('atm_iv')
+                        else:
+                            iv_pct_val = atm_iv_val = None
+                    except Exception:
+                        iv_pct_val = atm_iv_val = None
+                    _calc_gex_pain_oi._iv_pct_cache = {
+                        'minute': now_min,
+                        'iv_percentile': iv_pct_val,
+                        'atm_iv': atm_iv_val,
+                    }
+                iv_pct_val = _calc_gex_pain_oi._iv_pct_cache.get('iv_percentile')
+            except Exception:
+                iv_pct_val = None
+
             summ = {
                 'futures_price': futures_price, 'max_pain': mp, 'pcr': pcr,
                 'net_gex': round(net_gex_total, 0),
@@ -5098,6 +5127,10 @@ def register_routes(app):
                 'T': round(T, 6) if T else None, 'days_left': days_left,
                 'expiry': expiry.isoformat() if expiry else None,
                 'total_call_oi': int(tc), 'total_put_oi': int(tp),
+                # === v2.11.87: 动态阈值三因子字段 ===
+                'oi_total_now': int(tc) + int(tp),       # OI 总量 (触发阈值 >10万→1.08)
+                'T_days_remaining': days_left,           # 剩余天数 (触发阈值 <7→1.05)
+                'iv_percentile': iv_pct_val,             # IV在 HV区间的分位 (触发阈值 ≥75→1.08, 波动率锥数据源)
                 'last_update': last_update,
             }
             return gex_list, pain_list, oi_list, summ
