@@ -176,7 +176,71 @@ SLOPE_REGIME_THRESHOLDS = [
     (1.2, '略不对称'),
     (0.0, '对称'),
 ]
-# 整点 7 槽（与 web_app_integrated.py 同步）
+SLOPE_WINDOW = 5
+
+# ============================================================
+# v2.11.87: PAIN 形态动态阈值三因子 (飞书附录 2845-2897 方案 D)
+# ============================================================
+DYN_THRESHOLD_IV_HIGH = 75.0      # IV ≥ 75% 分位 → 高 IV 触发阈值降至 1.08
+DYN_THRESHOLD_T_LOW_DAYS = 7.0    # T < 7 天 → 临近到期触发阈值降至 1.05
+DYN_THRESHOLD_OI_HIGH = 100000    # OI > 10万手 → 巨量持仓触发阈值降至 1.08
+DYN_THRESHOLD_BASE = 1.15         # 默认 baseline (无触发时)
+DYN_THRESHOLD_MIN_VALUE = 1.05    # 极端叠加也不能低于 1.05 (防过度优化)
+
+
+def compute_dynamic_threshold(iv_percentile=None, T_days_remaining=None, oi_total_now=None) -> Dict:
+    """飞书附录方案 D：IV/T/OI 三因子各自触发独立判定
+       至少两个维度触发 → 取所有触发阈值中的最低值（最敏感）
+
+    Args:
+        iv_percentile:   当前 IV 在 HV 区间的分位 (波动率锥端点 /api/options/vol_cone.iv_percentile)
+                         None 或 < 75 = 不触发
+        T_days_remaining: 距到期剩余天数 (从 summary.days_left / T_days_remaining 取)
+                         None 或 >= 7 = 不触发
+        oi_total_now:    OI 总规模 (call_oi + put_oi)
+                         None 或 <= 10万 = 不触发
+
+    Returns:
+        {
+            'dyn_threshold': float (1.05~1.15, 最终判定的阈值),
+            'triggered':     list[str] (触发的因子名称),
+            'all_triggers':  dict (每个因子的触发状态+触发后阈值),
+        }
+    """
+    candidates = [DYN_THRESHOLD_BASE]  # 起点 1.15
+    all_triggers = {
+        'iv_high': {'triggered': False, 'value': iv_percentile, 'post_th': 1.08},
+        't_near':  {'triggered': False, 'value': T_days_remaining, 'post_th': 1.05},
+        'oi_huge': {'triggered': False, 'value': oi_total_now, 'post_th': 1.08},
+    }
+
+    # IV 维度 (≥ 75 分位)
+    if iv_percentile is not None and iv_percentile >= DYN_THRESHOLD_IV_HIGH:
+        candidates.append(all_triggers['iv_high']['post_th'])
+        all_triggers['iv_high']['triggered'] = True
+
+    # T 维度 (< 7 天)
+    if T_days_remaining is not None and 0 <= T_days_remaining < DYN_THRESHOLD_T_LOW_DAYS:
+        candidates.append(all_triggers['t_near']['post_th'])
+        all_triggers['t_near']['triggered'] = True
+
+    # OI 维度 (> 10 万手)
+    if oi_total_now is not None and oi_total_now > DYN_THRESHOLD_OI_HIGH:
+        candidates.append(all_triggers['oi_huge']['post_th'])
+        all_triggers['oi_huge']['triggered'] = True
+
+    # 取最低（最敏感）
+    dyn_th = min(candidates)
+    # 但不能低于最小保底值
+    dyn_th = max(dyn_th, DYN_THRESHOLD_MIN_VALUE)
+
+    triggered_names = [k for k, v in all_triggers.items() if v['triggered']]
+
+    return {
+        'dyn_threshold': round(dyn_th, 3),
+        'triggered': triggered_names,
+        'all_triggers': all_triggers,
+    }
 INTRADAY_SLOT_HOURS = {10, 11, 14, 15, 21, 22, 23}
 
 
@@ -222,27 +286,31 @@ def compute_pcr_from_rows(rows: list) -> Tuple[float, float]:
 # ============================================================
 # v2.11.68: Pain 斜率算法（复用 skill pta-pain-slope-indicator）
 # ============================================================
-def compute_pain_slope(pain_curve: list, mp_strike: float) -> Dict:
+def compute_pain_slope(pain_curve: list, mp_strike: float, dyn_th: float = None) -> Dict:
     """从 pain_curve 算 MP 两侧 ±5 邻域斜率 + 业务 regime
 
     Args:
         pain_curve: [{'pain': float, 'strike': float}, ...]
         mp_strike: Max Pain 行权价
+        dyn_th:     v2.11.87 动态阈值（飞书附录方案 D，None 时回退固定 1.2)
 
     Returns:
         {
             'slope_down': 看跌阻力（Put 端）斜率,
             'slope_up':   看涨阻力（Call 端）斜率,
             'slope_ratio': max/min 比值,
-            'slope_regime': '强不对称'|'一边主导'|'略不对称'|'对称'|'unknown'
+            'slope_regime': '强不对称'|'一边主导'|'略不对称'|'对称'|'unknown',
+            'thresholds_used': 使用的阈值表 [(2.5,...), (1.5,...), (dyn_th,...), (0,...)],
         }
     """
     if not pain_curve or mp_strike is None or mp_strike <= 0:
-        return {'slope_down': 0, 'slope_up': 0, 'slope_ratio': 0, 'slope_regime': 'unknown'}
+        return {'slope_down': 0, 'slope_up': 0, 'slope_ratio': 0, 'slope_regime': 'unknown',
+                'thresholds_used': SLOPE_REGIME_THRESHOLDS}
 
     sorted_pts = sorted(pain_curve, key=lambda p: float(p['strike']))
     if len(sorted_pts) < 2:
-        return {'slope_down': 0, 'slope_up': 0, 'slope_ratio': 0, 'slope_regime': 'unknown'}
+        return {'slope_down': 0, 'slope_up': 0, 'slope_ratio': 0, 'slope_regime': 'unknown',
+                'thresholds_used': SLOPE_REGIME_THRESHOLDS}
 
     # 找 MP 索引
     mp_idx = 0
@@ -280,9 +348,20 @@ def compute_pain_slope(pain_curve: list, mp_strike: float) -> Dict:
         ratio = max(abs_d, abs_u) / min(abs_d, abs_u)
     else:
         ratio = 0
+
+    # === v2.11.87: 动态阈值（飞书附录方案 D）===
+    # 如果传了 dyn_th，用 [dyn_th, 1.5, 2.5] 替代固定 [1.2, 1.5, 2.5]
+    # dyn_th 默认 None 时回退固定值（向后兼容）
+    if dyn_th is not None and dyn_th > 0 and dyn_th < 1.5:
+        thresholds = [(2.5, '强不对称'), (1.5, '一边主导'),
+                     (dyn_th, '略不对称'), (0.0, '对称')]
+        thresholds = sorted(thresholds, key=lambda x: -x[0])  # 降序排列
+    else:
+        thresholds = SLOPE_REGIME_THRESHOLDS
+
     # 9 象限阈值查表
     regime = '对称'
-    for th, label in SLOPE_REGIME_THRESHOLDS:
+    for th, label in thresholds:
         if ratio >= th:
             regime = label
             break
@@ -291,6 +370,7 @@ def compute_pain_slope(pain_curve: list, mp_strike: float) -> Dict:
         'slope_up':   round(slope_up, 2),
         'slope_ratio': round(ratio, 3),
         'slope_regime': regime,
+        'thresholds_used': thresholds,
     }
 
 
@@ -421,15 +501,33 @@ def judge_layer1_pain_structure(gex: Dict, alert_data: Dict,
     # P0.2 fix: PCR 维度（持仓 + 成交）
     pos_pcr, vol_pcr = compute_pcr_from_rows(rows)
 
+    # === v2.11.87: 动态阈值三因子 (从 summary 拿 3 个字段) ===
+    iv_pct = summary.get('iv_percentile')
+    T_days = summary.get('T_days_remaining')
+    oi_total = summary.get('oi_total_now')
+    if oi_total is None:
+        # 兜底: 用 call_oi + put_oi
+        call_oi_sum = summary.get('total_call_oi') or 0
+        put_oi_sum = summary.get('total_put_oi') or 0
+        oi_total = call_oi_sum + put_oi_sum
+    dyn_info = compute_dynamic_threshold(
+        iv_percentile=iv_pct,
+        T_days_remaining=T_days,
+        oi_total_now=oi_total,
+    )
+    dyn_th = dyn_info['dyn_threshold']
+
     # === v2.11.68: 优先用现成 _judge_shape 兜底（保留向后兼容）===
     shape_legacy = _judge_shape(call_oi, put_oi)
-    # === v2.11.68: 用 pain_curve 算 slope regime 作为新的 shape ===
+    # === v2.11.68+87: 用 pain_curve 算 slope regime 作为新的 shape（接 dyn_th 动态阈值）===
     pain_curve = gex.get('pain_curve') or []
-    slope_info = compute_pain_slope(pain_curve, max_pain)
+    slope_info = compute_pain_slope(pain_curve, max_pain, dyn_th=dyn_th)
     slope_down_now  = slope_info['slope_down']
     slope_up_now    = slope_info['slope_up']
     slope_ratio_now = slope_info['slope_ratio']
     slope_regime_now = slope_info['slope_regime']
+    # v2.11.87: 暴露 thresholds_used 给前端调试
+    slope_thresholds_used = slope_info.get('thresholds_used', SLOPE_REGIME_THRESHOLDS)
     # 映射 slope regime → 业务 shape（与 iv_smile.html 的 9 象限 labelMap 一致）
     if slope_regime_now in ('强不对称', '一边主导', '略不对称'):
         # 一边陡：slope_down > slope_up 视为 leftSteep（看跌阻力大）
@@ -558,6 +656,11 @@ def judge_layer1_pain_structure(gex: Dict, alert_data: Dict,
         # === v2.11.68 透传 summary/prev_summary 给下游 ===
         'summary': summary,
         'prev_summary': prev_summary,
+        # === v2.11.87: 动态阈值三因子结果 (暴露给前端调试) ===
+        'dyn_threshold': dyn_th,
+        'dyn_triggered': dyn_info['triggered'],
+        'dyn_all_triggers': dyn_info['all_triggers'],
+        'slope_thresholds_used': slope_thresholds_used,
         'logic_brief': f'{shape} + {position} + GEX {gex_dir} + P vs Flip {p_vs_flip} → {score_detail}'
     }
 
