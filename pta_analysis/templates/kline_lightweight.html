@@ -2938,6 +2938,33 @@ function getStrategyReportEndpoint() {
                                     parts.push(`形态 ${dc.slope_regime_prev}→${dc.slope_regime_now}`);
                                 }
                             }
+                            // v2.11.87: 动态阈值三因子明细 (L1 专有, 主页研报详细显示)
+                            // 先展示因子明细，再追加最终阈值
+                            if (layer.dyn_all_triggers) {
+                                const dt = layer.dyn_all_triggers;
+                                // 每个因子：值 + 触发状态 + post_th
+                                const fmtFactor = (key, label) => {
+                                    const d = dt[key];
+                                    if (!d) return null;
+                                    const val = d.value;
+                                    let valStr = '--';
+                                    if (val != null && !isNaN(val)) {
+                                        if (key === 'oi_huge') valStr = `${(val/10000).toFixed(1)}万手`;
+                                        else if (key === 'iv_high') valStr = val.toFixed(1);
+                                        else valStr = val.toFixed(1);
+                                    }
+                                    const mark = d.triggered ? '✓' : '·';
+                                    return `${mark}${label}=${valStr}`;
+                                };
+                                const f1 = fmtFactor('iv_high', 'IV分位');
+                                const f2 = fmtFactor('t_near', 'T');
+                                const f3 = fmtFactor('oi_huge', 'OI');
+                                const factorStr = [f1, f2, f3].filter(Boolean).join(' / ');
+                                if (factorStr) parts.push(`dyn[${factorStr}]`);
+                            }
+                            if (layer.dyn_threshold != null && layer.dyn_threshold < 1.15) {
+                                parts.push(`→ 阈值${layer.dyn_threshold.toFixed(2)} (baseline 1.15)`);
+                            }
                             if (parts.length === 0) return '';
                             const isDaily = dc && new Date().getHours() >= 15;
                             return `<div style="color:#888;font-size:10px;margin-top:2px;line-height:1.4;">📊 ${isDaily ? 'vs 昨+1h' : 'vs 1h'}: ${parts.join(' | ')}</div>`;
@@ -5055,6 +5082,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.86 (14:55 切日 hook 改 14:55-15:05 区间)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.87 (PAIN 动态阈值：IV/T/OI 三因子独立触发，参考飞书附录方案 D)</div>
 </body>
 </html>
