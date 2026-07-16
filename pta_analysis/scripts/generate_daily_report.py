@@ -3158,6 +3158,382 @@ def _snapshot_has_dirty_text(snapshot: Dict) -> bool:
     raw = json.dumps(snapshot, ensure_ascii=False)
     return any(bad in raw for bad in ['TA609', '广州期货交易所', '仓单日报', '产业链/郑商所主力价'])
 
+
+# ============================================================
+# v2.11.92: 飞书 12+ 行综合判断规则表 + 决策执行建议表（路线2定性路线）
+# 飞书原文位置: 16186+ (22 个 cell) + 18915+ (8 种决策 × 仓位 × 止损)
+# 输出: 取代 intraday_analysis.conclusion 字段
+# ============================================================
+
+# 仓位建议 + 止损要求（飞书"决策执行建议表"）
+EXECUTION_TABLE = {
+    '买入': ('100% 正常仓位', '严格止损，突破关键价位即离场'),
+    '买入极高': ('100% 正常仓位', '严格止损，突破关键价位即离场'),
+    '买入高':   ('100% 正常仓位', '严格止损'),
+    '轻仓试多': ('50% 仓位', '严格止损，信号证伪即离场'),
+    '轻仓试多中': ('50% 仓位', '严格止损，信号证伪即离场'),
+    '轻仓试多低': ('30% 仓位', '极严格止损，快速离场'),
+    '买入牛市价差': ('100% 仓位', '价差自带止损，目标MP止盈'),
+    '买入熊市价差': ('100% 仓位', '同上'),
+    '趋势跟随': ('100% 仓位', '跌破突破K线最低价止损'),
+    '趋势跟随向上': ('100% 仓位', '跌破突破K线最低价止损'),
+    '趋势跟随向下': ('100% 仓位', '跌破突破K线最低价止损'),
+    '卖出宽跨式': ('100% 仓位', '突破区间上沿/下沿即止损'),
+    '卖出/做空': ('100% 正常仓位', '严格止损，突破关键价位即离场'),
+    '卖出做空极高': ('100% 仓位', '严格止损，突破关键价位即离场'),
+    '卖出做空高':   ('100% 仓位', '严格止损'),
+    '轻仓做空': ('50% 仓位', '严格止损，信号证伪即离场'),
+    '轻仓做空中': ('50% 仓位', '严格止损，信号证伪即离场'),
+    '轻仓做空低': ('30% 仓位', '极严格止损，快速离场'),
+    '提前入场买入': ('100% 正常仓位（T<5 提前入场）', '严格止损，信号证伪即离场'),
+    '提前入场卖出/做空': ('100% 正常仓位（T<5 提前入场）', '严格止损，信号证伪即离场'),
+    '加仓至正常仓位（多）': ('100% 正常仓位（T<5 加仓）', '严格止损，信号证伪即离场'),
+    '加仓至正常仓位（空）': ('100% 正常仓位（T<5 加仓）', '严格止损，信号证伪即离场'),
+    '立即行动（GEX穿越提前）': ('100% 仓位（T<5 立即行动）', '严格止损，信号证伪即离场'),
+    '等待GEX穿越': ('0% 提前挂单', '穿越确认后按相应决策执行'),
+    '观望':     ('0%', '不交易'),
+}
+
+
+def _quantize_gex_dir(l2: Dict) -> str:
+    """L2 GEX 机制 → 飞书 4 档定性：波动抑制/波动放大/即将切换(正→负)/即将切换(负→正)"""
+    score = l2.get('layer_score', 0)
+    gex_dir = l2.get('gex_dir', '')
+    p_vs_flip = l2.get('p_vs_flip', '')
+    if gex_dir == 'positive' and p_vs_flip == 'above': return '波动抑制（正GEX）'
+    if gex_dir == 'positive' and p_vs_flip == 'below': return '波动抑制（正GEX）'  # 飞书：正GEX+below 抑制减弱仍归抑制
+    if gex_dir == 'positive' and p_vs_flip == 'at': return '即将切换（正→负）'
+    if gex_dir == 'negative' and p_vs_flip == 'above': return '波动放大（负GEX）'
+    if gex_dir == 'negative' and p_vs_flip == 'below': return '波动放大（负GEX）'
+    if gex_dir == 'negative' and p_vs_flip == 'at': return '即将切换（负→正）'
+    return '波动机制未知'
+
+
+def _quantize_l1_structure(l1: Dict) -> str:
+    """L1 PAIN 结构 → 飞书定性: 强/中/弱偏多 / 强/中/弱偏空 / 中性(磁吸)/中性(事件驱动)/中性(转折)"""
+    score5 = l1.get('score_5grid', 0) if 'score_5grid' in l1 else None
+    if score5 is None:
+        # fallback to raw
+        raw = l1.get('layer_score', 0)
+        if raw >= 0.6: return '结构偏多（强）'
+        if raw >= 0.3: return '结构偏多（中）'
+        if raw >= 0.05: return '结构偏多（弱）'
+        if raw <= -0.6: return '结构偏空（强）'
+        if raw <= -0.3: return '结构偏空（中）'
+        if raw <= -0.05: return '结构偏空（弱）'
+        return '结构中性'
+    if score5 >= 1.5: return '结构偏多（强）'
+    if score5 >= 0.5: return '结构偏多（中）'
+    if score5 > 0: return '结构偏多（弱）'
+    if score5 <= -1.5: return '结构偏空（强）'
+    if score5 <= -0.5: return '结构偏空（中）'
+    if score5 < 0: return '结构偏空（弱）'
+    return '结构中性'
+
+
+def _quantize_l3_funding(l3: Dict) -> str:
+    """L3 资金意图 → 飞书 7 档定性: 强力看多/看多/偏多/中性/偏空/看空/强力看空
+
+    基于 v2.11.85e 14 行矩阵的 standardized_label
+    """
+    # raw_label 优先（飞书原文术语"多空分化"映射到"多空分歧"）
+    raw_label = l3.get('raw_label', '') or ''
+    std_label = l3.get('standardized_label', '') or ''
+    # raw_label 优先判定
+    if '多空分化' in raw_label or '多空分歧' in raw_label:
+        return '多空分歧'
+    label = std_label or raw_label
+    # v2.11.85e label 实际格式: "hedge_buy_mid / noise_open_strong" / "看空共振（弱化）" / "箱体震荡"
+    # 先尝试识别飞书原文 14 行矩阵 label
+    if '看多共振' in label and '强' in label: return '强力看多'
+    if '看多共振' in label: return '看多'
+    if '单边偏多' in label: return '偏多'
+    if '多空分歧' in label: return '多空分歧'
+    if '箱体' in label: return '箱体震荡'
+    if '震荡' in label: return '中性'
+    if '无方向' in label: return '中性'
+    if '恐慌出清' in label: return '偏多'  # 飞书：PCR 恐慌出清 = 多头信号
+    if '乐观消退' in label: return '偏空'  # 飞书：PCR 乐观消退 = 空头信号
+    if '看空共振' in label and '强' in label: return '强力看空'
+    if '看空共振' in label: return '看空'
+    if '单边偏空' in label: return '偏空'
+    # fallback: v2.11.85e 加权算法的 output 字符串 (如 "hedge_buy_mid / noise_open_strong")
+    # 这种表示 Call/Put 端主导的 nature - hedge_buy 在 Call 是偏空（防御型），在 Put 是偏多（防御型）
+    # 但标准化 label 同时给 Call+Put 两端，没法直接判定方向
+    # 用 L3 的 direction / put_main_nat / call_main_nat 兜底
+    if l3.get('direction'):
+        d = l3['direction']
+        if '偏多' in d and '防御' not in d: return '偏多'
+        if '偏空' in d and '防御' not in d: return '偏空'
+        if '多' in d and '空' not in d: return '偏多'
+        if '空' in d: return '偏空'
+    # 终极兜底：用 funding_signal_cv.consistency
+    fscv = l3.get('funding_signal_cv', {}) or {}
+    if fscv.get('consistency') == 'pcr_flat':
+        return '中性'  # PCR 平稳 = 无明确方向
+    if '套保' in label or '收租' in label: return '中性'
+    return '中性'
+
+
+def _quantize_l4_emotion(l4: Dict) -> str:
+    """L4 情绪确认 → 飞书 3 档: 偏多/中性/偏空
+
+    基于 score_5grid
+    """
+    score5 = l4.get('score_5grid', 0) if 'score_5grid' in l4 else None
+    if score5 is None:
+        # 旧实装 layer_score 范围 [-1, 1] (v2.11.68+)
+        raw = l4.get('layer_score', 0)
+        if raw > 0.05: return '偏多'
+        if raw < -0.05: return '偏空'
+        return '中性'
+    if score5 > 0.5: return '偏多'
+    if score5 < -0.5: return '偏空'
+    return '中性'
+
+
+def _query_decision_table(l1_qual: str, l2_qual: str, l3_qual: str, l4_qual: str) -> Dict:
+    """飞书 12+ 行综合判断规则表（22 cell）查表
+
+    优先级: 特殊形态(磁吸/事件驱动/转折) > 强共振 > 中等 > 弱 > 兜底
+    返回: {decision_label, confidence, logic_note}
+    """
+    # 1. 强空共振 4 cell
+    if l1_qual == '结构偏空（强）' and l2_qual == '波动放大（负GEX）' and ('强力看空' in l3_qual or '看空' in l3_qual or '卖方主导' in l3_qual or '恐慌' in l3_qual):
+        if l4_qual == '偏空':
+            return {'decision': '卖出/做空', 'confidence': '极高', 'logic': '四层完美共振：结构明确看空+GEX放大跌幅+资金强空+情绪配合'}
+        if l4_qual == '中性':
+            return {'decision': '卖出/做空', 'confidence': '高', 'logic': '三层共振，情绪不阻碍'}
+
+    # 2. 强多共振 3 cell
+    if l1_qual == '结构偏多（强）' and l2_qual == '波动抑制（正GEX）' and ('强力看多' in l3_qual or '看多' in l3_qual):
+        if l4_qual == '偏多':
+            return {'decision': '买入', 'confidence': '极高', 'logic': '四层完美共振'}
+        if l4_qual == '中性':
+            return {'decision': '买入', 'confidence': '高', 'logic': '三层共振，情绪不阻碍'}
+    if l1_qual == '结构偏多（强）' and l2_qual == '波动放大（负GEX）' and ('强力看多' in l3_qual or '看多' in l3_qual) and l4_qual == '偏多':
+        return {'decision': '轻仓试多', 'confidence': '高', 'logic': '结构强+资金强+情绪偏多，负GEX放大回撤需严格止损'}
+
+    # 3. 中等多共振 3 cell
+    if l1_qual == '结构偏多（中）' and l2_qual == '波动抑制（正GEX）' and ('强力看多' in l3_qual or '看多' in l3_qual) and l4_qual == '偏多':
+        return {'decision': '买入', 'confidence': '高', 'logic': '结构强度略弱于强，但其他层共振充分'}
+    if l1_qual == '结构偏多（中）' and l2_qual == '波动抑制（正GEX）' and l3_qual == '中性' and l4_qual == '偏多':
+        return {'decision': '买入', 'confidence': '中高', 'logic': '结构中等+资金略弱，整体仍偏多'}
+    if l1_qual == '结构偏多（中）' and l2_qual == '波动放大（负GEX）' and l3_qual in ('中性', '看多') and l4_qual == '偏多':
+        return {'decision': '轻仓试多', 'confidence': '中', 'logic': '结构中等+资金中等，负GEX制约，仓位控制'}
+
+    # 4. 弱多共振
+    if l1_qual == '结构偏多（弱）' and l2_qual == '波动抑制（正GEX）' and l3_qual in ('看多', '中性', '偏多') and l4_qual == '偏多':
+        return {'decision': '轻仓试多', 'confidence': '中', 'logic': '结构弱多但GEX正+资金支持，可轻仓试探'}
+    if l1_qual == '结构偏多（弱）' and l2_qual == '波动放大（负GEX）' and l3_qual == '偏多' and l4_qual == '偏多':
+        return {'decision': '观望', 'confidence': '低', 'logic': '结构弱+资金弱+负GEX，多重制约，不构成入场条件'}
+
+    # 5. 中等空共振
+    if l1_qual == '结构偏空（中）' and l2_qual == '波动放大（负GEX）' and l3_qual in ('卖方主导偏空', '恐慌偏空', '偏空', '强力看空', '看空') and l4_qual == '偏空':
+        if '恐慌' in l3_qual or '卖方主导' in l3_qual:
+            return {'decision': '卖出/做空', 'confidence': '高', 'logic': '结构中等+资金中等偏空+负GEX支持'}
+        return {'decision': '轻仓做空', 'confidence': '中', 'logic': '资金弱空，仓位控制'}
+
+    # 5.5 v2.11.92 补: 强空共振但 L3 是"偏空"（非强力看空/卖方主导/恐慌）的弱化版
+    # 飞书原文没明确 cell，但实战常见（标准化 label=多空分歧 + 资金偏空）
+    # 业务：L1 强空 + L2 负GEX + L3 偏空（防御型） + L4 偏空 = 强空共振弱化版
+    if l1_qual == '结构偏空（强）' and l2_qual == '波动放大（负GEX）' and l3_qual == '偏空' and l4_qual == '偏空':
+        return {'decision': '轻仓做空', 'confidence': '中高', 'logic': '强空共振弱化版：L3 偏空非强空，仓位减半控制风险'}
+
+    # 5.6 v2.11.92 补: 强空 + L3 多空分歧 + L4 偏空 = 实战常见"两强一弱一空"
+    # 业务：L1 强空 + L2 负GEX + L3 矛盾 + L4 偏空 → L3 矛盾不阻碍整体空头趋势，轻仓做空
+    if l1_qual == '结构偏空（强）' and l2_qual == '波动放大（负GEX）' and l3_qual == '多空分歧' and l4_qual == '偏空':
+        return {'decision': '轻仓做空', 'confidence': '中', 'logic': '强空+负GEX+情绪偏空主导，L3 矛盾不阻碍趋势，仓位减半'}
+
+    # 6. 强空 + 正GEX 抑制（特殊: 跌势遇阻）
+    if l1_qual == '结构偏空（强）' and l2_qual == '波动抑制（正GEX）' and ('强力看空' in l3_qual or '看空' in l3_qual or '卖方主导' in l3_qual) and l4_qual == '偏空':
+        return {'decision': '轻仓做空', 'confidence': '高', 'logic': '结构强+资金强+情绪偏空，但正GEX抑制跌幅，空间有限'}
+
+    # 7. 弱空共振
+    if l1_qual == '结构偏空（弱）' and l2_qual == '波动放大（负GEX）' and l3_qual in ('偏空', '卖方偏空（弱）') and l4_qual == '偏空':
+        return {'decision': '观望', 'confidence': '低', 'logic': '结构弱+资金弱，虽负GEX但无明确方向驱动'}
+
+    # 8. 特殊形态 — 磁吸 (Pin Risk) + 负GEX
+    if l1_qual == '结构中性' and l2_qual == '波动放大（负GEX）' and ('强力看多' in l3_qual or '看多' in l3_qual or '中性' in l3_qual) and l4_qual == '偏多':
+        return {'decision': '买入牛市价差（目标MP）', 'confidence': '中', 'logic': '磁吸+负GEX放大向MP回归，快进快出'}
+    if l1_qual == '结构中性' and l2_qual == '波动放大（负GEX）' and ('强力看空' in l3_qual or '看空' in l3_qual or '卖方主导' in l3_qual) and l4_qual == '偏空':
+        return {'decision': '买入熊市价差（目标MP）', 'confidence': '中', 'logic': '磁吸+负GEX放大向MP回归，方向相反'}
+
+    # 9. 特殊形态 — 事件驱动（双侧陡） + 负GEX
+    if l1_qual == '结构中性' and l2_qual == '波动放大（负GEX）' and ('强力看多' in l3_qual or '看多' in l3_qual) and l4_qual == '偏多':
+        return {'decision': '趋势跟随（向上突破）', 'confidence': '高', 'logic': '双侧陡+负GEX，突破方向决定交易方向（多）'}
+    if l1_qual == '结构中性' and l2_qual == '波动放大（负GEX）' and ('强力看空' in l3_qual or '看空' in l3_qual or '卖方主导' in l3_qual) and l4_qual == '偏空':
+        return {'decision': '趋势跟随（向下突破）', 'confidence': '高', 'logic': '双侧陡+负GEX，突破方向决定交易方向（空）'}
+
+    # 10. 特殊形态 — 事件驱动 + 正GEX（黄金做空波动率场景）
+    if l1_qual == '结构中性' and l2_qual == '波动抑制（正GEX）':
+        return {'decision': '卖出宽跨式', 'confidence': '高', 'logic': '高IV定价+正GEX抑制，做空波动率黄金场景'}
+
+    # 11. 中性 + 正GEX + 箱体震荡（飞书原文: 卖出宽跨式）
+    if l1_qual == '结构中性' and l2_qual == '波动抑制（正GEX）' and l3_qual == '箱体震荡':
+        return {'decision': '卖出宽跨式', 'confidence': '高', 'logic': '结构无方向+正GEX抑制+资金锁区间，做空波动率'}
+
+    # 12. 弱信号兜底
+    if l1_qual in ('结构偏多（弱）', '结构偏空（弱）'):
+        return {'decision': '观望', 'confidence': '极弱', 'logic': '结构弱且资金矛盾，不交易'}
+
+    # 13. 资金矛盾/强制观望
+    if l3_qual == '多空分歧':
+        return {'decision': '观望', 'confidence': '极弱', 'logic': '资金端PCR与Skew矛盾，不交易'}
+
+    # 14. 默认兜底
+    return {'decision': '观望', 'confidence': '极弱', 'logic': '四层信号无法归入已知规则表，不交易'}
+
+
+def _apply_theta_modifier(decision: str, confidence: str, T_bucket: str) -> Dict:
+    """飞书 θ 加权修改原则（T<5 调整决策）
+
+    原文（"综合判断规则表的θ加权修改原则表"）：
+    | 原决策 | 调整为 |
+    | 买入/卖出 | 提前入场（Gamma放大，价格可能提前到达目标位）|
+    | 轻仓试多/试空 | 可加仓至正常仓位（结构信号被放大）|
+    | 等待GEX穿越后行动 | 立即行动（穿越将提前发生）|
+    | 观望（因结构弱）若信号强度被θ上调一档 | 观望→轻仓试多/试空 |
+    | 观望（因信号矛盾） | 维持观望（θ不解决方向矛盾）|
+    """
+    if T_bucket != 'T<5':
+        # 非 T<5 不调整
+        return {
+            'decision_final': decision,
+            'position_size': EXECUTION_TABLE.get(decision, ('0%', '不交易'))[0],
+            'stop_loss': EXECUTION_TABLE.get(decision, ('0%', '不交易'))[1],
+            'theta_modified': False,
+        }
+    # T<5 调整
+    if '买入' in decision and decision != '买入牛市价差' and decision != '买入熊市价差':
+        new_decision = '提前入场买入'
+    elif '卖出' in decision or '做空' in decision:
+        new_decision = '提前入场卖出/做空'
+    elif '轻仓试多' in decision:
+        new_decision = '加仓至正常仓位（多）'
+    elif '轻仓做空' in decision:
+        new_decision = '加仓至正常仓位（空）'
+    elif '等待GEX穿越' in decision:
+        new_decision = '立即行动（GEX穿越提前）'
+    else:
+        new_decision = decision
+    return {
+        'decision_final': new_decision,
+        'position_size': EXECUTION_TABLE.get(decision, ('100% 仓位（T<5 加仓）', '严格止损'))[0],
+        'stop_loss': EXECUTION_TABLE.get(decision, ('100% 仓位（T<5 加仓）', '严格止损'))[1],
+        'theta_modified': True,
+    }
+
+
+def _compute_decision_table(_scripts_dir: str, T_days_remaining: float = None) -> Dict:
+    """v2.11.92: 飞书 12+ 行规则表 + θ 加权 + 决策执行建议表 整合
+
+    输入: _scripts_dir (judge_state 所在目录, 用于读 decision_layer_cache.json)
+    输出: 完整决策 dict {l1_qual, l2_qual, l3_qual, l4_qual, decision, confidence, position_size, stop_loss, theta_modified, decision_score_v1, ...}
+    """
+    import sys as _sys
+    if _scripts_dir not in _sys.path:
+        _sys.path.insert(0, _scripts_dir)
+    try:
+        from judge_state import _get_theta_weights
+        weights = _get_theta_weights(T_days_remaining)
+        T_bucket = weights['T_bucket']
+    except Exception:
+        T_bucket = 'unknown'
+
+    dl_cache_path = os.path.join(_scripts_dir, '..', 'data', 'fundamental', 'decision_layer_cache.json')
+    if not os.path.exists(dl_cache_path):
+        return {'error': 'decision_layer_cache.json 不存在', 'T_bucket': T_bucket}
+    try:
+        with open(dl_cache_path, 'r', encoding='utf-8') as f:
+            cache = json.load(f)
+        dl = cache.get('decision_layer', {})
+        l1 = dl.get('layer1', {})
+        l2 = dl.get('layer2', {})
+        l3 = dl.get('layer3', {})
+        l4 = dl.get('layer4', {})
+        final = dl.get('final', {})
+    except Exception as e:
+        return {'error': f'cache 解析失败: {e}', 'T_bucket': T_bucket}
+
+    # 1. 4 层定性化（飞书原文术语）
+    l1_qual = _quantize_l1_structure(l1)
+    l2_qual = _quantize_gex_dir(l2)
+    l3_qual = _quantize_l3_funding(l3)
+    l4_qual = _quantize_l4_emotion(l4)
+
+    # 2. 查飞书 22 cell 规则表
+    table_hit = _query_decision_table(l1_qual, l2_qual, l3_qual, l4_qual)
+    decision = table_hit['decision']
+    confidence = table_hit['confidence']
+    logic = table_hit['logic']
+
+    # 3. θ 加权修改（T<5）
+    theta_result = _apply_theta_modifier(decision, confidence, T_bucket)
+    decision_final = theta_result['decision_final']
+    position_size = theta_result['position_size']
+    stop_loss = theta_result['stop_loss']
+    theta_modified = theta_result['theta_modified']
+
+    # 4. 评分路线（路线1 final_score 同步展示）
+    final_score = final.get('final_score', 0)
+    final_signal = final.get('final_signal', '')
+    legacy_total = final.get('total_score', 0)
+
+    return {
+        'T_bucket': T_bucket,
+        'T_days_remaining': T_days_remaining,
+        'l1_qual': l1_qual,
+        'l2_qual': l2_qual,
+        'l3_qual': l3_qual,
+        'l4_qual': l4_qual,
+        'decision': decision,
+        'confidence': confidence,
+        'logic': logic,
+        'theta_modified': theta_modified,
+        'decision_final': decision_final,
+        'position_size': position_size,
+        'stop_loss': stop_loss,
+        'final_score': final_score,
+        'final_signal': final_signal,
+        'legacy_total': legacy_total,
+        'rescore_details': final.get('rescore_details', []),
+        'theta_weights': final.get('theta_weights', {}),
+        'generated_at': dl.get('generated_at'),
+    }
+
+
+def _format_decision_table_text(dt: Dict) -> str:
+    """把 _compute_decision_table 输出格式化成多行文本（写入 conclusion 字段）"""
+    if 'error' in dt:
+        return f"⚠️ 决策规则表暂不可用：{dt['error']}"
+    lines = []
+    lines.append(f"🧭 决策（飞书综合判断规则表 v2.11.92）：{dt['decision_final']}")
+    lines.append(f"置信度：{dt['confidence']}")
+    if dt['theta_modified']:
+        lines.append(f"⚡ θ 加权生效（T={dt.get('T_days_remaining', '?')}天, T<5 档 → 决策提前/加仓）")
+    else:
+        lines.append(f"θ 加权档：{dt['T_bucket']}（无调整）")
+    lines.append(f"仓位建议：{dt['position_size']}")
+    lines.append(f"止损要求：{dt['stop_loss']}")
+    lines.append('')
+    lines.append('【4 层信号综合】')
+    lines.append(f"  • L1 结构：{dt['l1_qual']}")
+    lines.append(f"  • L2 GEX：{dt['l2_qual']}")
+    lines.append(f"  • L3 资金：{dt['l3_qual']}")
+    lines.append(f"  • L4 情绪：{dt['l4_qual']}")
+    lines.append('')
+    lines.append(f"规则表命中：{dt['logic']}")
+    lines.append('')
+    lines.append('【评分路线（辅助）】')
+    lines.append(f"  • 5 档总分：{dt['final_score']:+.3f}  信号：{dt['final_signal']}")
+    lines.append(f"  • legacy 对照：{dt['legacy_total']:+.3f}")
+    w = dt.get('theta_weights', {})
+    if w:
+        lines.append(f"  • θ 加权档：{w.get('T_bucket', '?')} (L1={w.get('L1', 0)*100:.0f}% L2={w.get('L2', 0)*100:.0f}% L3={w.get('L3', 0)*100:.0f}% L4={w.get('L4', 0)*100:.0f}%)")
+    return '\n'.join(lines)
+
+
 def generate_intraday_analysis(report: Dict) -> Dict:
     """生成详尽版盘中综合研判：期货价格、GEX、Pain、OI、IV、宏观快讯、策略。"""
     s1 = report.get('section1') or {}
@@ -3330,7 +3706,13 @@ def generate_intraday_analysis(report: Dict) -> Dict:
         pain_comment = "Max Pain 数据暂缺，痛点收敛强度需等待下一轮期权刷新。"
 
     futures_bias = '短线偏弱' if (main_px.get('change_20_bars') or 0) < 0 else ('短线偏强' if (main_px.get('change_20_bars') or 0) > 0 else '短线震荡')
-    conclusion = f"当前市场判断：短线“{headline_dir}”，但不是单边空头。" if '空' not in str(headline_dir) else f"当前市场判断：短线“{headline_dir}”，需要防范顺势扩散。"
+
+    # v2.11.92 路线2: 用飞书 12+ 行综合判断规则表取代旧"当前市场判断"字符串
+    # 优先读 decision_layer_cache.json（新 daemon 跑 5 档量纲后）
+    _scripts_dir = os.path.dirname(os.path.abspath(__file__))
+    _T_days_for_table = gex_summary.get('days_left') or gex_summary.get('T_days_remaining')
+    decision_table = _compute_decision_table(_scripts_dir, T_days_remaining=_T_days_for_table)
+    conclusion = _format_decision_table_text(decision_table)
 
     market_snapshot_table = [
         ['期权链标的参考价', _fmt_num(option_underlying_price), '用于GEX、Pain、OI和IV结构判断'],
@@ -3547,6 +3929,7 @@ def generate_intraday_analysis(report: Dict) -> Dict:
         'title': '盘中综合研判',
         'summary': '当前 PTA 不适合简单看空。',
         'conclusion': conclusion,
+        'decision_table': decision_table,  # v2.11.92 路线2: 飞书 12+ 行规则表完整结构化输出
         'trader_report': trader_report,
         'futures_panel': sections[3],
         'option_structure': gamma_desc,
