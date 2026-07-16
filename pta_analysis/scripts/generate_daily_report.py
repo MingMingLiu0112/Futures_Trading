@@ -3211,23 +3211,19 @@ def _quantize_gex_dir(l2: Dict) -> str:
 
 def _quantize_l1_structure(l1: Dict) -> str:
     """L1 PAIN 结构 → 飞书定性: 强/中/弱偏多 / 强/中/弱偏空 / 中性(磁吸)/中性(事件驱动)/中性(转折)"""
-    score5 = l1.get('score_5grid', 0) if 'score_5grid' in l1 else None
-    if score5 is None:
-        # fallback to raw
-        raw = l1.get('layer_score', 0)
-        if raw >= 0.6: return '结构偏多（强）'
-        if raw >= 0.3: return '结构偏多（中）'
-        if raw >= 0.05: return '结构偏多（弱）'
-        if raw <= -0.6: return '结构偏空（强）'
-        if raw <= -0.3: return '结构偏空（中）'
-        if raw <= -0.05: return '结构偏空（弱）'
-        return '结构中性'
-    if score5 >= 1.5: return '结构偏多（强）'
-    if score5 >= 0.5: return '结构偏多（中）'
-    if score5 > 0: return '结构偏多（弱）'
-    if score5 <= -1.5: return '结构偏空（强）'
-    if score5 <= -0.5: return '结构偏空（中）'
-    if score5 < 0: return '结构偏空（弱）'
+    # v2.11.93+: 优先用 layer_score_5grid 5 档量纲 (与思维决策一致)
+    # 旧阈值 (±0.6/±0.3/±0.05) 是 3 档量纲, 跟 5 档 layer_score=-2~+2 不一致
+    layer_5grid = l1.get('layer_score_5grid', l1.get('layer_score', 0))
+    if layer_5grid >= 1.5: return '结构偏多（强）'
+    if layer_5grid >= 0.5: return '结构偏多（中）'
+    if layer_5grid > 0: return '结构偏多（弱）'
+    if layer_5grid <= -1.5: return '结构偏空（强）'
+    if layer_5grid <= -0.5: return '结构偏空（中）'
+    if layer_5grid < 0: return '结构偏空（弱）'
+    # 5 档=0 时按 shape 判定磁吸/事件驱动
+    shape = l1.get('shape', '')
+    if shape == 'sym': return '结构中性（磁吸）'
+    if shape == 'bothSteep': return '结构中性（事件驱动）'
     return '结构中性'
 
 
@@ -3257,38 +3253,30 @@ def _quantize_l3_funding(l3: Dict) -> str:
     if '看空共振' in label and '强' in label: return '强力看空'
     if '看空共振' in label: return '看空'
     if '单边偏空' in label: return '偏空'
-    # fallback: v2.11.85e 加权算法的 output 字符串 (如 "hedge_buy_mid / noise_open_strong")
-    # 这种表示 Call/Put 端主导的 nature - hedge_buy 在 Call 是偏空（防御型），在 Put 是偏多（防御型）
-    # 但标准化 label 同时给 Call+Put 两端，没法直接判定方向
-    # 用 L3 的 direction / put_main_nat / call_main_nat 兜底
-    if l3.get('direction'):
-        d = l3['direction']
-        if '偏多' in d and '防御' not in d: return '偏多'
-        if '偏空' in d and '防御' not in d: return '偏空'
-        if '多' in d and '空' not in d: return '偏多'
-        if '空' in d: return '偏空'
-    # 终极兜底：用 funding_signal_cv.consistency
-    fscv = l3.get('funding_signal_cv', {}) or {}
-    if fscv.get('consistency') == 'pcr_flat':
-        return '中性'  # PCR 平稳 = 无明确方向
-    if '套保' in label or '收租' in label: return '中性'
+    # v2.11.93+: 优先用 layer_score_5grid 5 档量纲判定 (与思维决策一致)
+    # 旧实现用 direction 含"空"字判定, 会把"偏空(防御)"误判为偏空, 跟 5 档 layer_score=0 (中性) 不一致
+    layer_5grid = l3.get('layer_score_5grid', l3.get('layer_score', 0))
+    if layer_5grid >= 1.5: return '强力看多'
+    if layer_5grid >= 0.5: return '看多'
+    if layer_5grid > 0: return '偏多'
+    if layer_5grid <= -1.5: return '强力看空'
+    if layer_5grid <= -0.5: return '看空'
+    if layer_5grid < 0: return '偏空'
+    # 5 档量纲=0 (中性) 走 fallback, 优先用 cross_validation_verdict 判定
+    if l3.get('cross_validation_verdict', {}).get('consistency') == 'contradictory':
+        return '多空分歧'
     return '中性'
 
 
 def _quantize_l4_emotion(l4: Dict) -> str:
     """L4 情绪确认 → 飞书 3 档: 偏多/中性/偏空
 
-    基于 score_5grid
+    基于 layer_score_5grid 5 档量纲 (与思维决策一致)
     """
-    score5 = l4.get('score_5grid', 0) if 'score_5grid' in l4 else None
-    if score5 is None:
-        # 旧实装 layer_score 范围 [-1, 1] (v2.11.68+)
-        raw = l4.get('layer_score', 0)
-        if raw > 0.05: return '偏多'
-        if raw < -0.05: return '偏空'
-        return '中性'
-    if score5 > 0.5: return '偏多'
-    if score5 < -0.5: return '偏空'
+    # v2.11.93+: 优先用 layer_score_5grid 5 档量纲
+    layer_5grid = l4.get('layer_score_5grid', l4.get('layer_score', 0))
+    if layer_5grid > 0.5: return '偏多'
+    if layer_5grid < -0.5: return '偏空'
     return '中性'
 
 
@@ -3580,7 +3568,7 @@ def _format_decision_table_text(dt: Dict) -> str:
     # === 段 6: 评分路线（辅助）===
     lines.append('【评分路线（辅助）】')
     lines.append(f"  • 5 档总分：{dt['final_score']:+.3f}  信号：{dt['final_signal']}")
-    lines.append(f"  • legacy 对照：{dt['legacy_total']:+.3f}")
+    # v2.11.93+: legacy_total 已取消, 不再显示双轨对照
     w = dt.get('theta_weights', {})
     if w:
         lines.append(f"  • θ 加权档：{w.get('T_bucket', '?')} (L1={w.get('L1', 0)*100:.0f}% L2={w.get('L2', 0)*100:.0f}% L3={w.get('L3', 0)*100:.0f}% L4={w.get('L4', 0)*100:.0f}%)")
