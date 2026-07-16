@@ -2988,7 +2988,8 @@ function getStrategyReportEndpoint() {
                         const decision = cell(fin.decision || '观望');
                         const confidence = cell(fin.confidence || '--');
                         const contradiction = fin.contradiction;
-                        const decisionColor = (totalScore == null) ? '#888' : (totalScore >= 0.2 ? '#26a69a' : (totalScore <= -0.2 ? '#ef5350' : '#ffd700'));
+                        // v2.11.93+: total_score 字段 = 5 档总分 (±2 量纲), 阈值改 ±0.6 (强多/强空)/中间为中性
+                        const decisionColor = (totalScore == null) ? '#888' : (totalScore >= 0.6 ? '#26a69a' : (totalScore <= -0.6 ? '#ef5350' : '#ffd700'));
                         let html = `<div style="margin:14px 0 10px 0;padding:10px 12px;background:#15151f;border-left:3px solid #ffd700;border-radius:5px;">`;
                         html += `<div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:8px;">🧭 四维决策（v2.11.86 资金意图综合+子规则2b新资金分层）</div>`;
                         // 决策 banner
@@ -5082,6 +5083,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.93 (飞书 5 档量纲 + θ 加权 4 档 + 12+ 行规则表 + ts 格式兼容)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.95 (飞书 5 档量纲 + θ 加权 4 档 + 12+ 行规则表 + 单层量化统一 5 档 + ts 格式兼容)</div>
 </body>
 </html>
