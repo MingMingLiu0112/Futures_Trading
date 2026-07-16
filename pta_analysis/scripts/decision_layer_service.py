@@ -319,8 +319,9 @@ def _build_decision_layer_payload(gex: dict, alert_data: dict, curve: dict) -> D
     l3 = js.judge_layer3_funding_intent(alert_data or {}, gex or {}, l1, intraday_slots=intraday_slots)
     # L4: 情绪确认（依赖 L1, 跨层 cross-check L3 隐波陷阱）
     l4 = js.judge_layer4_emotion(curve or {}, alert_data or {}, l1, gex or {}, intraday_slots=intraday_slots, layer3=l3)
-    # final: 综合判断（接受 list）
-    final = js.synthesize_decision([l1, l2, l3, l4])
+    # final: 综合判断（接受 list；v2.11.92: 传 T_days_remaining 触发 θ 加权）
+    _T_days = (gex or {}).get('summary', {}).get('T_days_remaining') if isinstance(gex, dict) else None
+    final = js.synthesize_decision([l1, l2, l3, l4], T_days_remaining=_T_days)
 
     payload = {
         'layer1': l1,

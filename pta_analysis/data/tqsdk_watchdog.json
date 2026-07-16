@@ -1,0 +1,16 @@
+{
+  "healthy": true,
+  "last_check_at": "2026-07-16 11:24:53",
+  "last_check_unix": 1784172293.9098089,
+  "last_data_update": "2026-07-16T11:24:53.905490",
+  "last_data_age_sec": 0.004324,
+  "reconnect_count": 0,
+  "tqsdk_ready": true,
+  "futures_price": 5734,
+  "alert_level": "green",
+  "alert_message": "✅ 正常 · 最后更新 0s 前 · F=5734 · reconnect=0 · ready=True",
+  "last_alert_change_at": null,
+  "restart_count_today": 0,
+  "last_restart_at": null,
+  "consecutive_probe_failures": 0
+}

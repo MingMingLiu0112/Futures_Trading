@@ -1356,59 +1356,164 @@ def judge_layer4_emotion(curve: Dict, alert_data: Dict, layer1: Dict, gex: Dict,
 # ============================================================
 # 四层加权叠加
 # ============================================================
-def synthesize_decision(layers: List[Dict]) -> Dict:
-    """四层加权叠加 → 综合判断（按 skill 第三部分 + 综合判断规则表）"""
-    total_score = sum(l['layer_score'] * l['weight'] for l in layers)
-    total_score = round(total_score, 3)
+# ============================================================
+# v2.11.92: 飞书 5 档评分常量（强偏多+2/偏多+1.5/弱偏多+0.5/中0/弱偏空-0.5/偏空-1.5/强偏空-2）
+# 旧 0.6/0.3/0.1 是 v2.11.85b 的"高/中/弱"档，量纲差 3.3 倍；飞书 5 档更精细
+# ============================================================
+SCORE_5GRID_STRONG_POS = 2.0    # 强偏多
+SCORE_5GRID_MID_POS   = 1.5    # 偏多
+SCORE_5GRID_WEAK_POS  = 0.5    # 弱偏多
+SCORE_5GRID_NEUTRAL   = 0.0    # 中性
+SCORE_5GRID_WEAK_NEG  = -0.5   # 弱偏空
+SCORE_5GRID_MID_NEG   = -1.5   # 偏空
+SCORE_5GRID_STRONG_NEG = -2.0  # 强偏空
 
-    layer_breakdown = [
-        f"{l['layer_name']}={l.get('layer_score', 0):+.2f} (权重 {l['weight']*100:.0f}%)"
-        for l in layers
-    ]
+# 信号阈值（飞书 5 档）
+SCORE_THRESH_STRONG_POS = 1.2
+SCORE_THRESH_WEAK_POS   = 0.6
+SCORE_THRESH_WEAK_NEG   = -0.6
+SCORE_THRESH_STRONG_NEG = -1.2
 
-    # 矛盾检测
-    signs = set()
+
+def _get_theta_weights(T_days_remaining: Optional[float] = None) -> Dict[str, float]:
+    """v2.11.92: 飞书 θ 加权 4 档权重表
+
+    飞书原文（"θ 加权在各层的时间表"）：
+    | T | L1 | L2 | L3 | L4 |
+    | T ≥ 15      | 35% | 25% | 25% | 15% |
+    | 10 ≤ T < 15 | 38% | 25% | 25% | 15% |
+    | 5 ≤ T < 10  | 40% | 25% | 25% | 12% |
+    | T < 5       | 40% (or 45% 信号强度上调) | 25% | 20% | 8-10% |
+
+    用户拍板：只调权重，不动内部阈值（防过度优化陷阱，跟 L1 dyn D 方案哲学一致）
+    """
+    if T_days_remaining is None:
+        # 兜底：默认 T≥15 档
+        return {'L1': 0.35, 'L2': 0.25, 'L3': 0.25, 'L4': 0.15, 'T_bucket': 'unknown'}
+    if T_days_remaining >= 15:
+        return {'L1': 0.35, 'L2': 0.25, 'L3': 0.25, 'L4': 0.15, 'T_bucket': 'T≥15'}
+    if T_days_remaining >= 10:
+        return {'L1': 0.38, 'L2': 0.25, 'L3': 0.25, 'L4': 0.15, 'T_bucket': '10≤T<15'}
+    if T_days_remaining >= 5:
+        return {'L1': 0.40, 'L2': 0.25, 'L3': 0.25, 'L4': 0.12, 'T_bucket': '5≤T<10'}
+    # T < 5
+    return {'L1': 0.45, 'L2': 0.25, 'L3': 0.20, 'L4': 0.10, 'T_bucket': 'T<5'}
+
+
+def _rescore_to_5grid(raw_score: float) -> Tuple[float, str]:
+    """v2.11.92: 把单层原始 score（-0.6 ~ +0.6）映射到飞书 5 档量纲（-2 ~ +2）
+
+    飞书 5 档：强偏多+2 / 偏多+1.5 / 弱偏多+0.5 / 中0 / 弱偏空-0.5 / 偏空-1.5 / 强偏空-2
+    旧实装 3 档：强+0.6 / 中+0.3 / 弱+0.1
+    映射规则：按绝对值 0/0.1/0.3/0.6 比例（与原 3 档位置对齐）
+      raw 0    → 飞书 0
+      raw ±0.1 → 飞书 ±0.5
+      raw ±0.3 → 飞书 ±1.5
+      raw ±0.6 → 飞书 ±2.0
+    """
+    if raw_score >= 0.6:   return 2.0, '强偏多'
+    if raw_score >= 0.3:   return 1.5, '偏多'
+    if raw_score >= 0.05:  return 0.5, '弱偏多'
+    if raw_score <= -0.6:  return -2.0, '强偏空'
+    if raw_score <= -0.3:  return -1.5, '偏空'
+    if raw_score <= -0.05: return -0.5, '弱偏空'
+    return 0.0, '中性'
+
+
+def synthesize_decision(layers: List[Dict], T_days_remaining: Optional[float] = None) -> Dict:
+    """v2.11.92: 四层加权叠加 → 综合判断（飞书 5 档量纲 + θ 加权 4 档权重 + 5 档信号阈值）
+
+    两路线并行：
+      - 路线 1（评分路线）：5 档量纲 + θ 加权 + 5 档信号阈值 → 精确分数
+      - 路线 2（定性路线）：由 generate_daily_report._compute_decision_table() 查飞书 12+ 行规则表
+        → 此函数只输出 final_score/final_signal/bucket，路线 2 在 generate_daily_report.py 接管
+    """
+    # === v2.11.92: θ 加权（用户拍板 = 只调权重）===
+    weights = _get_theta_weights(T_days_remaining)
+    layer_weight_map = {1: weights['L1'], 2: weights['L2'], 3: weights['L3'], 4: weights['L4']}
+
+    # === v2.11.92: 5 档量纲映射（评分路线）===
+    rescore_details = []
+    rescore_total = 0.0
     for l in layers:
-        s = l.get('layer_score', 0)
-        if s > 0.05: signs.add('+')
-        elif s < -0.05: signs.add('-')
+        raw = l.get('layer_score', 0)
+        score5, label5 = _rescore_to_5grid(raw)
+        w = layer_weight_map.get(l['layer'], l.get('weight', 0.25))
+        rescore_total += score5 * w
+        rescore_details.append({
+            'layer': l.get('layer'),
+            'layer_name': l.get('layer_name', ''),
+            'raw_score': round(raw, 3),
+            'score_5grid': score5,
+            'label_5grid': label5,
+            'weight': round(w, 3),
+            'contribution': round(score5 * w, 3),
+        })
+    rescore_total = round(rescore_total, 3)
 
-    # 综合判断规则
-    if len(signs) > 1:
-        decision = '观望（四层矛盾）'
-        confidence = '低'
-    elif total_score >= 0.5:
-        decision = '买入'
-        confidence = '高'
-    elif total_score >= 0.2:
-        decision = '轻仓试探'
+    # === v2.11.92: 5 档信号阈值（飞书原文）===
+    if rescore_total >= SCORE_THRESH_STRONG_POS:
+        signal_label = '强多共振'
+        decision_v1 = '买入/加仓'
+        confidence = '极高'
+    elif rescore_total >= SCORE_THRESH_WEAK_POS:
+        signal_label = '弱多'
+        decision_v1 = '轻仓试探'
         confidence = '中'
-    elif total_score <= -0.5:
-        decision = '观望或做空'
-        confidence = '高'
-    elif total_score <= -0.2:
-        decision = '观望'
+    elif rescore_total <= SCORE_THRESH_STRONG_NEG:
+        signal_label = '强空共振'
+        decision_v1 = '卖出/加仓'
+        confidence = '极高'
+    elif rescore_total <= SCORE_THRESH_WEAK_NEG:
+        signal_label = '弱空'
+        decision_v1 = '轻仓做空'
         confidence = '中'
     else:
-        decision = '观望'
+        signal_label = '信号矛盾/无信号'
+        decision_v1 = '观望'
         confidence = '低'
+
+    # === 向后兼容: 旧 total_score 算法 (保留 1 周双轨对比) ===
+    legacy_total = sum(l.get('layer_score', 0) * l.get('weight', 0.25) for l in layers)
+    legacy_total = round(legacy_total, 3)
+
+    # 矛盾检测（5 档量纲下）
+    signs = set()
+    for d in rescore_details:
+        if d['score_5grid'] > 0.5: signs.add('+')
+        elif d['score_5grid'] < -0.5: signs.add('-')
+
+    layer_breakdown = [
+        f"{d['layer_name']}={d['raw_score']:+.2f}→{d['score_5grid']:+.1f} ({d['label_5grid']}, 权重 {d['weight']*100:.0f}%)"
+        for d in rescore_details
+    ]
 
     # 各层逻辑串联
     logic_chain = ' → '.join([
-        f"L{l['layer']}({l['layer_name']}) [{l.get('logic_brief', '')}]"
+        f"L{l.get('layer', '?')}({l.get('layer_name', '')}) [{l.get('logic_brief', '')}]"
         for l in layers
     ])
 
     # 总结论（按层次组织）
     summary_lines = [
-        f"决策: {decision}（置信度: {confidence}）",
-        f"总分: {total_score:+.3f}",
+        f"决策(评分): {decision_v1}（置信度: {confidence}）",
+        f"信号强度: {signal_label}",
+        f"总分(5档): {rescore_total:+.3f}",
+        f"总分(legacy对照): {legacy_total:+.3f}",
+        f"θ 加权档: {weights['T_bucket']} (L1={weights['L1']*100:.0f}% L2={weights['L2']*100:.0f}% L3={weights['L3']*100:.0f}% L4={weights['L4']*100:.0f}%)",
         f"逻辑链: {logic_chain}",
     ]
 
     return {
-        'total_score': total_score,
-        'decision': decision,
+        # === 路线 1: 评分路线（飞书 5 档 + θ 加权）===
+        'final_score': rescore_total,           # 飞书 5 档量纲 [-1, +1]
+        'final_signal': signal_label,           # 强多共振/弱多/弱空/强空共振/矛盾
+        'decision_v1': decision_v1,             # 评分路线决策
+        'theta_weights': weights,               # θ 加权档位详情
+        'rescore_details': rescore_details,     # 每层 5 档映射详情
+        # === 向后兼容（保留 1 周双轨对比）===
+        'total_score': legacy_total,            # 旧算法（实装 0.6/0.3/0.1 量纲）
+        'decision': decision_v1,                # 主页 front-end 读这个字段
         'confidence': confidence,
         'layer_breakdown': layer_breakdown,
         'logic_chain': logic_chain,
@@ -1596,7 +1701,9 @@ def main():
     L3 = judge_layer3_funding_intent(alert, gex, L1)
     L4 = judge_layer4_emotion(curve, alert, L1, gex)
 
-    final = synthesize_decision([L1, L2, L3, L4])
+    # v2.11.92: 传 T_days_remaining 给 synthesize_decision 触发 θ 加权
+    _T_days = (gex.get('summary', {}) or {}).get('T_days_remaining')
+    final = synthesize_decision([L1, L2, L3, L4], T_days_remaining=_T_days)
 
     result = {
         'generated_at': datetime.now().isoformat(timespec='seconds'),

@@ -1,0 +1,1172 @@
+{
+  "decision_layer": {
+    "layer1": {
+      "layer": 1,
+      "layer_name": "PAIN 结构",
+      "weight": 0.35,
+      "shape": "leftSteep",
+      "position": "belowMP",
+      "gex_dir": "negative",
+      "p_vs_flip": "above",
+      "max_pain": 5900,
+      "futures_price": 5746,
+      "gex_flip": 5654,
+      "pos_pcr": 0.9830072417735993,
+      "vol_pcr": 0.9762787847513384,
+      "matrix_meaning": "强空头，下跌自我强化（左侧加速器激活），GEX负放大跌幅，接近情绪极值",
+      "pcr_meaning": "持仓PCR=0.98 平衡",
+      "pcr_modifier": 0,
+      "score_detail": "强空头+负GEX放大（强空）",
+      "layer_score": -0.6,
+      "slope_down_now": -195778.75,
+      "slope_up_now": 163270.0,
+      "slope_ratio_now": 1.199,
+      "slope_regime_now": "略不对称",
+      "slope_down_prev": 0.0,
+      "slope_up_prev": 0.0,
+      "slope_ratio_prev": 0.0,
+      "slope_regime_prev": "unknown",
+      "intraday_change": null,
+      "daily_change": {
+        "max_pain_migration": 0.0,
+        "gex_flip_migration": 6.0,
+        "net_gex_change": -71959.0,
+        "net_gex_change_pct": -3.47,
+        "slope_ratio_change": 1.199,
+        "slope_regime_change": false,
+        "slope_regime_prev": "--",
+        "slope_regime_now": "略不对称",
+        "layer": "L1"
+      },
+      "summary": {
+        "T": 0.078793,
+        "T_days_remaining": 27.2,
+        "days_left": 27.2,
+        "expiry": "2026-08-12T00:00:00",
+        "futures_price": 5746,
+        "gex_direction": "negative",
+        "gex_flip": 5654,
+        "iv_percentile": 91.9,
+        "last_update": "2026-07-16T11:15:00.416422",
+        "max_pain": 5900,
+        "net_gex": -2145335.0,
+        "oi_total_now": 245106,
+        "pcr": 0.976,
+        "total_call_oi": 124024,
+        "total_put_oi": 121082
+      },
+      "prev_summary": {
+        "T": 0.078793,
+        "T_days_remaining": 27.2,
+        "days_left": 27.2,
+        "expiry": "2026-08-12T00:00:00",
+        "futures_price": 5752.0,
+        "gex_direction": "negative",
+        "gex_flip": 5648,
+        "iv_percentile": 91.9,
+        "last_update": "2026-07-15T15:00:09.206975",
+        "max_pain": 5900,
+        "net_gex": -2073376.0,
+        "oi_total_now": 233567,
+        "pcr": 0.943,
+        "total_call_oi": 120193,
+        "total_put_oi": 113374
+      },
+      "dyn_threshold": 1.08,
+      "dyn_triggered": [
+        "iv_high",
+        "oi_huge"
+      ],
+      "dyn_all_triggers": {
+        "iv_high": {
+          "triggered": true,
+          "value": 91.9,
+          "post_th": 1.08
+        },
+        "t_near": {
+          "triggered": false,
+          "value": 27.2,
+          "post_th": 1.05
+        },
+        "oi_huge": {
+          "triggered": true,
+          "value": 245106,
+          "post_th": 1.08
+        }
+      },
+      "slope_thresholds_used": [
+        [
+          2.5,
+          "强不对称"
+        ],
+        [
+          1.5,
+          "一边主导"
+        ],
+        [
+          1.08,
+          "略不对称"
+        ],
+        [
+          0.0,
+          "对称"
+        ]
+      ],
+      "both_steep": false,
+      "threshold_version": "v2.11.90a",
+      "logic_brief": "leftSteep + belowMP + GEX negative + P vs Flip above → 强空头+负GEX放大（强空）"
+    },
+    "layer2": {
+      "layer": 2,
+      "layer_name": "GEX 机制",
+      "weight": 0.25,
+      "gex_dir": "negative",
+      "p_vs_flip": "above",
+      "matrix_meaning": "负GEX + P在Flip上方 → 卖方对冲买压释放（涨幅被放大，但也有回调风险）",
+      "score_detail": "弱空机制（涨幅放大但有支撑）",
+      "layer_score": -0.1,
+      "net_gex_now": -2145335.0,
+      "net_gex_prev": -2073376.0,
+      "net_gex_change": -71959.0,
+      "net_gex_change_pct": -3.47,
+      "gex_flip_now": 5654.0,
+      "gex_flip_prev": 5648.0,
+      "gex_flip_migration": 6.0,
+      "gex_flip_crossed": false,
+      "flip_cross_direction": null,
+      "intraday_change": null,
+      "daily_change": {
+        "max_pain_migration": 0.0,
+        "gex_flip_migration": 6.0,
+        "net_gex_change": -71959.0,
+        "net_gex_change_pct": -3.47,
+        "slope_ratio_change": 0.0,
+        "slope_regime_change": false,
+        "slope_regime_prev": "--",
+        "slope_regime_now": "--",
+        "layer": "L2"
+      },
+      "logic_brief": "GEX negative + P above Flip + 净GEX -2.1M → 弱空机制（涨幅放大但有支撑）"
+    },
+    "layer3": {
+      "layer": 3,
+      "layer_name": "资金意图",
+      "weight": 0.25,
+      "available": true,
+      "put_nature": "hedge_sell",
+      "put_nature_label": "套保卖权",
+      "put_business_meaning": "卖 Put 集中（左侧加速器加码 = 投机/做市商认为下方有支撑收租）",
+      "call_nature": "hedge_sell",
+      "call_nature_label": "套保卖权",
+      "call_business_meaning": "卖 Call 收租（产业锁定销售顶价 = 中性，不站队方向）",
+      "raw_label": "多空分化(慢牛+慢熊)",
+      "raw_intensity": "弱",
+      "standardized_label": "hedge_buy_mid / noise_open_strong",
+      "standardized_intensity": "强",
+      "strike_modifier": "Call 中强度主导: hedge_buy 52.9% 40-60% | Put ★强信号★: noise_open 68.6% > 60%",
+      "pcr_now": 0.9762787847513384,
+      "pcr_prev": 0.9432662467864185,
+      "pcr_delta": 0.033012537964919986,
+      "pcr_label": "↑",
+      "pcr_meaning": "PCR↑ = Put 持仓增速 > Call 持仓增速（0.976↑ vs 0.943）",
+      "call_role_summary": "5900C(产业买保 OI+19.8% IV-0.14pp) / 6500C(noise_open OI+13.4% IV-0.18pp) / 6600C(noise_open OI+17.5% IV-0.18pp) / 6100C(被动平仓 OI-12.5% IV-0.12pp) / 6000C(产业买保 OI+7.0% IV-0.27pp)",
+      "put_role_summary": "5000P(noise_open OI+28.8% IV+0.37pp) / 5200P(产业买保 OI+11.0% IV-0.01pp) / 5100P(noise_open OI+13.5% IV+0.13pp) / 5700P(产业买保 OI+8.1% IV-0.30pp) / 4950P(noise_open OI+16.2% IV+0.05pp)",
+      "call_role": {
+        "spec_trim": [],
+        "spec_add": [],
+        "hedge_sell": [],
+        "hedge_buy": [
+          {
+            "strike": 5900,
+            "side": "Call",
+            "nature": "hedge_buy",
+            "oi_delta_pct": 19.78,
+            "iv_delta_pp": -0.14,
+            "oi_chg": 1132.0,
+            "moneyness": "OTM_slight",
+            "contribution": 0.2232,
+            "weight": 0.1973
+          },
+          {
+            "strike": 6000,
+            "side": "Call",
+            "nature": "hedge_buy",
+            "oi_delta_pct": 7.04,
+            "iv_delta_pp": -0.27,
+            "oi_chg": 488.0,
+            "moneyness": "OTM_slight",
+            "contribution": 0.0962,
+            "weight": 0.0785
+          },
+          {
+            "strike": 6200,
+            "side": "Call",
+            "nature": "hedge_buy",
+            "oi_delta_pct": 5.62,
+            "iv_delta_pp": -0.04,
+            "oi_chg": 292.0,
+            "moneyness": "OTM_slight",
+            "contribution": 0.0576,
+            "weight": 0.04
+          },
+          {
+            "strike": 5700,
+            "side": "Call",
+            "nature": "hedge_buy",
+            "oi_delta_pct": 3.39,
+            "iv_delta_pp": -0.21,
+            "oi_chg": 174.0,
+            "moneyness": "ATM",
+            "contribution": 0.0343,
+            "weight": 0.0331
+          },
+          {
+            "strike": 5600,
+            "side": "Call",
+            "nature": "hedge_buy",
+            "oi_delta_pct": 3.74,
+            "iv_delta_pp": -0.22,
+            "oi_chg": 103.0,
+            "moneyness": "ITM_slight",
+            "contribution": 0.0203,
+            "weight": 0.0181
+          },
+          {
+            "strike": 6300,
+            "side": "Call",
+            "nature": "hedge_buy",
+            "oi_delta_pct": 1.04,
+            "iv_delta_pp": -0.1,
+            "oi_chg": 89.0,
+            "moneyness": "OTM_slight",
+            "contribution": 0.0175,
+            "weight": 0.0113
+          }
+        ],
+        "close_push": [],
+        "double_exit": [
+          {
+            "strike": 5300,
+            "side": "Call",
+            "nature": "double_exit",
+            "oi_delta_pct": -4.51,
+            "iv_delta_pp": -1.05,
+            "oi_chg": -52.0,
+            "moneyness": "ITM_slight",
+            "contribution": 0.0103,
+            "weight": 0.0072
+          }
+        ],
+        "mixed_neutral": [],
+        "noise_ignore": [
+          {
+            "strike": 6500,
+            "side": "Call",
+            "nature": "noise_open",
+            "oi_delta_pct": 13.42,
+            "iv_delta_pp": -0.18,
+            "oi_chg": 1084.0,
+            "moneyness": "OTM_deep",
+            "contribution": 0.2137,
+            "weight": 0.1169
+          },
+          {
+            "strike": 6600,
+            "side": "Call",
+            "nature": "noise_open",
+            "oi_delta_pct": 17.53,
+            "iv_delta_pp": -0.18,
+            "oi_chg": 796.0,
+            "moneyness": "OTM_deep",
+            "contribution": 0.1569,
+            "weight": 0.0793
+          },
+          {
+            "strike": 6400,
+            "side": "Call",
+            "nature": "static",
+            "oi_delta_pct": 0.91,
+            "iv_delta_pp": -0.11,
+            "oi_chg": 38.0,
+            "moneyness": "OTM_deep",
+            "contribution": 0.0075,
+            "weight": 0.0044
+          },
+          {
+            "strike": 5500,
+            "side": "Call",
+            "nature": "static",
+            "oi_delta_pct": -0.55,
+            "iv_delta_pp": -0.23,
+            "oi_chg": -15.0,
+            "moneyness": "ITM_slight",
+            "contribution": 0.003,
+            "weight": 0.0024
+          }
+        ],
+        "passive_close": [
+          {
+            "strike": 6100,
+            "side": "Call",
+            "nature": "passive_close",
+            "oi_delta_pct": -12.54,
+            "iv_delta_pp": -0.12,
+            "oi_chg": -623.0,
+            "moneyness": "OTM_slight",
+            "contribution": 0.1228,
+            "weight": 0.0925
+          },
+          {
+            "strike": 5800,
+            "side": "Call",
+            "nature": "passive_close",
+            "oi_delta_pct": -1.8,
+            "iv_delta_pp": -0.27,
+            "oi_chg": -160.0,
+            "moneyness": "ATM",
+            "contribution": 0.0315,
+            "weight": 0.0302
+          },
+          {
+            "strike": 5400,
+            "side": "Call",
+            "nature": "passive_close",
+            "oi_delta_pct": -1.8,
+            "iv_delta_pp": 0.0,
+            "oi_chg": -26.0,
+            "moneyness": "ITM_slight",
+            "contribution": 0.0051,
+            "weight": 0.0039
+          }
+        ],
+        "role_summary": "5900C(产业买保 OI+19.8% IV-0.14pp) / 6500C(noise_open OI+13.4% IV-0.18pp) / 6600C(noise_open OI+17.5% IV-0.18pp) / 6100C(被动平仓 OI-12.5% IV-0.12pp) / 6000C(产业买保 OI+7.0% IV-0.27pp)",
+        "_top_n": 5,
+        "verdict": "无修正",
+        "rationale": "子规则4（无法判定）: PCR平稳 + IV变化<0.5pp",
+        "subrule": 4,
+        "fund_flow_verdict": "新资金主导",
+        "new_fund_net_long": 0,
+        "new_fund_net_short": 2278,
+        "new_fund_net_neutral": 0,
+        "stock_adj_net_long": 0,
+        "stock_adj_net_short": 0,
+        "new_fund_dominant_nature": "hedge_buy",
+        "dominant_nature": "hedge_buy",
+        "verdict_direction": "看空"
+      },
+      "put_role": {
+        "spec_trim": [],
+        "spec_add": [],
+        "hedge_sell": [],
+        "hedge_buy": [
+          {
+            "strike": 5200,
+            "side": "Put",
+            "nature": "hedge_buy",
+            "oi_delta_pct": 11.0,
+            "iv_delta_pp": -0.01,
+            "oi_chg": 551.0,
+            "moneyness": "OTM_slight",
+            "contribution": 0.0748,
+            "weight": 0.0483
+          },
+          {
+            "strike": 5700,
+            "side": "Put",
+            "nature": "hedge_buy",
+            "oi_delta_pct": 8.1,
+            "iv_delta_pp": -0.3,
+            "oi_chg": 314.0,
+            "moneyness": "ATM",
+            "contribution": 0.0426,
+            "weight": 0.0411
+          },
+          {
+            "strike": 5600,
+            "side": "Put",
+            "nature": "hedge_buy",
+            "oi_delta_pct": 5.38,
+            "iv_delta_pp": -0.1,
+            "oi_chg": 212.0,
+            "moneyness": "OTM_slight",
+            "contribution": 0.0288,
+            "weight": 0.0256
+          },
+          {
+            "strike": 5300,
+            "side": "Put",
+            "nature": "hedge_buy",
+            "oi_delta_pct": 2.04,
+            "iv_delta_pp": -0.09,
+            "oi_chg": 112.0,
+            "moneyness": "OTM_slight",
+            "contribution": 0.0152,
+            "weight": 0.0106
+          },
+          {
+            "strike": 5800,
+            "side": "Put",
+            "nature": "hedge_buy",
+            "oi_delta_pct": 1.52,
+            "iv_delta_pp": -0.27,
+            "oi_chg": 77.0,
+            "moneyness": "ATM",
+            "contribution": 0.0104,
+            "weight": 0.01
+          }
+        ],
+        "close_push": [],
+        "double_exit": [],
+        "mixed_neutral": [],
+        "noise_ignore": [
+          {
+            "strike": 5000,
+            "side": "Put",
+            "nature": "noise_open",
+            "oi_delta_pct": 28.84,
+            "iv_delta_pp": 0.37,
+            "oi_chg": 4708.0,
+            "moneyness": "OTM_deep",
+            "contribution": 0.6388,
+            "weight": 0.3517
+          },
+          {
+            "strike": 5100,
+            "side": "Put",
+            "nature": "noise_open",
+            "oi_delta_pct": 13.5,
+            "iv_delta_pp": 0.13,
+            "oi_chg": 501.0,
+            "moneyness": "OTM_deep",
+            "contribution": 0.068,
+            "weight": 0.0405
+          },
+          {
+            "strike": 4950,
+            "side": "Put",
+            "nature": "noise_open",
+            "oi_delta_pct": 16.23,
+            "iv_delta_pp": 0.05,
+            "oi_chg": 294.0,
+            "moneyness": "OTM_deep",
+            "contribution": 0.0399,
+            "weight": 0.0211
+          },
+          {
+            "strike": 6100,
+            "side": "Put",
+            "nature": "static",
+            "oi_delta_pct": -0.79,
+            "iv_delta_pp": -0.13,
+            "oi_chg": -63.0,
+            "moneyness": "ITM_slight",
+            "contribution": 0.0085,
+            "weight": 0.0064
+          },
+          {
+            "strike": 5500,
+            "side": "Put",
+            "nature": "static",
+            "oi_delta_pct": -0.68,
+            "iv_delta_pp": -0.27,
+            "oi_chg": -44.0,
+            "moneyness": "OTM_slight",
+            "contribution": 0.006,
+            "weight": 0.0049
+          },
+          {
+            "strike": 5400,
+            "side": "Put",
+            "nature": "static",
+            "oi_delta_pct": -0.88,
+            "iv_delta_pp": -0.16,
+            "oi_chg": -37.0,
+            "moneyness": "OTM_slight",
+            "contribution": 0.005,
+            "weight": 0.0038
+          },
+          {
+            "strike": 5900,
+            "side": "Put",
+            "nature": "static",
+            "oi_delta_pct": 0.23,
+            "iv_delta_pp": -0.27,
+            "oi_chg": 21.0,
+            "moneyness": "ITM_slight",
+            "contribution": 0.0028,
+            "weight": 0.0025
+          },
+          {
+            "strike": 6400,
+            "side": "Put",
+            "nature": "quote_adjust",
+            "oi_delta_pct": 0.85,
+            "iv_delta_pp": 1.88,
+            "oi_chg": 26.0,
+            "moneyness": "ITM_deep",
+            "contribution": 0.0035,
+            "weight": 0.0021
+          },
+          {
+            "strike": 6300,
+            "side": "Put",
+            "nature": "quote_adjust",
+            "oi_delta_pct": 0.0,
+            "iv_delta_pp": 1.23,
+            "oi_chg": 0.0,
+            "moneyness": "ITM_slight",
+            "contribution": 0.0,
+            "weight": 0.0
+          }
+        ],
+        "passive_close": [
+          {
+            "strike": 4900,
+            "side": "Put",
+            "nature": "passive_close",
+            "oi_delta_pct": -12.36,
+            "iv_delta_pp": 0.0,
+            "oi_chg": -278.0,
+            "moneyness": "OTM_deep",
+            "contribution": 0.0377,
+            "weight": 0.0192
+          },
+          {
+            "strike": 6000,
+            "side": "Put",
+            "nature": "passive_close",
+            "oi_delta_pct": -3.14,
+            "iv_delta_pp": -0.24,
+            "oi_chg": -125.0,
+            "moneyness": "ITM_slight",
+            "contribution": 0.017,
+            "weight": 0.0138
+          }
+        ],
+        "supply_overhang": [
+          {
+            "strike": 6200,
+            "side": "Put",
+            "nature": "supply_overhang",
+            "oi_delta_pct": 0.16,
+            "iv_delta_pp": -1.02,
+            "oi_chg": 7.0,
+            "moneyness": "ITM_slight",
+            "contribution": 0.0009,
+            "weight": 0.0007
+          }
+        ],
+        "role_summary": "5000P(noise_open OI+28.8% IV+0.37pp) / 5200P(产业买保 OI+11.0% IV-0.01pp) / 5100P(noise_open OI+13.5% IV+0.13pp) / 5700P(产业买保 OI+8.1% IV-0.30pp) / 4950P(noise_open OI+16.2% IV+0.05pp)",
+        "_top_n": 5,
+        "verdict": "无修正",
+        "rationale": "子规则4（无法判定）: PCR平稳 + IV变化<0.5pp",
+        "subrule": 4,
+        "fund_flow_verdict": "新资金主导",
+        "new_fund_net_long": 1266,
+        "new_fund_net_short": 0,
+        "new_fund_net_neutral": 0,
+        "stock_adj_net_long": 0,
+        "stock_adj_net_short": 0,
+        "new_fund_dominant_nature": "hedge_buy",
+        "dominant_nature": "hedge_buy",
+        "verdict_direction": "看多"
+      },
+      "data_quality": {
+        "threshold_version": "v2.11.85a",
+        "oi_threshold": 1000,
+        "iv_threshold_pct": 5.0,
+        "iv_threshold_pp": 0.5,
+        "decay_constant": 0.0008
+      },
+      "shape": "sym",
+      "shape_label": "[左右对称]",
+      "position": "belowMP",
+      "position_label": "低位(P<MP)",
+      "layer_score": 0.0,
+      "pcr_delta_1h": 0.0,
+      "slot_now": null,
+      "slot_1h_ago": null,
+      "detail_section_ref": "section_3",
+      "logic_brief": "Call hedge_buy_mid (52.9%) / Put noise_open_strong (68.6%)",
+      "call_main_nat": "hedge_buy",
+      "put_main_nat": "noise_open",
+      "strike_role": [
+        {
+          "strike": 5900,
+          "side": "Call",
+          "nature": "hedge_buy",
+          "moneyness": "OTM_slight",
+          "oi_pct": 19.78,
+          "iv_pp": -0.14,
+          "oi_chg": 1132.0,
+          "impact": 0.8841,
+          "contribution": 0.2232,
+          "weight": 0.1973
+        },
+        {
+          "strike": 6500,
+          "side": "Call",
+          "nature": "noise_open",
+          "moneyness": "OTM_deep",
+          "oi_pct": 13.42,
+          "iv_pp": -0.18,
+          "oi_chg": 1084.0,
+          "impact": 0.5471,
+          "contribution": 0.2137,
+          "weight": 0.1169
+        },
+        {
+          "strike": 6100,
+          "side": "Call",
+          "nature": "passive_close",
+          "moneyness": "OTM_slight",
+          "oi_pct": -12.54,
+          "iv_pp": -0.12,
+          "oi_chg": -623.0,
+          "impact": 0.7534,
+          "contribution": 0.1228,
+          "weight": 0.0925
+        },
+        {
+          "strike": 6600,
+          "side": "Call",
+          "nature": "noise_open",
+          "moneyness": "OTM_deep",
+          "oi_pct": 17.53,
+          "iv_pp": -0.18,
+          "oi_chg": 796.0,
+          "impact": 0.505,
+          "contribution": 0.1569,
+          "weight": 0.0793
+        },
+        {
+          "strike": 6000,
+          "side": "Call",
+          "nature": "hedge_buy",
+          "moneyness": "OTM_slight",
+          "oi_pct": 7.04,
+          "iv_pp": -0.27,
+          "oi_chg": 488.0,
+          "impact": 0.8161,
+          "contribution": 0.0962,
+          "weight": 0.0785
+        },
+        {
+          "strike": 6200,
+          "side": "Call",
+          "nature": "hedge_buy",
+          "moneyness": "OTM_slight",
+          "oi_pct": 5.62,
+          "iv_pp": -0.04,
+          "oi_chg": 292.0,
+          "impact": 0.6954,
+          "contribution": 0.0576,
+          "weight": 0.04
+        },
+        {
+          "strike": 5700,
+          "side": "Call",
+          "nature": "hedge_buy",
+          "moneyness": "ATM",
+          "oi_pct": 3.39,
+          "iv_pp": -0.21,
+          "oi_chg": 174.0,
+          "impact": 0.9639,
+          "contribution": 0.0343,
+          "weight": 0.0331
+        },
+        {
+          "strike": 5800,
+          "side": "Call",
+          "nature": "passive_close",
+          "moneyness": "ATM",
+          "oi_pct": -1.8,
+          "iv_pp": -0.27,
+          "oi_chg": -160.0,
+          "impact": 0.9577,
+          "contribution": 0.0315,
+          "weight": 0.0302
+        },
+        {
+          "strike": 5600,
+          "side": "Call",
+          "nature": "hedge_buy",
+          "moneyness": "ITM_slight",
+          "oi_pct": 3.74,
+          "iv_pp": -0.22,
+          "oi_chg": 103.0,
+          "impact": 0.8898,
+          "contribution": 0.0203,
+          "weight": 0.0181
+        },
+        {
+          "strike": 6300,
+          "side": "Call",
+          "nature": "hedge_buy",
+          "moneyness": "OTM_slight",
+          "oi_pct": 1.04,
+          "iv_pp": -0.1,
+          "oi_chg": 89.0,
+          "impact": 0.642,
+          "contribution": 0.0175,
+          "weight": 0.0113
+        },
+        {
+          "strike": 5300,
+          "side": "Call",
+          "nature": "double_exit",
+          "moneyness": "ITM_slight",
+          "oi_pct": -4.51,
+          "iv_pp": -1.05,
+          "oi_chg": -52.0,
+          "impact": 0.6999,
+          "contribution": 0.0103,
+          "weight": 0.0072
+        },
+        {
+          "strike": 6400,
+          "side": "Call",
+          "nature": "static",
+          "moneyness": "OTM_deep",
+          "oi_pct": 0.91,
+          "iv_pp": -0.11,
+          "oi_chg": 38.0,
+          "impact": 0.5926,
+          "contribution": 0.0075,
+          "weight": 0.0044
+        },
+        {
+          "strike": 5400,
+          "side": "Call",
+          "nature": "passive_close",
+          "moneyness": "ITM_slight",
+          "oi_pct": -1.8,
+          "iv_pp": 0.0,
+          "oi_chg": -26.0,
+          "impact": 0.7582,
+          "contribution": 0.0051,
+          "weight": 0.0039
+        },
+        {
+          "strike": 5500,
+          "side": "Call",
+          "nature": "static",
+          "moneyness": "ITM_slight",
+          "oi_pct": -0.55,
+          "iv_pp": -0.23,
+          "oi_chg": -15.0,
+          "impact": 0.8214,
+          "contribution": 0.003,
+          "weight": 0.0024
+        }
+      ],
+      "put_strike_role": [
+        {
+          "strike": 5000,
+          "side": "Put",
+          "nature": "noise_open",
+          "moneyness": "OTM_deep",
+          "oi_pct": 28.84,
+          "iv_pp": 0.37,
+          "oi_chg": 4708.0,
+          "impact": 0.5506,
+          "contribution": 0.6388,
+          "weight": 0.3517
+        },
+        {
+          "strike": 5200,
+          "side": "Put",
+          "nature": "hedge_buy",
+          "moneyness": "OTM_slight",
+          "oi_pct": 11.0,
+          "iv_pp": -0.01,
+          "oi_chg": 551.0,
+          "impact": 0.6461,
+          "contribution": 0.0748,
+          "weight": 0.0483
+        },
+        {
+          "strike": 5700,
+          "side": "Put",
+          "nature": "hedge_buy",
+          "moneyness": "ATM",
+          "oi_pct": 8.1,
+          "iv_pp": -0.3,
+          "oi_chg": 314.0,
+          "impact": 0.9639,
+          "contribution": 0.0426,
+          "weight": 0.0411
+        },
+        {
+          "strike": 5100,
+          "side": "Put",
+          "nature": "noise_open",
+          "moneyness": "OTM_deep",
+          "oi_pct": 13.5,
+          "iv_pp": 0.13,
+          "oi_chg": 501.0,
+          "impact": 0.5964,
+          "contribution": 0.068,
+          "weight": 0.0405
+        },
+        {
+          "strike": 5600,
+          "side": "Put",
+          "nature": "hedge_buy",
+          "moneyness": "OTM_slight",
+          "oi_pct": 5.38,
+          "iv_pp": -0.1,
+          "oi_chg": 212.0,
+          "impact": 0.8898,
+          "contribution": 0.0288,
+          "weight": 0.0256
+        },
+        {
+          "strike": 4950,
+          "side": "Put",
+          "nature": "noise_open",
+          "moneyness": "OTM_deep",
+          "oi_pct": 16.23,
+          "iv_pp": 0.05,
+          "oi_chg": 294.0,
+          "impact": 0.529,
+          "contribution": 0.0399,
+          "weight": 0.0211
+        },
+        {
+          "strike": 4900,
+          "side": "Put",
+          "nature": "passive_close",
+          "moneyness": "OTM_deep",
+          "oi_pct": -12.36,
+          "iv_pp": 0.0,
+          "oi_chg": -278.0,
+          "impact": 0.5082,
+          "contribution": 0.0377,
+          "weight": 0.0192
+        },
+        {
+          "strike": 6000,
+          "side": "Put",
+          "nature": "passive_close",
+          "moneyness": "ITM_slight",
+          "oi_pct": -3.14,
+          "iv_pp": -0.24,
+          "oi_chg": -125.0,
+          "impact": 0.8161,
+          "contribution": 0.017,
+          "weight": 0.0138
+        },
+        {
+          "strike": 5300,
+          "side": "Put",
+          "nature": "hedge_buy",
+          "moneyness": "OTM_slight",
+          "oi_pct": 2.04,
+          "iv_pp": -0.09,
+          "oi_chg": 112.0,
+          "impact": 0.6999,
+          "contribution": 0.0152,
+          "weight": 0.0106
+        },
+        {
+          "strike": 5800,
+          "side": "Put",
+          "nature": "hedge_buy",
+          "moneyness": "ATM",
+          "oi_pct": 1.52,
+          "iv_pp": -0.27,
+          "oi_chg": 77.0,
+          "impact": 0.9577,
+          "contribution": 0.0104,
+          "weight": 0.01
+        },
+        {
+          "strike": 6100,
+          "side": "Put",
+          "nature": "static",
+          "moneyness": "ITM_slight",
+          "oi_pct": -0.79,
+          "iv_pp": -0.13,
+          "oi_chg": -63.0,
+          "impact": 0.7534,
+          "contribution": 0.0085,
+          "weight": 0.0064
+        },
+        {
+          "strike": 5500,
+          "side": "Put",
+          "nature": "static",
+          "moneyness": "OTM_slight",
+          "oi_pct": -0.68,
+          "iv_pp": -0.27,
+          "oi_chg": -44.0,
+          "impact": 0.8214,
+          "contribution": 0.006,
+          "weight": 0.0049
+        },
+        {
+          "strike": 5400,
+          "side": "Put",
+          "nature": "static",
+          "moneyness": "OTM_slight",
+          "oi_pct": -0.88,
+          "iv_pp": -0.16,
+          "oi_chg": -37.0,
+          "impact": 0.7582,
+          "contribution": 0.005,
+          "weight": 0.0038
+        },
+        {
+          "strike": 5900,
+          "side": "Put",
+          "nature": "static",
+          "moneyness": "ITM_slight",
+          "oi_pct": 0.23,
+          "iv_pp": -0.27,
+          "oi_chg": 21.0,
+          "impact": 0.8841,
+          "contribution": 0.0028,
+          "weight": 0.0025
+        },
+        {
+          "strike": 6400,
+          "side": "Put",
+          "nature": "quote_adjust",
+          "moneyness": "ITM_deep",
+          "oi_pct": 0.85,
+          "iv_pp": 1.88,
+          "oi_chg": 26.0,
+          "impact": 0.5926,
+          "contribution": 0.0035,
+          "weight": 0.0021
+        },
+        {
+          "strike": 6200,
+          "side": "Put",
+          "nature": "supply_overhang",
+          "moneyness": "ITM_slight",
+          "oi_pct": 0.16,
+          "iv_pp": -1.02,
+          "oi_chg": 7.0,
+          "impact": 0.6954,
+          "contribution": 0.0009,
+          "weight": 0.0007
+        },
+        {
+          "strike": 6300,
+          "side": "Put",
+          "nature": "quote_adjust",
+          "moneyness": "ITM_slight",
+          "oi_pct": 0.0,
+          "iv_pp": 1.23,
+          "oi_chg": 0.0,
+          "impact": 0.642,
+          "contribution": 0.0,
+          "weight": 0.0
+        }
+      ],
+      "weighted_pct": {
+        "double_exit": 1.0,
+        "passive_close": 17.71,
+        "static": 0.96,
+        "hedge_buy": 52.9,
+        "noise_open": 27.43
+      },
+      "put_weighted_pct": {
+        "passive_close": 5.48,
+        "noise_open": 68.62,
+        "hedge_buy": 22.51,
+        "static": 2.93,
+        "supply_overhang": 0.11,
+        "quote_adjust": 0.35
+      },
+      "weighted_label": "hedge_buy_mid",
+      "put_weighted_label": "noise_open_strong",
+      "weighted_verdict": "中强度主导: hedge_buy 52.9% 40-60%",
+      "put_weighted_verdict": "★强信号★: noise_open 68.6% > 60%",
+      "direction": "偏空(防御)",
+      "put_direction": "中性",
+      "weighted_version": "v2.11.85a",
+      "cross_validation": {
+        "available": true,
+        "threshold_version": "v2.11.85h",
+        "pcr": {
+          "now": 0.9763,
+          "prev": 0.9433,
+          "delta": 0.033,
+          "call_oi_now": 124024,
+          "put_oi_now": 121082,
+          "call_oi_prev": 120193,
+          "put_oi_prev": 113374,
+          "call_oi_chg": 3831,
+          "put_oi_chg": 7708,
+          "direction": "up",
+          "drive": "put_oi_up"
+        },
+        "skew": {
+          "now": 0.189,
+          "prev": -0.091,
+          "delta_pp": 0.28,
+          "call_iv_now": 31.502,
+          "put_iv_now": 31.691,
+          "call_iv_prev": 32.042,
+          "put_iv_prev": 31.951,
+          "call_iv_chg_pp": -0.54,
+          "put_iv_chg_pp": -0.26,
+          "direction": "flat",
+          "drive": "flat",
+          "method": "atm_neighbor_simple_avg",
+          "neighbor_window": 11,
+          "atm_strike": 5700
+        },
+        "fund_activity": {
+          "Call": {
+            "level": "中",
+            "abs_oi_chg": 5072.0,
+            "avg_iv_pp": 0.175
+          },
+          "Put": {
+            "level": "中",
+            "abs_oi_chg": 7370.0,
+            "avg_iv_pp": 0.284
+          }
+        },
+        "iv_reliability": {
+          "Call": "中等",
+          "Put": "弱信号"
+        },
+        "fund_flow": {
+          "Call": {
+            "new_fund_net_long": 0,
+            "new_fund_net_short": 2278,
+            "new_fund_net_neutral": 0,
+            "stock_adj_net_long": 0,
+            "stock_adj_net_short": 0,
+            "oi_total_chg": 3320,
+            "dominant_nature": "hedge_buy",
+            "new_fund_dominant_nature": "hedge_buy"
+          },
+          "Put": {
+            "new_fund_net_long": 1266,
+            "new_fund_net_short": 0,
+            "new_fund_net_neutral": 0,
+            "stock_adj_net_long": 0,
+            "stock_adj_net_short": 0,
+            "oi_total_chg": 6276,
+            "dominant_nature": "hedge_buy",
+            "new_fund_dominant_nature": "hedge_buy"
+          }
+        }
+      },
+      "cross_validation_verdict": {
+        "call": {
+          "verdict": "无修正",
+          "rationale": "子规则4（无法判定）: PCR平稳 + IV变化<0.5pp",
+          "subrule": 4,
+          "fund_flow_verdict": "新资金主导",
+          "new_fund_net_long": 0,
+          "new_fund_net_short": 2278,
+          "new_fund_net_neutral": 0,
+          "stock_adj_net_long": 0,
+          "stock_adj_net_short": 0,
+          "new_fund_dominant_nature": "hedge_buy",
+          "dominant_nature": "hedge_buy",
+          "verdict_direction": "看空"
+        },
+        "put": {
+          "verdict": "无修正",
+          "rationale": "子规则4（无法判定）: PCR平稳 + IV变化<0.5pp",
+          "subrule": 4,
+          "fund_flow_verdict": "新资金主导",
+          "new_fund_net_long": 1266,
+          "new_fund_net_short": 0,
+          "new_fund_net_neutral": 0,
+          "stock_adj_net_long": 0,
+          "stock_adj_net_short": 0,
+          "new_fund_dominant_nature": "hedge_buy",
+          "dominant_nature": "hedge_buy",
+          "verdict_direction": "看多"
+        },
+        "consistency": "pcr_flat",
+        "pcr_direction": "up",
+        "skew_direction": "flat",
+        "new_fund_direction": null
+      },
+      "funding_signal": {
+        "signal_label": "单边偏空（防御）",
+        "signal_strength": "中",
+        "signal_direction": "中性",
+        "p_dir": "中性",
+        "c_dir": "偏空",
+        "source": "飞书 §2.3.1 Put端与Call端合成信号矩阵 (v2.11.85f)"
+      },
+      "funding_signal_cv": {
+        "verdict": "无修正",
+        "subrule": 4,
+        "rationale": "子规则4: PCR平稳+弱IV=无修正",
+        "consistency": "pcr_flat",
+        "fund_bucket": "中",
+        "iv_bucket": "弱信号",
+        "source": "飞书 §2.3.2 附录交叉验证 (v2.11.85e)"
+      }
+    },
+    "layer4": {
+      "layer": 4,
+      "layer_name": "情绪确认",
+      "weight": 0.15,
+      "vol_pcr": 0.9830072417735993,
+      "vol_pcr_prev": 0.5117426739664249,
+      "pos_pcr": 0.9762787847513384,
+      "pos_pcr_prev": 0.9432662467864185,
+      "atm_iv_call": 0.3138056473965533,
+      "atm_iv_put": 0.3105353977640121,
+      "trend": "down",
+      "trend_diff": -6.0,
+      "prev_f": 5752.0,
+      "cur_f": 5746,
+      "trend_1h": "unknown",
+      "trend_diff_1h": 0,
+      "F_1h_ago": 0.0,
+      "signals": [
+        "成交PCR=0.98 中性区间",
+        "成交PCR 从 0.51 上升至 0.98（乐观消退）→ 空头",
+        "ATM 隐波 31.22%",
+        "ATM 隐波 31.2% 处于高位（恐慌区域）",
+        "趋势↓（F 5752 → 5746，-6）"
+      ],
+      "score_detail": "乐观消退（空头信号）",
+      "layer_score": -0.4,
+      "logic_brief": "成交PCR=0.98 中性区间 | 成交PCR 从 0.51 上升至 0.98（乐观消退）→ 空头 | ATM 隐波 31.22% | ATM 隐波 31.2% 处于高位（恐慌区域）"
+    },
+    "final": {
+      "total_score": -0.295,
+      "decision": "观望",
+      "confidence": "中",
+      "layer_breakdown": [
+        "PAIN 结构=-0.60 (权重 35%)",
+        "GEX 机制=-0.10 (权重 25%)",
+        "资金意图=+0.00 (权重 25%)",
+        "情绪确认=-0.40 (权重 15%)"
+      ],
+      "logic_chain": "L1(PAIN 结构) [leftSteep + belowMP + GEX negative + P vs Flip above → 强空头+负GEX放大（强空）] → L2(GEX 机制) [GEX negative + P above Flip + 净GEX -2.1M → 弱空机制（涨幅放大但有支撑）] → L3(资金意图) [Put hedge_sell + Call hedge_sell → 箱体震荡] → L4(情绪确认) [成交PCR=0.98 中性区间 | 成交PCR 从 0.51 上升至 0.98（乐观消退）→ 空头 | ATM 隐波 31.22% | ATM 隐波 31.2% 处于高位（恐慌区域）]",
+      "signs": [
+        "-"
+      ],
+      "contradiction": false,
+      "summary_lines": [
+        "决策: 观望（置信度: 中）",
+        "总分: -0.295",
+        "逻辑链: L1(PAIN 结构) [leftSteep + belowMP + GEX negative + P vs Flip above → 强空头+负GEX放大（强空）] → L2(GEX 机制) [GEX negative + P above Flip + 净GEX -2.1M → 弱空机制（涨幅放大但有支撑）] → L3(资金意图) [Put hedge_sell + Call hedge_sell → 箱体震荡] → L4(情绪确认) [成交PCR=0.98 中性区间 | 成交PCR 从 0.51 上升至 0.98（乐观消退）→ 空头 | ATM 隐波 31.22% | ATM 隐波 31.2% 处于高位（恐慌区域）]"
+      ]
+    },
+    "generated_at": "2026-07-16T11:15:00"
+  },
+  "last_data_update": "2026-07-16T11:15:00.416422",
+  "futures_price": 5746,
+  "max_pain": 5900,
+  "_meta": {
+    "last_refresh_at": "2026-07-16T11:15:00",
+    "cache_path": "/home/admin/.openclaw/workspace/Futures_Trading/pta_analysis/data/fundamental/decision_layer_cache.json"
+  }
+}

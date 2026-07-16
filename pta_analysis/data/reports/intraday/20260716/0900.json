@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-07-16 11:15:00",
+  "timestamp": "2026-07-16 09:00:17",
   "report_type": "intraday",
   "market_session": "上午盘",
   "refresh_interval_minutes": 15,
@@ -80,81 +80,81 @@
       }
     ],
     "conclusions": [
-      "⚡ 净GEX为负(-2.1M)：做市商对冲流倾向涨了买、跌了卖，放大波动，突破后趋势延续风险更高；这不是看跌信号",
-      "🎯 痛点收敛(中高): 距到期27.2天时间充裕，偏差154点(2.7%)，大概率区间震荡回归，价格偏低于痛点→上行引力",
-      "📍 GEX翻转5654，当前价5746在上方92点：处于正Gamma状态；若回落接近/有效跌破翻转线，震荡假设减弱、波动放大风险上升",
-      "⚖️ PCR=0.976，多空相对均衡",
-      "📌 有效博弈区间【5500,6500】(宽度1000点)，外沿支撑5000(21,030手) / 压力7000(10,092手)",
-      "📈 隐波: ATM IV 31.6%(高波动率)，Skew 0.3921 右偏(看涨溢价偏高)，上行博弈需求旺盛",
-      "🌊 曲率=3.5: 低曲率(曲线扁平)，市场对尾部风险定价不足",
+      "⚡ 净GEX为负(-11.6M)：做市商对冲流倾向涨了买、跌了卖，放大波动，突破后趋势延续风险更高；这不是看跌信号",
+      "🎯 痛点收敛(中低): 距到期27.2天，偏差252点(4.5%)，收敛存在不确定性，价格偏低于痛点→上行引力",
+      "📍 GEX翻转5648，当前价5648在下方0点：处于负Gamma状态；若重新站上翻转线，波动可能重新受抑",
+      "⚖️ PCR=0.974，多空相对均衡",
+      "📌 有效博弈区间【5500,5800】(宽度300点)，外沿支撑5000(23,538手) / 压力7000(10,742手)",
+      "📈 隐波: ATM IV 30.4%(高波动率)，Skew 0.3451 右偏(看涨溢价偏高)，上行博弈需求旺盛",
+      "🌊 曲率=4.6: 低曲率(曲线扁平)，市场对尾部风险定价不足",
       "⏰ 距到期27.2天(2026-08-12)"
     ],
     "key_levels": {
       "bottom": "5000",
       "top": "7000",
       "pcr_spot": "0.5175",
-      "pcr_hold": "0.9762"
+      "pcr_hold": "0.9744"
     },
     "gex_summary": {
-      "net_gex": -2145335.0,
+      "net_gex": -11628111.0,
       "gex_direction": "negative",
-      "gex_flip": 5654,
+      "gex_flip": 5648,
       "max_pain": 5900,
-      "futures_price": 5746,
+      "futures_price": 5648,
       "days_left": 27.2,
       "expiry": "2026-08-12",
-      "total_call_oi": 124042,
-      "total_put_oi": 121084,
-      "pcr": 0.9761532384192451,
+      "total_call_oi": 124494,
+      "total_put_oi": 121313,
+      "pcr": 0.9744485678024644,
       "pcr_source": "T表显示口径：当前持仓非0用当前，当前为0用前次兜底",
-      "gex_total_call_oi": 124024,
-      "gex_total_put_oi": 121082,
-      "gex_pcr": 0.976,
+      "gex_total_call_oi": 124494,
+      "gex_total_put_oi": 121313,
+      "gex_pcr": 0.974,
       "max_call_strike": 7000,
-      "max_call_oi": 10092,
+      "max_call_oi": 10742,
       "max_put_strike": 5000,
-      "max_put_oi": 21030,
+      "max_put_oi": 23538,
       "effective_support": 5500,
-      "effective_resistance": 6500,
-      "oi_concentration": 41.3
+      "effective_resistance": 5800,
+      "oi_concentration": 39.1
     },
     "pain_highlights": [
       {
         "strike": 5900,
-        "pain": 93768750.0,
+        "pain": 93722750.0,
         "is_min": true
       },
       {
         "strike": 6000,
-        "pain": 95536750.0,
+        "pain": 95500250.0,
         "is_min": false
       },
       {
         "strike": 5800,
-        "pain": 99961250.0,
+        "pain": 99884250.0,
         "is_min": false
       },
       {
         "strike": 6100,
-        "pain": 102942750.0,
+        "pain": 103030250.0,
         "is_min": false
       },
       {
         "strike": 5700,
-        "pain": 113087750.0,
+        "pain": 112993250.0,
         "is_min": false
       }
     ],
     "pain_convergence": {
-      "probability": "中高",
-      "desc": "距到期27.2天时间充裕，偏差154点(2.7%)，大概率区间震荡回归",
-      "deviation_pct": -2.7,
+      "probability": "中低",
+      "desc": "距到期27.2天，偏差252点(4.5%)，收敛存在不确定性",
+      "deviation_pct": -4.5,
       "days_left": 27.2
     },
     "iv_analysis": {
-      "atm_vol": 31.6,
-      "skew": 0.3921,
-      "curvature": 3.49,
+      "atm_vol": 30.4,
+      "skew": 0.3451,
+      "curvature": 4.59,
       "skew_desc": "右偏(看涨溢价偏高)，上行博弈需求旺盛",
       "skew_level": "right",
       "curv_desc": "低曲率(曲线扁平)，市场对尾部风险定价不足",
@@ -164,53 +164,53 @@
     },
     "iv_changes": [
       {
+        "strike": 5300,
+        "call_iv": 27.2,
+        "put_iv": 29.4,
+        "call_change": -3.25,
+        "put_change": -0.71,
+        "change": -3.25,
+        "is_atm": false
+      },
+      {
         "strike": 5500,
-        "call_iv": 30.3,
-        "put_iv": 30.3,
-        "call_change": -0.46,
-        "put_change": -0.14,
-        "change": -0.46,
+        "call_iv": 28.6,
+        "put_iv": 29.6,
+        "call_change": -2.09,
+        "put_change": -0.87,
+        "change": -2.09,
         "is_atm": false
       },
       {
-        "strike": 5600,
-        "call_iv": 30.7,
-        "put_iv": 30.8,
-        "call_change": -0.44,
-        "put_change": 0.05,
-        "change": -0.44,
-        "is_atm": false
-      },
-      {
-        "strike": 6000,
-        "call_iv": 33.4,
-        "put_iv": 33.5,
-        "call_change": -0.4,
-        "put_change": -0.03,
-        "change": -0.4,
+        "strike": 5800,
+        "call_iv": 31.3,
+        "put_iv": 30.0,
+        "call_change": -0.9,
+        "put_change": -2.02,
+        "change": -0.9,
         "is_atm": false
       }
     ],
     "nature_synthesis": {
       "available": true,
       "put": {
-        "oi_cur": 121084,
+        "oi_cur": 121313,
         "oi_prev": 113374,
-        "oi_delta_pct": 6.800500996701183,
-        "iv_cur": 32.677005740208315,
+        "oi_delta_pct": 7.002487342777003,
+        "iv_cur": 31.22041315146259,
         "iv_prev": 33.45801387170878,
-        "iv_delta_pp": -0.7810081315004638,
+        "iv_delta_pp": -2.2376007202461885,
         "nature": "hedge_sell",
         "nature_label": "套保卖权",
         "business_meaning": "卖 Put 集中（左侧加速器加码 = 投机/做市商认为下方有支撑收租）"
       },
       "call": {
-        "oi_cur": 124042,
+        "oi_cur": 124494,
         "oi_prev": 120193,
-        "oi_delta_pct": 3.2023495544665668,
-        "iv_cur": 33.86827044066634,
+        "oi_delta_pct": 3.5784113883504034,
+        "iv_cur": 32.54251318045088,
         "iv_prev": 37.33966732160027,
-        "iv_delta_pp": -3.4713968809339235,
+        "iv_delta_pp": -4.7971541411493845,
         "nature": "hedge_sell",
         "nature_label": "套保卖权",
         "business_meaning": "卖 Call 收租（产业锁定销售顶价 = 中性，不站队方向）"
@@ -219,19 +219,19 @@
       "shape_label": "[左右对称]",
       "position": "belowMP",
       "position_label": "低位(P<MP)",
-      "pcr_now": 0.9761532384192451,
+      "pcr_now": 0.9744485678024644,
       "pcr_prev": 0.9432662467864185,
-      "pcr_delta": 0.0328869916328266,
+      "pcr_delta": 0.0311823210160459,
       "synthesis": {
-        "label": "中性偏慢牛",
+        "label": "多空分化(慢牛+慢熊)",
         "intensity": "弱",
-        "description": "Put 端(套保卖权) + Call 端(套保卖权) 总量均中性，但 strike 级别方向分化 → Call 端慢牛（投机在 5329C 离场，产业在 6117C 收租，spread=788点）",
+        "description": "Put 端(套保卖权) + Call 端(套保卖权) 总量均中性，但 strike 级别方向分化 → Call 端慢牛（投机在 5343C 离场，产业在 5942C 收租，spread=600点） | Put 端慢熊（认沽买方在 6000P 撤退，产业在 5146P 收租，spread=854点）",
         "put_dir": "neutral",
         "call_dir": "neutral",
-        "pcr_delta": 0.0328869916328266,
+        "pcr_delta": 0.0311823210160459,
         "pcr_label": "↑",
-        "pcr_meaning": "PCR↑ = Put 持仓增速 > Call 持仓增速（0.976↑ vs 0.943）",
-        "strike_modifier": "Call 端慢牛（投机在 5329C 离场，产业在 6117C 收租，spread=788点）"
+        "pcr_meaning": "PCR↑ = Put 持仓增速 > Call 持仓增速（0.974↑ vs 0.943）",
+        "strike_modifier": "Call 端慢牛（投机在 5343C 离场，产业在 5942C 收租，spread=600点） | Put 端慢熊（认沽买方在 6000P 撤退，产业在 5146P 收租，spread=854点）"
       },
       "call_role": {
         "spec_trim": [],
@@ -239,96 +239,79 @@
         "hedge_sell": [
           {
             "strike": 5900,
-            "oi_cur": 6864,
+            "oi_cur": 6853,
             "oi_prev": 5723,
-            "oi_delta_pct": 19.93709592870872,
-            "iv_delta_pp": -0.28999999999999915,
-            "nature": "hedge_sell"
-          },
-          {
-            "strike": 6600,
-            "oi_cur": 5338,
-            "oi_prev": 4542,
-            "oi_delta_pct": 17.525319242624395,
-            "iv_delta_pp": -0.22999999999999687,
+            "oi_delta_pct": 19.744889044207582,
+            "iv_delta_pp": -0.8200000000000003,
             "nature": "hedge_sell"
           },
           {
             "strike": 6000,
-            "oi_cur": 7400,
+            "oi_cur": 7616,
             "oi_prev": 6931,
-            "oi_delta_pct": 6.766700331842447,
-            "iv_delta_pp": -0.3999999999999986,
+            "oi_delta_pct": 9.883133746934064,
+            "iv_delta_pp": -0.75,
+            "nature": "hedge_sell"
+          },
+          {
+            "strike": 6200,
+            "oi_cur": 5582,
+            "oi_prev": 5198,
+            "oi_delta_pct": 7.387456714120816,
+            "iv_delta_pp": -0.5700000000000003,
             "nature": "hedge_sell"
           },
           {
             "strike": 5600,
-            "oi_cur": 2855,
+            "oi_cur": 2884,
             "oi_prev": 2752,
-            "oi_delta_pct": 3.7427325581395348,
-            "iv_delta_pp": -0.4399999999999977,
-            "nature": "hedge_sell"
-          },
-          {
-            "strike": 5700,
-            "oi_cur": 5303,
-            "oi_prev": 5129,
-            "oi_delta_pct": 3.3924741665041918,
-            "iv_delta_pp": -0.379999999999999,
+            "oi_delta_pct": 4.796511627906977,
+            "iv_delta_pp": -0.9899999999999984,
             "nature": "hedge_sell"
           }
         ],
-        "hedge_buy": [
-          {
-            "strike": 6500,
-            "oi_cur": 9153,
-            "oi_prev": 8078,
-            "oi_delta_pct": 13.307749442931419,
-            "iv_delta_pp": -0.10999999999999943,
-            "nature": "hedge_buy"
-          },
-          {
-            "strike": 6200,
-            "oi_cur": 5480,
-            "oi_prev": 5198,
-            "oi_delta_pct": 5.425163524432474,
-            "iv_delta_pp": -0.07000000000000028,
-            "nature": "hedge_buy"
-          },
-          {
-            "strike": 6300,
-            "oi_cur": 8617,
-            "oi_prev": 8528,
-            "oi_delta_pct": 1.0436210131332082,
-            "iv_delta_pp": -0.030000000000001137,
-            "nature": "hedge_buy"
-          }
-        ],
+        "hedge_buy": [],
         "close_push": [
           {
-            "strike": 6400,
-            "oi_cur": 4197,
-            "oi_prev": 4167,
-            "oi_delta_pct": 0.7199424046076314,
-            "iv_delta_pp": -0.21999999999999886,
+            "strike": 6300,
+            "oi_cur": 8613,
+            "oi_prev": 8528,
+            "oi_delta_pct": 0.9967166979362101,
+            "iv_delta_pp": -0.44999999999999574,
             "nature": "close_push"
           },
           {
-            "strike": 5500,
-            "oi_cur": 2696,
-            "oi_prev": 2711,
-            "oi_delta_pct": -0.5533013648100332,
-            "iv_delta_pp": -0.4599999999999973,
+            "strike": 5400,
+            "oi_cur": 1449,
+            "oi_prev": 1444,
+            "oi_delta_pct": 0.3462603878116343,
+            "iv_delta_pp": -0.9299999999999997,
+            "nature": "close_push"
+          },
+          {
+            "strike": 5700,
+            "oi_cur": 5119,
+            "oi_prev": 5129,
+            "oi_delta_pct": -0.19496977968414894,
+            "iv_delta_pp": -0.8900000000000006,
+            "nature": "close_push"
+          },
+          {
+            "strike": 5800,
+            "oi_cur": 8892,
+            "oi_prev": 8901,
+            "oi_delta_pct": -0.10111223458038424,
+            "iv_delta_pp": -0.9000000000000021,
             "nature": "close_push"
           }
         ],
         "double_exit": [
           {
             "strike": 6100,
-            "oi_cur": 4344,
+            "oi_cur": 4588,
             "oi_prev": 4967,
-            "oi_delta_pct": -12.542782363599759,
-            "iv_delta_pp": -0.25,
+            "oi_delta_pct": -7.630360378498087,
+            "iv_delta_pp": -0.9099999999999966,
             "nature": "double_exit"
           },
           {
@@ -336,159 +319,191 @@
             "oi_cur": 1102,
             "oi_prev": 1154,
             "oi_delta_pct": -4.506065857885615,
-            "iv_delta_pp": -2.5,
+            "iv_delta_pp": -3.25,
             "nature": "double_exit"
           },
           {
-            "strike": 5400,
-            "oi_cur": 1417,
-            "oi_prev": 1444,
-            "oi_delta_pct": -1.8698060941828254,
-            "iv_delta_pp": -0.40000000000000213,
+            "strike": 6400,
+            "oi_cur": 4052,
+            "oi_prev": 4167,
+            "oi_delta_pct": -2.759779217662587,
+            "iv_delta_pp": -0.8399999999999963,
             "nature": "double_exit"
           },
           {
-            "strike": 5800,
-            "oi_cur": 8742,
-            "oi_prev": 8901,
-            "oi_delta_pct": -1.7863161442534545,
-            "iv_delta_pp": -0.35999999999999943,
+            "strike": 5500,
+            "oi_cur": 2678,
+            "oi_prev": 2711,
+            "oi_delta_pct": -1.217263002582073,
+            "iv_delta_pp": -2.09,
             "nature": "double_exit"
           }
         ],
         "_top_n": 10,
-        "role_summary": "产业卖权收租(5900C/6600C/6000C, OI增量51%) / 投机/对冲端撤退(6100C/5300C/5400C, OI减量21%) / 产业买保(6500C/6200C/6300C) / 卖方平仓(6400C/5500C)"
+        "role_summary": "产业卖权收租(5900C/6000C/6200C, OI增量42%) / 投机/对冲端撤退(6100C/5300C/6400C, OI减量16%) / 卖方平仓(6300C/5400C/5700C)"
       },
       "put_role": {
         "spec_trim": [],
-        "spec_add": [
+        "spec_add": [],
+        "hedge_sell": [
           {
-            "strike": 5000,
-            "oi_cur": 21029,
-            "oi_prev": 16322,
-            "oi_delta_pct": 28.83837764979782,
-            "iv_delta_pp": 0.5599999999999987,
-            "nature": "spec_buy"
+            "strike": 5100,
+            "oi_cur": 4328,
+            "oi_prev": 3711,
+            "oi_delta_pct": 16.626246294799245,
+            "iv_delta_pp": -0.3500000000000014,
+            "nature": "hedge_sell"
           },
           {
             "strike": 4950,
-            "oi_cur": 2106,
+            "oi_cur": 2113,
             "oi_prev": 1812,
-            "oi_delta_pct": 16.225165562913908,
-            "iv_delta_pp": 0.23000000000000043,
-            "nature": "spec_buy"
+            "oi_delta_pct": 16.61147902869757,
+            "iv_delta_pp": -0.5,
+            "nature": "hedge_sell"
           },
           {
-            "strike": 5100,
-            "oi_cur": 4220,
-            "oi_prev": 3711,
-            "oi_delta_pct": 13.71597952034492,
-            "iv_delta_pp": 0.3299999999999983,
-            "nature": "spec_buy"
+            "strike": 5700,
+            "oi_cur": 4157,
+            "oi_prev": 3876,
+            "oi_delta_pct": 7.249742002063983,
+            "iv_delta_pp": -0.9100000000000001,
+            "nature": "hedge_sell"
+          }
+        ],
+        "hedge_buy": [
+          {
+            "strike": 5000,
+            "oi_cur": 23538,
+            "oi_prev": 16322,
+            "oi_delta_pct": 44.21026834946697,
+            "iv_delta_pp": 0.05999999999999872,
+            "nature": "hedge_buy"
           },
           {
-            "strike": 5200,
-            "oi_cur": 5565,
-            "oi_prev": 5011,
-            "oi_delta_pct": 11.055677509479146,
-            "iv_delta_pp": 0.21000000000000085,
-            "nature": "spec_buy"
+            "strike": 4850,
+            "oi_cur": 1667,
+            "oi_prev": 1591,
+            "oi_delta_pct": 4.776869893148962,
+            "iv_delta_pp": 0.12000000000000455,
+            "nature": "hedge_buy"
+          }
+        ],
+        "close_push": [
+          {
+            "strike": 6100,
+            "oi_cur": 7884,
+            "oi_prev": 7962,
+            "oi_delta_pct": -0.9796533534287867,
+            "iv_delta_pp": -0.9199999999999946,
+            "nature": "close_push"
+          },
+          {
+            "strike": 5800,
+            "oi_cur": 5003,
+            "oi_prev": 5050,
+            "oi_delta_pct": -0.9306930693069306,
+            "iv_delta_pp": -2.0199999999999996,
+            "nature": "close_push"
           },
           {
             "strike": 6400,
             "oi_cur": 3090,
             "oi_prev": 3064,
             "oi_delta_pct": 0.8485639686684074,
-            "iv_delta_pp": 3.0600000000000023,
-            "nature": "spec_buy"
+            "iv_delta_pp": -0.3999999999999986,
+            "nature": "close_push"
           },
           {
-            "strike": 6100,
-            "oi_cur": 7899,
-            "oi_prev": 7962,
-            "oi_delta_pct": -0.7912584777694046,
-            "iv_delta_pp": 0.240000000000002,
-            "nature": "spec_buy"
+            "strike": 6200,
+            "oi_cur": 4455,
+            "oi_prev": 4473,
+            "oi_delta_pct": -0.4024144869215292,
+            "iv_delta_pp": -2.019999999999996,
+            "nature": "close_push"
+          },
+          {
+            "strike": 5200,
+            "oi_cur": 5023,
+            "oi_prev": 5011,
+            "oi_delta_pct": 0.23947315905008978,
+            "iv_delta_pp": -0.509999999999998,
+            "nature": "close_push"
+          },
+          {
+            "strike": 5900,
+            "oi_cur": 9025,
+            "oi_prev": 9045,
+            "oi_delta_pct": -0.22111663902708678,
+            "iv_delta_pp": -1.4100000000000001,
+            "nature": "close_push"
           },
           {
             "strike": 6300,
             "oi_cur": 6082,
             "oi_prev": 6082,
             "oi_delta_pct": 0.0,
-            "iv_delta_pp": 2.259999999999998,
-            "nature": "spec_buy"
-          }
-        ],
-        "hedge_sell": [],
-        "hedge_buy": [
-          {
-            "strike": 5700,
-            "oi_cur": 4190,
-            "oi_prev": 3876,
-            "oi_delta_pct": 8.101135190918471,
-            "iv_delta_pp": -0.11000000000000298,
-            "nature": "hedge_buy"
-          },
-          {
-            "strike": 5600,
-            "oi_cur": 4138,
-            "oi_prev": 3938,
-            "oi_delta_pct": 5.078720162519045,
-            "iv_delta_pp": 0.05000000000000071,
-            "nature": "hedge_buy"
-          },
-          {
-            "strike": 5300,
-            "oi_cur": 5590,
-            "oi_prev": 5479,
-            "oi_delta_pct": 2.0259171381638983,
-            "iv_delta_pp": 0.029999999999997584,
-            "nature": "hedge_buy"
-          },
-          {
-            "strike": 5800,
-            "oi_cur": 5130,
-            "oi_prev": 5050,
-            "oi_delta_pct": 1.5841584158415842,
-            "iv_delta_pp": -0.08999999999999986,
-            "nature": "hedge_buy"
-          }
-        ],
-        "close_push": [
-          {
-            "strike": 4900,
-            "oi_cur": 1972,
-            "oi_prev": 2250,
-            "oi_delta_pct": -12.355555555555556,
-            "iv_delta_pp": 0.16999999999999815,
-            "nature": "close_push"
-          },
-          {
-            "strike": 6200,
-            "oi_cur": 4480,
-            "oi_prev": 4473,
-            "oi_delta_pct": 0.1564945226917058,
-            "iv_delta_pp": -0.6499999999999986,
+            "iv_delta_pp": -5.450000000000003,
             "nature": "close_push"
           }
         ],
         "double_exit": [
           {
+            "strike": 4900,
+            "oi_cur": 2066,
+            "oi_prev": 2250,
+            "oi_delta_pct": -8.177777777777779,
+            "iv_delta_pp": -0.17999999999999972,
+            "nature": "double_exit"
+          },
+          {
+            "strike": 5300,
+            "oi_cur": 5123,
+            "oi_prev": 5479,
+            "oi_delta_pct": -6.497536046723855,
+            "iv_delta_pp": -0.7100000000000009,
+            "nature": "double_exit"
+          },
+          {
+            "strike": 5500,
+            "oi_cur": 6148,
+            "oi_prev": 6470,
+            "oi_delta_pct": -4.976816074188563,
+            "iv_delta_pp": -0.870000000000001,
+            "nature": "double_exit"
+          },
+          {
+            "strike": 5600,
+            "oi_cur": 3746,
+            "oi_prev": 3938,
+            "oi_delta_pct": -4.875571356018284,
+            "iv_delta_pp": -0.879999999999999,
+            "nature": "double_exit"
+          },
+          {
             "strike": 6000,
-            "oi_cur": 3857,
+            "oi_cur": 3889,
             "oi_prev": 3982,
-            "oi_delta_pct": -3.139126067302863,
-            "iv_delta_pp": -0.030000000000001137,
+            "oi_delta_pct": -2.33550979407333,
+            "iv_delta_pp": -1.3200000000000003,
+            "nature": "double_exit"
+          },
+          {
+            "strike": 5400,
+            "oi_cur": 4127,
+            "oi_prev": 4216,
+            "oi_delta_pct": -2.1110056925996203,
+            "iv_delta_pp": -0.620000000000001,
             "nature": "double_exit"
           }
         ],
         "_top_n": 10,
-        "role_summary": "投机/对冲端撤退(6000P, OI减量3%) / 投机端加仓(5000P/4950P/5100P) / 产业买保(5700P/5600P/5300P) / 卖方平仓(4900P/6200P)"
+        "role_summary": "产业卖权收租(5100P/4950P/5700P, OI增量40%) / 投机/对冲端撤退(4900P/5300P/5500P, OI减量29%) / 产业买保(5000P/4850P) / 卖方平仓(6100P/5800P/6400P)"
       },
       "data_quality": {
         "total_strikes": 47,
-        "eligible_call": 14,
-        "eligible_put": 17,
+        "eligible_call": 12,
+        "eligible_put": 18,
         "filtered_count": 32,
         "oi_threshold": 1000,
         "iv_threshold_pp": 5.0,
@@ -504,16 +519,16 @@
     "chain_prices": [
       {
         "name": "布伦特原油",
-        "price": 85.21,
+        "price": 85.34,
         "unit": "USD/桶",
-        "change": "+0.31%",
+        "change": "+0.46%",
         "signal": "中性"
       },
       {
         "name": "WTI原油",
-        "price": 80.06,
+        "price": 80.11,
         "unit": "USD/桶",
-        "change": "+0.58%",
+        "change": "+0.64%",
         "signal": "中性"
       },
       {
@@ -600,14 +615,16 @@
     ],
     "news": {
       "geo": [
-        "【人工】成本端地缘溢价大幅走强（WTI 79.34/布伦特 84.73 美伊冲突推升），PX CFR 中国单日暴涨 61 美元至 1089.67 美元/吨；自身端 PTA 开工率创历史新低 52.88%+社会库存周去库近 33 万吨+现货加工费 650 元/吨高位；地缘成本与供应收缩共振短期偏强。"
+        "【人工】成本端地缘溢价大幅走强（WTI 79.34/布伦特 84.73 美伊冲突推升），PX CFR 中国单日暴涨 61 美元至 1089.67 美元/吨；自身端 PTA 开工率创历史新低 52.88%+社会库存周去库近 33 万吨+现货加工费 650 元/吨高位；地缘成本与供应收缩共振短期偏强。",
+        "【7月15日市场热点回顾】上半年我国GDP同比增长4.7%，中国经济展现强大韧性活力6月份中国规模以上工业增加值增长5.3%6月末中国M2余额356.71万亿元 同比增长8%央行：加大逆周期和跨周期调节力度美联储褐皮书： 美国经济整体呈现改善迹象 通胀压力有所缓解美联储理事库克：若近期未见通胀降温 准备采取行动伊朗外交部称伊方目前没有谈判计划，专注于防御美国6月PPI环比下降0.3%",
+        "惊人结论！小摩：能源市场最紧要问题已不是霍尔木兹，而是俄罗斯07-15 15:110评"
       ],
       "macro": [
-        "据《日本经济新闻》报道，日本政府及执政的自民党计划将召开临时股东大会的持股门槛从目前的3%表决权提高至5%以上。",
+        "【韩美半导体拟在韩国新建工厂】SHMET07月16日讯，韩国《每日经济新闻》援引对韩美半导体董事长郭东信的采访报道，鉴于预计从明年起AI半导体设备将出现供应短缺，韩美半导体正考虑投建第八座生产工厂，该工厂建成后将成为公司规模最大的厂区。郭东信预计，自明年起半导体设备需求将超过供给。规划中的第八工厂选址毗邻正在仁川施工的第七工厂。韩美半导体表示，随着全球芯片厂商扩大投资，公司热压键合机与混合键合机的市场需求将快速增长。企业计划于2026年底在加州圣何塞设立韩美美国子公司",
         "【关键变量】美伊冲突演变（权重>40%（短期））：决定原油/PX 成本端方向，是短线最大变量；冲突升级则 PTA 跟随暴涨，缓和则面临回调",
         "【关键变量】PTA 装置重启兑现率（权重30%（中期））：7 月底至 8 月初虹港/福海创/逸盛大连合计 1320 万吨装置集中重启，将逆转供需缺口",
-        "伦镍日内涨超2.00%，现报17193.20美元/吨。",
-        "韩国央行行长申铉松：韩元兑美元市场交易时段延长并未对无本金交割远期外汇（NDF）市场的交易量产生显著影响。"
+        "韩国至7月16日央行利率决定 2.75%，预期2.75%，前值2.50%。",
+        "【韩国央行三年半来首次加息】SHMET07月16日讯，韩国央行将利率上调25个基点至2.75%，为2023年1月以来首次加息，符合市场预期。"
       ],
       "industry": [
         "【机构】五矿期货·短期偏多，中等强度：PTA 主力 5842 涨 3.84%，意外检修较多转为大幅去库，加工费有较强支撑，中东地缘推升成本端",
@@ -615,7 +632,7 @@
         "【机构】广州期货·成本与供应共振偏强震荡：美伊冲突推升原油/PX 溢价，PTA 集中检修带动开工率降至低位，叠加社会库存持续去库"
       ]
     },
-    "narrative": "原油中位震荡($85.2,+0.3%)，成本支撑尚可；PTA盈利796元(+15.4%)；【DeepSeek综合】短期：成本端地缘溢价全面回归（WTI 79.34/布伦特 84.73 美元/桶）+PX 暴涨+自身 PTA 开工率 52.88% 历史新低+周去库 33 万吨，现货加工费 650 元/吨高位；地缘成本与供应收缩共振短期偏强运行基础牢固。中期最大变量是 7 月底至 8 月初 1320 万吨装置集中重启，将逆转供需缺口；无论中东局势如何演变，PTA 加工费收缩趋势较为明确。综合：短期偏强但警惕拐点风险。",
+    "narrative": "原油中位震荡($85.3,+0.5%)，成本支撑尚可；PTA盈利796元(+15.4%)；【DeepSeek综合】短期：成本端地缘溢价全面回归（WTI 79.34/布伦特 84.73 美元/桶）+PX 暴涨+自身 PTA 开工率 52.88% 历史新低+周去库 33 万吨，现货加工费 650 元/吨高位；地缘成本与供应收缩共振短期偏强运行基础牢固。中期最大变量是 7 月底至 8 月初 1320 万吨装置集中重启，将逆转供需缺口；无论中东局势如何演变，PTA 加工费收缩趋势较为明确。综合：短期偏强但警惕拐点风险。",
     "ai_rating": null
   },
   "section3": {
@@ -624,12 +641,12 @@
     "strategies": [
       {
         "action": "⚡ 负Gamma波动环境",
-        "detail": "净GEX=-2.1M，做市商对冲流倾向涨了买、跌了卖；Flip=5654，当前价5746高于565492点",
+        "detail": "净GEX=-11.6M，做市商对冲流倾向涨了买、跌了卖；Flip=5648，当前价5648低于56480点",
         "suggestion": "偏波动放大/趋势延续，卖方需控制尾部风险；若重新站上Flip，波动可能重新受抑。GEX不是方向预测"
       },
       {
         "action": "🎯 痛点参考",
-        "detail": "期权链/期权服务标的价5746 vs 痛点5900，偏差-154",
+        "detail": "期权链/期权服务标的价5648 vs 痛点5900，偏差-252",
         "suggestion": "关注标的价向痛点5900的回归倾向"
       },
       {
@@ -639,11 +656,11 @@
       },
       {
         "action": "📊 OI支撑压力区间",
-        "detail": "Put支撑5000(21,030手) ↔ Call压力7000(10,092手)",
+        "detail": "Put支撑5000(23,538手) ↔ Call压力7000(10,742手)",
         "suggestion": "区间【5000,7000】内震荡概率高"
       }
     ],
-    "core_idea": "综合研判：三维综合评分-0.03，方向【震荡】；宏观·成本(利空): 高利润796元，供应释放压力大；产业·供需(中性): 维度评分+0.00，中性；期权·微观(中性): 负Gamma(净GEX-2.1M)，对冲流放大波动，趋势延续风险更高；期权链/期权服务标的价5746在【5000,7000】区间偏下。",
+    "core_idea": "综合研判：三维综合评分-0.03，方向【震荡】；宏观·成本(利空): 高利润796元，供应释放压力大；产业·供需(中性): 维度评分+0.00，中性；期权·微观(中性): 负Gamma(净GEX-11.6M)，对冲流放大波动，趋势延续风险更高；期权链/期权服务标的价5648在【5000,7000】区间偏下。",
     "direction": "震荡",
     "total_score": -0.03,
     "dimensions": {
@@ -669,9 +686,9 @@
         "weight": 0.4,
         "label": "中性",
         "reasons": [
-          "负Gamma(净GEX-2.1M)，对冲流放大波动，趋势延续风险更高",
-          "价格偏离痛点5900达-154",
-          "价格5746在翻转点5654上方92点(正Gamma状态)"
+          "负Gamma(净GEX-11.6M)，对冲流放大波动，趋势延续风险更高",
+          "价格偏离痛点5900达-252",
+          "价格5648在翻转点5648下方0点(负Gamma状态)"
         ]
       }
     }
@@ -723,15 +740,18 @@
     }
   },
   "macro_news": {
-    "geo": [],
+    "geo": [
+      "【7月15日市场热点回顾】上半年我国GDP同比增长4.7%，中国经济展现强大韧性活力6月份中国规模以上工业增加值增长5.3%6月末中国M2余额356.71万亿元 同比增长8%央行：加大逆周期和跨周期调节力度美联储褐皮书： 美国经济整体呈现改善迹象 通胀压力有所缓解美联储理事库克：若近期未见通胀降温 准备采取行动伊朗外交部称伊方目前没有谈判计划，专注于防御美国6月PPI环比下降0.3%",
+      "惊人结论！小摩：能源市场最紧要问题已不是霍尔木兹，而是俄罗斯07-15 15:110评"
+    ],
     "fed": [
-      "伦镍日内涨超2.00%，现报17193.20美元/吨。",
-      "韩国央行行长申铉松：韩元兑美元市场交易时段延长并未对无本金交割远期外汇（NDF）市场的交易量产生显著影响。",
+      "韩国至7月16日央行利率决定 2.75%，预期2.75%，前值2.50%。",
+      "【韩国央行三年半来首次加息】SHMET07月16日讯，韩国央行将利率上调25个基点至2.75%，为2023年1月以来首次加息，符合市场预期。",
       "美联储三把手释放鸽派信号：通胀可能已见顶，货币政策处于合适位置"
     ],
     "industry": [],
     "macro": [
-      "据《日本经济新闻》报道，日本政府及执政的自民党计划将召开临时股东大会的持股门槛从目前的3%表决权提高至5%以上。"
+      "【韩美半导体拟在韩国新建工厂】SHMET07月16日讯，韩国《每日经济新闻》援引对韩美半导体董事长郭东信的采访报道，鉴于预计从明年起AI半导体设备将出现供应短缺，韩美半导体正考虑投建第八座生产工厂，该工厂建成后将成为公司规模最大的厂区。郭东信预计，自明年起半导体设备需求将超过供给。规划中的第八工厂选址毗邻正在仁川施工的第七工厂。韩美半导体表示，随着全球芯片厂商扩大投资，公司热压键合机与混合键合机的市场需求将快速增长。企业计划于2026年底在加州圣何塞设立韩美美国子公司"
     ]
   },
   "manual_macro_input": {
@@ -899,15 +919,15 @@
   },
   "crude": {
     "brent": {
-      "price": 85.21,
-      "change_pct": 0.31,
-      "volume": 6437,
+      "price": 85.34,
+      "change_pct": 0.46,
+      "volume": 1708,
       "contract": "布伦特原油当月连续"
     },
     "wti": {
-      "price": 80.06,
-      "change_pct": 0.58,
-      "volume": 8085,
+      "price": 80.11,
+      "change_pct": 0.64,
+      "volume": 4452,
       "contract": "NYMEX原油"
     }
   },
@@ -929,9 +949,9 @@
     "currency": "USD/吨",
     "source": "manual:人工",
     "source_text": "",
-    "usd_cny": 6.7909,
+    "usd_cny": 6.791,
     "usd_cny_source": "外管局/SAFE人民币汇率中间价",
-    "usd_cny_date": "2026-07-16",
+    "usd_cny_date": "2026-07-15",
     "formula": "PX亚洲收盘价 * 0.655 * 1.01 * 1.13 * USD/CNY",
     "pta_external_cost": 5532.0,
     "candidate_count": 2,
@@ -1025,7 +1045,7 @@
     "pta_cost": 5174.0,
     "pta_external_cost": 5532.0,
     "px_asia_close_usd": 1089.67,
-    "usd_cny": 6.7909,
+    "usd_cny": 6.791,
     "profit": 796.0,
     "profit_pct": 15.4
   },
@@ -1116,500 +1136,500 @@
   },
   "gex": {
     "summary": {
-      "T": 0.078793,
+      "T": 0.080213,
       "T_days_remaining": 27.2,
       "days_left": 27.2,
       "expiry": "2026-08-12T00:00:00",
-      "futures_price": 5746,
+      "futures_price": 5648,
       "gex_direction": "negative",
-      "gex_flip": 5654,
-      "iv_percentile": null,
-      "last_update": "2026-07-16T11:15:15.817384",
+      "gex_flip": 5648,
+      "iv_percentile": 89.0,
+      "last_update": "2026-07-16T09:00:15.578695",
       "max_pain": 5900,
-      "net_gex": -2145335.0,
-      "oi_total_now": 245106,
-      "pcr": 0.976,
-      "total_call_oi": 124024,
-      "total_put_oi": 121082
+      "net_gex": -11628111.0,
+      "oi_total_now": 245807,
+      "pcr": 0.974,
+      "total_call_oi": 124494,
+      "total_put_oi": 121313
     },
     "gex_bars": [
       {
-        "call_gex": 13967.0,
-        "net_gex": -296586.0,
-        "put_gex": -310553.0,
+        "call_gex": 16722.0,
+        "net_gex": -352404.0,
+        "put_gex": -369126.0,
         "strike": 4200
       },
       {
-        "call_gex": 269.0,
-        "net_gex": -14055.0,
-        "put_gex": -14325.0,
+        "call_gex": 451.0,
+        "net_gex": -23530.0,
+        "put_gex": -23981.0,
         "strike": 4250
       },
       {
-        "call_gex": 1169.0,
-        "net_gex": -14785.0,
-        "put_gex": -15954.0,
+        "call_gex": 1960.0,
+        "net_gex": -24791.0,
+        "put_gex": -26751.0,
         "strike": 4300
       },
       {
-        "call_gex": 1103.0,
-        "net_gex": -12504.0,
-        "put_gex": -13607.0,
+        "call_gex": 1556.0,
+        "net_gex": -17475.0,
+        "put_gex": -19031.0,
         "strike": 4350
       },
       {
-        "call_gex": 2340.0,
-        "net_gex": -9018.0,
-        "put_gex": -11357.0,
+        "call_gex": 5493.0,
+        "net_gex": -21173.0,
+        "put_gex": -26666.0,
         "strike": 4400
       },
       {
-        "call_gex": 1735.0,
-        "net_gex": -15295.0,
-        "put_gex": -17030.0,
+        "call_gex": 2651.0,
+        "net_gex": -23373.0,
+        "put_gex": -26023.0,
         "strike": 4450
       },
       {
-        "call_gex": 1326.0,
-        "net_gex": -117931.0,
-        "put_gex": -119257.0,
+        "call_gex": 1524.0,
+        "net_gex": -135285.0,
+        "put_gex": -136809.0,
         "strike": 4500
       },
       {
-        "call_gex": 1686.0,
-        "net_gex": -17225.0,
-        "put_gex": -18910.0,
+        "call_gex": 2253.0,
+        "net_gex": -23019.0,
+        "put_gex": -25272.0,
         "strike": 4550
       },
       {
-        "call_gex": 4433.0,
-        "net_gex": -41596.0,
-        "put_gex": -46029.0,
+        "call_gex": 7090.0,
+        "net_gex": -66295.0,
+        "put_gex": -73386.0,
         "strike": 4600
       },
       {
-        "call_gex": 3023.0,
-        "net_gex": -62388.0,
-        "put_gex": -65412.0,
+        "call_gex": 4689.0,
+        "net_gex": -92923.0,
+        "put_gex": -97612.0,
         "strike": 4650
       },
       {
-        "call_gex": 12651.0,
-        "net_gex": -76360.0,
-        "put_gex": -89011.0,
+        "call_gex": 19065.0,
+        "net_gex": -108605.0,
+        "put_gex": -127670.0,
         "strike": 4700
       },
       {
-        "call_gex": 6924.0,
-        "net_gex": -201207.0,
-        "put_gex": -208131.0,
+        "call_gex": 10159.0,
+        "net_gex": -263124.0,
+        "put_gex": -273283.0,
         "strike": 4750
       },
       {
-        "call_gex": 14682.0,
-        "net_gex": -382913.0,
-        "put_gex": -397595.0,
+        "call_gex": 21016.0,
+        "net_gex": -505352.0,
+        "put_gex": -526368.0,
         "strike": 4800
       },
       {
-        "call_gex": 19010.0,
-        "net_gex": -338501.0,
-        "put_gex": -357511.0,
+        "call_gex": 26596.0,
+        "net_gex": -450125.0,
+        "put_gex": -476721.0,
         "strike": 4850
       },
       {
-        "call_gex": 49452.0,
-        "net_gex": -435715.0,
-        "put_gex": -485167.0,
+        "call_gex": 67736.0,
+        "net_gex": -628492.0,
+        "put_gex": -696227.0,
         "strike": 4900
       },
       {
-        "call_gex": 28829.0,
-        "net_gex": -590703.0,
-        "put_gex": -619533.0,
+        "call_gex": 38720.0,
+        "net_gex": -796132.0,
+        "put_gex": -834852.0,
         "strike": 4950
       },
       {
-        "call_gex": 195620.0,
-        "net_gex": -7150622.0,
-        "put_gex": -7346242.0,
+        "call_gex": 257951.0,
+        "net_gex": -10584272.0,
+        "put_gex": -10842222.0,
         "strike": 5000
       },
       {
-        "call_gex": 366074.0,
-        "net_gex": -1662747.0,
-        "put_gex": -2028821.0,
+        "call_gex": 466425.0,
+        "net_gex": -2189742.0,
+        "put_gex": -2656167.0,
         "strike": 5100
       },
       {
-        "call_gex": 443159.0,
-        "net_gex": -3129090.0,
-        "put_gex": -3572249.0,
+        "call_gex": 548899.0,
+        "net_gex": -3423898.0,
+        "put_gex": -3972797.0,
         "strike": 5200
       },
       {
-        "call_gex": 906652.0,
-        "net_gex": -3693250.0,
-        "put_gex": -4599903.0,
+        "call_gex": 1075507.0,
+        "net_gex": -3924331.0,
+        "put_gex": -4999837.0,
         "strike": 5300
       },
       {
-        "call_gex": 1423016.0,
-        "net_gex": -2770767.0,
-        "put_gex": -4193783.0,
+        "call_gex": 1653704.0,
+        "net_gex": -3056328.0,
+        "put_gex": -4710032.0,
         "strike": 5400
       },
       {
-        "call_gex": 3116484.0,
-        "net_gex": -4311753.0,
-        "put_gex": -7428237.0,
+        "call_gex": 3367276.0,
+        "net_gex": -4363124.0,
+        "put_gex": -7730400.0,
         "strike": 5500
       },
       {
-        "call_gex": 3583291.0,
-        "net_gex": -1625346.0,
-        "put_gex": -5208636.0,
+        "call_gex": 3770105.0,
+        "net_gex": -1126848.0,
+        "put_gex": -4896953.0,
         "strike": 5600
       },
       {
-        "call_gex": 6850701.0,
-        "net_gex": 1437833.0,
-        "put_gex": -5412868.0,
+        "call_gex": 6613600.0,
+        "net_gex": 1242876.0,
+        "put_gex": -5370724.0,
         "strike": 5700
       },
       {
-        "call_gex": 11118804.0,
-        "net_gex": 4597112.0,
-        "put_gex": -6521692.0,
+        "call_gex": 10894600.0,
+        "net_gex": 4764856.0,
+        "put_gex": -6129744.0,
         "strike": 5800
       },
       {
-        "call_gex": 8286163.0,
-        "net_gex": -2672605.0,
-        "put_gex": -10958768.0,
+        "call_gex": 7707674.0,
+        "net_gex": -2442882.0,
+        "put_gex": -10150556.0,
         "strike": 5900
       },
       {
-        "call_gex": 8284738.0,
-        "net_gex": 3977657.0,
-        "put_gex": -4307081.0,
+        "call_gex": 7667021.0,
+        "net_gex": 3751968.0,
+        "put_gex": -3915053.0,
         "strike": 6000
       },
       {
-        "call_gex": 4381873.0,
-        "net_gex": -3585994.0,
-        "put_gex": -7967866.0,
+        "call_gex": 4054064.0,
+        "net_gex": -2912423.0,
+        "put_gex": -6966487.0,
         "strike": 6100
       },
       {
-        "call_gex": 4913533.0,
-        "net_gex": 903947.0,
-        "put_gex": -4009586.0,
+        "call_gex": 4264391.0,
+        "net_gex": 860976.0,
+        "put_gex": -3403415.0,
         "strike": 6200
       },
       {
-        "call_gex": 6745095.0,
-        "net_gex": 1984312.0,
-        "put_gex": -4760783.0,
+        "call_gex": 5622603.0,
+        "net_gex": 1652248.0,
+        "put_gex": -3970356.0,
         "strike": 6300
       },
       {
-        "call_gex": 2845697.0,
-        "net_gex": 754567.0,
-        "put_gex": -2091130.0,
+        "call_gex": 2239926.0,
+        "net_gex": 531789.0,
+        "put_gex": -1708137.0,
         "strike": 6400
       },
       {
-        "call_gex": 5310783.0,
-        "net_gex": 4847640.0,
-        "put_gex": -463143.0,
+        "call_gex": 4025563.0,
+        "net_gex": 3654151.0,
+        "put_gex": -371412.0,
         "strike": 6500
       },
       {
-        "call_gex": 2630462.0,
-        "net_gex": 2286009.0,
-        "put_gex": -344454.0,
+        "call_gex": 1992972.0,
+        "net_gex": 1721203.0,
+        "put_gex": -271769.0,
         "strike": 6600
       },
       {
-        "call_gex": 2552973.0,
-        "net_gex": 2352266.0,
-        "put_gex": -200707.0,
+        "call_gex": 1954535.0,
+        "net_gex": 1798431.0,
+        "put_gex": -156104.0,
         "strike": 6700
       },
       {
-        "call_gex": 1294211.0,
-        "net_gex": 1154495.0,
-        "put_gex": -139716.0,
+        "call_gex": 1003897.0,
+        "net_gex": 893854.0,
+        "put_gex": -110043.0,
         "strike": 6800
       },
       {
-        "call_gex": 1504723.0,
-        "net_gex": 1446565.0,
-        "put_gex": -58158.0,
+        "call_gex": 1109748.0,
+        "net_gex": 1067134.0,
+        "put_gex": -42613.0,
         "strike": 6900
       },
       {
-        "call_gex": 2663217.0,
-        "net_gex": 2618883.0,
-        "put_gex": -44334.0,
+        "call_gex": 2093452.0,
+        "net_gex": 2060711.0,
+        "put_gex": -32741.0,
         "strike": 7000
       },
       {
-        "call_gex": 398592.0,
-        "net_gex": 375587.0,
-        "put_gex": -23004.0,
+        "call_gex": 329336.0,
+        "net_gex": 311432.0,
+        "put_gex": -17904.0,
         "strike": 7100
       },
       {
-        "call_gex": 555890.0,
-        "net_gex": 542637.0,
-        "put_gex": -13254.0,
+        "call_gex": 428769.0,
+        "net_gex": 418954.0,
+        "put_gex": -9815.0,
         "strike": 7200
       },
       {
-        "call_gex": 298548.0,
-        "net_gex": 285883.0,
-        "put_gex": -12666.0,
+        "call_gex": 197707.0,
+        "net_gex": 189154.0,
+        "put_gex": -8552.0,
         "strike": 7300
       },
       {
-        "call_gex": 234138.0,
-        "net_gex": 226471.0,
-        "put_gex": -7667.0,
+        "call_gex": 194265.0,
+        "net_gex": 187658.0,
+        "put_gex": -6607.0,
         "strike": 7400
       },
       {
-        "call_gex": 233458.0,
-        "net_gex": 225856.0,
-        "put_gex": -7602.0,
+        "call_gex": 166396.0,
+        "net_gex": 161574.0,
+        "put_gex": -4822.0,
         "strike": 7500
       },
       {
-        "call_gex": 144735.0,
-        "net_gex": 141157.0,
-        "put_gex": -3578.0,
+        "call_gex": 80650.0,
+        "net_gex": 78688.0,
+        "put_gex": -1962.0,
         "strike": 7600
       },
       {
-        "call_gex": 105855.0,
-        "net_gex": 102320.0,
-        "put_gex": -3535.0,
+        "call_gex": 68535.0,
+        "net_gex": 66405.0,
+        "put_gex": -2130.0,
         "strike": 7700
       },
       {
-        "call_gex": 106194.0,
-        "net_gex": 102529.0,
-        "put_gex": -3665.0,
+        "call_gex": 59356.0,
+        "net_gex": 57362.0,
+        "put_gex": -1994.0,
         "strike": 7800
       },
       {
-        "call_gex": 108655.0,
-        "net_gex": 105425.0,
-        "put_gex": -3231.0,
+        "call_gex": 104595.0,
+        "net_gex": 101294.0,
+        "put_gex": -3301.0,
         "strike": 7900
       },
       {
-        "call_gex": 619157.0,
-        "net_gex": 614470.0,
-        "put_gex": -4687.0,
+        "call_gex": 357878.0,
+        "net_gex": 355117.0,
+        "put_gex": -2762.0,
         "strike": 8000
       }
     ],
     "pain_curve": [
       {
-        "pain": 741940500.0,
+        "pain": 739544250.0,
         "strike": 4200
       },
       {
-        "pain": 713778500.0,
+        "pain": 711310000.0,
         "strike": 4250
       },
       {
-        "pain": 685752000.0,
+        "pain": 683211250.0,
         "strike": 4300
       },
       {
-        "pain": 657798750.0,
+        "pain": 655185750.0,
         "strike": 4350
       },
       {
-        "pain": 629945500.0,
+        "pain": 627259500.0,
         "strike": 4400
       },
       {
-        "pain": 602162500.0,
+        "pain": 599403500.0,
         "strike": 4450
       },
       {
-        "pain": 574439000.0,
+        "pain": 571607000.0,
         "strike": 4500
       },
       {
-        "pain": 546988250.0,
+        "pain": 544082750.0,
         "strike": 4550
       },
       {
-        "pain": 519607750.0,
+        "pain": 516628750.0,
         "strike": 4600
       },
       {
-        "pain": 492398000.0,
+        "pain": 489345000.0,
         "strike": 4650
       },
       {
-        "pain": 465375000.0,
+        "pain": 462241250.0,
         "strike": 4700
       },
       {
-        "pain": 438577000.0,
+        "pain": 435353000.0,
         "strike": 4750
       },
       {
-        "pain": 412167250.0,
+        "pain": 408813500.0,
         "strike": 4800
       },
       {
-        "pain": 386368250.0,
+        "pain": 382840500.0,
         "strike": 4850
       },
       {
-        "pain": 361029750.0,
+        "pain": 357307500.0,
         "strike": 4900
       },
       {
-        "pain": 336234500.0,
+        "pain": 332341250.0,
         "strike": 4950
       },
       {
-        "pain": 311990250.0,
+        "pain": 307927750.0,
         "strike": 5000
       },
       {
-        "pain": 274296750.0,
+        "pain": 271149750.0,
         "strike": 5100
       },
       {
-        "pain": 239089250.0,
+        "pain": 236915750.0,
         "strike": 5200
       },
       {
-        "pain": 207007750.0,
+        "pain": 205540250.0,
         "strike": 5300
       },
       {
-        "pain": 178272750.0,
+        "pain": 177277250.0,
         "strike": 5400
       },
       {
-        "pain": 152336250.0,
+        "pain": 151802250.0,
         "strike": 5500
       },
       {
-        "pain": 130960750.0,
+        "pain": 130740250.0,
         "strike": 5600
       },
       {
-        "pain": 113087750.0,
+        "pain": 112993250.0,
         "strike": 5700
       },
       {
-        "pain": 99961250.0,
+        "pain": 99884250.0,
         "strike": 5800
       },
       {
-        "pain": 93768750.0,
+        "pain": 93722750.0,
         "strike": 5900
       },
       {
-        "pain": 95536750.0,
+        "pain": 95500250.0,
         "strike": 6000
       },
       {
-        "pain": 102942750.0,
+        "pain": 103030250.0,
         "strike": 6100
       },
       {
-        "pain": 116470250.0,
+        "pain": 116796250.0,
         "strike": 6200
       },
       {
-        "pain": 134982750.0,
+        "pain": 135580750.0,
         "strike": 6300
       },
       {
-        "pain": 160844750.0,
+        "pain": 161712750.0,
         "strike": 6400
       },
       {
-        "pain": 190354250.0,
+        "pain": 191415750.0,
         "strike": 6500
       },
       {
-        "pain": 224844250.0,
+        "pain": 225848250.0,
         "strike": 6600
       },
       {
-        "pain": 262352750.0,
+        "pain": 263193250.0,
         "strike": 6700
       },
       {
-        "pain": 303167750.0,
+        "pain": 303796750.0,
         "strike": 6800
       },
       {
-        "pain": 346030250.0,
+        "pain": 346419750.0,
         "strike": 6900
       },
       {
-        "pain": 391432250.0,
+        "pain": 391598250.0,
         "strike": 7000
       },
       {
-        "pain": 441964250.0,
+        "pain": 442231750.0,
         "strike": 7100
       },
       {
-        "pain": 493449250.0,
+        "pain": 493873750.0,
         "strike": 7200
       },
       {
-        "pain": 546437250.0,
+        "pain": 547079750.0,
         "strike": 7300
       },
       {
-        "pain": 600371250.0,
+        "pain": 601214250.0,
         "strike": 7400
       },
       {
-        "pain": 655125250.0,
+        "pain": 656139250.0,
         "strike": 7500
       },
       {
-        "pain": 710814750.0,
+        "pain": 712111750.0,
         "strike": 7600
       },
       {
-        "pain": 767146750.0,
+        "pain": 768736750.0,
         "strike": 7700
       },
       {
-        "pain": 824004750.0,
+        "pain": 825925750.0,
         "strike": 7800
       },
       {
-        "pain": 881432250.0,
+        "pain": 883699250.0,
         "strike": 7900
       },
       {
-        "pain": 939517750.0,
+        "pain": 942093750.0,
         "strike": 8000
       }
     ],
     "oi_dist": [
       {
         "call_oi": 363,
-        "put_oi": 8071,
+        "put_oi": 8013,
         "strike": 4200
       },
       {
@@ -1624,7 +1644,7 @@
       },
       {
         "call_oi": 30,
-        "put_oi": 370,
+        "put_oi": 367,
         "strike": 4350
       },
       {
@@ -1639,7 +1659,7 @@
       },
       {
         "call_oi": 12,
-        "put_oi": 1079,
+        "put_oi": 1077,
         "strike": 4500
       },
       {
@@ -1649,196 +1669,196 @@
       },
       {
         "call_oi": 60,
-        "put_oi": 623,
+        "put_oi": 621,
         "strike": 4600
       },
       {
         "call_oi": 33,
-        "put_oi": 714,
+        "put_oi": 687,
         "strike": 4650
       },
       {
         "call_oi": 112,
-        "put_oi": 788,
+        "put_oi": 750,
         "strike": 4700
       },
       {
         "call_oi": 50,
-        "put_oi": 1503,
+        "put_oi": 1345,
         "strike": 4750
       },
       {
         "call_oi": 87,
-        "put_oi": 2356,
+        "put_oi": 2179,
         "strike": 4800
       },
       {
         "call_oi": 93,
-        "put_oi": 1749,
+        "put_oi": 1667,
         "strike": 4850
       },
       {
         "call_oi": 201,
-        "put_oi": 1972,
+        "put_oi": 2066,
         "strike": 4900
       },
       {
         "call_oi": 98,
-        "put_oi": 2106,
+        "put_oi": 2113,
         "strike": 4950
       },
       {
         "call_oi": 560,
-        "put_oi": 21030,
+        "put_oi": 23538,
         "strike": 5000
       },
       {
         "call_oi": 760,
-        "put_oi": 4212,
+        "put_oi": 4328,
         "strike": 5100
       },
       {
-        "call_oi": 690,
-        "put_oi": 5562,
+        "call_oi": 694,
+        "put_oi": 5023,
         "strike": 5200
       },
       {
         "call_oi": 1102,
-        "put_oi": 5591,
+        "put_oi": 5123,
         "strike": 5300
       },
       {
-        "call_oi": 1418,
-        "put_oi": 4179,
+        "call_oi": 1449,
+        "put_oi": 4127,
         "strike": 5400
       },
       {
-        "call_oi": 2696,
-        "put_oi": 6426,
+        "call_oi": 2678,
+        "put_oi": 6148,
         "strike": 5500
       },
       {
-        "call_oi": 2855,
-        "put_oi": 4150,
+        "call_oi": 2884,
+        "put_oi": 3746,
         "strike": 5600
       },
       {
-        "call_oi": 5303,
-        "put_oi": 4190,
+        "call_oi": 5119,
+        "put_oi": 4157,
         "strike": 5700
       },
       {
-        "call_oi": 8741,
-        "put_oi": 5127,
+        "call_oi": 8892,
+        "put_oi": 5003,
         "strike": 5800
       },
       {
-        "call_oi": 6855,
-        "put_oi": 9066,
+        "call_oi": 6853,
+        "put_oi": 9025,
         "strike": 5900
       },
       {
-        "call_oi": 7419,
-        "put_oi": 3857,
+        "call_oi": 7616,
+        "put_oi": 3889,
         "strike": 6000
       },
       {
-        "call_oi": 4344,
-        "put_oi": 7899,
+        "call_oi": 4588,
+        "put_oi": 7884,
         "strike": 6100
       },
       {
-        "call_oi": 5490,
-        "put_oi": 4480,
+        "call_oi": 5582,
+        "put_oi": 4455,
         "strike": 6200
       },
       {
-        "call_oi": 8617,
+        "call_oi": 8613,
         "put_oi": 6082,
         "strike": 6300
       },
       {
-        "call_oi": 4205,
+        "call_oi": 4052,
         "put_oi": 3090,
         "strike": 6400
       },
       {
-        "call_oi": 9162,
+        "call_oi": 8660,
         "put_oi": 799,
         "strike": 6500
       },
       {
-        "call_oi": 5338,
+        "call_oi": 5126,
         "put_oi": 699,
         "strike": 6600
       },
       {
-        "call_oi": 6131,
+        "call_oi": 6035,
         "put_oi": 482,
         "strike": 6700
       },
       {
-        "call_oi": 3696,
+        "call_oi": 3640,
         "put_oi": 399,
         "strike": 6800
       },
       {
-        "call_oi": 4890,
+        "call_oi": 4922,
         "put_oi": 189,
         "strike": 6900
       },
       {
-        "call_oi": 10092,
+        "call_oi": 10742,
         "put_oi": 168,
         "strike": 7000
       },
       {
-        "call_oi": 1802,
+        "call_oi": 1913,
         "put_oi": 104,
         "strike": 7100
       },
       {
-        "call_oi": 2936,
+        "call_oi": 3058,
         "put_oi": 70,
         "strike": 7200
       },
       {
-        "call_oi": 1815,
+        "call_oi": 1780,
         "put_oi": 77,
         "strike": 7300
       },
       {
-        "call_oi": 1588,
+        "call_oi": 1529,
         "put_oi": 52,
         "strike": 7400
       },
       {
-        "call_oi": 1812,
+        "call_oi": 2036,
         "put_oi": 59,
         "strike": 7500
       },
       {
-        "call_oi": 1254,
+        "call_oi": 1274,
         "put_oi": 31,
         "strike": 7600
       },
       {
-        "call_oi": 1018,
+        "call_oi": 1094,
         "put_oi": 34,
         "strike": 7700
       },
       {
-        "call_oi": 1101,
+        "call_oi": 1131,
         "put_oi": 38,
         "strike": 7800
       },
       {
-        "call_oi": 1278,
+        "call_oi": 1204,
         "put_oi": 38,
         "strike": 7900
       },
       {
-        "call_oi": 7794,
+        "call_oi": 7646,
         "put_oi": 59,
         "strike": 8000
       }
@@ -1847,26 +1867,26 @@
   },
   "iv_curve": {
     "available": true,
-    "T": 0.07879325643300798,
-    "atm_strike": 5800,
+    "T": 0.08021295474711623,
+    "atm_strike": 5600,
     "confidence_band": {
-      "T": 0.07879325643300798,
-      "atm_iv": 0.3159873856657861,
+      "T": 0.08021295474711623,
+      "atm_iv": 0.30355433498185946,
       "bands": {
         "68": {
           "level": "约68%/1σ",
-          "lower": 5241.8,
-          "move": 510.2,
-          "move_pct": 8.87,
-          "upper": 6262.2,
+          "lower": 5162.4,
+          "move": 485.6,
+          "move_pct": 8.6,
+          "upper": 6133.6,
           "z": 1.0
         },
         "95": {
           "level": "约95%/1.96σ",
-          "lower": 4752.0,
-          "move": 1000.0,
-          "move_pct": 17.38,
-          "upper": 6752.0,
+          "lower": 4696.3,
+          "move": 951.7,
+          "move_pct": 16.85,
+          "upper": 6599.7,
           "z": 1.96
         }
       },
@@ -1875,18 +1895,18 @@
       "horizon": "to_expiry",
       "source": "iv_smile_curve.option_underlying_price + svi_params.atm_vol",
       "status": "ok",
-      "underlying_price": 5752.0
+      "underlying_price": 5648.0
     },
-    "current_interval_key": "11:15",
+    "current_interval_key": null,
     "curve": [
       {
         "call_oi": 363,
-        "put_oi": 8071,
+        "put_oi": 8013,
         "raw_C": null,
         "raw_C_prev": null,
-        "raw_P": 0.4583658017229143,
+        "raw_P": 0.4400157538781356,
         "raw_P_prev": 0.44083559550175366,
-        "raw_avg": 0.4583658017229143,
+        "raw_avg": 0.4400157538781356,
         "strike": 4200
       },
       {
@@ -1894,9 +1914,9 @@
         "put_oi": 532,
         "raw_C": null,
         "raw_C_prev": null,
-        "raw_P": 0.4096828689371387,
+        "raw_P": 0.4163574303828134,
         "raw_P_prev": 0.4152132031965176,
-        "raw_avg": 0.4096828689371387,
+        "raw_avg": 0.4163574303828134,
         "strike": 4250
       },
       {
@@ -1904,19 +1924,19 @@
         "put_oi": 273,
         "raw_C": null,
         "raw_C_prev": null,
-        "raw_P": 0.4556677823403601,
+        "raw_P": 0.4827560116887799,
         "raw_P_prev": 0.4006547529458042,
-        "raw_avg": 0.4556677823403601,
+        "raw_avg": 0.4827560116887799,
         "strike": 4300
       },
       {
         "call_oi": 30,
-        "put_oi": 370,
+        "put_oi": 367,
         "raw_C": null,
         "raw_C_prev": null,
-        "raw_P": 0.39315233125512516,
+        "raw_P": 0.3857652448903758,
         "raw_P_prev": 0.38622918102934517,
-        "raw_avg": 0.39315233125512516,
+        "raw_avg": 0.3857652448903758,
         "strike": 4350
       },
       {
@@ -1924,9 +1944,9 @@
         "put_oi": 233,
         "raw_C": null,
         "raw_C_prev": null,
-        "raw_P": 0.4290575066734198,
+        "raw_P": 0.4505712172267815,
         "raw_P_prev": 0.41613799462938683,
-        "raw_avg": 0.4290575066734198,
+        "raw_avg": 0.4505712172267815,
         "strike": 4400
       },
       {
@@ -1934,19 +1954,19 @@
         "put_oi": 216,
         "raw_C": null,
         "raw_C_prev": null,
-        "raw_P": 0.4180380278508027,
+        "raw_P": 0.430063709950572,
         "raw_P_prev": 0.40578327492299415,
-        "raw_avg": 0.4180380278508027,
+        "raw_avg": 0.430063709950572,
         "strike": 4450
       },
       {
         "call_oi": 12,
-        "put_oi": 1079,
-        "raw_C": 0.457290233058676,
+        "put_oi": 1077,
+        "raw_C": null,
         "raw_C_prev": null,
-        "raw_P": 0.35908480330006365,
+        "raw_P": 0.4097887058299459,
         "raw_P_prev": 0.37975893632426416,
-        "raw_avg": 0.4081875181793698,
+        "raw_avg": 0.4097887058299459,
         "strike": 4500
       },
       {
@@ -1954,551 +1974,549 @@
         "put_oi": 258,
         "raw_C": null,
         "raw_C_prev": null,
-        "raw_P": 0.3654296112469349,
+        "raw_P": 0.3438103335148697,
         "raw_P_prev": 0.3528698815530559,
-        "raw_avg": 0.3654296112469349,
+        "raw_avg": 0.3438103335148697,
+        "smooth": 0.3535876415179322,
         "strike": 4550
       },
       {
         "call_oi": 60,
-        "put_oi": 623,
+        "put_oi": 621,
         "raw_C": null,
         "raw_C_prev": null,
-        "raw_P": 0.3503233088142331,
+        "raw_P": 0.34211160010445396,
         "raw_P_prev": 0.3317065381185763,
-        "raw_avg": 0.3503233088142331,
+        "raw_avg": 0.34211160010445396,
+        "smooth": 0.3484804236233758,
         "strike": 4600
       },
       {
         "call_oi": 33,
-        "iv_change": 0.001,
+        "iv_change": 0.0023,
         "prev_avg": 0.3411333911115283,
-        "put_oi": 714,
+        "put_oi": 687,
         "raw_C": null,
         "raw_C_prev": null,
-        "raw_P": 0.3456196849752583,
+        "raw_P": 0.34415064987055294,
         "raw_P_prev": 0.33466581359867226,
-        "raw_avg": 0.3456196849752583,
-        "smooth": 0.3420837969536168,
+        "raw_avg": 0.34415064987055294,
+        "smooth": 0.34342142529836084,
         "smooth_prev": 0.3411333911115283,
         "strike": 4650
       },
       {
         "call_oi": 112,
-        "iv_change": 0.0014,
+        "iv_change": 0.0017,
         "prev_avg": 0.33675231279643114,
-        "put_oi": 788,
+        "put_oi": 750,
         "raw_C": null,
         "raw_C_prev": 0.4534535295336655,
-        "raw_P": 0.3430261124485772,
+        "raw_P": 0.33382291684777315,
         "raw_P_prev": 0.3407141251582358,
-        "raw_avg": 0.3430261124485772,
-        "smooth": 0.3381446463542477,
+        "raw_avg": 0.33382291684777315,
+        "smooth": 0.3384221815815752,
         "smooth_prev": 0.33675231279643114,
         "strike": 4700
       },
       {
         "call_oi": 50,
-        "iv_change": 0.0018,
+        "iv_change": 0.001,
         "prev_avg": 0.33245989675457277,
-        "put_oi": 1503,
+        "put_oi": 1345,
         "raw_C": null,
         "raw_C_prev": null,
-        "raw_P": 0.3345459984082723,
+        "raw_P": 0.3477741046152543,
         "raw_P_prev": 0.33194572811772394,
-        "raw_avg": 0.3345459984082723,
-        "smooth": 0.3342647157291799,
+        "raw_avg": 0.3477741046152543,
+        "smooth": 0.3334972975896978,
         "smooth_prev": 0.33245989675457277,
         "strike": 4750
       },
       {
         "call_oi": 87,
-        "iv_change": 0.0022,
+        "iv_change": 0.0004,
         "prev_avg": 0.3282749535730381,
-        "put_oi": 2356,
+        "put_oi": 2179,
         "raw_C": null,
         "raw_C_prev": null,
-        "raw_P": 0.3250618909763016,
+        "raw_P": 0.32832292719429607,
         "raw_P_prev": 0.32511135090811427,
-        "raw_avg": 0.3250618909763016,
-        "smooth": 0.3304556290078054,
+        "raw_avg": 0.32832292719429607,
+        "smooth": 0.32866523845997087,
         "smooth_prev": 0.3282749535730381,
         "strike": 4800
       },
       {
         "call_oi": 93,
-        "iv_change": 0.0025,
+        "iv_change": -0.0003,
         "prev_avg": 0.32422077286321,
-        "put_oi": 1749,
+        "put_oi": 1667,
         "raw_C": null,
         "raw_C_prev": 0.4060297720517693,
-        "raw_P": 0.32504160612302413,
+        "raw_P": 0.3252243782254128,
         "raw_P_prev": 0.32398025931555624,
-        "raw_avg": 0.32504160612302413,
-        "smooth": 0.3267319811085824,
+        "raw_avg": 0.3252243782254128,
+        "smooth": 0.32394930600841154,
         "smooth_prev": 0.32422077286321,
         "strike": 4850
       },
       {
         "call_oi": 201,
-        "iv_change": 0.0028,
+        "iv_change": -0.0009,
         "prev_avg": 0.32032607579217104,
-        "put_oi": 1972,
-        "raw_C": 0.24605463894452526,
+        "put_oi": 2066,
+        "raw_C": null,
         "raw_C_prev": 0.2536573445626786,
-        "raw_P": 0.32159833539588084,
+        "raw_P": 0.31810164179044176,
         "raw_P_prev": 0.3198693101798044,
-        "raw_avg": 0.28382648717020303,
-        "smooth": 0.32311211361574665,
+        "raw_avg": 0.31810164179044176,
+        "smooth": 0.3193788150917595,
         "smooth_prev": 0.32032607579217104,
         "strike": 4900
       },
       {
         "call_oi": 98,
-        "iv_change": 0.003,
+        "iv_change": -0.0016,
         "prev_avg": 0.3166260408969794,
-        "put_oi": 2106,
-        "raw_C": 0.22331939069890946,
+        "put_oi": 2113,
+        "raw_C": null,
         "raw_C_prev": 0.2540062794537222,
-        "raw_P": 0.3192213661358214,
+        "raw_P": 0.3119285236260763,
         "raw_P_prev": 0.3169095543869684,
-        "raw_avg": 0.27127037841736545,
-        "smooth": 0.31961907537449596,
+        "raw_avg": 0.3119285236260763,
+        "smooth": 0.3149904473899557,
         "smooth_prev": 0.3166260408969794,
         "strike": 4950
       },
       {
         "call_oi": 560,
-        "iv_change": 0.0031,
+        "iv_change": -0.0023,
         "prev_avg": 0.313163276470304,
-        "put_oi": 21029,
+        "put_oi": 23538,
         "raw_C": null,
         "raw_C_prev": 0.26759894816328905,
-        "raw_P": 0.31988766609401376,
+        "raw_P": 0.3148722591155966,
         "raw_P_prev": 0.31425675002437586,
-        "raw_avg": 0.31988766609401376,
-        "smooth": 0.31628177517382783,
+        "raw_avg": 0.3148722591155966,
+        "smooth": 0.3108296846850665,
         "smooth_prev": 0.313163276470304,
         "strike": 5000
       },
       {
         "call_oi": 760,
-        "iv_change": 0.0031,
+        "iv_change": -0.0037,
         "prev_avg": 0.30716040887966134,
-        "put_oi": 4220,
+        "put_oi": 4328,
         "raw_C": null,
         "raw_C_prev": 0.27293165488537635,
-        "raw_P": 0.30929965209590454,
+        "raw_P": 0.30253815468453815,
         "raw_P_prev": 0.30596280300130985,
-        "raw_avg": 0.30929965209590454,
-        "smooth": 0.3102271799126183,
+        "raw_avg": 0.30253815468453815,
+        "smooth": 0.30342391161683097,
         "smooth_prev": 0.30716040887966134,
         "strike": 5100
       },
       {
-        "call_oi": 690,
-        "iv_change": 0.0025,
+        "call_oi": 694,
+        "iv_change": -0.0051,
         "prev_avg": 0.30280876908161586,
-        "put_oi": 5565,
-        "raw_C": 0.2356086759649722,
+        "put_oi": 5023,
+        "raw_C": 0.27321317594043376,
         "raw_C_prev": 0.2951599962554161,
-        "raw_P": 0.304549292264864,
+        "raw_P": 0.297332730529729,
         "raw_P_prev": 0.30239343752933195,
-        "raw_avg": 0.2700789841149181,
-        "smooth": 0.30534408872607743,
+        "raw_avg": 0.2852729532350814,
+        "smooth": 0.29772743990187384,
         "smooth_prev": 0.30280876908161586,
         "strike": 5200
       },
       {
         "call_oi": 1102,
-        "iv_change": 0.0015,
+        "iv_change": -0.0062,
         "prev_avg": 0.3006286609294987,
-        "put_oi": 5590,
-        "raw_C": 0.27992916187648514,
+        "put_oi": 5123,
+        "raw_C": 0.27243783720675835,
         "raw_C_prev": 0.3049456515996166,
-        "raw_P": 0.301261929051042,
+        "raw_P": 0.2938785227786,
         "raw_P_prev": 0.301011149397183,
-        "raw_avg": 0.29059554546376354,
-        "smooth": 0.3021677075956208,
+        "raw_avg": 0.28315817999267917,
+        "smooth": 0.29438625703404686,
         "smooth_prev": 0.3006286609294987,
         "strike": 5300
       },
       {
-        "call_oi": 1417,
-        "iv_change": 0.0003,
+        "call_oi": 1449,
+        "iv_change": -0.0071,
         "prev_avg": 0.3009512108274454,
-        "put_oi": 4174,
-        "raw_C": 0.3014723348914167,
+        "put_oi": 4127,
+        "raw_C": 0.2961975715837477,
         "raw_C_prev": 0.3055197427621783,
-        "raw_P": 0.3017407682121408,
+        "raw_P": 0.29535948732510453,
         "raw_P_prev": 0.30161882830856346,
-        "raw_avg": 0.30160655155177873,
-        "smooth": 0.30125580826496984,
+        "raw_avg": 0.2957785294544261,
+        "smooth": 0.2938642945342842,
         "smooth_prev": 0.3009512108274454,
         "strike": 5400
       },
       {
-        "call_oi": 2696,
-        "iv_change": -0.0008,
+        "call_oi": 2678,
+        "iv_change": -0.0076,
         "prev_avg": 0.303700104551817,
-        "put_oi": 6431,
-        "raw_C": 0.30283838091552806,
+        "put_oi": 6148,
+        "raw_C": 0.28645430384743287,
         "raw_C_prev": 0.30738218715468213,
-        "raw_P": 0.3033936116292395,
+        "raw_P": 0.2960727646677396,
         "raw_P_prev": 0.3047740904208463,
-        "raw_avg": 0.3031159962723838,
-        "smooth": 0.3028957820466394,
+        "raw_avg": 0.2912635342575862,
+        "smooth": 0.29613299477102273,
         "smooth_prev": 0.303700104551817,
         "strike": 5500
       },
       {
-        "call_oi": 2855,
-        "iv_change": -0.0016,
+        "call_oi": 2884,
+        "iv_change": -0.0078,
         "prev_avg": 0.3084147207952926,
-        "put_oi": 4138,
-        "raw_C": 0.30672407042974886,
+        "put_oi": 3746,
+        "raw_C": 0.30115053563553457,
         "raw_C_prev": 0.31109608977670666,
-        "raw_P": 0.3075200545932371,
+        "raw_P": 0.29823154925912937,
         "raw_P_prev": 0.3069915803493413,
-        "raw_avg": 0.307122062511493,
-        "smooth": 0.30686467781666926,
+        "raw_avg": 0.29969104244733197,
+        "smooth": 0.3006644925217503,
         "smooth_prev": 0.3084147207952926,
         "strike": 5600
       },
       {
-        "call_oi": 5303,
-        "iv_change": -0.0019,
+        "call_oi": 5119,
+        "iv_change": -0.0077,
         "prev_avg": 0.3144951734463196,
-        "put_oi": 4190,
-        "raw_C": 0.31212958855234857,
+        "put_oi": 4157,
+        "raw_C": 0.306999805421186,
         "raw_C_prev": 0.3159200975260913,
-        "raw_P": 0.31237783386221124,
+        "raw_P": 0.3043907901302874,
         "raw_P_prev": 0.31345626663566717,
-        "raw_avg": 0.3122537112072799,
-        "smooth": 0.31256119868613924,
+        "raw_avg": 0.3056952977757367,
+        "smooth": 0.3067465949551429,
         "smooth_prev": 0.3144951734463196,
         "strike": 5700
       },
       {
-        "call_oi": 8742,
-        "iv_change": -0.0021,
+        "call_oi": 8892,
+        "iv_change": -0.0077,
         "prev_avg": 0.3214158177363073,
-        "put_oi": 5130,
-        "raw_C": 0.318488472102161,
+        "put_oi": 5003,
+        "raw_C": 0.313097524769015,
         "raw_C_prev": 0.3220731991975028,
-        "raw_P": 0.31901011371803356,
+        "raw_P": 0.299744977099676,
         "raw_P_prev": 0.3199137366270812,
-        "raw_avg": 0.3187492929100973,
-        "smooth": 0.31934223995257943,
+        "raw_avg": 0.30642125093434547,
+        "smooth": 0.31376304771038854,
         "smooth_prev": 0.3214158177363073,
         "strike": 5800
       },
       {
-        "call_oi": 6864,
-        "iv_change": -0.0021,
+        "call_oi": 6853,
+        "iv_change": -0.0075,
         "prev_avg": 0.3287964517740691,
-        "put_oi": 9068,
-        "raw_C": 0.3268167564434309,
+        "put_oi": 9025,
+        "raw_C": 0.3214525453352818,
         "raw_C_prev": 0.3296967837224221,
-        "raw_P": 0.3280339772509922,
+        "raw_P": 0.31446591063317114,
         "raw_P_prev": 0.3285558259880586,
-        "raw_avg": 0.3274253668472116,
-        "smooth": 0.32671656252089687,
+        "raw_avg": 0.3179592279842265,
+        "smooth": 0.3212794485088918,
         "smooth_prev": 0.3287964517740691,
         "strike": 5900
       },
       {
-        "call_oi": 7400,
-        "iv_change": -0.002,
+        "call_oi": 7616,
+        "iv_change": -0.0074,
         "prev_avg": 0.33638675660798417,
-        "put_oi": 3857,
-        "raw_C": 0.33380129391756935,
+        "put_oi": 3889,
+        "raw_C": 0.3303156294390161,
         "raw_C_prev": 0.3378498225357451,
-        "raw_P": 0.3349638684423611,
+        "raw_P": 0.32208656450902495,
         "raw_P_prev": 0.3353020536285077,
-        "raw_avg": 0.3343825811799652,
-        "smooth": 0.3343631116475855,
+        "raw_avg": 0.32620109697402055,
+        "smooth": 0.3290174938771325,
         "smooth_prev": 0.33638675660798417,
         "strike": 6000
       },
       {
-        "call_oi": 4344,
-        "iv_change": -0.0019,
+        "call_oi": 4588,
+        "iv_change": -0.0072,
         "prev_avg": 0.34402906543180023,
-        "put_oi": 7899,
-        "raw_C": 0.3418178115940203,
+        "put_oi": 7884,
+        "raw_C": 0.335208356877446,
         "raw_C_prev": 0.34427799142805604,
-        "raw_P": 0.3443062303568949,
+        "raw_P": 0.332713617093726,
         "raw_P_prev": 0.34185805457743146,
-        "raw_avg": 0.34306202097545757,
-        "smooth": 0.34208592047447794,
+        "raw_avg": 0.33396098698558596,
+        "smooth": 0.3368062314266326,
         "smooth_prev": 0.34402906543180023,
         "strike": 6100
       },
       {
-        "call_oi": 5480,
-        "iv_change": -0.0019,
+        "call_oi": 5582,
+        "iv_change": -0.0071,
         "prev_avg": 0.35162626589249873,
-        "put_oi": 4480,
-        "raw_C": 0.3499942925964025,
+        "put_oi": 4455,
+        "raw_C": 0.3449899933709424,
         "raw_C_prev": 0.3507008014942836,
-        "raw_P": 0.35208526367115867,
+        "raw_P": 0.33843360467072625,
         "raw_P_prev": 0.35859255473877116,
-        "raw_avg": 0.3510397781337806,
-        "smooth": 0.34976884149388765,
+        "raw_avg": 0.3417117990208343,
+        "smooth": 0.34454272577539974,
         "smooth_prev": 0.35162626589249873,
         "strike": 6200
       },
       {
-        "call_oi": 8617,
-        "iv_change": -0.0018,
+        "call_oi": 8613,
+        "iv_change": -0.007,
         "prev_avg": 0.3591195727869932,
         "put_oi": 6082,
-        "raw_C": 0.358038038352311,
+        "raw_C": 0.35377547673362186,
         "raw_C_prev": 0.35829744958683896,
-        "raw_P": 0.3804060020376028,
+        "raw_P": 0.303278707266539,
         "raw_P_prev": 0.357767093446706,
-        "raw_avg": 0.36922202019495687,
-        "smooth": 0.35734428128428425,
+        "raw_avg": 0.32852709200008046,
+        "smooth": 0.3521660004167214,
         "smooth_prev": 0.3591195727869932,
         "strike": 6300
       },
       {
-        "call_oi": 4197,
-        "iv_change": -0.0017,
+        "call_oi": 4052,
+        "iv_change": -0.0068,
         "prev_avg": 0.3664742727960376,
         "put_oi": 3090,
-        "raw_C": 0.36458432732071766,
+        "raw_C": 0.35840103089458575,
         "raw_C_prev": 0.3668042625613535,
-        "raw_P": 0.3942404574074147,
+        "raw_P": null,
         "raw_P_prev": 0.3635959415151251,
-        "raw_avg": 0.3794123923640662,
-        "smooth": 0.364773882405341,
+        "raw_avg": 0.35840103089458575,
+        "smooth": 0.3596408720881791,
         "smooth_prev": 0.3664742727960376,
         "strike": 6400
       },
       {
-        "call_oi": 9153,
-        "iv_change": -0.0016,
+        "call_oi": 8660,
+        "iv_change": -0.0067,
         "prev_avg": 0.3736708061169562,
         "put_oi": 799,
-        "raw_C": 0.37296122109404056,
+        "raw_C": 0.37134765299434536,
         "raw_C_prev": 0.37411561741520527,
-        "raw_P": 0.39813783079239784,
+        "raw_P": null,
         "raw_P_prev": 0.36317035978309525,
-        "raw_avg": 0.38554952594321923,
-        "smooth": 0.37203696662291524,
+        "raw_avg": 0.37134765299434536,
+        "smooth": 0.36694809691329144,
         "smooth_prev": 0.3736708061169562,
         "strike": 6500
       },
       {
-        "call_oi": 5338,
-        "iv_change": -0.0016,
+        "call_oi": 5126,
+        "iv_change": -0.0066,
         "prev_avg": 0.38069920125320916,
         "put_oi": 699,
-        "raw_C": 0.3782349259081763,
+        "raw_C": 0.3745633741202239,
         "raw_C_prev": 0.38048969212889455,
-        "raw_P": 0.41124550945154487,
+        "raw_P": null,
         "raw_P_prev": 0.3692736527822637,
-        "raw_avg": 0.39474021767986056,
-        "smooth": 0.3791236322492838,
+        "raw_avg": 0.3745633741202239,
+        "smooth": 0.37407834922952726,
         "smooth_prev": 0.38069920125320916,
         "strike": 6600
       },
       {
-        "call_oi": 6131,
-        "iv_change": -0.0015,
+        "call_oi": 6035,
+        "iv_change": -0.0065,
         "prev_avg": 0.38755557734774687,
         "put_oi": 482,
-        "raw_C": 0.3843842301756265,
+        "raw_C": 0.3840034092275011,
         "raw_C_prev": 0.38609774369756084,
-        "raw_P": 0.41591018782390177,
+        "raw_P": null,
         "raw_P_prev": 0.36666564038124294,
-        "raw_avg": 0.40014720899976414,
-        "smooth": 0.3860305871869815,
+        "raw_avg": 0.3840034092275011,
+        "smooth": 0.38102850305201424,
         "smooth_prev": 0.38755557734774687,
         "strike": 6700
       },
       {
-        "call_oi": 3731,
-        "iv_change": -0.0015,
+        "call_oi": 3640,
         "prev_avg": 0.39423992187408513,
         "put_oi": 399,
-        "raw_C": 0.3923998948728961,
+        "raw_C": 0.39320228869750684,
         "raw_C_prev": 0.395255381099786,
-        "raw_P": 0.4259969551985168,
+        "raw_P": null,
         "raw_P_prev": 0.38061450553398135,
-        "raw_avg": 0.40919842503570647,
-        "smooth": 0.39275859601750507,
+        "raw_avg": 0.39320228869750684,
         "smooth_prev": 0.39423992187408513,
         "strike": 6800
       },
       {
-        "call_oi": 4910,
-        "iv_change": -0.0014,
+        "call_oi": 4922,
         "prev_avg": 0.4007546621620443,
         "put_oi": 189,
-        "raw_C": 0.3980925164820304,
+        "raw_C": 0.39648515902242437,
         "raw_C_prev": 0.4000226108297528,
-        "raw_P": 0.4477932489850776,
+        "raw_P": null,
         "raw_P_prev": 0.38076251965919794,
-        "raw_avg": 0.422942882733554,
-        "smooth": 0.39931089222956484,
+        "raw_avg": 0.39648515902242437,
         "smooth_prev": 0.4007546621620443,
         "strike": 6900
       },
       {
-        "call_oi": 10092,
+        "call_oi": 10742,
         "put_oi": 168,
-        "raw_C": 0.4046625577807956,
+        "raw_C": 0.40981909759400637,
         "raw_C_prev": 0.40650866488036147,
-        "raw_P": 0.4617281030436335,
+        "raw_P": null,
         "raw_P_prev": 0.36832112308495163,
-        "raw_avg": 0.43319533041221453,
+        "raw_avg": 0.40981909759400637,
         "strike": 7000
       },
       {
-        "call_oi": 1802,
+        "call_oi": 1913,
         "put_oi": 104,
-        "raw_C": 0.413927114610362,
+        "raw_C": 0.4254115364991589,
         "raw_C_prev": 0.41356094057644205,
-        "raw_P": 0.46706421361126205,
+        "raw_P": null,
         "raw_P_prev": 0.40283947056620617,
-        "raw_avg": 0.44049566411081204,
+        "raw_avg": 0.4254115364991589,
         "strike": 7100
       },
       {
-        "call_oi": 2936,
+        "call_oi": 3058,
         "put_oi": 70,
-        "raw_C": 0.4240867838968496,
+        "raw_C": 0.4275084267564125,
         "raw_C_prev": 0.42060404711465044,
-        "raw_P": 0.48235515590461125,
+        "raw_P": null,
         "raw_P_prev": 0.37688233169019103,
-        "raw_avg": 0.45322096990073046,
+        "raw_avg": 0.4275084267564125,
         "strike": 7200
       },
       {
-        "call_oi": 1815,
+        "call_oi": 1780,
         "put_oi": 77,
-        "raw_C": 0.426689468996207,
+        "raw_C": 0.4269009064720516,
         "raw_C_prev": 0.4263136975418079,
-        "raw_P": 0.5019914259209742,
+        "raw_P": null,
         "raw_P_prev": 0.3368273162723939,
-        "raw_avg": 0.4643404474585906,
+        "raw_avg": 0.4269009064720516,
         "strike": 7300
       },
       {
-        "call_oi": 1588,
+        "call_oi": 1529,
         "put_oi": 52,
-        "raw_C": 0.4357843179586386,
+        "raw_C": 0.47498746233595796,
         "raw_C_prev": 0.430886484680726,
-        "raw_P": 0.5268071650143994,
+        "raw_P": null,
         "raw_P_prev": 0.5181405873360099,
-        "raw_avg": 0.481295741486519,
+        "raw_avg": 0.47498746233595796,
         "strike": 7400
       },
       {
-        "call_oi": 1812,
+        "call_oi": 2036,
         "put_oi": 59,
-        "raw_C": 0.43550290192468966,
+        "raw_C": 0.44516813891675744,
         "raw_C_prev": 0.4378771285526023,
-        "raw_P": 0.5436391594510964,
+        "raw_P": null,
         "raw_P_prev": null,
-        "raw_avg": 0.48957103068789304,
+        "raw_avg": 0.44516813891675744,
         "strike": 7500
       },
       {
-        "call_oi": 1254,
+        "call_oi": 1274,
         "put_oi": 31,
-        "raw_C": 0.44600230161833154,
+        "raw_C": 0.44319967505236146,
         "raw_C_prev": 0.44931512779908256,
-        "raw_P": 0.5612191254827678,
+        "raw_P": null,
         "raw_P_prev": 0.5504984363786293,
-        "raw_avg": 0.5036107135505496,
+        "raw_avg": 0.44319967505236146,
         "strike": 7600
       },
       {
-        "call_oi": 1018,
+        "call_oi": 1094,
         "put_oi": 34,
-        "raw_C": 0.4549473381090204,
+        "raw_C": 0.46539383737996776,
         "raw_C_prev": 0.4554860878219991,
-        "raw_P": 0.5797832926963313,
+        "raw_P": null,
         "raw_P_prev": 0.5653993776397539,
-        "raw_avg": 0.5173653154026758,
+        "raw_avg": 0.46539383737996776,
         "strike": 7700
       },
       {
-        "call_oi": 1101,
+        "call_oi": 1131,
         "put_oi": 38,
-        "raw_C": 0.46207881856830124,
+        "raw_C": 0.47027552442622095,
         "raw_C_prev": 0.46370914810230957,
-        "raw_P": 0.6046306926517521,
+        "raw_P": null,
         "raw_P_prev": null,
-        "raw_avg": 0.5333547556100267,
+        "raw_avg": 0.47027552442622095,
         "strike": 7800
       },
       {
-        "call_oi": 1278,
+        "call_oi": 1204,
         "put_oi": 38,
-        "raw_C": 0.4669847467736712,
+        "raw_C": 0.555866160762153,
         "raw_C_prev": 0.47014813390628124,
-        "raw_P": 0.6188553543225357,
+        "raw_P": null,
         "raw_P_prev": null,
-        "raw_avg": 0.5429200505481034,
+        "raw_avg": 0.555866160762153,
         "strike": 7900
       },
       {
-        "call_oi": 7794,
+        "call_oi": 7646,
         "put_oi": 59,
-        "raw_C": 0.48289118513141693,
+        "raw_C": 0.5019151729359907,
         "raw_C_prev": 0.48606689543527787,
-        "raw_P": 0.6359578617139457,
+        "raw_P": null,
         "raw_P_prev": null,
-        "raw_avg": 0.5594245234226813,
+        "raw_avg": 0.5019151729359907,
         "strike": 8000
       }
     ],
     "expiry": "2026-08-12T00:00:00",
-    "futures_price": 5752,
-    "is_cold_start_fallback": false,
+    "futures_price": 5648,
+    "is_cold_start_fallback": true,
     "is_trading_hours": true,
-    "last_update": "2026-07-16T11:15:26.668077",
+    "last_update": "2026-07-16T09:00:15.578695",
     "max_pain": 5900,
     "prev_atm_strike": 5800,
     "prev_interval_key": "15:00收盘",
     "prev_timestamp": "07/15 15:00",
     "ref_strike": 5900,
     "skew_audit": {
-      "current_curvature": 3.493791454115971,
-      "current_rho": 0.13687551908381895,
-      "current_skew": 0.3921369144846603,
+      "current_curvature": 4.58650164252029,
+      "current_rho": 0.010265989917018041,
+      "current_skew": 0.3451069149439355,
       "formula": "skew = dσ/dk|ATM = dw/dk / (2*sqrt(w*T)), k=ln(K/F)",
-      "interpretation": "当前skew=0.392，rho=0.137，口径判断为中等偏斜；负值表示左侧/低行权价方向隐波相对更高。",
+      "interpretation": "当前skew=0.345，rho=0.010，口径判断为中等偏斜；负值表示左侧/低行权价方向隐波相对更高。",
       "label": "中等偏斜",
       "meaning": "展示的 skew 是ATM附近隐含波动率曲线一阶斜率，不是SVI原始参数rho；rho只控制左右偏斜方向。",
       "recommendation": "保留当前公式；前端/研报展示时标注为“ATM偏度(dσ/dlnK)”以避免与rho或翼部偏斜混淆。",
       "status": "ok"
     },
     "svi_params": {
-      "a": 0.0053776569476001596,
-      "atm_vol": 0.3159873856657861,
-      "b": 0.025606065632867606,
-      "curvature": 3.493791454115971,
-      "m": -0.05603807284023236,
+      "a": 0.004748561376587759,
+      "atm_vol": 0.30355433498185946,
+      "b": 0.029320391289370175,
+      "curvature": 4.58650164252029,
+      "m": -0.05047336011490136,
       "metric_note": {
         "curvature": "curvature = ATM附近二阶凸性近似值，数值越大表示微笑越弯。",
         "rho": "rho 是 SVI 原始参数中的偏斜控制项，通常为负表示左偏，但与展示层 skew 不是同一数值。",
         "rmse": "rmse 表示拟合误差，越小越好。",
         "skew": "ATM skew = dσ/dk|0，表示ATM附近隐波对数价差的一阶斜率；不是rho本身，也不是翼部斜率。"
       },
-      "min_var": 0.0071497297878575965,
-      "rho": 0.13687551908381895,
-      "rmse": 0.0010680036064107704,
-      "sigma": 0.06986272806168507,
-      "skew": 0.3921369144846603,
+      "min_var": 0.006920846596248176,
+      "rho": 0.010265989917018041,
+      "rmse": 0.0015359177750961627,
+      "sigma": 0.0740917703462807,
+      "skew": 0.3451069149439355,
       "success": true
     },
-    "underlying_price": 5752,
+    "underlying_price": 5648,
     "using_night_fallback": false
   },
   "industry_analysis": {
@@ -6491,16 +6509,16 @@
     "title": "盘中综合研判",
     "summary": "当前 PTA 不适合简单看空。",
     "conclusion": "当前市场判断：短线“震荡”，但不是单边空头。",
-    "trader_report": "PTA 最新综合研判\n\n一、核心结论\n当前 PTA 不适合简单看空。\n产业链给出的底色是偏强震荡、有支撑但上方也有压制。当前核心区间先看5900—6500，不是无脑追多，也不是在5900上方主动追空。\n期权结构上，当前价格处于负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动，这意味着一旦关键位置被突破，波动容易被放大。\n\n二、宏观与成本端\n日内基本面不做机械重复改写，作为背景锚处理：成本端地缘溢价大幅走强（WTI 79.34/布伦特 84.73 美伊冲突推升），PX CFR 中国单日暴涨 61 美元至 1089.67 美元/吨；自身端 PTA 开工率创历史新低 52.88%+社会库存周去库近 33 万吨+现货加工费 650 元/吨高位；地缘成本与供应收缩共振短期偏强。\n原油/PX若继续偏强，会给PTA下方托底；如果中东缓和、原油回落或PX转弱，则多头会受压。当前PTA利润约796元，加工费偏高会限制上方持续单边拉涨空间。\n\n三、PTA自身基本面\n现货参考5970，基差+220（即PTA现货 − 盘面主力参考价），PX参考7900，PTA估算成本5174。现货/成本仍提供支撑，但高加工费和装置重启预期会压制追多空间。\n\n四、当前期权结构\n期权链标的参考价：5746；Max Pain：5900；GEX Flip：5654；净GEX：-2.1M；Gamma方向：negative；PCR：0.976；剩余到期：约27.2天。\n临近到期，5900对价格有明显吸引力；站回5654后负Gamma压力缓和，跌破5900则负Gamma可能放大下跌。\n\n五、持仓压力与支撑\n下方Put防线重点看5900、5500；上方Call压力重点看6500以及更高Call集中区。持仓给出的不是单边方向，而是区间边界。\n\n六、隐波与风险情绪\nATM隐波约31.6%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果Put保护溢价继续高于Call，说明市场仍在为下跌尾部风险付费；临近到期买方不能在中间位置随意追。\n\n七、交易策略\n1. 期货操作\n5900上方不追空；5654下方不盲目追多；站回5654才考虑短多延续；跌破5900才考虑顺势空头，下一层关注5500。\n2. 期权卖方策略\n临近到期Theta衰减快，但负Gamma环境下不裸卖近端Put。若价格维持在5900上方，可优先考虑有保护的价差结构；若跌破5900，卖Put风险快速上升。\n3. 期权买方策略\n买Put触发点看有效跌破5900，最好伴随原油/PX走弱或盘面放量；买Call触发点看重新站回5654，否则容易被时间价值消耗。\n\n八、最终判断\n基本面偏强支撑，期权结构偏震荡拉扯，短线处于负Gamma敏感区。5900不破，短期仍以偏强震荡对待；站上5654，价格有机会继续试探6500；跌破5900，负Gamma可能放大下跌，回看5500。",
+    "trader_report": "PTA 最新综合研判\n\n一、核心结论\n当前 PTA 不适合简单看空。\n产业链给出的底色是偏强震荡、有支撑但上方也有压制。当前核心区间先看5900—5800，不是无脑追多，也不是在5900上方主动追空。\n期权结构上，当前价格处于负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动，这意味着一旦关键位置被突破，波动容易被放大。\n\n二、宏观与成本端\n日内基本面不做机械重复改写，作为背景锚处理：成本端地缘溢价大幅走强（WTI 79.34/布伦特 84.73 美伊冲突推升），PX CFR 中国单日暴涨 61 美元至 1089.67 美元/吨；自身端 PTA 开工率创历史新低 52.88%+社会库存周去库近 33 万吨+现货加工费 650 元/吨高位；地缘成本与供应收缩共振短期偏强。\n原油/PX若继续偏强，会给PTA下方托底；如果中东缓和、原油回落或PX转弱，则多头会受压。当前PTA利润约796元，加工费偏高会限制上方持续单边拉涨空间。\n\n三、PTA自身基本面\n现货参考5970，基差+300（即PTA现货 − 盘面主力参考价），PX参考7900，PTA估算成本5174。现货/成本仍提供支撑，但高加工费和装置重启预期会压制追多空间。\n\n四、当前期权结构\n期权链标的参考价：5648；Max Pain：5900；GEX Flip：5648；净GEX：-11.6M；Gamma方向：negative；PCR：0.974；剩余到期：约27.2天。\n临近到期，5900对价格有明显吸引力；站回5648后负Gamma压力缓和，跌破5900则负Gamma可能放大下跌。\n\n五、持仓压力与支撑\n下方Put防线重点看5900、5500；上方Call压力重点看5800以及更高Call集中区。持仓给出的不是单边方向，而是区间边界。\n\n六、隐波与风险情绪\nATM隐波约30.4%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果Put保护溢价继续高于Call，说明市场仍在为下跌尾部风险付费；临近到期买方不能在中间位置随意追。\n\n七、交易策略\n1. 期货操作\n5900上方不追空；5648下方不盲目追多；站回5648才考虑短多延续；跌破5900才考虑顺势空头，下一层关注5500。\n2. 期权卖方策略\n临近到期Theta衰减快，但负Gamma环境下不裸卖近端Put。若价格维持在5900上方，可优先考虑有保护的价差结构；若跌破5900，卖Put风险快速上升。\n3. 期权买方策略\n买Put触发点看有效跌破5900，最好伴随原油/PX走弱或盘面放量；买Call触发点看重新站回5648，否则容易被时间价值消耗。\n\n八、最终判断\n基本面偏强支撑，期权结构偏震荡拉扯，短线处于负Gamma敏感区。5900不破，短期仍以偏强震荡对待；站上5648，价格有机会继续试探5800；跌破5900，负Gamma可能放大下跌，回看5500。",
     "futures_panel": "",
     "option_structure": "负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动",
     "macro_fundamental": "宏观基本面：以宏观财经快讯和成本链为主，暂不展示周频供需项。",
     "strategy_judgement": "",
-    "narrative": "========================================================================\n📊 PTA 期权四维决策报告（v2.11.85b）\n生成时间: 2026-07-16T11:15:00\n合约: - | 期货价: 5746 | ATM: 0 | MP: 5900\n最后更新: 2026-07-16T11:15:00.416422 | TqSdk: -\n========================================================================\n\n【第一层】PAIN 结构（权重 35%）\n  维度: 形态=leftSteep | 位置=belowMP | GEX=negative | P vs Flip=above\n  业务: 强空头，下跌自我强化（左侧加速器激活），GEX负放大跌幅，接近情绪极值\n  PCR: 持仓PCR=0.98 平衡（加成 +0.0）\n  评分逻辑: 强空头+负GEX放大（强空）\n  ➜ 评分: -0.60\n\n【第二层】GEX 机制（权重 25%）\n  维度: GEX=negative | P vs Flip=above\n  业务: 负GEX + P在Flip上方 → 卖方对冲买压释放（涨幅被放大，但也有回调风险）\n  评分逻辑: 弱空机制（涨幅放大但有支撑）\n  ➜ 评分: -0.10\n\n【第三层】资金意图（权重 25%）\n  Put 性质: hedge_sell (套保卖权)\n    业务: 卖 Put 集中（左侧加速器加码 = 投机/做市商认为下方有支撑收租）\n  Call 性质: hedge_sell (套保卖权)\n    业务: 卖 Call 收租（产业锁定销售顶价 = 中性，不站队方向）\n  原始 label: 多空分化(慢牛+慢熊) (弱)\n  ✅ 标准化 label: hedge_buy_mid / noise_open_strong (强)\n  strike 修正: Call 中强度主导: hedge_buy 52.9% 40-60% | Put ★强信号★: noise_open 68.6% > 60%\n  Call 角色: 5900C(产业买保 OI+19.8% IV-0.14pp) / 6500C(noise_open OI+13.4% IV-0.18pp) / 6600C(noise_open OI+17.5% IV-0.18pp) / 6100C(被动平仓 OI-12.5% IV-0.12pp) / 6000C(产业买保 OI+7.0% IV-0.27pp)\n  Put 角色: 5000P(noise_open OI+28.8% IV+0.37pp) / 5200P(产业买保 OI+11.0% IV-0.01pp) / 5100P(noise_open OI+13.5% IV+0.13pp) / 5700P(产业买保 OI+8.1% IV-0.30pp) / 4950P(noise_open OI+16.2% IV+0.05pp)\n  ⚖️ v2.11.85a 加权: Call hedge_buy_mid | Put noise_open_strong\n    Call verdict: 中强度主导: hedge_buy 52.9% 40-60%\n    Put verdict: ★强信号★: noise_open 68.6% > 60%\n    Call 方向: 偏空(防御)\n    Put 方向: 中性\n  PCR: now=0.976 | prev=0.943 | delta=+0.033 (↑)\n  数据质量(v2.11.85a): confidence=-, OI≥1000, IV≥5.0-门槛, eligible_call=-/-\n  ➜ 评分: +0.00\n\n【第四层】情绪确认（权重 15%）\n  成交 PCR: now=0.983 | prev=0.512\n  持仓 PCR: now=0.976 | prev=0.943\n  ATM 隐波: Call=31.38% | Put=31.05%\n  趋势: F 5752 → 5746 (down, -6)\n  评分逻辑: 乐观消退（空头信号）\n  ➜ 评分: -0.40\n\n========================================================================\n🎯 综合判断（按权重叠加）\n========================================================================\n  决策: 观望（置信度: 中）\n  总分: -0.295\n  逻辑链: L1(PAIN 结构) [leftSteep + belowMP + GEX negative + P vs Flip above → 强空头+负GEX放大（强空）] → L2(GEX 机制) [GEX negative + P above Flip + 净GEX -2.1M → 弱空机制（涨幅放大但有支撑）] → L3(资金意图) [Put hedge_sell + Call hedge_sell → 箱体震荡] → L4(情绪确认) [成交PCR=0.98 中性区间 | 成交PCR 从 0.51 上升至 0.98（乐观消退）→ 空头 | ATM 隐波 31.22% | ATM 隐波 31.2% 处于高位（恐慌区域）]\n\n📋 各层贡献:\n  PAIN 结构=-0.60 (权重 35%)\n  GEX 机制=-0.10 (权重 25%)\n  资金意图=+0.00 (权重 25%)\n  情绪确认=-0.40 (权重 15%)\n\n========================================================================\n\n当前市场判断：短线“震荡”，但不是单边空头。\n\n1. 期货价格层面（期货盘面）：短线节奏看盘面主力，期权结构看期权链标的参考价。\n| 项目 | 当前值 | 交易含义 |\n| --- | --- | --- |\n| 期权链标的参考价 | 5746 | 用于GEX、Pain、OI和IV结构判断 |\n| 盘面主力参考价 | TA 5750 | K线短线节奏：短线偏强 |\n| 最近20根K线 | +12 | 观察日内强弱和追单风险 |\n| PTA现货 | 5970 | 现货/成本锚 |\n| 基差 | +220 | PTA现货 − 盘面主力参考价；升水偏强、贴水偏弱 |\n期权链标的参考价5746用于GEX、Pain、OI与IV等结构判断，盘面主力参考价 TA 5750负责K线节奏；两者各管一段，不要把结构位和短线信号混为一个价格。\n盘面主力参考价 TA 5750：最近一根变化-4点，过去20根累计+12点，节奏判定为短线偏强。期权链标的参考价5746用于判断GEX、Pain和持仓压力，不与盘面价混在一起下结论。\n\n2. GEX结构：价格所处Gamma区决定波动是否容易被放大。\n| 指标 | 当前值 |\n| --- | --- |\n| 标的价F | 5746 |\n| GEX Flip | 5654 |\n| 净GEX | -2.1M |\n| Gamma方向 | negative |\n| Max Pain | 5900 |\n| PCR | 0.976 |\n| 剩余到期 | 27.2天 |\nGEX处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。交易上先盯两条线：5900若失守，负Gamma容易放大顺势波动；5654若被重新收复，追涨杀跌压力会减轻。\n核心含义：F=5746 高于或接近 GEX Flip=5654，当前处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。若价格重新站回5654/6500上方，负Gamma压力会缓和；若跌破5900附近，波动可能更顺。\n\n3. Max Pain：临近到期关注痛点收敛，而不是简单看多看空。\n| 行权价 | Pain | 备注 |\n| --- | --- | --- |\n| 5900 | 93,768,750 | 最低 |\n| 5800 | 99,961,250 |  |\n| 6000 | 95,536,750 |  |\n| 5700 | 113,087,750 |  |\n| 6100 | 102,942,750 |  |\n当前Max Pain=5900。当前期权标的价距离Max Pain约-154点，临近到期存在向5900收敛的引力。 因此期权维度不是极端单边，而是上方Call压力、下方痛点/Put防线共同约束。\n\n4. 持仓结构：Put持仓偏多时要区分保护盘和主动空头。\n当前总持仓：Call OI=124,042，Put OI=121,084，PCR=0.976。\nPut持仓集中：\n| Put行权价 | Put OI |\n| --- | --- |\n| 5000 | 21,030 |\n| 5900 | 9,066 |\n| 4200 | 8,071 |\n| 6100 | 7,899 |\n| 5500 | 6,426 |\nCall持仓集中：\n| Call行权价 | Call OI |\n| --- | --- |\n| 7000 | 10,092 |\n| 6500 | 9,162 |\n| 5800 | 8,741 |\n| 6300 | 8,617 |\n| 8000 | 7,794 |\n解读：Put集中在5000, 5900, 4200，Call压力集中在7000, 6500, 5800, 6300。大致结构是：5900为痛点锚，5654为波动分界，6500及以上为压力带。\n\n5. IV结构：看ATM隐波是否够高，也看左侧保护溢价。\n| K | C IV | P IV | SVI/平滑IV | OI结构 |\n| --- | --- | --- | --- | --- |\n| 5600 | 30.67% | 30.75% | 30.69% | C 2,855 / P 4,138 |\n| 5700 | 31.21% | 31.24% | 31.26% | C 5,303 / P 4,190 |\n| 5800 | 31.85% | 31.90% | 31.93% | C 8,742 / P 5,130 |\n| 5900 | 32.68% | 32.80% | 32.67% | C 6,864 / P 9,068 |\n| 6000 | 33.38% | 33.50% | 33.44% | C 7,400 / P 3,857 |\nATM隐波约31.6%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。\nATM附近隐波约31.6%，属于高波动率；右偏(看涨溢价偏高)，上行博弈需求旺盛；低曲率(曲线扁平)，市场对尾部风险定价不足。左侧Put IV若显著高于ATM，说明市场对下跌尾部风险有定价。\n\n5.5 性质判定 × 合成信号（v2.11.63d 资金意图精细化）\n形态：[左右对称]；位置：低位(P<MP)；PCR 0.976↑（前日 0.943）\nPCR 业务解读：PCR↑ = Put 持仓增速 > Call 持仓增速（0.976↑ vs 0.943）\n基准：今日 15:00 当前 vs 昨日 15:00 收盘（alert_data OI/IV prev 字段）。\n| 维度 | 当前 | 前次 | 变化 | 性质 | 业务解读 |\n| --- | --- | --- | --- | --- | --- |\n| Put | 121,084 | 113,374 | OI +6.8%\nIV -0.78pp | 套保卖权 | 卖 Put 集中（左侧加速器加码 = 投机/做市商认为下方有支撑收租） |\n| Call | 124,042 | 120,193 | OI +3.2%\nIV -3.47pp | 套保卖权 | 卖 Call 收租（产业锁定销售顶价 = 中性，不站队方向） |\n合成信号：中性偏慢牛（弱）\nPut 端(套保卖权) + Call 端(套保卖权) 总量均中性，但 strike 级别方向分化 → Call 端慢牛（投机在 5329C 离场，产业在 6117C 收租，spread=788点）\n\n📊 Strike 级别方向异质性（区分投机端 vs 产业端）：\nCall 端：产业卖权收租(5900C/6600C/6000C, OI增量51%) / 投机/对冲端撤退(6100C/5300C/5400C, OI减量21%) / 产业买保(6500C/6200C/6300C) / 卖方平仓(6400C/5500C)\nPut  端：投机/对冲端撤退(6000P, OI减量3%) / 投机端加仓(5000P/4950P/5100P) / 产业买保(5700P/5600P/5300P) / 卖方平仓(4900P/6200P)\n| 角色/分组 | Call strike 级别 | Put strike 级别 |\n| --- | --- | --- |\n| 产业卖权收租 (OI↑IV↓) | 5900C OI+19.9% IV-0.29pp 6600C OI+17.5% IV-0.23pp 6000C OI+6.8% IV-0.40pp 5600C OI+3.7% IV-0.44pp 5700C OI+3.4% IV-0.38pp | -- |\n| 产业买保 (OI↑IV—) | 6500C OI+13.3% IV-0.11pp 6200C OI+5.4% IV-0.07pp 6300C OI+1.0% IV-0.03pp | 5700P OI+8.1% IV-0.11pp 5600P OI+5.1% IV+0.05pp 5300P OI+2.0% IV+0.03pp 5800P OI+1.6% IV-0.09pp |\n| 投机端加仓 (OI↑IV↑) | -- | 5000P OI+28.8% IV+0.56pp 4950P OI+16.2% IV+0.23pp 5100P OI+13.7% IV+0.33pp 5200P OI+11.1% IV+0.21pp 6400P OI+0.8% IV+3.06pp 6100P OI-0.8% IV+0.24pp 6300P OI+0.0% IV+2.26pp |\n| 投机/对冲撤退 (OI↓IV↓/—) | -- | -- |\n| 卖方平仓 (OI↓IV↑) | 6400C OI+0.7% IV-0.22pp 5500C OI-0.6% IV-0.46pp | 4900P OI-12.4% IV+0.17pp 6200P OI+0.2% IV-0.65pp |\n\n6. 基本面与宏观：先看宏观快讯和成本链，周频供需项暂不放入盘中主研判。\n| 项目 | 当前值 | 解读 |\n| --- | --- | --- |\n| Brent | $85.21，+0.31% | 原油宏观成本 |\n| WTI | $80.06，+0.58% | 原油宏观成本 |\n| PX现货 | 7900 | 内盘成本端 |\n| PX外盘现货价 | $1089.67/吨 | manual:人工；汇率6.7909 |\n| PTA估算成本 | 5174 | 内盘成本支撑区 |\n| 外盘PTA动态成本 | 5532 | PX亚洲收盘价*0.655*1.01*1.13*USD/CNY |\n| PTA利润 | 796，15.4% | 利润高则供应压力偏空 |\n| 环节 | 开工率 | 较前值 | 库存 | 较前值 |\n| --- | --- | --- | --- | --- |\n| PX | 62.6% | 暂无前值 | -- | 暂无前值 |\n| PTA | 52.9% | 暂无前值 | 271.9万吨 | 暂无前值 |\n| 聚酯 | 80.2% | 暂无前值 | -- | 暂无前值 |\n| 织造 | 52.9% | 暂无前值 | -- | 暂无前值 |\n宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：【人工宏观基本面】7月13日美伊冲突全面升级，美军实施海上封锁，霍尔木兹海峡通航大幅萎缩，WTI 79.34/布伦特 84.73 美元/桶推升一个月新高。PX CFR 中国暴涨 61 美元至 1089.67 美元/吨，国内 PX 开工率维持 62.58% 历史低位（威联化学、海南炼化、盛虹、福海创、中金石化等多套装置检修）。PTA 端产能利用率降至 52.88% 创历史新低，社会库存 271.91 万吨周去库近 33 万吨，现货加工费 650 元/吨高位。机构整体看多，但中期警惕 7 月底至 8 月初 1320 万吨装置集中重启带来的加工费收缩压力。；7/15 PX CFR 中国收 1089.67 美元/吨，单日暴涨 61 美元/吨（+5.9%）；此前 7 月 1-13 日 PX 均价约 1006.75 美元/吨，近期快速走高。外盘PX$1089.67/吨，对应外盘PTA动态成本约5532元/吨；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。\n自动快讯（去重人工摘要）：7/15 PX CFR 中国收 1089.67 美元/吨，单日暴涨 61 美元/吨（+5.9%）；此前 7 月 1-13 日 PX 均价约 1006.75 美元/吨，近期快速走高；国内 PX 开工率 62.58% 维持历史低位，威联化学 200 万吨、海南炼化 160 万吨、盛虹 400 万吨、福海创 160 万吨、中金石化 160 万吨等多套装置仍在检修；7 月中上旬亚洲 PX 整体供应受抑制；PX-石脑油价差走扩，PTA 成本端支撑强化。\n基本面不是单边空：现货/成本可能提供下方支撑；但加工利润796元若处在偏高区域，容易限制上方弹性。\n\n综合结论\n当前主线：震荡，核心区间关注5900—6500。期权结构处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动，真正的方向触发在5900跌破或5654/6500重新站上。\n\n关键价位\n| 位置 | 含义 |\n| --- | --- |\n| 5654 | GEX Flip，重新站上后负Gamma压力缓和 |\n| 5900 | Max Pain + 临近到期收敛锚 |\n| 5500 | 近端Put防线/有效支撑 |\n| 6500 | 近端Call压力/有效压力 |\n| 7000 | 上方最大Call持仓压力带 |\n| 5000 | 下方最大Put保护盘区域 |\n\n操作思路，仅按结构说\n如果偏交易期货：\n• 5654 / 6500下方不宜追多，先按反抽压力处理。\n• 跌破5900并放量增仓，负Gamma可能放大下跌，下一目标看5500。\n• 重新站回5654，空头动能减弱，回到区间震荡。\n如果偏期权卖方：\n• 临近到期Theta衰减快，震荡时卖方有时间价值优势。\n• 负Gamma环境不裸卖近端Put，尤其是5900失守后。\n• 若站回5654，可考虑更稳健的宽跨/价差结构。\n如果偏买方：\n• 买Put触发点优先看5900有效跌破。\n• 买Call触发点看重新站回5654或压力位后的修复。\n• 夹在痛点和压力之间横盘时，买方容易被时间价值消耗。\n\n一句话总结：当前不是强多盘，主线短线偏强；看5900是否守住——守住则向5900—6500区间收敛，跌破则负Gamma会放大下跌。",
+    "narrative": "========================================================================\n📊 PTA 期权四维决策报告（v2.11.85b）\n生成时间: 2026-07-16T09:00:00\n合约: - | 期货价: 5648 | ATM: 0 | MP: 5900\n最后更新: 2026-07-16T09:00:00.708804 | TqSdk: -\n========================================================================\n\n【第一层】PAIN 结构（权重 35%）\n  维度: 形态=leftSteep | 位置=belowMP | GEX=negative | P vs Flip=at\n  业务: 强空头，下跌自我强化（左侧加速器激活），GEX负放大跌幅，接近情绪极值\n  PCR: 持仓PCR=1.24 平衡（加成 +0.0）\n  评分逻辑: 强空头+负GEX放大（强空）\n  ➜ 评分: -0.60\n\n【第二层】GEX 机制（权重 25%）\n  维度: GEX=negative | P vs Flip=at\n  业务: 负GEX + P接近Flip → 波动机制即将切换（最危险拐点）\n  评分逻辑: 中空机制（拐点） | 净GEX 恶化 -9.6M\n  ➜ 评分: -0.30\n\n【第三层】资金意图（权重 25%）\n  Put 性质: hedge_sell (套保卖权)\n    业务: 卖 Put 集中（左侧加速器加码 = 投机/做市商认为下方有支撑收租）\n  Call 性质: hedge_sell (套保卖权)\n    业务: 卖 Call 收租（产业锁定销售顶价 = 中性，不站队方向）\n  原始 label: 多空分化(慢牛+慢熊) (弱)\n  ✅ 标准化 label: hedge_sell_strong / noise_open_strong (强)\n  strike 修正: Call ★强信号★: hedge_sell 79.5% > 60% | Put ★强信号★: noise_open 68.8% > 60%\n  Call 角色: 5900C(产业收租 OI+19.7% IV-0.82pp) / 6000C(产业收租 OI+9.9% IV-0.75pp) / 6200C(产业收租 OI+7.4% IV-0.57pp) / 6100C(双边撤退 OI-7.6% IV-0.91pp) / 5600C(产业收租 OI+4.8% IV-0.99pp)\n  Put 角色: 5000P(noise_open OI+44.2% IV+0.06pp) / 5100P(产业买保 OI+16.6% IV-0.35pp) / 5300P(双边撤退 OI-6.5% IV-0.71pp) / 5500P(双边撤退 OI-5.0% IV-0.87pp) / 4950P(产业收租 OI+16.6% IV-0.50pp)\n  ⚖️ v2.11.85a 加权: Call hedge_sell_strong | Put noise_open_strong\n    Call verdict: ★强信号★: hedge_sell 79.5% > 60%\n    Put verdict: ★强信号★: noise_open 68.8% > 60%\n    Call 方向: 中性\n    Put 方向: 中性\n  PCR: now=0.974 | prev=0.943 | delta=+0.031 (↑)\n  数据质量(v2.11.85a): confidence=-, OI≥1000, IV≥5.0-门槛, eligible_call=-/-\n  ➜ 评分: +0.00\n\n【第四层】情绪确认（权重 15%）\n  成交 PCR: now=1.237 | prev=0.512\n  持仓 PCR: now=0.974 | prev=0.943\n  ATM 隐波: Call=30.12% | Put=29.82%\n  趋势: F 5752 → 5648 (down, -104)\n  评分逻辑: 乐观消退（空头信号）\n  ➜ 评分: -0.30\n\n========================================================================\n🎯 综合判断（按权重叠加）\n========================================================================\n  决策: 观望（置信度: 中）\n  总分: -0.330\n  逻辑链: L1(PAIN 结构) [leftSteep + belowMP + GEX negative + P vs Flip at → 强空头+负GEX放大（强空）] → L2(GEX 机制) [GEX negative + P at Flip + 净GEX -11.6M → 中空机制（拐点） | 净GEX 恶化 -9.6M] → L3(资金意图) [Put hedge_sell + Call hedge_sell → 箱体震荡] → L4(情绪确认) [成交PCR 从 0.51 上升至 1.24（乐观消退）→ 空头 | ATM 隐波 0.30% | 趋势↓（F 5752 → 5648，-104）]\n\n📋 各层贡献:\n  PAIN 结构=-0.60 (权重 35%)\n  GEX 机制=-0.30 (权重 25%)\n  资金意图=+0.00 (权重 25%)\n  情绪确认=-0.30 (权重 15%)\n\n========================================================================\n\n当前市场判断：短线“震荡”，但不是单边空头。\n\n1. 期货价格层面（期货盘面）：短线节奏看盘面主力，期权结构看期权链标的参考价。\n| 项目 | 当前值 | 交易含义 |\n| --- | --- | --- |\n| 期权链标的参考价 | 5648 | 用于GEX、Pain、OI和IV结构判断 |\n| 盘面主力参考价 | TA 5670 | K线短线节奏：短线震荡 |\n| 最近20根K线 | +0 | 观察日内强弱和追单风险 |\n| PTA现货 | 5970 | 现货/成本锚 |\n| 基差 | +300 | PTA现货 − 盘面主力参考价；升水偏强、贴水偏弱 |\n期权链标的参考价5648用于GEX、Pain、OI与IV等结构判断，盘面主力参考价 TA 5670负责K线节奏；两者各管一段，不要把结构位和短线信号混为一个价格。\n盘面主力参考价 TA 5670：最近一根变化+22点，过去20根累计+0点，节奏判定为短线震荡。期权链标的参考价5648用于判断GEX、Pain和持仓压力，不与盘面价混在一起下结论。\n\n2. GEX结构：价格所处Gamma区决定波动是否容易被放大。\n| 指标 | 当前值 |\n| --- | --- |\n| 标的价F | 5648 |\n| GEX Flip | 5648 |\n| 净GEX | -11.6M |\n| Gamma方向 | negative |\n| Max Pain | 5900 |\n| PCR | 0.974 |\n| 剩余到期 | 27.2天 |\nGEX处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。交易上先盯两条线：5900若失守，负Gamma容易放大顺势波动；5648若被重新收复，追涨杀跌压力会减轻。\n核心含义：F=5648 高于或接近 GEX Flip=5648，当前处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。若价格重新站回5648/5800上方，负Gamma压力会缓和；若跌破5900附近，波动可能更顺。\n\n3. Max Pain：临近到期关注痛点收敛，而不是简单看多看空。\n| 行权价 | Pain | 备注 |\n| --- | --- | --- |\n| 5900 | 93,722,750 | 最低 |\n| 5800 | 99,884,250 |  |\n| 6000 | 95,500,250 |  |\n| 5700 | 112,993,250 |  |\n| 6100 | 103,030,250 |  |\n当前Max Pain=5900。当前期权标的价距离Max Pain约-252点，临近到期存在向5900收敛的引力。 因此期权维度不是极端单边，而是上方Call压力、下方痛点/Put防线共同约束。\n\n4. 持仓结构：Put持仓偏多时要区分保护盘和主动空头。\n当前总持仓：Call OI=124,494，Put OI=121,313，PCR=0.974。\nPut持仓集中：\n| Put行权价 | Put OI |\n| --- | --- |\n| 5000 | 23,538 |\n| 5900 | 9,025 |\n| 4200 | 8,013 |\n| 6100 | 7,884 |\n| 5500 | 6,148 |\nCall持仓集中：\n| Call行权价 | Call OI |\n| --- | --- |\n| 7000 | 10,742 |\n| 5800 | 8,892 |\n| 6500 | 8,660 |\n| 6300 | 8,613 |\n| 8000 | 7,646 |\n解读：Put集中在5000, 5900, 4200，Call压力集中在7000, 5800, 6500, 6300。大致结构是：5900为痛点锚，5648为波动分界，5800及以上为压力带。\n\n5. IV结构：看ATM隐波是否够高，也看左侧保护溢价。\n| K | C IV | P IV | SVI/平滑IV | OI结构 |\n| --- | --- | --- | --- | --- |\n| 5400 | 29.62% | 29.54% | 29.39% | C 1,449 / P 4,127 |\n| 5500 | 28.65% | 29.61% | 29.61% | C 2,678 / P 6,148 |\n| 5600 | 30.12% | 29.82% | 30.07% | C 2,884 / P 3,746 |\n| 5700 | 30.70% | 30.44% | 30.67% | C 5,119 / P 4,157 |\n| 5800 | 31.31% | 29.97% | 31.38% | C 8,892 / P 5,003 |\nATM隐波约30.4%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。\nATM附近隐波约30.4%，属于高波动率；右偏(看涨溢价偏高)，上行博弈需求旺盛；低曲率(曲线扁平)，市场对尾部风险定价不足。左侧Put IV若显著高于ATM，说明市场对下跌尾部风险有定价。\n\n5.5 性质判定 × 合成信号（v2.11.63d 资金意图精细化）\n形态：[左右对称]；位置：低位(P<MP)；PCR 0.974↑（前日 0.943）\nPCR 业务解读：PCR↑ = Put 持仓增速 > Call 持仓增速（0.974↑ vs 0.943）\n基准：今日 15:00 当前 vs 昨日 15:00 收盘（alert_data OI/IV prev 字段）。\n| 维度 | 当前 | 前次 | 变化 | 性质 | 业务解读 |\n| --- | --- | --- | --- | --- | --- |\n| Put | 121,313 | 113,374 | OI +7.0%\nIV -2.24pp | 套保卖权 | 卖 Put 集中（左侧加速器加码 = 投机/做市商认为下方有支撑收租） |\n| Call | 124,494 | 120,193 | OI +3.6%\nIV -4.80pp | 套保卖权 | 卖 Call 收租（产业锁定销售顶价 = 中性，不站队方向） |\n合成信号：多空分化(慢牛+慢熊)（弱）\nPut 端(套保卖权) + Call 端(套保卖权) 总量均中性，但 strike 级别方向分化 → Call 端慢牛（投机在 5343C 离场，产业在 5942C 收租，spread=600点） | Put 端慢熊（认沽买方在 6000P 撤退，产业在 5146P 收租，spread=854点）\n\n📊 Strike 级别方向异质性（区分投机端 vs 产业端）：\nCall 端：产业卖权收租(5900C/6000C/6200C, OI增量42%) / 投机/对冲端撤退(6100C/5300C/6400C, OI减量16%) / 卖方平仓(6300C/5400C/5700C)\nPut  端：产业卖权收租(5100P/4950P/5700P, OI增量40%) / 投机/对冲端撤退(4900P/5300P/5500P, OI减量29%) / 产业买保(5000P/4850P) / 卖方平仓(6100P/5800P/6400P)\n| 角色/分组 | Call strike 级别 | Put strike 级别 |\n| --- | --- | --- |\n| 产业卖权收租 (OI↑IV↓) | 5900C OI+19.7% IV-0.82pp 6000C OI+9.9% IV-0.75pp 6200C OI+7.4% IV-0.57pp 5600C OI+4.8% IV-0.99pp | 5100P OI+16.6% IV-0.35pp 4950P OI+16.6% IV-0.50pp 5700P OI+7.2% IV-0.91pp |\n| 产业买保 (OI↑IV—) | -- | 5000P OI+44.2% IV+0.06pp 4850P OI+4.8% IV+0.12pp |\n| 投机端加仓 (OI↑IV↑) | -- | -- |\n| 投机/对冲撤退 (OI↓IV↓/—) | -- | -- |\n| 卖方平仓 (OI↓IV↑) | 6300C OI+1.0% IV-0.45pp 5400C OI+0.3% IV-0.93pp 5700C OI-0.2% IV-0.89pp 5800C OI-0.1% IV-0.90pp | 6100P OI-1.0% IV-0.92pp 5800P OI-0.9% IV-2.02pp 6400P OI+0.8% IV-0.40pp 6200P OI-0.4% IV-2.02pp 5200P OI+0.2% IV-0.51pp 5900P OI-0.2% IV-1.41pp 6300P OI+0.0% IV-5.45pp |\n\n6. 基本面与宏观：先看宏观快讯和成本链，周频供需项暂不放入盘中主研判。\n| 项目 | 当前值 | 解读 |\n| --- | --- | --- |\n| Brent | $85.34，+0.46% | 原油宏观成本 |\n| WTI | $80.11，+0.64% | 原油宏观成本 |\n| PX现货 | 7900 | 内盘成本端 |\n| PX外盘现货价 | $1089.67/吨 | manual:人工；汇率6.7910 |\n| PTA估算成本 | 5174 | 内盘成本支撑区 |\n| 外盘PTA动态成本 | 5532 | PX亚洲收盘价*0.655*1.01*1.13*USD/CNY |\n| PTA利润 | 796，15.4% | 利润高则供应压力偏空 |\n| 环节 | 开工率 | 较前值 | 库存 | 较前值 |\n| --- | --- | --- | --- | --- |\n| PX | 62.6% | 暂无前值 | -- | 暂无前值 |\n| PTA | 52.9% | 暂无前值 | 271.9万吨 | 暂无前值 |\n| 聚酯 | 80.2% | 暂无前值 | -- | 暂无前值 |\n| 织造 | 52.9% | 暂无前值 | -- | 暂无前值 |\n宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：【人工宏观基本面】7月13日美伊冲突全面升级，美军实施海上封锁，霍尔木兹海峡通航大幅萎缩，WTI 79.34/布伦特 84.73 美元/桶推升一个月新高。PX CFR 中国暴涨 61 美元至 1089.67 美元/吨，国内 PX 开工率维持 62.58% 历史低位（威联化学、海南炼化、盛虹、福海创、中金石化等多套装置检修）。PTA 端产能利用率降至 52.88% 创历史新低，社会库存 271.91 万吨周去库近 33 万吨，现货加工费 650 元/吨高位。机构整体看多，但中期警惕 7 月底至 8 月初 1320 万吨装置集中重启带来的加工费收缩压力。；7/15 PX CFR 中国收 1089.67 美元/吨，单日暴涨 61 美元/吨（+5.9%）；此前 7 月 1-13 日 PX 均价约 1006.75 美元/吨，近期快速走高。外盘PX$1089.67/吨，对应外盘PTA动态成本约5532元/吨；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。\n自动快讯（去重人工摘要）：7/15 PX CFR 中国收 1089.67 美元/吨，单日暴涨 61 美元/吨（+5.9%）；此前 7 月 1-13 日 PX 均价约 1006.75 美元/吨，近期快速走高；国内 PX 开工率 62.58% 维持历史低位，威联化学 200 万吨、海南炼化 160 万吨、盛虹 400 万吨、福海创 160 万吨、中金石化 160 万吨等多套装置仍在检修；7 月中上旬亚洲 PX 整体供应受抑制；PX-石脑油价差走扩，PTA 成本端支撑强化。\n基本面不是单边空：现货/成本可能提供下方支撑；但加工利润796元若处在偏高区域，容易限制上方弹性。\n\n综合结论\n当前主线：震荡，核心区间关注5900—5800。期权结构处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动，真正的方向触发在5900跌破或5648/5800重新站上。\n\n关键价位\n| 位置 | 含义 |\n| --- | --- |\n| 5648 | GEX Flip，重新站上后负Gamma压力缓和 |\n| 5900 | Max Pain + 临近到期收敛锚 |\n| 5500 | 近端Put防线/有效支撑 |\n| 5800 | 近端Call压力/有效压力 |\n| 7000 | 上方最大Call持仓压力带 |\n| 5000 | 下方最大Put保护盘区域 |\n\n操作思路，仅按结构说\n如果偏交易期货：\n• 5648 / 5800下方不宜追多，先按反抽压力处理。\n• 跌破5900并放量增仓，负Gamma可能放大下跌，下一目标看5500。\n• 重新站回5648，空头动能减弱，回到区间震荡。\n如果偏期权卖方：\n• 临近到期Theta衰减快，震荡时卖方有时间价值优势。\n• 负Gamma环境不裸卖近端Put，尤其是5900失守后。\n• 若站回5648，可考虑更稳健的宽跨/价差结构。\n如果偏买方：\n• 买Put触发点优先看5900有效跌破。\n• 买Call触发点看重新站回5648或压力位后的修复。\n• 夹在痛点和压力之间横盘时，买方容易被时间价值消耗。\n\n一句话总结：当前不是强多盘，主线短线震荡；看5900是否守住——守住则向5900—5800区间收敛，跌破则负Gamma会放大下跌。",
     "bullets": [
       "GEX：负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动",
-      "Pain：当前期权标的价距离Max Pain约-154点，临近到期存在向5900收敛的引力。",
-      "宏观：Brent$85.21"
+      "Pain：当前期权标的价距离Max Pain约-252点，临近到期存在向5900收敛的引力。",
+      "宏观：Brent$85.34"
     ],
     "narrative_notes": {
       "market": [],
@@ -6511,26 +6529,26 @@
       "strategy": [],
       "other": []
     },
-    "market_snapshot_interpretation": "期权链标的参考价5746用于GEX、Pain、OI与IV等结构判断，盘面主力参考价 TA 5750负责K线节奏；两者各管一段，不要把结构位和短线信号混为一个价格。",
-    "gex_interpretation": "GEX处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。交易上先盯两条线：5900若失守，负Gamma容易放大顺势波动；5654若被重新收复，追涨杀跌压力会减轻。",
-    "oi_interpretation": "持仓给出的不是单边方向，而是边界：Put集中区对应下方防线，Call集中区对应上方压力。当前更适合把5900—6500当作区间框架，再等跌破或站回触发。",
-    "iv_interpretation": "ATM隐波约31.6%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。",
+    "market_snapshot_interpretation": "期权链标的参考价5648用于GEX、Pain、OI与IV等结构判断，盘面主力参考价 TA 5670负责K线节奏；两者各管一段，不要把结构位和短线信号混为一个价格。",
+    "gex_interpretation": "GEX处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。交易上先盯两条线：5900若失守，负Gamma容易放大顺势波动；5648若被重新收复，追涨杀跌压力会减轻。",
+    "oi_interpretation": "持仓给出的不是单边方向，而是边界：Put集中区对应下方防线，Call集中区对应上方压力。当前更适合把5900—5800当作区间框架，再等跌破或站回触发。",
+    "iv_interpretation": "ATM隐波约30.4%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。",
     "macro_interpretation": "宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：【人工宏观基本面】7月13日美伊冲突全面升级，美军实施海上封锁，霍尔木兹海峡通航大幅萎缩，WTI 79.34/布伦特 84.73 美元/桶推升一个月新高。PX CFR 中国暴涨 61 美元至 1089.67 美元/吨，国内 PX 开工率维持 62.58% 历史低位（威联化学、海南炼化、盛虹、福海创、中金石化等多套装置检修）。PTA 端产能利用率降至 52.88% 创历史新低，社会库存 271.91 万吨周去库近 33 万吨，现货加工费 650 元/吨高位。机构整体看多，但中期警惕 7 月底至 8 月初 1320 万吨装置集中重启带来的加工费收缩压力。；7/15 PX CFR 中国收 1089.67 美元/吨，单日暴涨 61 美元/吨（+5.9%）；此前 7 月 1-13 日 PX 均价约 1006.75 美元/吨，近期快速走高。外盘PX$1089.67/吨，对应外盘PTA动态成本约5532元/吨；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。",
-    "strategy_logic": "策略依据：先用盘面主力判断追单节奏，再用GEX/Pain确定触发位，用OI确认支撑压力，用IV决定买方还是卖方更占优，同时用原油/PX外盘成本确认顺势信号质量。当前重点是5900是否跌破、5654是否收复；未触发前以区间和风控为主，触发后再顺势加速。",
+    "strategy_logic": "策略依据：先用盘面主力判断追单节奏，再用GEX/Pain确定触发位，用OI确认支撑压力，用IV决定买方还是卖方更占优，同时用原油/PX外盘成本确认顺势信号质量。当前重点是5900是否跌破、5648是否收复；未触发前以区间和风控为主，触发后再顺势加速。",
     "market_snapshot_table": [
       [
         "期权链标的参考价",
-        "5746",
+        "5648",
         "用于GEX、Pain、OI和IV结构判断"
       ],
       [
         "盘面主力参考价",
-        "TA 5750",
-        "K线短线节奏：短线偏强"
+        "TA 5670",
+        "K线短线节奏：短线震荡"
       ],
       [
         "最近20根K线",
-        "+12",
+        "+0",
         "观察日内强弱和追单风险"
       ],
       [
@@ -6540,22 +6558,22 @@
       ],
       [
         "基差",
-        "+220",
+        "+300",
         "PTA现货 − 盘面主力参考价；升水偏强、贴水偏弱"
       ]
     ],
     "gex_table": [
       [
         "标的价F",
-        "5746"
+        "5648"
       ],
       [
         "GEX Flip",
-        "5654"
+        "5648"
       ],
       [
         "净GEX",
-        "-2.1M"
+        "-11.6M"
       ],
       [
         "Gamma方向",
@@ -6567,7 +6585,7 @@
       ],
       [
         "PCR",
-        "0.976"
+        "0.974"
       ],
       [
         "剩余到期",
@@ -6577,27 +6595,27 @@
     "pain_table": [
       [
         "5900",
-        "93,768,750",
+        "93,722,750",
         "最低"
       ],
       [
         "5800",
-        "99,961,250",
+        "99,884,250",
         ""
       ],
       [
         "6000",
-        "95,536,750",
+        "95,500,250",
         ""
       ],
       [
         "5700",
-        "113,087,750",
+        "112,993,250",
         ""
       ],
       [
         "6100",
-        "102,942,750",
+        "103,030,250",
         ""
       ]
     ],
@@ -6605,94 +6623,94 @@
       "put": [
         [
           "5000",
-          "21,030"
+          "23,538"
         ],
         [
           "5900",
-          "9,066"
+          "9,025"
         ],
         [
           "4200",
-          "8,071"
+          "8,013"
         ],
         [
           "6100",
-          "7,899"
+          "7,884"
         ],
         [
           "5500",
-          "6,426"
+          "6,148"
         ]
       ],
       "call": [
         [
           "7000",
-          "10,092"
-        ],
-        [
-          "6500",
-          "9,162"
+          "10,742"
         ],
         [
           "5800",
-          "8,741"
+          "8,892"
+        ],
+        [
+          "6500",
+          "8,660"
         ],
         [
           "6300",
-          "8,617"
+          "8,613"
         ],
         [
           "8000",
-          "7,794"
+          "7,646"
         ]
       ]
     },
     "iv_table": [
       [
+        "5400",
+        "29.62%",
+        "29.54%",
+        "29.39%",
+        "C 1,449 / P 4,127"
+      ],
+      [
+        "5500",
+        "28.65%",
+        "29.61%",
+        "29.61%",
+        "C 2,678 / P 6,148"
+      ],
+      [
         "5600",
-        "30.67%",
-        "30.75%",
-        "30.69%",
-        "C 2,855 / P 4,138"
+        "30.12%",
+        "29.82%",
+        "30.07%",
+        "C 2,884 / P 3,746"
       ],
       [
         "5700",
-        "31.21%",
-        "31.24%",
-        "31.26%",
-        "C 5,303 / P 4,190"
+        "30.70%",
+        "30.44%",
+        "30.67%",
+        "C 5,119 / P 4,157"
       ],
       [
         "5800",
-        "31.85%",
-        "31.90%",
-        "31.93%",
-        "C 8,742 / P 5,130"
-      ],
-      [
-        "5900",
-        "32.68%",
-        "32.80%",
-        "32.67%",
-        "C 6,864 / P 9,068"
-      ],
-      [
-        "6000",
-        "33.38%",
-        "33.50%",
-        "33.44%",
-        "C 7,400 / P 3,857"
+        "31.31%",
+        "29.97%",
+        "31.38%",
+        "C 8,892 / P 5,003"
       ]
     ],
     "macro_table": [
       [
         "Brent",
-        "$85.21，+0.31%",
+        "$85.34，+0.46%",
         "原油宏观成本"
       ],
       [
         "WTI",
-        "$80.06，+0.58%",
+        "$80.11，+0.64%",
         "原油宏观成本"
       ],
       [
@@ -6703,7 +6721,7 @@
       [
         "PX外盘现货价",
         "$1089.67/吨",
-        "manual:人工；汇率6.7909"
+        "manual:人工；汇率6.7910"
       ],
       [
         "PTA估算成本",
@@ -6855,9 +6873,9 @@
       "futures_strategy": {
         "title": "期货操作",
         "items": [
-          "5654 / 6500下方不宜追多，先按反抽压力处理。",
+          "5648 / 5800下方不宜追多，先按反抽压力处理。",
           "跌破5900并放量增仓，负Gamma可能放大下跌，下一目标看5500。",
-          "重新站回5654，空头动能减弱，回到区间震荡。"
+          "重新站回5648，空头动能减弱，回到区间震荡。"
         ]
       },
       "option_seller_strategy": {
@@ -6865,21 +6883,21 @@
         "items": [
           "临近到期Theta衰减快，震荡时卖方有时间价值优势。",
           "负Gamma环境不裸卖近端Put，尤其是5900失守后。",
-          "若站回5654，可考虑更稳健的宽跨/价差结构。"
+          "若站回5648，可考虑更稳健的宽跨/价差结构。"
         ]
       },
       "option_buyer_strategy": {
         "title": "期权买方策略",
         "items": [
           "买Put触发点优先看5900有效跌破。",
-          "买Call触发点看重新站回5654或压力位后的修复。",
+          "买Call触发点看重新站回5648或压力位后的修复。",
           "夹在痛点和压力之间横盘时，买方容易被时间价值消耗。"
         ]
       }
     },
     "key_levels": [
       [
-        "5654",
+        "5648",
         "GEX Flip，重新站上后负Gamma压力缓和"
       ],
       [
@@ -6891,7 +6909,7 @@
         "近端Put防线/有效支撑"
       ],
       [
-        "6500",
+        "5800",
         "近端Call压力/有效压力"
       ],
       [
@@ -6903,29 +6921,29 @@
         "下方最大Put保护盘区域"
       ]
     ],
-    "option_underlying_price": 5746,
-    "main_futures_price": 5750.0,
+    "option_underlying_price": 5648,
+    "main_futures_price": 5670.0,
     "main_futures_symbol": "TA",
     "nature_synthesis": {
       "available": true,
       "put": {
-        "oi_cur": 121084,
+        "oi_cur": 121313,
         "oi_prev": 113374,
-        "oi_delta_pct": 6.800500996701183,
-        "iv_cur": 32.677005740208315,
+        "oi_delta_pct": 7.002487342777003,
+        "iv_cur": 31.22041315146259,
         "iv_prev": 33.45801387170878,
-        "iv_delta_pp": -0.7810081315004638,
+        "iv_delta_pp": -2.2376007202461885,
         "nature": "hedge_sell",
         "nature_label": "套保卖权",
         "business_meaning": "卖 Put 集中（左侧加速器加码 = 投机/做市商认为下方有支撑收租）"
       },
       "call": {
-        "oi_cur": 124042,
+        "oi_cur": 124494,
         "oi_prev": 120193,
-        "oi_delta_pct": 3.2023495544665668,
-        "iv_cur": 33.86827044066634,
+        "oi_delta_pct": 3.5784113883504034,
+        "iv_cur": 32.54251318045088,
         "iv_prev": 37.33966732160027,
-        "iv_delta_pp": -3.4713968809339235,
+        "iv_delta_pp": -4.7971541411493845,
         "nature": "hedge_sell",
         "nature_label": "套保卖权",
         "business_meaning": "卖 Call 收租（产业锁定销售顶价 = 中性，不站队方向）"
@@ -6934,19 +6952,19 @@
       "shape_label": "[左右对称]",
       "position": "belowMP",
       "position_label": "低位(P<MP)",
-      "pcr_now": 0.9761532384192451,
+      "pcr_now": 0.9744485678024644,
       "pcr_prev": 0.9432662467864185,
-      "pcr_delta": 0.0328869916328266,
+      "pcr_delta": 0.0311823210160459,
       "synthesis": {
-        "label": "中性偏慢牛",
+        "label": "多空分化(慢牛+慢熊)",
         "intensity": "弱",
-        "description": "Put 端(套保卖权) + Call 端(套保卖权) 总量均中性，但 strike 级别方向分化 → Call 端慢牛（投机在 5329C 离场，产业在 6117C 收租，spread=788点）",
+        "description": "Put 端(套保卖权) + Call 端(套保卖权) 总量均中性，但 strike 级别方向分化 → Call 端慢牛（投机在 5343C 离场，产业在 5942C 收租，spread=600点） | Put 端慢熊（认沽买方在 6000P 撤退，产业在 5146P 收租，spread=854点）",
         "put_dir": "neutral",
         "call_dir": "neutral",
-        "pcr_delta": 0.0328869916328266,
+        "pcr_delta": 0.0311823210160459,
         "pcr_label": "↑",
-        "pcr_meaning": "PCR↑ = Put 持仓增速 > Call 持仓增速（0.976↑ vs 0.943）",
-        "strike_modifier": "Call 端慢牛（投机在 5329C 离场，产业在 6117C 收租，spread=788点）"
+        "pcr_meaning": "PCR↑ = Put 持仓增速 > Call 持仓增速（0.974↑ vs 0.943）",
+        "strike_modifier": "Call 端慢牛（投机在 5343C 离场，产业在 5942C 收租，spread=600点） | Put 端慢熊（认沽买方在 6000P 撤退，产业在 5146P 收租，spread=854点）"
       },
       "call_role": {
         "spec_trim": [],
@@ -6954,96 +6972,79 @@
         "hedge_sell": [
           {
             "strike": 5900,
-            "oi_cur": 6864,
+            "oi_cur": 6853,
             "oi_prev": 5723,
-            "oi_delta_pct": 19.93709592870872,
-            "iv_delta_pp": -0.28999999999999915,
-            "nature": "hedge_sell"
-          },
-          {
-            "strike": 6600,
-            "oi_cur": 5338,
-            "oi_prev": 4542,
-            "oi_delta_pct": 17.525319242624395,
-            "iv_delta_pp": -0.22999999999999687,
+            "oi_delta_pct": 19.744889044207582,
+            "iv_delta_pp": -0.8200000000000003,
             "nature": "hedge_sell"
           },
           {
             "strike": 6000,
-            "oi_cur": 7400,
+            "oi_cur": 7616,
             "oi_prev": 6931,
-            "oi_delta_pct": 6.766700331842447,
-            "iv_delta_pp": -0.3999999999999986,
+            "oi_delta_pct": 9.883133746934064,
+            "iv_delta_pp": -0.75,
+            "nature": "hedge_sell"
+          },
+          {
+            "strike": 6200,
+            "oi_cur": 5582,
+            "oi_prev": 5198,
+            "oi_delta_pct": 7.387456714120816,
+            "iv_delta_pp": -0.5700000000000003,
             "nature": "hedge_sell"
           },
           {
             "strike": 5600,
-            "oi_cur": 2855,
+            "oi_cur": 2884,
             "oi_prev": 2752,
-            "oi_delta_pct": 3.7427325581395348,
-            "iv_delta_pp": -0.4399999999999977,
-            "nature": "hedge_sell"
-          },
-          {
-            "strike": 5700,
-            "oi_cur": 5303,
-            "oi_prev": 5129,
-            "oi_delta_pct": 3.3924741665041918,
-            "iv_delta_pp": -0.379999999999999,
+            "oi_delta_pct": 4.796511627906977,
+            "iv_delta_pp": -0.9899999999999984,
             "nature": "hedge_sell"
           }
         ],
-        "hedge_buy": [
-          {
-            "strike": 6500,
-            "oi_cur": 9153,
-            "oi_prev": 8078,
-            "oi_delta_pct": 13.307749442931419,
-            "iv_delta_pp": -0.10999999999999943,
-            "nature": "hedge_buy"
-          },
-          {
-            "strike": 6200,
-            "oi_cur": 5480,
-            "oi_prev": 5198,
-            "oi_delta_pct": 5.425163524432474,
-            "iv_delta_pp": -0.07000000000000028,
-            "nature": "hedge_buy"
-          },
-          {
-            "strike": 6300,
-            "oi_cur": 8617,
-            "oi_prev": 8528,
-            "oi_delta_pct": 1.0436210131332082,
-            "iv_delta_pp": -0.030000000000001137,
-            "nature": "hedge_buy"
-          }
-        ],
+        "hedge_buy": [],
         "close_push": [
           {
-            "strike": 6400,
-            "oi_cur": 4197,
-            "oi_prev": 4167,
-            "oi_delta_pct": 0.7199424046076314,
-            "iv_delta_pp": -0.21999999999999886,
+            "strike": 6300,
+            "oi_cur": 8613,
+            "oi_prev": 8528,
+            "oi_delta_pct": 0.9967166979362101,
+            "iv_delta_pp": -0.44999999999999574,
             "nature": "close_push"
           },
           {
-            "strike": 5500,
-            "oi_cur": 2696,
-            "oi_prev": 2711,
-            "oi_delta_pct": -0.5533013648100332,
-            "iv_delta_pp": -0.4599999999999973,
+            "strike": 5400,
+            "oi_cur": 1449,
+            "oi_prev": 1444,
+            "oi_delta_pct": 0.3462603878116343,
+            "iv_delta_pp": -0.9299999999999997,
+            "nature": "close_push"
+          },
+          {
+            "strike": 5700,
+            "oi_cur": 5119,
+            "oi_prev": 5129,
+            "oi_delta_pct": -0.19496977968414894,
+            "iv_delta_pp": -0.8900000000000006,
+            "nature": "close_push"
+          },
+          {
+            "strike": 5800,
+            "oi_cur": 8892,
+            "oi_prev": 8901,
+            "oi_delta_pct": -0.10111223458038424,
+            "iv_delta_pp": -0.9000000000000021,
             "nature": "close_push"
           }
         ],
         "double_exit": [
           {
             "strike": 6100,
-            "oi_cur": 4344,
+            "oi_cur": 4588,
             "oi_prev": 4967,
-            "oi_delta_pct": -12.542782363599759,
-            "iv_delta_pp": -0.25,
+            "oi_delta_pct": -7.630360378498087,
+            "iv_delta_pp": -0.9099999999999966,
             "nature": "double_exit"
           },
           {
@@ -7051,159 +7052,191 @@
             "oi_cur": 1102,
             "oi_prev": 1154,
             "oi_delta_pct": -4.506065857885615,
-            "iv_delta_pp": -2.5,
+            "iv_delta_pp": -3.25,
             "nature": "double_exit"
           },
           {
-            "strike": 5400,
-            "oi_cur": 1417,
-            "oi_prev": 1444,
-            "oi_delta_pct": -1.8698060941828254,
-            "iv_delta_pp": -0.40000000000000213,
+            "strike": 6400,
+            "oi_cur": 4052,
+            "oi_prev": 4167,
+            "oi_delta_pct": -2.759779217662587,
+            "iv_delta_pp": -0.8399999999999963,
             "nature": "double_exit"
           },
           {
-            "strike": 5800,
-            "oi_cur": 8742,
-            "oi_prev": 8901,
-            "oi_delta_pct": -1.7863161442534545,
-            "iv_delta_pp": -0.35999999999999943,
+            "strike": 5500,
+            "oi_cur": 2678,
+            "oi_prev": 2711,
+            "oi_delta_pct": -1.217263002582073,
+            "iv_delta_pp": -2.09,
             "nature": "double_exit"
           }
         ],
         "_top_n": 10,
-        "role_summary": "产业卖权收租(5900C/6600C/6000C, OI增量51%) / 投机/对冲端撤退(6100C/5300C/5400C, OI减量21%) / 产业买保(6500C/6200C/6300C) / 卖方平仓(6400C/5500C)"
+        "role_summary": "产业卖权收租(5900C/6000C/6200C, OI增量42%) / 投机/对冲端撤退(6100C/5300C/6400C, OI减量16%) / 卖方平仓(6300C/5400C/5700C)"
       },
       "put_role": {
         "spec_trim": [],
-        "spec_add": [
+        "spec_add": [],
+        "hedge_sell": [
           {
-            "strike": 5000,
-            "oi_cur": 21029,
-            "oi_prev": 16322,
-            "oi_delta_pct": 28.83837764979782,
-            "iv_delta_pp": 0.5599999999999987,
-            "nature": "spec_buy"
+            "strike": 5100,
+            "oi_cur": 4328,
+            "oi_prev": 3711,
+            "oi_delta_pct": 16.626246294799245,
+            "iv_delta_pp": -0.3500000000000014,
+            "nature": "hedge_sell"
           },
           {
             "strike": 4950,
-            "oi_cur": 2106,
+            "oi_cur": 2113,
             "oi_prev": 1812,
-            "oi_delta_pct": 16.225165562913908,
-            "iv_delta_pp": 0.23000000000000043,
-            "nature": "spec_buy"
+            "oi_delta_pct": 16.61147902869757,
+            "iv_delta_pp": -0.5,
+            "nature": "hedge_sell"
           },
           {
-            "strike": 5100,
-            "oi_cur": 4220,
-            "oi_prev": 3711,
-            "oi_delta_pct": 13.71597952034492,
-            "iv_delta_pp": 0.3299999999999983,
-            "nature": "spec_buy"
+            "strike": 5700,
+            "oi_cur": 4157,
+            "oi_prev": 3876,
+            "oi_delta_pct": 7.249742002063983,
+            "iv_delta_pp": -0.9100000000000001,
+            "nature": "hedge_sell"
+          }
+        ],
+        "hedge_buy": [
+          {
+            "strike": 5000,
+            "oi_cur": 23538,
+            "oi_prev": 16322,
+            "oi_delta_pct": 44.21026834946697,
+            "iv_delta_pp": 0.05999999999999872,
+            "nature": "hedge_buy"
           },
           {
-            "strike": 5200,
-            "oi_cur": 5565,
-            "oi_prev": 5011,
-            "oi_delta_pct": 11.055677509479146,
-            "iv_delta_pp": 0.21000000000000085,
-            "nature": "spec_buy"
+            "strike": 4850,
+            "oi_cur": 1667,
+            "oi_prev": 1591,
+            "oi_delta_pct": 4.776869893148962,
+            "iv_delta_pp": 0.12000000000000455,
+            "nature": "hedge_buy"
+          }
+        ],
+        "close_push": [
+          {
+            "strike": 6100,
+            "oi_cur": 7884,
+            "oi_prev": 7962,
+            "oi_delta_pct": -0.9796533534287867,
+            "iv_delta_pp": -0.9199999999999946,
+            "nature": "close_push"
+          },
+          {
+            "strike": 5800,
+            "oi_cur": 5003,
+            "oi_prev": 5050,
+            "oi_delta_pct": -0.9306930693069306,
+            "iv_delta_pp": -2.0199999999999996,
+            "nature": "close_push"
           },
           {
             "strike": 6400,
             "oi_cur": 3090,
             "oi_prev": 3064,
             "oi_delta_pct": 0.8485639686684074,
-            "iv_delta_pp": 3.0600000000000023,
-            "nature": "spec_buy"
+            "iv_delta_pp": -0.3999999999999986,
+            "nature": "close_push"
           },
           {
-            "strike": 6100,
-            "oi_cur": 7899,
-            "oi_prev": 7962,
-            "oi_delta_pct": -0.7912584777694046,
-            "iv_delta_pp": 0.240000000000002,
-            "nature": "spec_buy"
+            "strike": 6200,
+            "oi_cur": 4455,
+            "oi_prev": 4473,
+            "oi_delta_pct": -0.4024144869215292,
+            "iv_delta_pp": -2.019999999999996,
+            "nature": "close_push"
+          },
+          {
+            "strike": 5200,
+            "oi_cur": 5023,
+            "oi_prev": 5011,
+            "oi_delta_pct": 0.23947315905008978,
+            "iv_delta_pp": -0.509999999999998,
+            "nature": "close_push"
+          },
+          {
+            "strike": 5900,
+            "oi_cur": 9025,
+            "oi_prev": 9045,
+            "oi_delta_pct": -0.22111663902708678,
+            "iv_delta_pp": -1.4100000000000001,
+            "nature": "close_push"
           },
           {
             "strike": 6300,
             "oi_cur": 6082,
             "oi_prev": 6082,
             "oi_delta_pct": 0.0,
-            "iv_delta_pp": 2.259999999999998,
-            "nature": "spec_buy"
-          }
-        ],
-        "hedge_sell": [],
-        "hedge_buy": [
-          {
-            "strike": 5700,
-            "oi_cur": 4190,
-            "oi_prev": 3876,
-            "oi_delta_pct": 8.101135190918471,
-            "iv_delta_pp": -0.11000000000000298,
-            "nature": "hedge_buy"
-          },
-          {
-            "strike": 5600,
-            "oi_cur": 4138,
-            "oi_prev": 3938,
-            "oi_delta_pct": 5.078720162519045,
-            "iv_delta_pp": 0.05000000000000071,
-            "nature": "hedge_buy"
-          },
-          {
-            "strike": 5300,
-            "oi_cur": 5590,
-            "oi_prev": 5479,
-            "oi_delta_pct": 2.0259171381638983,
-            "iv_delta_pp": 0.029999999999997584,
-            "nature": "hedge_buy"
-          },
-          {
-            "strike": 5800,
-            "oi_cur": 5130,
-            "oi_prev": 5050,
-            "oi_delta_pct": 1.5841584158415842,
-            "iv_delta_pp": -0.08999999999999986,
-            "nature": "hedge_buy"
-          }
-        ],
-        "close_push": [
-          {
-            "strike": 4900,
-            "oi_cur": 1972,
-            "oi_prev": 2250,
-            "oi_delta_pct": -12.355555555555556,
-            "iv_delta_pp": 0.16999999999999815,
-            "nature": "close_push"
-          },
-          {
-            "strike": 6200,
-            "oi_cur": 4480,
-            "oi_prev": 4473,
-            "oi_delta_pct": 0.1564945226917058,
-            "iv_delta_pp": -0.6499999999999986,
+            "iv_delta_pp": -5.450000000000003,
             "nature": "close_push"
           }
         ],
         "double_exit": [
           {
+            "strike": 4900,
+            "oi_cur": 2066,
+            "oi_prev": 2250,
+            "oi_delta_pct": -8.177777777777779,
+            "iv_delta_pp": -0.17999999999999972,
+            "nature": "double_exit"
+          },
+          {
+            "strike": 5300,
+            "oi_cur": 5123,
+            "oi_prev": 5479,
+            "oi_delta_pct": -6.497536046723855,
+            "iv_delta_pp": -0.7100000000000009,
+            "nature": "double_exit"
+          },
+          {
+            "strike": 5500,
+            "oi_cur": 6148,
+            "oi_prev": 6470,
+            "oi_delta_pct": -4.976816074188563,
+            "iv_delta_pp": -0.870000000000001,
+            "nature": "double_exit"
+          },
+          {
+            "strike": 5600,
+            "oi_cur": 3746,
+            "oi_prev": 3938,
+            "oi_delta_pct": -4.875571356018284,
+            "iv_delta_pp": -0.879999999999999,
+            "nature": "double_exit"
+          },
+          {
             "strike": 6000,
-            "oi_cur": 3857,
+            "oi_cur": 3889,
             "oi_prev": 3982,
-            "oi_delta_pct": -3.139126067302863,
-            "iv_delta_pp": -0.030000000000001137,
+            "oi_delta_pct": -2.33550979407333,
+            "iv_delta_pp": -1.3200000000000003,
+            "nature": "double_exit"
+          },
+          {
+            "strike": 5400,
+            "oi_cur": 4127,
+            "oi_prev": 4216,
+            "oi_delta_pct": -2.1110056925996203,
+            "iv_delta_pp": -0.620000000000001,
             "nature": "double_exit"
           }
         ],
         "_top_n": 10,
-        "role_summary": "投机/对冲端撤退(6000P, OI减量3%) / 投机端加仓(5000P/4950P/5100P) / 产业买保(5700P/5600P/5300P) / 卖方平仓(4900P/6200P)"
+        "role_summary": "产业卖权收租(5100P/4950P/5700P, OI增量40%) / 投机/对冲端撤退(4900P/5300P/5500P, OI减量29%) / 产业买保(5000P/4850P) / 卖方平仓(6100P/5800P/6400P)"
       },
       "data_quality": {
         "total_strikes": 47,
-        "eligible_call": 14,
-        "eligible_put": 17,
+        "eligible_call": 12,
+        "eligible_put": 18,
         "filtered_count": 32,
         "oi_threshold": 1000,
         "iv_threshold_pp": 5.0,
@@ -7217,16 +7250,16 @@
     "title": "盘中综合研判",
     "summary": "当前 PTA 不适合简单看空。",
     "conclusion": "当前市场判断：短线“震荡”，但不是单边空头。",
-    "trader_report": "PTA 最新综合研判\n\n一、核心结论\n当前 PTA 不适合简单看空。\n产业链给出的底色是偏强震荡、有支撑但上方也有压制。当前核心区间先看5900—6500，不是无脑追多，也不是在5900上方主动追空。\n期权结构上，当前价格处于负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动，这意味着一旦关键位置被突破，波动容易被放大。\n\n二、宏观与成本端\n日内基本面不做机械重复改写，作为背景锚处理：成本端地缘溢价大幅走强（WTI 79.34/布伦特 84.73 美伊冲突推升），PX CFR 中国单日暴涨 61 美元至 1089.67 美元/吨；自身端 PTA 开工率创历史新低 52.88%+社会库存周去库近 33 万吨+现货加工费 650 元/吨高位；地缘成本与供应收缩共振短期偏强。\n原油/PX若继续偏强，会给PTA下方托底；如果中东缓和、原油回落或PX转弱，则多头会受压。当前PTA利润约796元，加工费偏高会限制上方持续单边拉涨空间。\n\n三、PTA自身基本面\n现货参考5970，基差+220（即PTA现货 − 盘面主力参考价），PX参考7900，PTA估算成本5174。现货/成本仍提供支撑，但高加工费和装置重启预期会压制追多空间。\n\n四、当前期权结构\n期权链标的参考价：5746；Max Pain：5900；GEX Flip：5654；净GEX：-2.1M；Gamma方向：negative；PCR：0.976；剩余到期：约27.2天。\n临近到期，5900对价格有明显吸引力；站回5654后负Gamma压力缓和，跌破5900则负Gamma可能放大下跌。\n\n五、持仓压力与支撑\n下方Put防线重点看5900、5500；上方Call压力重点看6500以及更高Call集中区。持仓给出的不是单边方向，而是区间边界。\n\n六、隐波与风险情绪\nATM隐波约31.6%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果Put保护溢价继续高于Call，说明市场仍在为下跌尾部风险付费；临近到期买方不能在中间位置随意追。\n\n七、交易策略\n1. 期货操作\n5900上方不追空；5654下方不盲目追多；站回5654才考虑短多延续；跌破5900才考虑顺势空头，下一层关注5500。\n2. 期权卖方策略\n临近到期Theta衰减快，但负Gamma环境下不裸卖近端Put。若价格维持在5900上方，可优先考虑有保护的价差结构；若跌破5900，卖Put风险快速上升。\n3. 期权买方策略\n买Put触发点看有效跌破5900，最好伴随原油/PX走弱或盘面放量；买Call触发点看重新站回5654，否则容易被时间价值消耗。\n\n八、最终判断\n基本面偏强支撑，期权结构偏震荡拉扯，短线处于负Gamma敏感区。5900不破，短期仍以偏强震荡对待；站上5654，价格有机会继续试探6500；跌破5900，负Gamma可能放大下跌，回看5500。",
+    "trader_report": "PTA 最新综合研判\n\n一、核心结论\n当前 PTA 不适合简单看空。\n产业链给出的底色是偏强震荡、有支撑但上方也有压制。当前核心区间先看5900—5800，不是无脑追多，也不是在5900上方主动追空。\n期权结构上，当前价格处于负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动，这意味着一旦关键位置被突破，波动容易被放大。\n\n二、宏观与成本端\n日内基本面不做机械重复改写，作为背景锚处理：成本端地缘溢价大幅走强（WTI 79.34/布伦特 84.73 美伊冲突推升），PX CFR 中国单日暴涨 61 美元至 1089.67 美元/吨；自身端 PTA 开工率创历史新低 52.88%+社会库存周去库近 33 万吨+现货加工费 650 元/吨高位；地缘成本与供应收缩共振短期偏强。\n原油/PX若继续偏强，会给PTA下方托底；如果中东缓和、原油回落或PX转弱，则多头会受压。当前PTA利润约796元，加工费偏高会限制上方持续单边拉涨空间。\n\n三、PTA自身基本面\n现货参考5970，基差+300（即PTA现货 − 盘面主力参考价），PX参考7900，PTA估算成本5174。现货/成本仍提供支撑，但高加工费和装置重启预期会压制追多空间。\n\n四、当前期权结构\n期权链标的参考价：5648；Max Pain：5900；GEX Flip：5648；净GEX：-11.6M；Gamma方向：negative；PCR：0.974；剩余到期：约27.2天。\n临近到期，5900对价格有明显吸引力；站回5648后负Gamma压力缓和，跌破5900则负Gamma可能放大下跌。\n\n五、持仓压力与支撑\n下方Put防线重点看5900、5500；上方Call压力重点看5800以及更高Call集中区。持仓给出的不是单边方向，而是区间边界。\n\n六、隐波与风险情绪\nATM隐波约30.4%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果Put保护溢价继续高于Call，说明市场仍在为下跌尾部风险付费；临近到期买方不能在中间位置随意追。\n\n七、交易策略\n1. 期货操作\n5900上方不追空；5648下方不盲目追多；站回5648才考虑短多延续；跌破5900才考虑顺势空头，下一层关注5500。\n2. 期权卖方策略\n临近到期Theta衰减快，但负Gamma环境下不裸卖近端Put。若价格维持在5900上方，可优先考虑有保护的价差结构；若跌破5900，卖Put风险快速上升。\n3. 期权买方策略\n买Put触发点看有效跌破5900，最好伴随原油/PX走弱或盘面放量；买Call触发点看重新站回5648，否则容易被时间价值消耗。\n\n八、最终判断\n基本面偏强支撑，期权结构偏震荡拉扯，短线处于负Gamma敏感区。5900不破，短期仍以偏强震荡对待；站上5648，价格有机会继续试探5800；跌破5900，负Gamma可能放大下跌，回看5500。",
     "futures_panel": "",
     "option_structure": "负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动",
     "macro_fundamental": "宏观基本面：以宏观财经快讯和成本链为主，暂不展示周频供需项。",
     "strategy_judgement": "",
-    "narrative": "========================================================================\n📊 PTA 期权四维决策报告（v2.11.85b）\n生成时间: 2026-07-16T11:15:00\n合约: - | 期货价: 5746 | ATM: 0 | MP: 5900\n最后更新: 2026-07-16T11:15:00.416422 | TqSdk: -\n========================================================================\n\n【第一层】PAIN 结构（权重 35%）\n  维度: 形态=leftSteep | 位置=belowMP | GEX=negative | P vs Flip=above\n  业务: 强空头，下跌自我强化（左侧加速器激活），GEX负放大跌幅，接近情绪极值\n  PCR: 持仓PCR=0.98 平衡（加成 +0.0）\n  评分逻辑: 强空头+负GEX放大（强空）\n  ➜ 评分: -0.60\n\n【第二层】GEX 机制（权重 25%）\n  维度: GEX=negative | P vs Flip=above\n  业务: 负GEX + P在Flip上方 → 卖方对冲买压释放（涨幅被放大，但也有回调风险）\n  评分逻辑: 弱空机制（涨幅放大但有支撑）\n  ➜ 评分: -0.10\n\n【第三层】资金意图（权重 25%）\n  Put 性质: hedge_sell (套保卖权)\n    业务: 卖 Put 集中（左侧加速器加码 = 投机/做市商认为下方有支撑收租）\n  Call 性质: hedge_sell (套保卖权)\n    业务: 卖 Call 收租（产业锁定销售顶价 = 中性，不站队方向）\n  原始 label: 多空分化(慢牛+慢熊) (弱)\n  ✅ 标准化 label: hedge_buy_mid / noise_open_strong (强)\n  strike 修正: Call 中强度主导: hedge_buy 52.9% 40-60% | Put ★强信号★: noise_open 68.6% > 60%\n  Call 角色: 5900C(产业买保 OI+19.8% IV-0.14pp) / 6500C(noise_open OI+13.4% IV-0.18pp) / 6600C(noise_open OI+17.5% IV-0.18pp) / 6100C(被动平仓 OI-12.5% IV-0.12pp) / 6000C(产业买保 OI+7.0% IV-0.27pp)\n  Put 角色: 5000P(noise_open OI+28.8% IV+0.37pp) / 5200P(产业买保 OI+11.0% IV-0.01pp) / 5100P(noise_open OI+13.5% IV+0.13pp) / 5700P(产业买保 OI+8.1% IV-0.30pp) / 4950P(noise_open OI+16.2% IV+0.05pp)\n  ⚖️ v2.11.85a 加权: Call hedge_buy_mid | Put noise_open_strong\n    Call verdict: 中强度主导: hedge_buy 52.9% 40-60%\n    Put verdict: ★强信号★: noise_open 68.6% > 60%\n    Call 方向: 偏空(防御)\n    Put 方向: 中性\n  PCR: now=0.976 | prev=0.943 | delta=+0.033 (↑)\n  数据质量(v2.11.85a): confidence=-, OI≥1000, IV≥5.0-门槛, eligible_call=-/-\n  ➜ 评分: +0.00\n\n【第四层】情绪确认（权重 15%）\n  成交 PCR: now=0.983 | prev=0.512\n  持仓 PCR: now=0.976 | prev=0.943\n  ATM 隐波: Call=31.38% | Put=31.05%\n  趋势: F 5752 → 5746 (down, -6)\n  评分逻辑: 乐观消退（空头信号）\n  ➜ 评分: -0.40\n\n========================================================================\n🎯 综合判断（按权重叠加）\n========================================================================\n  决策: 观望（置信度: 中）\n  总分: -0.295\n  逻辑链: L1(PAIN 结构) [leftSteep + belowMP + GEX negative + P vs Flip above → 强空头+负GEX放大（强空）] → L2(GEX 机制) [GEX negative + P above Flip + 净GEX -2.1M → 弱空机制（涨幅放大但有支撑）] → L3(资金意图) [Put hedge_sell + Call hedge_sell → 箱体震荡] → L4(情绪确认) [成交PCR=0.98 中性区间 | 成交PCR 从 0.51 上升至 0.98（乐观消退）→ 空头 | ATM 隐波 31.22% | ATM 隐波 31.2% 处于高位（恐慌区域）]\n\n📋 各层贡献:\n  PAIN 结构=-0.60 (权重 35%)\n  GEX 机制=-0.10 (权重 25%)\n  资金意图=+0.00 (权重 25%)\n  情绪确认=-0.40 (权重 15%)\n\n========================================================================\n\n当前市场判断：短线“震荡”，但不是单边空头。\n\n1. 期货价格层面（期货盘面）：短线节奏看盘面主力，期权结构看期权链标的参考价。\n| 项目 | 当前值 | 交易含义 |\n| --- | --- | --- |\n| 期权链标的参考价 | 5746 | 用于GEX、Pain、OI和IV结构判断 |\n| 盘面主力参考价 | TA 5750 | K线短线节奏：短线偏强 |\n| 最近20根K线 | +12 | 观察日内强弱和追单风险 |\n| PTA现货 | 5970 | 现货/成本锚 |\n| 基差 | +220 | PTA现货 − 盘面主力参考价；升水偏强、贴水偏弱 |\n期权链标的参考价5746用于GEX、Pain、OI与IV等结构判断，盘面主力参考价 TA 5750负责K线节奏；两者各管一段，不要把结构位和短线信号混为一个价格。\n盘面主力参考价 TA 5750：最近一根变化-4点，过去20根累计+12点，节奏判定为短线偏强。期权链标的参考价5746用于判断GEX、Pain和持仓压力，不与盘面价混在一起下结论。\n\n2. GEX结构：价格所处Gamma区决定波动是否容易被放大。\n| 指标 | 当前值 |\n| --- | --- |\n| 标的价F | 5746 |\n| GEX Flip | 5654 |\n| 净GEX | -2.1M |\n| Gamma方向 | negative |\n| Max Pain | 5900 |\n| PCR | 0.976 |\n| 剩余到期 | 27.2天 |\nGEX处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。交易上先盯两条线：5900若失守，负Gamma容易放大顺势波动；5654若被重新收复，追涨杀跌压力会减轻。\n核心含义：F=5746 高于或接近 GEX Flip=5654，当前处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。若价格重新站回5654/6500上方，负Gamma压力会缓和；若跌破5900附近，波动可能更顺。\n\n3. Max Pain：临近到期关注痛点收敛，而不是简单看多看空。\n| 行权价 | Pain | 备注 |\n| --- | --- | --- |\n| 5900 | 93,768,750 | 最低 |\n| 5800 | 99,961,250 |  |\n| 6000 | 95,536,750 |  |\n| 5700 | 113,087,750 |  |\n| 6100 | 102,942,750 |  |\n当前Max Pain=5900。当前期权标的价距离Max Pain约-154点，临近到期存在向5900收敛的引力。 因此期权维度不是极端单边，而是上方Call压力、下方痛点/Put防线共同约束。\n\n4. 持仓结构：Put持仓偏多时要区分保护盘和主动空头。\n当前总持仓：Call OI=124,042，Put OI=121,084，PCR=0.976。\nPut持仓集中：\n| Put行权价 | Put OI |\n| --- | --- |\n| 5000 | 21,030 |\n| 5900 | 9,066 |\n| 4200 | 8,071 |\n| 6100 | 7,899 |\n| 5500 | 6,426 |\nCall持仓集中：\n| Call行权价 | Call OI |\n| --- | --- |\n| 7000 | 10,092 |\n| 6500 | 9,162 |\n| 5800 | 8,741 |\n| 6300 | 8,617 |\n| 8000 | 7,794 |\n解读：Put集中在5000, 5900, 4200，Call压力集中在7000, 6500, 5800, 6300。大致结构是：5900为痛点锚，5654为波动分界，6500及以上为压力带。\n\n5. IV结构：看ATM隐波是否够高，也看左侧保护溢价。\n| K | C IV | P IV | SVI/平滑IV | OI结构 |\n| --- | --- | --- | --- | --- |\n| 5600 | 30.67% | 30.75% | 30.69% | C 2,855 / P 4,138 |\n| 5700 | 31.21% | 31.24% | 31.26% | C 5,303 / P 4,190 |\n| 5800 | 31.85% | 31.90% | 31.93% | C 8,742 / P 5,130 |\n| 5900 | 32.68% | 32.80% | 32.67% | C 6,864 / P 9,068 |\n| 6000 | 33.38% | 33.50% | 33.44% | C 7,400 / P 3,857 |\nATM隐波约31.6%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。\nATM附近隐波约31.6%，属于高波动率；右偏(看涨溢价偏高)，上行博弈需求旺盛；低曲率(曲线扁平)，市场对尾部风险定价不足。左侧Put IV若显著高于ATM，说明市场对下跌尾部风险有定价。\n\n5.5 性质判定 × 合成信号（v2.11.63d 资金意图精细化）\n形态：[左右对称]；位置：低位(P<MP)；PCR 0.976↑（前日 0.943）\nPCR 业务解读：PCR↑ = Put 持仓增速 > Call 持仓增速（0.976↑ vs 0.943）\n基准：今日 15:00 当前 vs 昨日 15:00 收盘（alert_data OI/IV prev 字段）。\n| 维度 | 当前 | 前次 | 变化 | 性质 | 业务解读 |\n| --- | --- | --- | --- | --- | --- |\n| Put | 121,084 | 113,374 | OI +6.8%\nIV -0.78pp | 套保卖权 | 卖 Put 集中（左侧加速器加码 = 投机/做市商认为下方有支撑收租） |\n| Call | 124,042 | 120,193 | OI +3.2%\nIV -3.47pp | 套保卖权 | 卖 Call 收租（产业锁定销售顶价 = 中性，不站队方向） |\n合成信号：中性偏慢牛（弱）\nPut 端(套保卖权) + Call 端(套保卖权) 总量均中性，但 strike 级别方向分化 → Call 端慢牛（投机在 5329C 离场，产业在 6117C 收租，spread=788点）\n\n📊 Strike 级别方向异质性（区分投机端 vs 产业端）：\nCall 端：产业卖权收租(5900C/6600C/6000C, OI增量51%) / 投机/对冲端撤退(6100C/5300C/5400C, OI减量21%) / 产业买保(6500C/6200C/6300C) / 卖方平仓(6400C/5500C)\nPut  端：投机/对冲端撤退(6000P, OI减量3%) / 投机端加仓(5000P/4950P/5100P) / 产业买保(5700P/5600P/5300P) / 卖方平仓(4900P/6200P)\n| 角色/分组 | Call strike 级别 | Put strike 级别 |\n| --- | --- | --- |\n| 产业卖权收租 (OI↑IV↓) | 5900C OI+19.9% IV-0.29pp 6600C OI+17.5% IV-0.23pp 6000C OI+6.8% IV-0.40pp 5600C OI+3.7% IV-0.44pp 5700C OI+3.4% IV-0.38pp | -- |\n| 产业买保 (OI↑IV—) | 6500C OI+13.3% IV-0.11pp 6200C OI+5.4% IV-0.07pp 6300C OI+1.0% IV-0.03pp | 5700P OI+8.1% IV-0.11pp 5600P OI+5.1% IV+0.05pp 5300P OI+2.0% IV+0.03pp 5800P OI+1.6% IV-0.09pp |\n| 投机端加仓 (OI↑IV↑) | -- | 5000P OI+28.8% IV+0.56pp 4950P OI+16.2% IV+0.23pp 5100P OI+13.7% IV+0.33pp 5200P OI+11.1% IV+0.21pp 6400P OI+0.8% IV+3.06pp 6100P OI-0.8% IV+0.24pp 6300P OI+0.0% IV+2.26pp |\n| 投机/对冲撤退 (OI↓IV↓/—) | -- | -- |\n| 卖方平仓 (OI↓IV↑) | 6400C OI+0.7% IV-0.22pp 5500C OI-0.6% IV-0.46pp | 4900P OI-12.4% IV+0.17pp 6200P OI+0.2% IV-0.65pp |\n\n6. 基本面与宏观：先看宏观快讯和成本链，周频供需项暂不放入盘中主研判。\n| 项目 | 当前值 | 解读 |\n| --- | --- | --- |\n| Brent | $85.21，+0.31% | 原油宏观成本 |\n| WTI | $80.06，+0.58% | 原油宏观成本 |\n| PX现货 | 7900 | 内盘成本端 |\n| PX外盘现货价 | $1089.67/吨 | manual:人工；汇率6.7909 |\n| PTA估算成本 | 5174 | 内盘成本支撑区 |\n| 外盘PTA动态成本 | 5532 | PX亚洲收盘价*0.655*1.01*1.13*USD/CNY |\n| PTA利润 | 796，15.4% | 利润高则供应压力偏空 |\n| 环节 | 开工率 | 较前值 | 库存 | 较前值 |\n| --- | --- | --- | --- | --- |\n| PX | 62.6% | 暂无前值 | -- | 暂无前值 |\n| PTA | 52.9% | 暂无前值 | 271.9万吨 | 暂无前值 |\n| 聚酯 | 80.2% | 暂无前值 | -- | 暂无前值 |\n| 织造 | 52.9% | 暂无前值 | -- | 暂无前值 |\n宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：【人工宏观基本面】7月13日美伊冲突全面升级，美军实施海上封锁，霍尔木兹海峡通航大幅萎缩，WTI 79.34/布伦特 84.73 美元/桶推升一个月新高。PX CFR 中国暴涨 61 美元至 1089.67 美元/吨，国内 PX 开工率维持 62.58% 历史低位（威联化学、海南炼化、盛虹、福海创、中金石化等多套装置检修）。PTA 端产能利用率降至 52.88% 创历史新低，社会库存 271.91 万吨周去库近 33 万吨，现货加工费 650 元/吨高位。机构整体看多，但中期警惕 7 月底至 8 月初 1320 万吨装置集中重启带来的加工费收缩压力。；7/15 PX CFR 中国收 1089.67 美元/吨，单日暴涨 61 美元/吨（+5.9%）；此前 7 月 1-13 日 PX 均价约 1006.75 美元/吨，近期快速走高。外盘PX$1089.67/吨，对应外盘PTA动态成本约5532元/吨；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。\n自动快讯（去重人工摘要）：7/15 PX CFR 中国收 1089.67 美元/吨，单日暴涨 61 美元/吨（+5.9%）；此前 7 月 1-13 日 PX 均价约 1006.75 美元/吨，近期快速走高；国内 PX 开工率 62.58% 维持历史低位，威联化学 200 万吨、海南炼化 160 万吨、盛虹 400 万吨、福海创 160 万吨、中金石化 160 万吨等多套装置仍在检修；7 月中上旬亚洲 PX 整体供应受抑制；PX-石脑油价差走扩，PTA 成本端支撑强化。\n基本面不是单边空：现货/成本可能提供下方支撑；但加工利润796元若处在偏高区域，容易限制上方弹性。\n\n综合结论\n当前主线：震荡，核心区间关注5900—6500。期权结构处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动，真正的方向触发在5900跌破或5654/6500重新站上。\n\n关键价位\n| 位置 | 含义 |\n| --- | --- |\n| 5654 | GEX Flip，重新站上后负Gamma压力缓和 |\n| 5900 | Max Pain + 临近到期收敛锚 |\n| 5500 | 近端Put防线/有效支撑 |\n| 6500 | 近端Call压力/有效压力 |\n| 7000 | 上方最大Call持仓压力带 |\n| 5000 | 下方最大Put保护盘区域 |\n\n操作思路，仅按结构说\n如果偏交易期货：\n• 5654 / 6500下方不宜追多，先按反抽压力处理。\n• 跌破5900并放量增仓，负Gamma可能放大下跌，下一目标看5500。\n• 重新站回5654，空头动能减弱，回到区间震荡。\n如果偏期权卖方：\n• 临近到期Theta衰减快，震荡时卖方有时间价值优势。\n• 负Gamma环境不裸卖近端Put，尤其是5900失守后。\n• 若站回5654，可考虑更稳健的宽跨/价差结构。\n如果偏买方：\n• 买Put触发点优先看5900有效跌破。\n• 买Call触发点看重新站回5654或压力位后的修复。\n• 夹在痛点和压力之间横盘时，买方容易被时间价值消耗。\n\n一句话总结：当前不是强多盘，主线短线偏强；看5900是否守住——守住则向5900—6500区间收敛，跌破则负Gamma会放大下跌。",
+    "narrative": "========================================================================\n📊 PTA 期权四维决策报告（v2.11.85b）\n生成时间: 2026-07-16T09:00:00\n合约: - | 期货价: 5648 | ATM: 0 | MP: 5900\n最后更新: 2026-07-16T09:00:00.708804 | TqSdk: -\n========================================================================\n\n【第一层】PAIN 结构（权重 35%）\n  维度: 形态=leftSteep | 位置=belowMP | GEX=negative | P vs Flip=at\n  业务: 强空头，下跌自我强化（左侧加速器激活），GEX负放大跌幅，接近情绪极值\n  PCR: 持仓PCR=1.24 平衡（加成 +0.0）\n  评分逻辑: 强空头+负GEX放大（强空）\n  ➜ 评分: -0.60\n\n【第二层】GEX 机制（权重 25%）\n  维度: GEX=negative | P vs Flip=at\n  业务: 负GEX + P接近Flip → 波动机制即将切换（最危险拐点）\n  评分逻辑: 中空机制（拐点） | 净GEX 恶化 -9.6M\n  ➜ 评分: -0.30\n\n【第三层】资金意图（权重 25%）\n  Put 性质: hedge_sell (套保卖权)\n    业务: 卖 Put 集中（左侧加速器加码 = 投机/做市商认为下方有支撑收租）\n  Call 性质: hedge_sell (套保卖权)\n    业务: 卖 Call 收租（产业锁定销售顶价 = 中性，不站队方向）\n  原始 label: 多空分化(慢牛+慢熊) (弱)\n  ✅ 标准化 label: hedge_sell_strong / noise_open_strong (强)\n  strike 修正: Call ★强信号★: hedge_sell 79.5% > 60% | Put ★强信号★: noise_open 68.8% > 60%\n  Call 角色: 5900C(产业收租 OI+19.7% IV-0.82pp) / 6000C(产业收租 OI+9.9% IV-0.75pp) / 6200C(产业收租 OI+7.4% IV-0.57pp) / 6100C(双边撤退 OI-7.6% IV-0.91pp) / 5600C(产业收租 OI+4.8% IV-0.99pp)\n  Put 角色: 5000P(noise_open OI+44.2% IV+0.06pp) / 5100P(产业买保 OI+16.6% IV-0.35pp) / 5300P(双边撤退 OI-6.5% IV-0.71pp) / 5500P(双边撤退 OI-5.0% IV-0.87pp) / 4950P(产业收租 OI+16.6% IV-0.50pp)\n  ⚖️ v2.11.85a 加权: Call hedge_sell_strong | Put noise_open_strong\n    Call verdict: ★强信号★: hedge_sell 79.5% > 60%\n    Put verdict: ★强信号★: noise_open 68.8% > 60%\n    Call 方向: 中性\n    Put 方向: 中性\n  PCR: now=0.974 | prev=0.943 | delta=+0.031 (↑)\n  数据质量(v2.11.85a): confidence=-, OI≥1000, IV≥5.0-门槛, eligible_call=-/-\n  ➜ 评分: +0.00\n\n【第四层】情绪确认（权重 15%）\n  成交 PCR: now=1.237 | prev=0.512\n  持仓 PCR: now=0.974 | prev=0.943\n  ATM 隐波: Call=30.12% | Put=29.82%\n  趋势: F 5752 → 5648 (down, -104)\n  评分逻辑: 乐观消退（空头信号）\n  ➜ 评分: -0.30\n\n========================================================================\n🎯 综合判断（按权重叠加）\n========================================================================\n  决策: 观望（置信度: 中）\n  总分: -0.330\n  逻辑链: L1(PAIN 结构) [leftSteep + belowMP + GEX negative + P vs Flip at → 强空头+负GEX放大（强空）] → L2(GEX 机制) [GEX negative + P at Flip + 净GEX -11.6M → 中空机制（拐点） | 净GEX 恶化 -9.6M] → L3(资金意图) [Put hedge_sell + Call hedge_sell → 箱体震荡] → L4(情绪确认) [成交PCR 从 0.51 上升至 1.24（乐观消退）→ 空头 | ATM 隐波 0.30% | 趋势↓（F 5752 → 5648，-104）]\n\n📋 各层贡献:\n  PAIN 结构=-0.60 (权重 35%)\n  GEX 机制=-0.30 (权重 25%)\n  资金意图=+0.00 (权重 25%)\n  情绪确认=-0.30 (权重 15%)\n\n========================================================================\n\n当前市场判断：短线“震荡”，但不是单边空头。\n\n1. 期货价格层面（期货盘面）：短线节奏看盘面主力，期权结构看期权链标的参考价。\n| 项目 | 当前值 | 交易含义 |\n| --- | --- | --- |\n| 期权链标的参考价 | 5648 | 用于GEX、Pain、OI和IV结构判断 |\n| 盘面主力参考价 | TA 5670 | K线短线节奏：短线震荡 |\n| 最近20根K线 | +0 | 观察日内强弱和追单风险 |\n| PTA现货 | 5970 | 现货/成本锚 |\n| 基差 | +300 | PTA现货 − 盘面主力参考价；升水偏强、贴水偏弱 |\n期权链标的参考价5648用于GEX、Pain、OI与IV等结构判断，盘面主力参考价 TA 5670负责K线节奏；两者各管一段，不要把结构位和短线信号混为一个价格。\n盘面主力参考价 TA 5670：最近一根变化+22点，过去20根累计+0点，节奏判定为短线震荡。期权链标的参考价5648用于判断GEX、Pain和持仓压力，不与盘面价混在一起下结论。\n\n2. GEX结构：价格所处Gamma区决定波动是否容易被放大。\n| 指标 | 当前值 |\n| --- | --- |\n| 标的价F | 5648 |\n| GEX Flip | 5648 |\n| 净GEX | -11.6M |\n| Gamma方向 | negative |\n| Max Pain | 5900 |\n| PCR | 0.974 |\n| 剩余到期 | 27.2天 |\nGEX处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。交易上先盯两条线：5900若失守，负Gamma容易放大顺势波动；5648若被重新收复，追涨杀跌压力会减轻。\n核心含义：F=5648 高于或接近 GEX Flip=5648，当前处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。若价格重新站回5648/5800上方，负Gamma压力会缓和；若跌破5900附近，波动可能更顺。\n\n3. Max Pain：临近到期关注痛点收敛，而不是简单看多看空。\n| 行权价 | Pain | 备注 |\n| --- | --- | --- |\n| 5900 | 93,722,750 | 最低 |\n| 5800 | 99,884,250 |  |\n| 6000 | 95,500,250 |  |\n| 5700 | 112,993,250 |  |\n| 6100 | 103,030,250 |  |\n当前Max Pain=5900。当前期权标的价距离Max Pain约-252点，临近到期存在向5900收敛的引力。 因此期权维度不是极端单边，而是上方Call压力、下方痛点/Put防线共同约束。\n\n4. 持仓结构：Put持仓偏多时要区分保护盘和主动空头。\n当前总持仓：Call OI=124,494，Put OI=121,313，PCR=0.974。\nPut持仓集中：\n| Put行权价 | Put OI |\n| --- | --- |\n| 5000 | 23,538 |\n| 5900 | 9,025 |\n| 4200 | 8,013 |\n| 6100 | 7,884 |\n| 5500 | 6,148 |\nCall持仓集中：\n| Call行权价 | Call OI |\n| --- | --- |\n| 7000 | 10,742 |\n| 5800 | 8,892 |\n| 6500 | 8,660 |\n| 6300 | 8,613 |\n| 8000 | 7,646 |\n解读：Put集中在5000, 5900, 4200，Call压力集中在7000, 5800, 6500, 6300。大致结构是：5900为痛点锚，5648为波动分界，5800及以上为压力带。\n\n5. IV结构：看ATM隐波是否够高，也看左侧保护溢价。\n| K | C IV | P IV | SVI/平滑IV | OI结构 |\n| --- | --- | --- | --- | --- |\n| 5400 | 29.62% | 29.54% | 29.39% | C 1,449 / P 4,127 |\n| 5500 | 28.65% | 29.61% | 29.61% | C 2,678 / P 6,148 |\n| 5600 | 30.12% | 29.82% | 30.07% | C 2,884 / P 3,746 |\n| 5700 | 30.70% | 30.44% | 30.67% | C 5,119 / P 4,157 |\n| 5800 | 31.31% | 29.97% | 31.38% | C 8,892 / P 5,003 |\nATM隐波约30.4%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。\nATM附近隐波约30.4%，属于高波动率；右偏(看涨溢价偏高)，上行博弈需求旺盛；低曲率(曲线扁平)，市场对尾部风险定价不足。左侧Put IV若显著高于ATM，说明市场对下跌尾部风险有定价。\n\n5.5 性质判定 × 合成信号（v2.11.63d 资金意图精细化）\n形态：[左右对称]；位置：低位(P<MP)；PCR 0.974↑（前日 0.943）\nPCR 业务解读：PCR↑ = Put 持仓增速 > Call 持仓增速（0.974↑ vs 0.943）\n基准：今日 15:00 当前 vs 昨日 15:00 收盘（alert_data OI/IV prev 字段）。\n| 维度 | 当前 | 前次 | 变化 | 性质 | 业务解读 |\n| --- | --- | --- | --- | --- | --- |\n| Put | 121,313 | 113,374 | OI +7.0%\nIV -2.24pp | 套保卖权 | 卖 Put 集中（左侧加速器加码 = 投机/做市商认为下方有支撑收租） |\n| Call | 124,494 | 120,193 | OI +3.6%\nIV -4.80pp | 套保卖权 | 卖 Call 收租（产业锁定销售顶价 = 中性，不站队方向） |\n合成信号：多空分化(慢牛+慢熊)（弱）\nPut 端(套保卖权) + Call 端(套保卖权) 总量均中性，但 strike 级别方向分化 → Call 端慢牛（投机在 5343C 离场，产业在 5942C 收租，spread=600点） | Put 端慢熊（认沽买方在 6000P 撤退，产业在 5146P 收租，spread=854点）\n\n📊 Strike 级别方向异质性（区分投机端 vs 产业端）：\nCall 端：产业卖权收租(5900C/6000C/6200C, OI增量42%) / 投机/对冲端撤退(6100C/5300C/6400C, OI减量16%) / 卖方平仓(6300C/5400C/5700C)\nPut  端：产业卖权收租(5100P/4950P/5700P, OI增量40%) / 投机/对冲端撤退(4900P/5300P/5500P, OI减量29%) / 产业买保(5000P/4850P) / 卖方平仓(6100P/5800P/6400P)\n| 角色/分组 | Call strike 级别 | Put strike 级别 |\n| --- | --- | --- |\n| 产业卖权收租 (OI↑IV↓) | 5900C OI+19.7% IV-0.82pp 6000C OI+9.9% IV-0.75pp 6200C OI+7.4% IV-0.57pp 5600C OI+4.8% IV-0.99pp | 5100P OI+16.6% IV-0.35pp 4950P OI+16.6% IV-0.50pp 5700P OI+7.2% IV-0.91pp |\n| 产业买保 (OI↑IV—) | -- | 5000P OI+44.2% IV+0.06pp 4850P OI+4.8% IV+0.12pp |\n| 投机端加仓 (OI↑IV↑) | -- | -- |\n| 投机/对冲撤退 (OI↓IV↓/—) | -- | -- |\n| 卖方平仓 (OI↓IV↑) | 6300C OI+1.0% IV-0.45pp 5400C OI+0.3% IV-0.93pp 5700C OI-0.2% IV-0.89pp 5800C OI-0.1% IV-0.90pp | 6100P OI-1.0% IV-0.92pp 5800P OI-0.9% IV-2.02pp 6400P OI+0.8% IV-0.40pp 6200P OI-0.4% IV-2.02pp 5200P OI+0.2% IV-0.51pp 5900P OI-0.2% IV-1.41pp 6300P OI+0.0% IV-5.45pp |\n\n6. 基本面与宏观：先看宏观快讯和成本链，周频供需项暂不放入盘中主研判。\n| 项目 | 当前值 | 解读 |\n| --- | --- | --- |\n| Brent | $85.34，+0.46% | 原油宏观成本 |\n| WTI | $80.11，+0.64% | 原油宏观成本 |\n| PX现货 | 7900 | 内盘成本端 |\n| PX外盘现货价 | $1089.67/吨 | manual:人工；汇率6.7910 |\n| PTA估算成本 | 5174 | 内盘成本支撑区 |\n| 外盘PTA动态成本 | 5532 | PX亚洲收盘价*0.655*1.01*1.13*USD/CNY |\n| PTA利润 | 796，15.4% | 利润高则供应压力偏空 |\n| 环节 | 开工率 | 较前值 | 库存 | 较前值 |\n| --- | --- | --- | --- | --- |\n| PX | 62.6% | 暂无前值 | -- | 暂无前值 |\n| PTA | 52.9% | 暂无前值 | 271.9万吨 | 暂无前值 |\n| 聚酯 | 80.2% | 暂无前值 | -- | 暂无前值 |\n| 织造 | 52.9% | 暂无前值 | -- | 暂无前值 |\n宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：【人工宏观基本面】7月13日美伊冲突全面升级，美军实施海上封锁，霍尔木兹海峡通航大幅萎缩，WTI 79.34/布伦特 84.73 美元/桶推升一个月新高。PX CFR 中国暴涨 61 美元至 1089.67 美元/吨，国内 PX 开工率维持 62.58% 历史低位（威联化学、海南炼化、盛虹、福海创、中金石化等多套装置检修）。PTA 端产能利用率降至 52.88% 创历史新低，社会库存 271.91 万吨周去库近 33 万吨，现货加工费 650 元/吨高位。机构整体看多，但中期警惕 7 月底至 8 月初 1320 万吨装置集中重启带来的加工费收缩压力。；7/15 PX CFR 中国收 1089.67 美元/吨，单日暴涨 61 美元/吨（+5.9%）；此前 7 月 1-13 日 PX 均价约 1006.75 美元/吨，近期快速走高。外盘PX$1089.67/吨，对应外盘PTA动态成本约5532元/吨；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。\n自动快讯（去重人工摘要）：7/15 PX CFR 中国收 1089.67 美元/吨，单日暴涨 61 美元/吨（+5.9%）；此前 7 月 1-13 日 PX 均价约 1006.75 美元/吨，近期快速走高；国内 PX 开工率 62.58% 维持历史低位，威联化学 200 万吨、海南炼化 160 万吨、盛虹 400 万吨、福海创 160 万吨、中金石化 160 万吨等多套装置仍在检修；7 月中上旬亚洲 PX 整体供应受抑制；PX-石脑油价差走扩，PTA 成本端支撑强化。\n基本面不是单边空：现货/成本可能提供下方支撑；但加工利润796元若处在偏高区域，容易限制上方弹性。\n\n综合结论\n当前主线：震荡，核心区间关注5900—5800。期权结构处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动，真正的方向触发在5900跌破或5648/5800重新站上。\n\n关键价位\n| 位置 | 含义 |\n| --- | --- |\n| 5648 | GEX Flip，重新站上后负Gamma压力缓和 |\n| 5900 | Max Pain + 临近到期收敛锚 |\n| 5500 | 近端Put防线/有效支撑 |\n| 5800 | 近端Call压力/有效压力 |\n| 7000 | 上方最大Call持仓压力带 |\n| 5000 | 下方最大Put保护盘区域 |\n\n操作思路，仅按结构说\n如果偏交易期货：\n• 5648 / 5800下方不宜追多，先按反抽压力处理。\n• 跌破5900并放量增仓，负Gamma可能放大下跌，下一目标看5500。\n• 重新站回5648，空头动能减弱，回到区间震荡。\n如果偏期权卖方：\n• 临近到期Theta衰减快，震荡时卖方有时间价值优势。\n• 负Gamma环境不裸卖近端Put，尤其是5900失守后。\n• 若站回5648，可考虑更稳健的宽跨/价差结构。\n如果偏买方：\n• 买Put触发点优先看5900有效跌破。\n• 买Call触发点看重新站回5648或压力位后的修复。\n• 夹在痛点和压力之间横盘时，买方容易被时间价值消耗。\n\n一句话总结：当前不是强多盘，主线短线震荡；看5900是否守住——守住则向5900—5800区间收敛，跌破则负Gamma会放大下跌。",
     "bullets": [
       "GEX：负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动",
-      "Pain：当前期权标的价距离Max Pain约-154点，临近到期存在向5900收敛的引力。",
-      "宏观：Brent$85.21"
+      "Pain：当前期权标的价距离Max Pain约-252点，临近到期存在向5900收敛的引力。",
+      "宏观：Brent$85.34"
     ],
     "narrative_notes": {
       "market": [],
@@ -7237,26 +7270,26 @@
       "strategy": [],
       "other": []
     },
-    "market_snapshot_interpretation": "期权链标的参考价5746用于GEX、Pain、OI与IV等结构判断，盘面主力参考价 TA 5750负责K线节奏；两者各管一段，不要把结构位和短线信号混为一个价格。",
-    "gex_interpretation": "GEX处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。交易上先盯两条线：5900若失守，负Gamma容易放大顺势波动；5654若被重新收复，追涨杀跌压力会减轻。",
-    "oi_interpretation": "持仓给出的不是单边方向，而是边界：Put集中区对应下方防线，Call集中区对应上方压力。当前更适合把5900—6500当作区间框架，再等跌破或站回触发。",
-    "iv_interpretation": "ATM隐波约31.6%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。",
+    "market_snapshot_interpretation": "期权链标的参考价5648用于GEX、Pain、OI与IV等结构判断，盘面主力参考价 TA 5670负责K线节奏；两者各管一段，不要把结构位和短线信号混为一个价格。",
+    "gex_interpretation": "GEX处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。交易上先盯两条线：5900若失守，负Gamma容易放大顺势波动；5648若被重新收复，追涨杀跌压力会减轻。",
+    "oi_interpretation": "持仓给出的不是单边方向，而是边界：Put集中区对应下方防线，Call集中区对应上方压力。当前更适合把5900—5800当作区间框架，再等跌破或站回触发。",
+    "iv_interpretation": "ATM隐波约30.4%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。",
     "macro_interpretation": "宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：【人工宏观基本面】7月13日美伊冲突全面升级，美军实施海上封锁，霍尔木兹海峡通航大幅萎缩，WTI 79.34/布伦特 84.73 美元/桶推升一个月新高。PX CFR 中国暴涨 61 美元至 1089.67 美元/吨，国内 PX 开工率维持 62.58% 历史低位（威联化学、海南炼化、盛虹、福海创、中金石化等多套装置检修）。PTA 端产能利用率降至 52.88% 创历史新低，社会库存 271.91 万吨周去库近 33 万吨，现货加工费 650 元/吨高位。机构整体看多，但中期警惕 7 月底至 8 月初 1320 万吨装置集中重启带来的加工费收缩压力。；7/15 PX CFR 中国收 1089.67 美元/吨，单日暴涨 61 美元/吨（+5.9%）；此前 7 月 1-13 日 PX 均价约 1006.75 美元/吨，近期快速走高。外盘PX$1089.67/吨，对应外盘PTA动态成本约5532元/吨；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。",
-    "strategy_logic": "策略依据：先用盘面主力判断追单节奏，再用GEX/Pain确定触发位，用OI确认支撑压力，用IV决定买方还是卖方更占优，同时用原油/PX外盘成本确认顺势信号质量。当前重点是5900是否跌破、5654是否收复；未触发前以区间和风控为主，触发后再顺势加速。",
+    "strategy_logic": "策略依据：先用盘面主力判断追单节奏，再用GEX/Pain确定触发位，用OI确认支撑压力，用IV决定买方还是卖方更占优，同时用原油/PX外盘成本确认顺势信号质量。当前重点是5900是否跌破、5648是否收复；未触发前以区间和风控为主，触发后再顺势加速。",
     "market_snapshot_table": [
       [
         "期权链标的参考价",
-        "5746",
+        "5648",
         "用于GEX、Pain、OI和IV结构判断"
       ],
       [
         "盘面主力参考价",
-        "TA 5750",
-        "K线短线节奏：短线偏强"
+        "TA 5670",
+        "K线短线节奏：短线震荡"
       ],
       [
         "最近20根K线",
-        "+12",
+        "+0",
         "观察日内强弱和追单风险"
       ],
       [
@@ -7266,22 +7299,22 @@
       ],
       [
         "基差",
-        "+220",
+        "+300",
         "PTA现货 − 盘面主力参考价；升水偏强、贴水偏弱"
       ]
     ],
     "gex_table": [
       [
         "标的价F",
-        "5746"
+        "5648"
       ],
       [
         "GEX Flip",
-        "5654"
+        "5648"
       ],
       [
         "净GEX",
-        "-2.1M"
+        "-11.6M"
       ],
       [
         "Gamma方向",
@@ -7293,7 +7326,7 @@
       ],
       [
         "PCR",
-        "0.976"
+        "0.974"
       ],
       [
         "剩余到期",
@@ -7303,27 +7336,27 @@
     "pain_table": [
       [
         "5900",
-        "93,768,750",
+        "93,722,750",
         "最低"
       ],
       [
         "5800",
-        "99,961,250",
+        "99,884,250",
         ""
       ],
       [
         "6000",
-        "95,536,750",
+        "95,500,250",
         ""
       ],
       [
         "5700",
-        "113,087,750",
+        "112,993,250",
         ""
       ],
       [
         "6100",
-        "102,942,750",
+        "103,030,250",
         ""
       ]
     ],
@@ -7331,94 +7364,94 @@
       "put": [
         [
           "5000",
-          "21,030"
+          "23,538"
         ],
         [
           "5900",
-          "9,066"
+          "9,025"
         ],
         [
           "4200",
-          "8,071"
+          "8,013"
         ],
         [
           "6100",
-          "7,899"
+          "7,884"
         ],
         [
           "5500",
-          "6,426"
+          "6,148"
         ]
       ],
       "call": [
         [
           "7000",
-          "10,092"
-        ],
-        [
-          "6500",
-          "9,162"
+          "10,742"
         ],
         [
           "5800",
-          "8,741"
+          "8,892"
+        ],
+        [
+          "6500",
+          "8,660"
         ],
         [
           "6300",
-          "8,617"
+          "8,613"
         ],
         [
           "8000",
-          "7,794"
+          "7,646"
         ]
       ]
     },
     "iv_table": [
       [
+        "5400",
+        "29.62%",
+        "29.54%",
+        "29.39%",
+        "C 1,449 / P 4,127"
+      ],
+      [
+        "5500",
+        "28.65%",
+        "29.61%",
+        "29.61%",
+        "C 2,678 / P 6,148"
+      ],
+      [
         "5600",
-        "30.67%",
-        "30.75%",
-        "30.69%",
-        "C 2,855 / P 4,138"
+        "30.12%",
+        "29.82%",
+        "30.07%",
+        "C 2,884 / P 3,746"
       ],
       [
         "5700",
-        "31.21%",
-        "31.24%",
-        "31.26%",
-        "C 5,303 / P 4,190"
+        "30.70%",
+        "30.44%",
+        "30.67%",
+        "C 5,119 / P 4,157"
       ],
       [
         "5800",
-        "31.85%",
-        "31.90%",
-        "31.93%",
-        "C 8,742 / P 5,130"
-      ],
-      [
-        "5900",
-        "32.68%",
-        "32.80%",
-        "32.67%",
-        "C 6,864 / P 9,068"
-      ],
-      [
-        "6000",
-        "33.38%",
-        "33.50%",
-        "33.44%",
-        "C 7,400 / P 3,857"
+        "31.31%",
+        "29.97%",
+        "31.38%",
+        "C 8,892 / P 5,003"
       ]
     ],
     "macro_table": [
       [
         "Brent",
-        "$85.21，+0.31%",
+        "$85.34，+0.46%",
         "原油宏观成本"
       ],
       [
         "WTI",
-        "$80.06，+0.58%",
+        "$80.11，+0.64%",
         "原油宏观成本"
       ],
       [
@@ -7429,7 +7462,7 @@
       [
         "PX外盘现货价",
         "$1089.67/吨",
-        "manual:人工；汇率6.7909"
+        "manual:人工；汇率6.7910"
       ],
       [
         "PTA估算成本",
@@ -7581,9 +7614,9 @@
       "futures_strategy": {
         "title": "期货操作",
         "items": [
-          "5654 / 6500下方不宜追多，先按反抽压力处理。",
+          "5648 / 5800下方不宜追多，先按反抽压力处理。",
           "跌破5900并放量增仓，负Gamma可能放大下跌，下一目标看5500。",
-          "重新站回5654，空头动能减弱，回到区间震荡。"
+          "重新站回5648，空头动能减弱，回到区间震荡。"
         ]
       },
       "option_seller_strategy": {
@@ -7591,21 +7624,21 @@
         "items": [
           "临近到期Theta衰减快，震荡时卖方有时间价值优势。",
           "负Gamma环境不裸卖近端Put，尤其是5900失守后。",
-          "若站回5654，可考虑更稳健的宽跨/价差结构。"
+          "若站回5648，可考虑更稳健的宽跨/价差结构。"
         ]
       },
       "option_buyer_strategy": {
         "title": "期权买方策略",
         "items": [
           "买Put触发点优先看5900有效跌破。",
-          "买Call触发点看重新站回5654或压力位后的修复。",
+          "买Call触发点看重新站回5648或压力位后的修复。",
           "夹在痛点和压力之间横盘时，买方容易被时间价值消耗。"
         ]
       }
     },
     "key_levels": [
       [
-        "5654",
+        "5648",
         "GEX Flip，重新站上后负Gamma压力缓和"
       ],
       [
@@ -7617,7 +7650,7 @@
         "近端Put防线/有效支撑"
       ],
       [
-        "6500",
+        "5800",
         "近端Call压力/有效压力"
       ],
       [
@@ -7629,29 +7662,29 @@
         "下方最大Put保护盘区域"
       ]
     ],
-    "option_underlying_price": 5746,
-    "main_futures_price": 5750.0,
+    "option_underlying_price": 5648,
+    "main_futures_price": 5670.0,
     "main_futures_symbol": "TA",
     "nature_synthesis": {
       "available": true,
       "put": {
-        "oi_cur": 121084,
+        "oi_cur": 121313,
         "oi_prev": 113374,
-        "oi_delta_pct": 6.800500996701183,
-        "iv_cur": 32.677005740208315,
+        "oi_delta_pct": 7.002487342777003,
+        "iv_cur": 31.22041315146259,
         "iv_prev": 33.45801387170878,
-        "iv_delta_pp": -0.7810081315004638,
+        "iv_delta_pp": -2.2376007202461885,
         "nature": "hedge_sell",
         "nature_label": "套保卖权",
         "business_meaning": "卖 Put 集中（左侧加速器加码 = 投机/做市商认为下方有支撑收租）"
       },
       "call": {
-        "oi_cur": 124042,
+        "oi_cur": 124494,
         "oi_prev": 120193,
-        "oi_delta_pct": 3.2023495544665668,
-        "iv_cur": 33.86827044066634,
+        "oi_delta_pct": 3.5784113883504034,
+        "iv_cur": 32.54251318045088,
         "iv_prev": 37.33966732160027,
-        "iv_delta_pp": -3.4713968809339235,
+        "iv_delta_pp": -4.7971541411493845,
         "nature": "hedge_sell",
         "nature_label": "套保卖权",
         "business_meaning": "卖 Call 收租（产业锁定销售顶价 = 中性，不站队方向）"
@@ -7660,19 +7693,19 @@
       "shape_label": "[左右对称]",
       "position": "belowMP",
       "position_label": "低位(P<MP)",
-      "pcr_now": 0.9761532384192451,
+      "pcr_now": 0.9744485678024644,
       "pcr_prev": 0.9432662467864185,
-      "pcr_delta": 0.0328869916328266,
+      "pcr_delta": 0.0311823210160459,
       "synthesis": {
-        "label": "中性偏慢牛",
+        "label": "多空分化(慢牛+慢熊)",
         "intensity": "弱",
-        "description": "Put 端(套保卖权) + Call 端(套保卖权) 总量均中性，但 strike 级别方向分化 → Call 端慢牛（投机在 5329C 离场，产业在 6117C 收租，spread=788点）",
+        "description": "Put 端(套保卖权) + Call 端(套保卖权) 总量均中性，但 strike 级别方向分化 → Call 端慢牛（投机在 5343C 离场，产业在 5942C 收租，spread=600点） | Put 端慢熊（认沽买方在 6000P 撤退，产业在 5146P 收租，spread=854点）",
         "put_dir": "neutral",
         "call_dir": "neutral",
-        "pcr_delta": 0.0328869916328266,
+        "pcr_delta": 0.0311823210160459,
         "pcr_label": "↑",
-        "pcr_meaning": "PCR↑ = Put 持仓增速 > Call 持仓增速（0.976↑ vs 0.943）",
-        "strike_modifier": "Call 端慢牛（投机在 5329C 离场，产业在 6117C 收租，spread=788点）"
+        "pcr_meaning": "PCR↑ = Put 持仓增速 > Call 持仓增速（0.974↑ vs 0.943）",
+        "strike_modifier": "Call 端慢牛（投机在 5343C 离场，产业在 5942C 收租，spread=600点） | Put 端慢熊（认沽买方在 6000P 撤退，产业在 5146P 收租，spread=854点）"
       },
       "call_role": {
         "spec_trim": [],
@@ -7680,96 +7713,79 @@
         "hedge_sell": [
           {
             "strike": 5900,
-            "oi_cur": 6864,
+            "oi_cur": 6853,
             "oi_prev": 5723,
-            "oi_delta_pct": 19.93709592870872,
-            "iv_delta_pp": -0.28999999999999915,
-            "nature": "hedge_sell"
-          },
-          {
-            "strike": 6600,
-            "oi_cur": 5338,
-            "oi_prev": 4542,
-            "oi_delta_pct": 17.525319242624395,
-            "iv_delta_pp": -0.22999999999999687,
+            "oi_delta_pct": 19.744889044207582,
+            "iv_delta_pp": -0.8200000000000003,
             "nature": "hedge_sell"
           },
           {
             "strike": 6000,
-            "oi_cur": 7400,
+            "oi_cur": 7616,
             "oi_prev": 6931,
-            "oi_delta_pct": 6.766700331842447,
-            "iv_delta_pp": -0.3999999999999986,
+            "oi_delta_pct": 9.883133746934064,
+            "iv_delta_pp": -0.75,
+            "nature": "hedge_sell"
+          },
+          {
+            "strike": 6200,
+            "oi_cur": 5582,
+            "oi_prev": 5198,
+            "oi_delta_pct": 7.387456714120816,
+            "iv_delta_pp": -0.5700000000000003,
             "nature": "hedge_sell"
           },
           {
             "strike": 5600,
-            "oi_cur": 2855,
+            "oi_cur": 2884,
             "oi_prev": 2752,
-            "oi_delta_pct": 3.7427325581395348,
-            "iv_delta_pp": -0.4399999999999977,
-            "nature": "hedge_sell"
-          },
-          {
-            "strike": 5700,
-            "oi_cur": 5303,
-            "oi_prev": 5129,
-            "oi_delta_pct": 3.3924741665041918,
-            "iv_delta_pp": -0.379999999999999,
+            "oi_delta_pct": 4.796511627906977,
+            "iv_delta_pp": -0.9899999999999984,
             "nature": "hedge_sell"
           }
         ],
-        "hedge_buy": [
-          {
-            "strike": 6500,
-            "oi_cur": 9153,
-            "oi_prev": 8078,
-            "oi_delta_pct": 13.307749442931419,
-            "iv_delta_pp": -0.10999999999999943,
-            "nature": "hedge_buy"
-          },
-          {
-            "strike": 6200,
-            "oi_cur": 5480,
-            "oi_prev": 5198,
-            "oi_delta_pct": 5.425163524432474,
-            "iv_delta_pp": -0.07000000000000028,
-            "nature": "hedge_buy"
-          },
-          {
-            "strike": 6300,
-            "oi_cur": 8617,
-            "oi_prev": 8528,
-            "oi_delta_pct": 1.0436210131332082,
-            "iv_delta_pp": -0.030000000000001137,
-            "nature": "hedge_buy"
-          }
-        ],
+        "hedge_buy": [],
         "close_push": [
           {
-            "strike": 6400,
-            "oi_cur": 4197,
-            "oi_prev": 4167,
-            "oi_delta_pct": 0.7199424046076314,
-            "iv_delta_pp": -0.21999999999999886,
+            "strike": 6300,
+            "oi_cur": 8613,
+            "oi_prev": 8528,
+            "oi_delta_pct": 0.9967166979362101,
+            "iv_delta_pp": -0.44999999999999574,
             "nature": "close_push"
           },
           {
-            "strike": 5500,
-            "oi_cur": 2696,
-            "oi_prev": 2711,
-            "oi_delta_pct": -0.5533013648100332,
-            "iv_delta_pp": -0.4599999999999973,
+            "strike": 5400,
+            "oi_cur": 1449,
+            "oi_prev": 1444,
+            "oi_delta_pct": 0.3462603878116343,
+            "iv_delta_pp": -0.9299999999999997,
+            "nature": "close_push"
+          },
+          {
+            "strike": 5700,
+            "oi_cur": 5119,
+            "oi_prev": 5129,
+            "oi_delta_pct": -0.19496977968414894,
+            "iv_delta_pp": -0.8900000000000006,
+            "nature": "close_push"
+          },
+          {
+            "strike": 5800,
+            "oi_cur": 8892,
+            "oi_prev": 8901,
+            "oi_delta_pct": -0.10111223458038424,
+            "iv_delta_pp": -0.9000000000000021,
             "nature": "close_push"
           }
         ],
         "double_exit": [
           {
             "strike": 6100,
-            "oi_cur": 4344,
+            "oi_cur": 4588,
             "oi_prev": 4967,
-            "oi_delta_pct": -12.542782363599759,
-            "iv_delta_pp": -0.25,
+            "oi_delta_pct": -7.630360378498087,
+            "iv_delta_pp": -0.9099999999999966,
             "nature": "double_exit"
           },
           {
@@ -7777,159 +7793,191 @@
             "oi_cur": 1102,
             "oi_prev": 1154,
             "oi_delta_pct": -4.506065857885615,
-            "iv_delta_pp": -2.5,
+            "iv_delta_pp": -3.25,
             "nature": "double_exit"
           },
           {
-            "strike": 5400,
-            "oi_cur": 1417,
-            "oi_prev": 1444,
-            "oi_delta_pct": -1.8698060941828254,
-            "iv_delta_pp": -0.40000000000000213,
+            "strike": 6400,
+            "oi_cur": 4052,
+            "oi_prev": 4167,
+            "oi_delta_pct": -2.759779217662587,
+            "iv_delta_pp": -0.8399999999999963,
             "nature": "double_exit"
           },
           {
-            "strike": 5800,
-            "oi_cur": 8742,
-            "oi_prev": 8901,
-            "oi_delta_pct": -1.7863161442534545,
-            "iv_delta_pp": -0.35999999999999943,
+            "strike": 5500,
+            "oi_cur": 2678,
+            "oi_prev": 2711,
+            "oi_delta_pct": -1.217263002582073,
+            "iv_delta_pp": -2.09,
             "nature": "double_exit"
           }
         ],
         "_top_n": 10,
-        "role_summary": "产业卖权收租(5900C/6600C/6000C, OI增量51%) / 投机/对冲端撤退(6100C/5300C/5400C, OI减量21%) / 产业买保(6500C/6200C/6300C) / 卖方平仓(6400C/5500C)"
+        "role_summary": "产业卖权收租(5900C/6000C/6200C, OI增量42%) / 投机/对冲端撤退(6100C/5300C/6400C, OI减量16%) / 卖方平仓(6300C/5400C/5700C)"
       },
       "put_role": {
         "spec_trim": [],
-        "spec_add": [
+        "spec_add": [],
+        "hedge_sell": [
           {
-            "strike": 5000,
-            "oi_cur": 21029,
-            "oi_prev": 16322,
-            "oi_delta_pct": 28.83837764979782,
-            "iv_delta_pp": 0.5599999999999987,
-            "nature": "spec_buy"
+            "strike": 5100,
+            "oi_cur": 4328,
+            "oi_prev": 3711,
+            "oi_delta_pct": 16.626246294799245,
+            "iv_delta_pp": -0.3500000000000014,
+            "nature": "hedge_sell"
           },
           {
             "strike": 4950,
-            "oi_cur": 2106,
+            "oi_cur": 2113,
             "oi_prev": 1812,
-            "oi_delta_pct": 16.225165562913908,
-            "iv_delta_pp": 0.23000000000000043,
-            "nature": "spec_buy"
+            "oi_delta_pct": 16.61147902869757,
+            "iv_delta_pp": -0.5,
+            "nature": "hedge_sell"
           },
           {
-            "strike": 5100,
-            "oi_cur": 4220,
-            "oi_prev": 3711,
-            "oi_delta_pct": 13.71597952034492,
-            "iv_delta_pp": 0.3299999999999983,
-            "nature": "spec_buy"
+            "strike": 5700,
+            "oi_cur": 4157,
+            "oi_prev": 3876,
+            "oi_delta_pct": 7.249742002063983,
+            "iv_delta_pp": -0.9100000000000001,
+            "nature": "hedge_sell"
+          }
+        ],
+        "hedge_buy": [
+          {
+            "strike": 5000,
+            "oi_cur": 23538,
+            "oi_prev": 16322,
+            "oi_delta_pct": 44.21026834946697,
+            "iv_delta_pp": 0.05999999999999872,
+            "nature": "hedge_buy"
           },
           {
-            "strike": 5200,
-            "oi_cur": 5565,
-            "oi_prev": 5011,
-            "oi_delta_pct": 11.055677509479146,
-            "iv_delta_pp": 0.21000000000000085,
-            "nature": "spec_buy"
+            "strike": 4850,
+            "oi_cur": 1667,
+            "oi_prev": 1591,
+            "oi_delta_pct": 4.776869893148962,
+            "iv_delta_pp": 0.12000000000000455,
+            "nature": "hedge_buy"
+          }
+        ],
+        "close_push": [
+          {
+            "strike": 6100,
+            "oi_cur": 7884,
+            "oi_prev": 7962,
+            "oi_delta_pct": -0.9796533534287867,
+            "iv_delta_pp": -0.9199999999999946,
+            "nature": "close_push"
+          },
+          {
+            "strike": 5800,
+            "oi_cur": 5003,
+            "oi_prev": 5050,
+            "oi_delta_pct": -0.9306930693069306,
+            "iv_delta_pp": -2.0199999999999996,
+            "nature": "close_push"
           },
           {
             "strike": 6400,
             "oi_cur": 3090,
             "oi_prev": 3064,
             "oi_delta_pct": 0.8485639686684074,
-            "iv_delta_pp": 3.0600000000000023,
-            "nature": "spec_buy"
+            "iv_delta_pp": -0.3999999999999986,
+            "nature": "close_push"
           },
           {
-            "strike": 6100,
-            "oi_cur": 7899,
-            "oi_prev": 7962,
-            "oi_delta_pct": -0.7912584777694046,
-            "iv_delta_pp": 0.240000000000002,
-            "nature": "spec_buy"
+            "strike": 6200,
+            "oi_cur": 4455,
+            "oi_prev": 4473,
+            "oi_delta_pct": -0.4024144869215292,
+            "iv_delta_pp": -2.019999999999996,
+            "nature": "close_push"
+          },
+          {
+            "strike": 5200,
+            "oi_cur": 5023,
+            "oi_prev": 5011,
+            "oi_delta_pct": 0.23947315905008978,
+            "iv_delta_pp": -0.509999999999998,
+            "nature": "close_push"
+          },
+          {
+            "strike": 5900,
+            "oi_cur": 9025,
+            "oi_prev": 9045,
+            "oi_delta_pct": -0.22111663902708678,
+            "iv_delta_pp": -1.4100000000000001,
+            "nature": "close_push"
           },
           {
             "strike": 6300,
             "oi_cur": 6082,
             "oi_prev": 6082,
             "oi_delta_pct": 0.0,
-            "iv_delta_pp": 2.259999999999998,
-            "nature": "spec_buy"
-          }
-        ],
-        "hedge_sell": [],
-        "hedge_buy": [
-          {
-            "strike": 5700,
-            "oi_cur": 4190,
-            "oi_prev": 3876,
-            "oi_delta_pct": 8.101135190918471,
-            "iv_delta_pp": -0.11000000000000298,
-            "nature": "hedge_buy"
-          },
-          {
-            "strike": 5600,
-            "oi_cur": 4138,
-            "oi_prev": 3938,
-            "oi_delta_pct": 5.078720162519045,
-            "iv_delta_pp": 0.05000000000000071,
-            "nature": "hedge_buy"
-          },
-          {
-            "strike": 5300,
-            "oi_cur": 5590,
-            "oi_prev": 5479,
-            "oi_delta_pct": 2.0259171381638983,
-            "iv_delta_pp": 0.029999999999997584,
-            "nature": "hedge_buy"
-          },
-          {
-            "strike": 5800,
-            "oi_cur": 5130,
-            "oi_prev": 5050,
-            "oi_delta_pct": 1.5841584158415842,
-            "iv_delta_pp": -0.08999999999999986,
-            "nature": "hedge_buy"
-          }
-        ],
-        "close_push": [
-          {
-            "strike": 4900,
-            "oi_cur": 1972,
-            "oi_prev": 2250,
-            "oi_delta_pct": -12.355555555555556,
-            "iv_delta_pp": 0.16999999999999815,
-            "nature": "close_push"
-          },
-          {
-            "strike": 6200,
-            "oi_cur": 4480,
-            "oi_prev": 4473,
-            "oi_delta_pct": 0.1564945226917058,
-            "iv_delta_pp": -0.6499999999999986,
+            "iv_delta_pp": -5.450000000000003,
             "nature": "close_push"
           }
         ],
         "double_exit": [
           {
+            "strike": 4900,
+            "oi_cur": 2066,
+            "oi_prev": 2250,
+            "oi_delta_pct": -8.177777777777779,
+            "iv_delta_pp": -0.17999999999999972,
+            "nature": "double_exit"
+          },
+          {
+            "strike": 5300,
+            "oi_cur": 5123,
+            "oi_prev": 5479,
+            "oi_delta_pct": -6.497536046723855,
+            "iv_delta_pp": -0.7100000000000009,
+            "nature": "double_exit"
+          },
+          {
+            "strike": 5500,
+            "oi_cur": 6148,
+            "oi_prev": 6470,
+            "oi_delta_pct": -4.976816074188563,
+            "iv_delta_pp": -0.870000000000001,
+            "nature": "double_exit"
+          },
+          {
+            "strike": 5600,
+            "oi_cur": 3746,
+            "oi_prev": 3938,
+            "oi_delta_pct": -4.875571356018284,
+            "iv_delta_pp": -0.879999999999999,
+            "nature": "double_exit"
+          },
+          {
             "strike": 6000,
-            "oi_cur": 3857,
+            "oi_cur": 3889,
             "oi_prev": 3982,
-            "oi_delta_pct": -3.139126067302863,
-            "iv_delta_pp": -0.030000000000001137,
+            "oi_delta_pct": -2.33550979407333,
+            "iv_delta_pp": -1.3200000000000003,
+            "nature": "double_exit"
+          },
+          {
+            "strike": 5400,
+            "oi_cur": 4127,
+            "oi_prev": 4216,
+            "oi_delta_pct": -2.1110056925996203,
+            "iv_delta_pp": -0.620000000000001,
             "nature": "double_exit"
           }
         ],
         "_top_n": 10,
-        "role_summary": "投机/对冲端撤退(6000P, OI减量3%) / 投机端加仓(5000P/4950P/5100P) / 产业买保(5700P/5600P/5300P) / 卖方平仓(4900P/6200P)"
+        "role_summary": "产业卖权收租(5100P/4950P/5700P, OI增量40%) / 投机/对冲端撤退(4900P/5300P/5500P, OI减量29%) / 产业买保(5000P/4850P) / 卖方平仓(6100P/5800P/6400P)"
       },
       "data_quality": {
         "total_strikes": 47,
-        "eligible_call": 14,
-        "eligible_put": 17,
+        "eligible_call": 12,
+        "eligible_put": 18,
         "filtered_count": 32,
         "oi_threshold": 1000,
         "iv_threshold_pp": 5.0,
@@ -7939,5 +7987,7 @@
       "note": ""
     }
   },
-  "narrative_report": "========================================================================\n📊 PTA 期权四维决策报告（v2.11.85b）\n生成时间: 2026-07-16T11:15:00\n合约: - | 期货价: 5746 | ATM: 0 | MP: 5900\n最后更新: 2026-07-16T11:15:00.416422 | TqSdk: -\n========================================================================\n\n【第一层】PAIN 结构（权重 35%）\n  维度: 形态=leftSteep | 位置=belowMP | GEX=negative | P vs Flip=above\n  业务: 强空头，下跌自我强化（左侧加速器激活），GEX负放大跌幅，接近情绪极值\n  PCR: 持仓PCR=0.98 平衡（加成 +0.0）\n  评分逻辑: 强空头+负GEX放大（强空）\n  ➜ 评分: -0.60\n\n【第二层】GEX 机制（权重 25%）\n  维度: GEX=negative | P vs Flip=above\n  业务: 负GEX + P在Flip上方 → 卖方对冲买压释放（涨幅被放大，但也有回调风险）\n  评分逻辑: 弱空机制（涨幅放大但有支撑）\n  ➜ 评分: -0.10\n\n【第三层】资金意图（权重 25%）\n  Put 性质: hedge_sell (套保卖权)\n    业务: 卖 Put 集中（左侧加速器加码 = 投机/做市商认为下方有支撑收租）\n  Call 性质: hedge_sell (套保卖权)\n    业务: 卖 Call 收租（产业锁定销售顶价 = 中性，不站队方向）\n  原始 label: 多空分化(慢牛+慢熊) (弱)\n  ✅ 标准化 label: hedge_buy_mid / noise_open_strong (强)\n  strike 修正: Call 中强度主导: hedge_buy 52.9% 40-60% | Put ★强信号★: noise_open 68.6% > 60%\n  Call 角色: 5900C(产业买保 OI+19.8% IV-0.14pp) / 6500C(noise_open OI+13.4% IV-0.18pp) / 6600C(noise_open OI+17.5% IV-0.18pp) / 6100C(被动平仓 OI-12.5% IV-0.12pp) / 6000C(产业买保 OI+7.0% IV-0.27pp)\n  Put 角色: 5000P(noise_open OI+28.8% IV+0.37pp) / 5200P(产业买保 OI+11.0% IV-0.01pp) / 5100P(noise_open OI+13.5% IV+0.13pp) / 5700P(产业买保 OI+8.1% IV-0.30pp) / 4950P(noise_open OI+16.2% IV+0.05pp)\n  ⚖️ v2.11.85a 加权: Call hedge_buy_mid | Put noise_open_strong\n    Call verdict: 中强度主导: hedge_buy 52.9% 40-60%\n    Put verdict: ★强信号★: noise_open 68.6% > 60%\n    Call 方向: 偏空(防御)\n    Put 方向: 中性\n  PCR: now=0.976 | prev=0.943 | delta=+0.033 (↑)\n  数据质量(v2.11.85a): confidence=-, OI≥1000, IV≥5.0-门槛, eligible_call=-/-\n  ➜ 评分: +0.00\n\n【第四层】情绪确认（权重 15%）\n  成交 PCR: now=0.983 | prev=0.512\n  持仓 PCR: now=0.976 | prev=0.943\n  ATM 隐波: Call=31.38% | Put=31.05%\n  趋势: F 5752 → 5746 (down, -6)\n  评分逻辑: 乐观消退（空头信号）\n  ➜ 评分: -0.40\n\n========================================================================\n🎯 综合判断（按权重叠加）\n========================================================================\n  决策: 观望（置信度: 中）\n  总分: -0.295\n  逻辑链: L1(PAIN 结构) [leftSteep + belowMP + GEX negative + P vs Flip above → 强空头+负GEX放大（强空）] → L2(GEX 机制) [GEX negative + P above Flip + 净GEX -2.1M → 弱空机制（涨幅放大但有支撑）] → L3(资金意图) [Put hedge_sell + Call hedge_sell → 箱体震荡] → L4(情绪确认) [成交PCR=0.98 中性区间 | 成交PCR 从 0.51 上升至 0.98（乐观消退）→ 空头 | ATM 隐波 31.22% | ATM 隐波 31.2% 处于高位（恐慌区域）]\n\n📋 各层贡献:\n  PAIN 结构=-0.60 (权重 35%)\n  GEX 机制=-0.10 (权重 25%)\n  资金意图=+0.00 (权重 25%)\n  情绪确认=-0.40 (权重 15%)\n\n========================================================================\n\n当前市场判断：短线“震荡”，但不是单边空头。\n\n1. 期货价格层面（期货盘面）：短线节奏看盘面主力，期权结构看期权链标的参考价。\n| 项目 | 当前值 | 交易含义 |\n| --- | --- | --- |\n| 期权链标的参考价 | 5746 | 用于GEX、Pain、OI和IV结构判断 |\n| 盘面主力参考价 | TA 5750 | K线短线节奏：短线偏强 |\n| 最近20根K线 | +12 | 观察日内强弱和追单风险 |\n| PTA现货 | 5970 | 现货/成本锚 |\n| 基差 | +220 | PTA现货 − 盘面主力参考价；升水偏强、贴水偏弱 |\n期权链标的参考价5746用于GEX、Pain、OI与IV等结构判断，盘面主力参考价5750负责K线节奏；两者各管一段，不要把结构位和短线信号混为一个价格。\n盘面主力参考价5750：最近一根变化-4点，过去20根累计+12点，节奏判定为短线偏强。期权链标的参考价5746用于判断GEX、Pain和持仓压力，不与盘面价混在一起下结论。\n\n2. GEX结构：价格所处Gamma区决定波动是否容易被放大。\n| 指标 | 当前值 |\n| --- | --- |\n| 标的价F | 5746 |\n| GEX Flip | 5654 |\n| 净GEX | -2.1M |\n| Gamma方向 | negative |\n| Max Pain | 5900 |\n| PCR | 0.976 |\n| 剩余到期 | 27.2天 |\nGEX处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。交易上先盯两条线：5900若失守，负Gamma容易放大顺势波动；5654若被重新收复，追涨杀跌压力会减轻。\n核心含义：F=5746 高于或接近 GEX Flip=5654，当前处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。若价格重新站回5654/6500上方，负Gamma压力会缓和；若跌破5900附近，波动可能更顺。\n\n3. Max Pain：临近到期关注痛点收敛，而不是简单看多看空。\n| 行权价 | Pain | 备注 |\n| --- | --- | --- |\n| 5900 | 93,768,750 | 最低 |\n| 5800 | 99,961,250 |  |\n| 6000 | 95,536,750 |  |\n| 5700 | 113,087,750 |  |\n| 6100 | 102,942,750 |  |\n当前Max Pain=5900。当前期权标的价距离Max Pain约-154点，临近到期存在向5900收敛的引力。 因此期权维度不是极端单边，而是上方Call压力、下方痛点/Put防线共同约束。\n\n4. 持仓结构：Put持仓偏多时要区分保护盘和主动空头。\n当前总持仓：Call OI=124,042，Put OI=121,084，PCR=0.976。\nPut持仓集中：\n| Put行权价 | Put OI |\n| --- | --- |\n| 5000 | 21,030 |\n| 5900 | 9,066 |\n| 4200 | 8,071 |\n| 6100 | 7,899 |\n| 5500 | 6,426 |\nCall持仓集中：\n| Call行权价 | Call OI |\n| --- | --- |\n| 7000 | 10,092 |\n| 6500 | 9,162 |\n| 5800 | 8,741 |\n| 6300 | 8,617 |\n| 8000 | 7,794 |\n解读：Put集中在5000, 5900, 4200，Call压力集中在7000, 6500, 5800, 6300。大致结构是：5900为痛点锚，5654为波动分界，6500及以上为压力带。\n\n5. IV结构：看ATM隐波是否够高，也看左侧保护溢价。\n| K | C IV | P IV | SVI/平滑IV | OI结构 |\n| --- | --- | --- | --- | --- |\n| 5600 | 30.67% | 30.75% | 30.69% | C 2,855 / P 4,138 |\n| 5700 | 31.21% | 31.24% | 31.26% | C 5,303 / P 4,190 |\n| 5800 | 31.85% | 31.90% | 31.93% | C 8,742 / P 5,130 |\n| 5900 | 32.68% | 32.80% | 32.67% | C 6,864 / P 9,068 |\n| 6000 | 33.38% | 33.50% | 33.44% | C 7,400 / P 3,857 |\nATM隐波约31.6%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。\nATM附近隐波约31.6%，属于高波动率；右偏(看涨溢价偏高)，上行博弈需求旺盛；低曲率(曲线扁平)，市场对尾部风险定价不足。左侧Put IV若显著高于ATM，说明市场对下跌尾部风险有定价。\n\n5.5 性质判定 × 合成信号（v2.11.63d 资金意图精细化）\n形态：[左右对称]；位置：低位(P<MP)；PCR 0.976↑（前日 0.943）\nPCR 业务解读：PCR↑ = Put 持仓增速 > Call 持仓增速（0.976↑ vs 0.943）\n基准：今日 15:00 当前 vs 昨日 15:00 收盘（alert_data OI/IV prev 字段）。\n| 维度 | 当前 | 前次 | 变化 | 性质 | 业务解读 |\n| --- | --- | --- | --- | --- | --- |\n| Put | 121,084 | 113,374 | OI +6.8%\nIV -0.78pp | 套保卖权 | 卖 Put 集中（左侧加速器加码 = 投机/做市商认为下方有支撑收租） |\n| Call | 124,042 | 120,193 | OI +3.2%\nIV -3.47pp | 套保卖权 | 卖 Call 收租（产业锁定销售顶价 = 中性，不站队方向） |\n合成信号：中性偏慢牛（弱）\nPut 端(套保卖权) + Call 端(套保卖权) 总量均中性，但 strike 级别方向分化 → Call 端慢牛（投机在 5329C 离场，产业在 6117C 收租，spread=788点）\n\n📊 Strike 级别方向异质性（区分投机端 vs 产业端）：\nCall 端：产业卖权收租(5900C/6600C/6000C, OI增量51%) / 投机/对冲端撤退(6100C/5300C/5400C, OI减量21%) / 产业买保(6500C/6200C/6300C) / 卖方平仓(6400C/5500C)\nPut  端：投机/对冲端撤退(6000P, OI减量3%) / 投机端加仓(5000P/4950P/5100P) / 产业买保(5700P/5600P/5300P) / 卖方平仓(4900P/6200P)\n| 角色/分组 | Call strike 级别 | Put strike 级别 |\n| --- | --- | --- |\n| 产业卖权收租 (OI↑IV↓) | 5900C OI+19.9% IV-0.29pp 6600C OI+17.5% IV-0.23pp 6000C OI+6.8% IV-0.40pp 5600C OI+3.7% IV-0.44pp 5700C OI+3.4% IV-0.38pp | -- |\n| 产业买保 (OI↑IV—) | 6500C OI+13.3% IV-0.11pp 6200C OI+5.4% IV-0.07pp 6300C OI+1.0% IV-0.03pp | 5700P OI+8.1% IV-0.11pp 5600P OI+5.1% IV+0.05pp 5300P OI+2.0% IV+0.03pp 5800P OI+1.6% IV-0.09pp |\n| 投机端加仓 (OI↑IV↑) | -- | 5000P OI+28.8% IV+0.56pp 4950P OI+16.2% IV+0.23pp 5100P OI+13.7% IV+0.33pp 5200P OI+11.1% IV+0.21pp 6400P OI+0.8% IV+3.06pp 6100P OI-0.8% IV+0.24pp 6300P OI+0.0% IV+2.26pp |\n| 投机/对冲撤退 (OI↓IV↓/—) | -- | -- |\n| 卖方平仓 (OI↓IV↑) | 6400C OI+0.7% IV-0.22pp 5500C OI-0.6% IV-0.46pp | 4900P OI-12.4% IV+0.17pp 6200P OI+0.2% IV-0.65pp |\n\n6. 基本面与宏观：先看宏观快讯和成本链，周频供需项暂不放入盘中主研判。\n| 项目 | 当前值 | 解读 |\n| --- | --- | --- |\n| Brent | $85.21，+0.31% | 原油宏观成本 |\n| WTI | $80.06，+0.58% | 原油宏观成本 |\n| PX现货 | 7900 | 内盘成本端 |\n| PX外盘现货价 | $1089.67/吨 | manual:人工；汇率6.7909 |\n| PTA估算成本 | 5174 | 内盘成本支撑区 |\n| 外盘PTA动态成本 | 5532 | PX亚洲收盘价*0.655*1.01*1.13*USD/CNY |\n| PTA利润 | 796，15.4% | 利润高则供应压力偏空 |\n| 环节 | 开工率 | 较前值 | 库存 | 较前值 |\n| --- | --- | --- | --- | --- |\n| PX | 62.6% | 暂无前值 | -- | 暂无前值 |\n| PTA | 52.9% | 暂无前值 | 271.9万吨 | 暂无前值 |\n| 聚酯 | 80.2% | 暂无前值 | -- | 暂无前值 |\n| 织造 | 52.9% | 暂无前值 | -- | 暂无前值 |\n宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：【人工宏观基本面】7月13日美伊冲突全面升级，美军实施海上封锁，霍尔木兹海峡通航大幅萎缩，WTI 79.34/布伦特 84.73 美元/桶推升一个月新高。PX CFR 中国暴涨 61 美元至 1089.67 美元/吨，国内 PX 开工率维持 62.58% 历史低位（威联化学、海南炼化、盛虹、福海创、中金石化等多套装置检修）。PTA 端产能利用率降至 52.88% 创历史新低，社会库存 271.91 万吨周去库近 33 万吨，现货加工费 650 元/吨高位。机构整体看多，但中期警惕 7 月底至 8 月初 1320 万吨装置集中重启带来的加工费收缩压力。；7/15 PX CFR 中国收 1089.67 美元/吨，单日暴涨 61 美元/吨（+5.9%）；此前 7 月 1-13 日 PX 均价约 1006.75 美元/吨，近期快速走高。外盘PX$1089.67/吨，对应外盘PTA动态成本约5532元/吨；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。\n自动快讯（去重人工摘要）：7/15 PX CFR 中国收 1089.67 美元/吨，单日暴涨 61 美元/吨（+5.9%）；此前 7 月 1-13 日 PX 均价约 1006.75 美元/吨，近期快速走高；国内 PX 开工率 62.58% 维持历史低位，威联化学 200 万吨、海南炼化 160 万吨、盛虹 400 万吨、福海创 160 万吨、中金石化 160 万吨等多套装置仍在检修；7 月中上旬亚洲 PX 整体供应受抑制；PX-石脑油价差走扩，PTA 成本端支撑强化。\n基本面不是单边空：现货/成本可能提供下方支撑；但加工利润796元若处在偏高区域，容易限制上方弹性。\n\n综合结论\n当前主线：震荡，核心区间关注5900—6500。期权结构处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动，真正的方向触发在5900跌破或5654/6500重新站上。\n\n关键价位\n| 位置 | 含义 |\n| --- | --- |\n| 5654 | GEX Flip，重新站上后负Gamma压力缓和 |\n| 5900 | Max Pain + 临近到期收敛锚 |\n| 5500 | 近端Put防线/有效支撑 |\n| 6500 | 近端Call压力/有效压力 |\n| 7000 | 上方最大Call持仓压力带 |\n| 5000 | 下方最大Put保护盘区域 |\n\n操作思路，仅按结构说\n如果偏交易期货：\n• 5654 / 6500下方不宜追多，先按反抽压力处理。\n• 跌破5900并放量增仓，负Gamma可能放大下跌，下一目标看5500。\n• 重新站回5654，空头动能减弱，回到区间震荡。\n如果偏期权卖方：\n• 临近到期Theta衰减快，震荡时卖方有时间价值优势。\n• 负Gamma环境不裸卖近端Put，尤其是5900失守后。\n• 若站回5654，可考虑更稳健的宽跨/价差结构。\n如果偏买方：\n• 买Put触发点优先看5900有效跌破。\n• 买Call触发点看重新站回5654或压力位后的修复。\n• 夹在痛点和压力之间横盘时，买方容易被时间价值消耗。\n\n一句话总结：当前不是强多盘，主线短线偏强；看5900是否守住——守住则向5900—6500区间收敛，跌破则负Gamma会放大下跌。"
+  "narrative_report": "========================================================================\n📊 PTA 期权四维决策报告（v2.11.85b）\n生成时间: 2026-07-16T09:00:00\n合约: - | 期货价: 5648 | ATM: 0 | MP: 5900\n最后更新: 2026-07-16T09:00:00.708804 | TqSdk: -\n========================================================================\n\n【第一层】PAIN 结构（权重 35%）\n  维度: 形态=leftSteep | 位置=belowMP | GEX=negative | P vs Flip=at\n  业务: 强空头，下跌自我强化（左侧加速器激活），GEX负放大跌幅，接近情绪极值\n  PCR: 持仓PCR=1.24 平衡（加成 +0.0）\n  评分逻辑: 强空头+负GEX放大（强空）\n  ➜ 评分: -0.60\n\n【第二层】GEX 机制（权重 25%）\n  维度: GEX=negative | P vs Flip=at\n  业务: 负GEX + P接近Flip → 波动机制即将切换（最危险拐点）\n  评分逻辑: 中空机制（拐点） | 净GEX 恶化 -9.6M\n  ➜ 评分: -0.30\n\n【第三层】资金意图（权重 25%）\n  Put 性质: hedge_sell (套保卖权)\n    业务: 卖 Put 集中（左侧加速器加码 = 投机/做市商认为下方有支撑收租）\n  Call 性质: hedge_sell (套保卖权)\n    业务: 卖 Call 收租（产业锁定销售顶价 = 中性，不站队方向）\n  原始 label: 多空分化(慢牛+慢熊) (弱)\n  ✅ 标准化 label: hedge_sell_strong / noise_open_strong (强)\n  strike 修正: Call ★强信号★: hedge_sell 79.5% > 60% | Put ★强信号★: noise_open 68.8% > 60%\n  Call 角色: 5900C(产业收租 OI+19.7% IV-0.82pp) / 6000C(产业收租 OI+9.9% IV-0.75pp) / 6200C(产业收租 OI+7.4% IV-0.57pp) / 6100C(双边撤退 OI-7.6% IV-0.91pp) / 5600C(产业收租 OI+4.8% IV-0.99pp)\n  Put 角色: 5000P(noise_open OI+44.2% IV+0.06pp) / 5100P(产业买保 OI+16.6% IV-0.35pp) / 5300P(双边撤退 OI-6.5% IV-0.71pp) / 5500P(双边撤退 OI-5.0% IV-0.87pp) / 4950P(产业收租 OI+16.6% IV-0.50pp)\n  ⚖️ v2.11.85a 加权: Call hedge_sell_strong | Put noise_open_strong\n    Call verdict: ★强信号★: hedge_sell 79.5% > 60%\n    Put verdict: ★强信号★: noise_open 68.8% > 60%\n    Call 方向: 中性\n    Put 方向: 中性\n  PCR: now=0.974 | prev=0.943 | delta=+0.031 (↑)\n  数据质量(v2.11.85a): confidence=-, OI≥1000, IV≥5.0-门槛, eligible_call=-/-\n  ➜ 评分: +0.00\n\n【第四层】情绪确认（权重 15%）\n  成交 PCR: now=1.237 | prev=0.512\n  持仓 PCR: now=0.974 | prev=0.943\n  ATM 隐波: Call=30.12% | Put=29.82%\n  趋势: F 5752 → 5648 (down, -104)\n  评分逻辑: 乐观消退（空头信号）\n  ➜ 评分: -0.30\n\n========================================================================\n🎯 综合判断（按权重叠加）\n========================================================================\n  决策: 观望（置信度: 中）\n  总分: -0.330\n  逻辑链: L1(PAIN 结构) [leftSteep + belowMP + GEX negative + P vs Flip at → 强空头+负GEX放大（强空）] → L2(GEX 机制) [GEX negative + P at Flip + 净GEX -11.6M → 中空机制（拐点） | 净GEX 恶化 -9.6M] → L3(资金意图) [Put hedge_sell + Call hedge_sell → 箱体震荡] → L4(情绪确认) [成交PCR 从 0.51 上升至 1.24（乐观消退）→ 空头 | ATM 隐波 0.30% | 趋势↓（F 5752 → 5648，-104）]\n\n📋 各层贡献:\n  PAIN 结构=-0.60 (权重 35%)\n  GEX 机制=-0.30 (权重 25%)\n  资金意图=+0.00 (权重 25%)\n  情绪确认=-0.30 (权重 15%)\n\n========================================================================\n\n当前市场判断：短线“震荡”，但不是单边空头。\n\n1. 期货价格层面（期货盘面）：短线节奏看盘面主力，期权结构看期权链标的参考价。\n| 项目 | 当前值 | 交易含义 |\n| --- | --- | --- |\n| 期权链标的参考价 | 5648 | 用于GEX、Pain、OI和IV结构判断 |\n| 盘面主力参考价 | TA 5670 | K线短线节奏：短线震荡 |\n| 最近20根K线 | +0 | 观察日内强弱和追单风险 |\n| PTA现货 | 5970 | 现货/成本锚 |\n| 基差 | +300 | PTA现货 − 盘面主力参考价；升水偏强、贴水偏弱 |\n期权链标的参考价5648用于GEX、Pain、OI与IV等结构判断，盘面主力参考价5670负责K线节奏；两者各管一段，不要把结构位和短线信号混为一个价格。\n盘面主力参考价5670：最近一根变化+22点，过去20根累计+0点，节奏判定为短线震荡。期权链标的参考价5648用于判断GEX、Pain和持仓压力，不与盘面价混在一起下结论。\n\n2. GEX结构：价格所处Gamma区决定波动是否容易被放大。\n| 指标 | 当前值 |\n| --- | --- |\n| 标的价F | 5648 |\n| GEX Flip | 5648 |\n| 净GEX | -11.6M |\n| Gamma方向 | negative |\n| Max Pain | 5900 |\n| PCR | 0.974 |\n| 剩余到期 | 27.2天 |\nGEX处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。交易上先盯两条线：5900若失守，负Gamma容易放大顺势波动；5648若被重新收复，追涨杀跌压力会减轻。\n核心含义：F=5648 高于或接近 GEX Flip=5648，当前处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动。若价格重新站回5648/5800上方，负Gamma压力会缓和；若跌破5900附近，波动可能更顺。\n\n3. Max Pain：临近到期关注痛点收敛，而不是简单看多看空。\n| 行权价 | Pain | 备注 |\n| --- | --- | --- |\n| 5900 | 93,722,750 | 最低 |\n| 5800 | 99,884,250 |  |\n| 6000 | 95,500,250 |  |\n| 5700 | 112,993,250 |  |\n| 6100 | 103,030,250 |  |\n当前Max Pain=5900。当前期权标的价距离Max Pain约-252点，临近到期存在向5900收敛的引力。 因此期权维度不是极端单边，而是上方Call压力、下方痛点/Put防线共同约束。\n\n4. 持仓结构：Put持仓偏多时要区分保护盘和主动空头。\n当前总持仓：Call OI=124,494，Put OI=121,313，PCR=0.974。\nPut持仓集中：\n| Put行权价 | Put OI |\n| --- | --- |\n| 5000 | 23,538 |\n| 5900 | 9,025 |\n| 4200 | 8,013 |\n| 6100 | 7,884 |\n| 5500 | 6,148 |\nCall持仓集中：\n| Call行权价 | Call OI |\n| --- | --- |\n| 7000 | 10,742 |\n| 5800 | 8,892 |\n| 6500 | 8,660 |\n| 6300 | 8,613 |\n| 8000 | 7,646 |\n解读：Put集中在5000, 5900, 4200，Call压力集中在7000, 5800, 6500, 6300。大致结构是：5900为痛点锚，5648为波动分界，5800及以上为压力带。\n\n5. IV结构：看ATM隐波是否够高，也看左侧保护溢价。\n| K | C IV | P IV | SVI/平滑IV | OI结构 |\n| --- | --- | --- | --- | --- |\n| 5400 | 29.62% | 29.54% | 29.39% | C 1,449 / P 4,127 |\n| 5500 | 28.65% | 29.61% | 29.61% | C 2,678 / P 6,148 |\n| 5600 | 30.12% | 29.82% | 30.07% | C 2,884 / P 3,746 |\n| 5700 | 30.70% | 30.44% | 30.67% | C 5,119 / P 4,157 |\n| 5800 | 31.31% | 29.97% | 31.38% | C 8,892 / P 5,003 |\nATM隐波约30.4%，右偏(看涨溢价偏高)，上行博弈需求旺盛。如果左侧Put继续显著贵于Call，说明市场仍在为下跌尾部风险付费；若IV回落，卖方时间价值优势才更清晰。\nATM附近隐波约30.4%，属于高波动率；右偏(看涨溢价偏高)，上行博弈需求旺盛；低曲率(曲线扁平)，市场对尾部风险定价不足。左侧Put IV若显著高于ATM，说明市场对下跌尾部风险有定价。\n\n5.5 性质判定 × 合成信号（v2.11.63d 资金意图精细化）\n形态：[左右对称]；位置：低位(P<MP)；PCR 0.974↑（前日 0.943）\nPCR 业务解读：PCR↑ = Put 持仓增速 > Call 持仓增速（0.974↑ vs 0.943）\n基准：今日 15:00 当前 vs 昨日 15:00 收盘（alert_data OI/IV prev 字段）。\n| 维度 | 当前 | 前次 | 变化 | 性质 | 业务解读 |\n| --- | --- | --- | --- | --- | --- |\n| Put | 121,313 | 113,374 | OI +7.0%\nIV -2.24pp | 套保卖权 | 卖 Put 集中（左侧加速器加码 = 投机/做市商认为下方有支撑收租） |\n| Call | 124,494 | 120,193 | OI +3.6%\nIV -4.80pp | 套保卖权 | 卖 Call 收租（产业锁定销售顶价 = 中性，不站队方向） |\n合成信号：多空分化(慢牛+慢熊)（弱）\nPut 端(套保卖权) + Call 端(套保卖权) 总量均中性，但 strike 级别方向分化 → Call 端慢牛（投机在 5343C 离场，产业在 5942C 收租，spread=600点） | Put 端慢熊（认沽买方在 6000P 撤退，产业在 5146P 收租，spread=854点）\n\n📊 Strike 级别方向异质性（区分投机端 vs 产业端）：\nCall 端：产业卖权收租(5900C/6000C/6200C, OI增量42%) / 投机/对冲端撤退(6100C/5300C/6400C, OI减量16%) / 卖方平仓(6300C/5400C/5700C)\nPut  端：产业卖权收租(5100P/4950P/5700P, OI增量40%) / 投机/对冲端撤退(4900P/5300P/5500P, OI减量29%) / 产业买保(5000P/4850P) / 卖方平仓(6100P/5800P/6400P)\n| 角色/分组 | Call strike 级别 | Put strike 级别 |\n| --- | --- | --- |\n| 产业卖权收租 (OI↑IV↓) | 5900C OI+19.7% IV-0.82pp 6000C OI+9.9% IV-0.75pp 6200C OI+7.4% IV-0.57pp 5600C OI+4.8% IV-0.99pp | 5100P OI+16.6% IV-0.35pp 4950P OI+16.6% IV-0.50pp 5700P OI+7.2% IV-0.91pp |\n| 产业买保 (OI↑IV—) | -- | 5000P OI+44.2% IV+0.06pp 4850P OI+4.8% IV+0.12pp |\n| 投机端加仓 (OI↑IV↑) | -- | -- |\n| 投机/对冲撤退 (OI↓IV↓/—) | -- | -- |\n| 卖方平仓 (OI↓IV↑) | 6300C OI+1.0% IV-0.45pp 5400C OI+0.3% IV-0.93pp 5700C OI-0.2% IV-0.89pp 5800C OI-0.1% IV-0.90pp | 6100P OI-1.0% IV-0.92pp 5800P OI-0.9% IV-2.02pp 6400P OI+0.8% IV-0.40pp 6200P OI-0.4% IV-2.02pp 5200P OI+0.2% IV-0.51pp 5900P OI-0.2% IV-1.41pp 6300P OI+0.0% IV-5.45pp |\n\n6. 基本面与宏观：先看宏观快讯和成本链，周频供需项暂不放入盘中主研判。\n| 项目 | 当前值 | 解读 |\n| --- | --- | --- |\n| Brent | $85.34，+0.46% | 原油宏观成本 |\n| WTI | $80.11，+0.64% | 原油宏观成本 |\n| PX现货 | 7900 | 内盘成本端 |\n| PX外盘现货价 | $1089.67/吨 | manual:人工；汇率6.7910 |\n| PTA估算成本 | 5174 | 内盘成本支撑区 |\n| 外盘PTA动态成本 | 5532 | PX亚洲收盘价*0.655*1.01*1.13*USD/CNY |\n| PTA利润 | 796，15.4% | 利润高则供应压力偏空 |\n| 环节 | 开工率 | 较前值 | 库存 | 较前值 |\n| --- | --- | --- | --- | --- |\n| PX | 62.6% | 暂无前值 | -- | 暂无前值 |\n| PTA | 52.9% | 暂无前值 | 271.9万吨 | 暂无前值 |\n| 聚酯 | 80.2% | 暂无前值 | -- | 暂无前值 |\n| 织造 | 52.9% | 暂无前值 | -- | 暂无前值 |\n宏观与成本端优先纳入人工宏观基本面、地缘风险、实时原油/PX变化和外盘成本。当前可参考：【人工宏观基本面】7月13日美伊冲突全面升级，美军实施海上封锁，霍尔木兹海峡通航大幅萎缩，WTI 79.34/布伦特 84.73 美元/桶推升一个月新高。PX CFR 中国暴涨 61 美元至 1089.67 美元/吨，国内 PX 开工率维持 62.58% 历史低位（威联化学、海南炼化、盛虹、福海创、中金石化等多套装置检修）。PTA 端产能利用率降至 52.88% 创历史新低，社会库存 271.91 万吨周去库近 33 万吨，现货加工费 650 元/吨高位。机构整体看多，但中期警惕 7 月底至 8 月初 1320 万吨装置集中重启带来的加工费收缩压力。；7/15 PX CFR 中国收 1089.67 美元/吨，单日暴涨 61 美元/吨（+5.9%）；此前 7 月 1-13 日 PX 均价约 1006.75 美元/吨，近期快速走高。外盘PX$1089.67/吨，对应外盘PTA动态成本约5532元/吨；若地缘反复推升原油或PX继续偏强，下方成本支撑增强；若中东缓和、原油回落或PX转弱，则多头弹性受压。\n自动快讯（去重人工摘要）：7/15 PX CFR 中国收 1089.67 美元/吨，单日暴涨 61 美元/吨（+5.9%）；此前 7 月 1-13 日 PX 均价约 1006.75 美元/吨，近期快速走高；国内 PX 开工率 62.58% 维持历史低位，威联化学 200 万吨、海南炼化 160 万吨、盛虹 400 万吨、福海创 160 万吨、中金石化 160 万吨等多套装置仍在检修；7 月中上旬亚洲 PX 整体供应受抑制；PX-石脑油价差走扩，PTA 成本端支撑强化。\n基本面不是单边空：现货/成本可能提供下方支撑；但加工利润796元若处在偏高区域，容易限制上方弹性。\n\n综合结论\n当前主线：震荡，核心区间关注5900—5800。期权结构处在负 Gamma 区，做市商对冲更容易追涨杀跌、放大波动，真正的方向触发在5900跌破或5648/5800重新站上。\n\n关键价位\n| 位置 | 含义 |\n| --- | --- |\n| 5648 | GEX Flip，重新站上后负Gamma压力缓和 |\n| 5900 | Max Pain + 临近到期收敛锚 |\n| 5500 | 近端Put防线/有效支撑 |\n| 5800 | 近端Call压力/有效压力 |\n| 7000 | 上方最大Call持仓压力带 |\n| 5000 | 下方最大Put保护盘区域 |\n\n操作思路，仅按结构说\n如果偏交易期货：\n• 5648 / 5800下方不宜追多，先按反抽压力处理。\n• 跌破5900并放量增仓，负Gamma可能放大下跌，下一目标看5500。\n• 重新站回5648，空头动能减弱，回到区间震荡。\n如果偏期权卖方：\n• 临近到期Theta衰减快，震荡时卖方有时间价值优势。\n• 负Gamma环境不裸卖近端Put，尤其是5900失守后。\n• 若站回5648，可考虑更稳健的宽跨/价差结构。\n如果偏买方：\n• 买Put触发点优先看5900有效跌破。\n• 买Call触发点看重新站回5648或压力位后的修复。\n• 夹在痛点和压力之间横盘时，买方容易被时间价值消耗。\n\n一句话总结：当前不是强多盘，主线短线震荡；看5900是否守住——守住则向5900—5800区间收敛，跌破则负Gamma会放大下跌。",
+  "snapshot_slot": "0900",
+  "snapshot_time": "2026-07-16 09:00:37"
 }
