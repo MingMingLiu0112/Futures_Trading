@@ -1253,9 +1253,18 @@ function updateGexCharts(gexData, alertData) {
     if (futPrice == null || maxPain == null) return null;
     const baseTh = (dynTh != null && dynTh > 0 && dynTh < 1.5) ? dynTh : 1.2;
     const ratio = Math.max(downResist, upResist) / Math.min(downResist, upResist);
-    // 形态（shape）: leftSteep / rightSteep / sym
+    // v2.11.90: 双侧陡独立判定 (与后端 judge_state.py compute_pain_slope.both_steep 对齐)
+    // 条件: 两侧 |slope| > 80000 且 ratio < 1.15
+    const BOTH_STEEP_THRESHOLD = 80000;
+    const BOTH_STEEP_RATIO_MAX = 1.15;
+    const isBothSteep = downResist > BOTH_STEEP_THRESHOLD
+                     && upResist > BOTH_STEEP_THRESHOLD
+                     && 0 < ratio && ratio < BOTH_STEEP_RATIO_MAX;
+    // 形态（shape）: bothSteep / leftSteep / rightSteep / sym
+    // v2.11.90: 双侧陡优先级最高
     let shape;
-    if (ratio < baseTh) shape = 'sym';
+    if (isBothSteep) shape = 'bothSteep';
+    else if (ratio < baseTh) shape = 'sym';
     else if (downResist > upResist * 1.05) shape = 'leftSteep';   // 看跌阻力大 = Put OI 集中
     else if (upResist > downResist * 1.05) shape = 'rightSteep';  // 看涨阻力大 = Call OI 集中
     else shape = 'sym';
@@ -1269,6 +1278,7 @@ function updateGexCharts(gexData, alertData) {
     // 二维标签矩阵
     // 注意：业务语义下，"左陡右缓"+"P<MP"=空头趋势（下跌自我强化），
     //       "左缓右陡"+"P<MP"=空头末期+右侧燃料待点燃（不是多头主导！）
+    // v2.11.90: 加 3 个双侧陡 label (与后端飞书 1.3 矩阵第 2/3 行对齐)
     const labelMap = {
       'leftSteep|belowMP':  '空头趋势·左暴露',
       'leftSteep|atMP':     '左暴露压顶·下行',
@@ -1279,8 +1289,18 @@ function updateGexCharts(gexData, alertData) {
       'sym|belowMP':        '低位震荡·pin风险',
       'sym|atMP':           'pin风险·双向对冲对称',
       'sym|aboveMP':        '高位震荡·pin风险',
+      'bothSteep|belowMP':  '双侧陡·下方待方向',
+      'bothSteep|atMP':     '双侧陡·pin区间',
+      'bothSteep|aboveMP':  '双侧陡·上方待方向',
     };
     return labelMap[`${shape}|${position}`] || '形态不明';
+  };
+  // v2.11.90: 双侧陡独立判定 (独立函数, 不破坏 classifyRegime 返回 string 的契约)
+  // 与后端 judge_state.py compute_pain_slope.both_steep 算法完全对齐
+  const isBothSteepRegime = (downResist, upResist) => {
+    if (downResist == null || upResist == null || downResist <= 0 || upResist <= 0) return false;
+    const ratio = Math.max(downResist, upResist) / Math.min(downResist, upResist);
+    return downResist > 80000 && upResist > 80000 && ratio < 1.15;
   };
   // 位置距离文本（v2.11.60+ 新增第二行）
   const fmtPosDist = (futPrice, maxPain) => {
@@ -1316,9 +1336,12 @@ function updateGexCharts(gexData, alertData) {
     const baseTh = (dynTh && dynTh > 0 && dynTh < 1.5) ? dynTh : 1.2;
     // 副显示第 1 行：业务标签（形态×位置） + vs 前次基准 + 比值阈值
     const regime = classifyRegime(downResist, upResist, futPrice, maxPain, dynTh);
+    const isBothSteep = isBothSteepRegime(downResist, upResist);  // v2.11.90
     const sideDesc = regime || (downResist > upResist * 1.05 ? '看跌阻力大' :
                      upResist > downResist * 1.05 ? '看涨阻力大' : '对称');
-    let sub = sideDesc;
+    // v2.11.90: 双侧陡触发时, sideDesc 前面加 "双侧陡" 标记 (与后端 logic_brief 一致)
+    const displayDesc = isBothSteep ? `双侧陡 · ${sideDesc}` : sideDesc;
+    let sub = displayDesc;
     if (prevMaxPain != null && maxPain !== prevMaxPain) {
       const delta = maxPain - prevMaxPain;
       sub += ` | MP ${delta > 0 ? '+' : ''}${delta}`;
@@ -1888,6 +1911,6 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 </script>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.88 (重启守卫：拒绝>7天陈旧 prev_baseline/eod_state + os.fsync 防 manual_macro 静默丢失)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.90 (P1: PAIN 双侧陡独立分支 + 飞书 1.3 矩阵第 2/3 行)</div>
 </body>
 </html>
