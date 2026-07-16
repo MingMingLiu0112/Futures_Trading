@@ -890,11 +890,19 @@ def _load_close_state():
                 print(f"[iv_smile] ⚠️ prev_baseline.json 数据不完整，跳过")
             else:
                 # 关键：直接恢复 _close_baseline，不依赖 close_state.json
+                # v2.11.92 修复: 兼容两套 timestamp 格式
+                # - 无分隔符: "20260715T15:00:00" (v2.11.54+ prev_baseline 写入, L870 设计)
+                # - ISO:       "2026-07-15T15:00:00" (close_state.json 顶层)
+                # 旧逻辑 ts[:10] 假设 ISO 格式,遇到无分隔符会取到 "20260715T1" 多一个 T1
                 semantic_ts = ts
                 try:
-                    ts_date = ts[:10]
+                    if len(ts) == 17 and ts[8] == 'T':  # 无分隔符 20260715T15:00:00
+                        ts_date = ts[:8]  # 'YYYYMMDD'
+                    else:  # ISO 2026-07-15T15:00:00
+                        ts_date = ts[:10]  # 'YYYY-MM-DD'
                     if close_point == '15:00':
-                        semantic_ts = f'{ts_date}T15:00:00'
+                        semantic_ts = f'{ts_date}T15:00:00' if '-' not in ts_date else semantic_ts
+                        # 保留原 ts_date (无分隔符) 直接拼, ISO 格式则不重写 (保持原值)
                 except Exception:
                     pass
                 _close_baseline = {
@@ -1031,15 +1039,22 @@ def _load_close_state():
         # 否则前端显示 "06/18 17:21"，看起来像"17:21 才切到今日基准"，与实际语义不符
         semantic_ts = ts  # 兜底用文件落盘时间
         try:
-            ts_date = ts[:10]  # 'YYYY-MM-DD'
+            # v2.11.92 修复: 兼容两套 timestamp 格式
+            # - 无分隔符: "20260715T15:00:00" (v2.11.54+ 写入, L870 设计)
+            # - ISO:       "2026-07-15T15:00:00" (close_state.json / eod_state.json 顶层)
+            # 旧逻辑 ts[:10] 假设 ISO 格式,遇到无分隔符会取到 "20260715T1" 多一个 T1
+            if len(ts) == 17 and ts[8] == 'T':  # 无分隔符
+                ts_date = ts[:8]  # 'YYYYMMDD'
+            else:  # ISO
+                ts_date = ts[:10]  # 'YYYY-MM-DD'
             if close_point == '15:00':
-                semantic_ts = f'{ts_date}T15:00:00'
+                semantic_ts = f'{ts_date}T15:00:00' if '-' not in ts_date else semantic_ts
             elif close_point == '10:15':
-                semantic_ts = f'{ts_date}T10:15:00'
+                semantic_ts = f'{ts_date}T10:15:00' if '-' not in ts_date else semantic_ts
             elif close_point == '11:30':
-                semantic_ts = f'{ts_date}T11:30:00'
+                semantic_ts = f'{ts_date}T11:30:00' if '-' not in ts_date else semantic_ts
             elif close_point == '23:00':
-                semantic_ts = f'{ts_date}T23:00:00'
+                semantic_ts = f'{ts_date}T23:00:00' if '-' not in ts_date else semantic_ts
         except Exception:
             pass
         _close_baseline = {
