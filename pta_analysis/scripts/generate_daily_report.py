@@ -3232,29 +3232,8 @@ def _quantize_l3_funding(l3: Dict) -> str:
 
     基于 v2.11.85e 14 行矩阵的 standardized_label
     """
-    # raw_label 优先（飞书原文术语"多空分化"映射到"多空分歧"）
-    raw_label = l3.get('raw_label', '') or ''
-    std_label = l3.get('standardized_label', '') or ''
-    # raw_label 优先判定
-    if '多空分化' in raw_label or '多空分歧' in raw_label:
-        return '多空分歧'
-    label = std_label or raw_label
-    # v2.11.85e label 实际格式: "hedge_buy_mid / noise_open_strong" / "看空共振（弱化）" / "箱体震荡"
-    # 先尝试识别飞书原文 14 行矩阵 label
-    if '看多共振' in label and '强' in label: return '强力看多'
-    if '看多共振' in label: return '看多'
-    if '单边偏多' in label: return '偏多'
-    if '多空分歧' in label: return '多空分歧'
-    if '箱体' in label: return '箱体震荡'
-    if '震荡' in label: return '中性'
-    if '无方向' in label: return '中性'
-    if '恐慌出清' in label: return '偏多'  # 飞书：PCR 恐慌出清 = 多头信号
-    if '乐观消退' in label: return '偏空'  # 飞书：PCR 乐观消退 = 空头信号
-    if '看空共振' in label and '强' in label: return '强力看空'
-    if '看空共振' in label: return '看空'
-    if '单边偏空' in label: return '偏空'
-    # v2.11.93+: 优先用 layer_score_5grid 5 档量纲判定 (与思维决策一致)
-    # 旧实现用 direction 含"空"字判定, 会把"偏空(防御)"误判为偏空, 跟 5 档 layer_score=0 (中性) 不一致
+    # v2.11.93+: 单层量化跟思维决策一致 (用户拍板: 5 档量纲优先, 加权综合后偶尔偏差可接受)
+    # 5 档量纲判定最优先 (思维决策给的 layer_score 视角)
     layer_5grid = l3.get('layer_score_5grid', l3.get('layer_score', 0))
     if layer_5grid >= 1.5: return '强力看多'
     if layer_5grid >= 0.5: return '看多'
@@ -3262,9 +3241,24 @@ def _quantize_l3_funding(l3: Dict) -> str:
     if layer_5grid <= -1.5: return '强力看空'
     if layer_5grid <= -0.5: return '看空'
     if layer_5grid < 0: return '偏空'
-    # 5 档量纲=0 (中性) 走 fallback, 优先用 cross_validation_verdict 判定
-    if l3.get('cross_validation_verdict', {}).get('consistency') == 'contradictory':
-        return '多空分歧'
+    # 5 档=0 (中性) → 跟思维决策一致返回中性, 不再考虑 raw_label "多空分化" (那是 14 行矩阵的语言, 不属于单层量化口径)
+    # raw_label = l3.get('raw_label', '') or ''
+    # std_label = l3.get('standardized_label', '') or ''
+    # if '多空分化' in raw_label or '多空分歧' in raw_label:
+    #     return '多空分歧'
+    # label = std_label or raw_label
+    # if '看多共振' in label and '强' in label: return '强力看多'
+    # if '看多共振' in label: return '看多'
+    # if '单边偏多' in label: return '偏多'
+    # if '多空分歧' in label: return '多空分歧'
+    # if '箱体' in label: return '箱体震荡'
+    # if '震荡' in label: return '中性'
+    # if '无方向' in label: return '中性'
+    # if '恐慌出清' in label: return '偏多'
+    # if '乐观消退' in label: return '偏空'
+    # if '看空共振' in label and '强' in label: return '强力看空'
+    # if '看空共振' in label: return '看空'
+    # if '单边偏空' in label: return '偏空'
     return '中性'
 
 
