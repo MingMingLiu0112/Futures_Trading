@@ -317,8 +317,8 @@ def _build_decision_layer_payload(gex: dict, alert_data: dict, curve: dict) -> D
     l2 = js.judge_layer2_gex(l1, intraday_slots=intraday_slots)
     # L3: 资金意图（依赖 L1）
     l3 = js.judge_layer3_funding_intent(alert_data or {}, gex or {}, l1, intraday_slots=intraday_slots)
-    # L4: 情绪确认（依赖 L1）
-    l4 = js.judge_layer4_emotion(curve or {}, alert_data or {}, l1, gex or {}, intraday_slots=intraday_slots)
+    # L4: 情绪确认（依赖 L1, 跨层 cross-check L3 隐波陷阱）
+    l4 = js.judge_layer4_emotion(curve or {}, alert_data or {}, l1, gex or {}, intraday_slots=intraday_slots, layer3=l3)
     # final: 综合判断（接受 list）
     final = js.synthesize_decision([l1, l2, l3, l4])
 

@@ -571,7 +571,10 @@ def judge_layer1_pain_structure(gex: Dict, alert_data: Dict,
 
     if gex_flip and futures_price:
         diff = futures_price - gex_flip
-        p_vs_flip = 'above' if diff > 5 else ('below' if diff < -5 else 'at')
+        # v2.11.91 P1-L2-3: 阈值改比例 (F*0.2% 替代硬编码 5 元)
+        # 业务: PTA 5000-6000 区间, 0.2% ≈ 10-12 元, 比 5 元宽, 跟业务 "接近" 语义更贴
+        p_vs_flip_threshold = max(5, futures_price * 0.002)
+        p_vs_flip = 'above' if diff > p_vs_flip_threshold else ('below' if diff < -p_vs_flip_threshold else 'at')
     else:
         p_vs_flip = 'unknown'
 
@@ -777,9 +780,12 @@ def judge_layer2_gex(layer1: Dict, intraday_slots: list = None) -> Dict:
         score = -SCORE_WEAK
         score_detail = '弱空机制（涨幅放大但有支撑）'
     elif gex_dir == 'negative' and p_vs_flip == 'at':
-        meaning = '负GEX + P接近Flip → 波动机制即将切换（最危险拐点）'
-        score = -SCORE_MEDIUM
-        score_detail = '中空机制（拐点）'
+        # v2.11.91 P1-L2-1: 负GEX + P接近Flip (即将翻正) = 放大减弱, 即将切换到正GEX抑制
+        # 飞书 2.2 矩阵第 4 行: 业务含义 "即将切换到抑制机制, 拐点反向" → 偏多拐点
+        # 旧实现 score=-SCORE_MEDIUM(-0.3 中空) 跟飞书反向
+        meaning = '负GEX + P接近Flip → 放大减弱，即将切换到正GEX抑制（拐点反向，中性偏多）'
+        score = SCORE_WEAK  # +0.1 偏多拐点 (比 0 中性更倾向"看到底了")
+        score_detail = '弱多机制（负GEX即将转正，拐点有利）'
     elif gex_dir == 'positive' and p_vs_flip == 'above':
         meaning = '正GEX + P在Flip上方 → 卖方净正Gamma抑制波动，托底'
         score = SCORE_MEDIUM
@@ -811,6 +817,29 @@ def judge_layer2_gex(layer1: Dict, intraday_slots: list = None) -> Dict:
             # 转向正 GEX → 改善
             score_detail += f' | 净GEX 转正 {net_gex_change/1e6:+.1f}M'
 
+    # === v2.11.91 P1-L2-2: GEX Flip 穿越检测 (飞书 2.2 矩阵第 5 行, 关键拐点信号) ===
+    # 业务: GEX Flip 穿越 = 卖方对冲压力符号翻转 = 波动机制切换 = "最关键拐点"
+    # 检测方法: 1h 内 P 从 Flip 一侧穿到另一侧 (gex_flip_migration + diff 符号变化)
+    gex_flip_crossed = False
+    flip_cross_direction = None  # 'neg_to_pos' / 'pos_to_neg' / None
+    # L2 没有 curve 参数, futures_price 从 layer1 取
+    _futures_price_for_flip = layer1.get('futures_price', 0) or 0
+    if gex_flip_now and gex_flip_prev and _futures_price_for_flip:
+        diff_now = _futures_price_for_flip - gex_flip_now
+        # 1h 前的 P 没存, 用 gex_flip_migration 反推
+        # 假设 P 没动: P_1h_ago ≈ P_now, flip_1h_ago = flip_now - flip_migration
+        # diff_prev = P_1h_ago - flip_1h_ago = P_now - (flip_now - flip_migration) = diff_now + flip_migration
+        if gex_flip_migration != 0:
+            diff_prev = diff_now + gex_flip_migration
+            # 穿越条件: diff_now 和 diff_prev 异号 + 绝对值都 < 50 (放宽, 飞书说"最关键拐点"但实战罕见)
+            if diff_now * diff_prev < 0 and abs(diff_now) < 50 and abs(diff_prev) < 50:
+                gex_flip_crossed = True
+                flip_cross_direction = 'neg_to_pos' if diff_now > 0 else 'pos_to_neg'
+
+    # Flip 穿越 → score 加成 + logic_brief 强调
+    if gex_flip_crossed:
+        score_detail += f' | ⚠️ GEX Flip 穿越 ({flip_cross_direction})'
+
     return {
         'layer': 2,
         'layer_name': 'GEX 机制',
@@ -829,6 +858,9 @@ def judge_layer2_gex(layer1: Dict, intraday_slots: list = None) -> Dict:
         'gex_flip_now': gex_flip_now,
         'gex_flip_prev': gex_flip_prev,
         'gex_flip_migration': round(gex_flip_migration, 1),
+        # === v2.11.91 P1-L2-2: GEX Flip 穿越检测 ===
+        'gex_flip_crossed': gex_flip_crossed,
+        'flip_cross_direction': flip_cross_direction,
         # === v2.11.68 新增 1h + daily 变化 ===
         'intraday_change': intraday_change,
         'daily_change': daily_change,
@@ -1150,7 +1182,7 @@ def label_standardize(put_nature: str, call_nature: str, strike_modifier: str = 
 # 第四层：情绪确认层（15%）
 # ============================================================
 def judge_layer4_emotion(curve: Dict, alert_data: Dict, layer1: Dict, gex: Dict,
-                         intraday_slots: list = None) -> Dict:
+                         intraday_slots: list = None, layer3: Dict = None) -> Dict:
     """第四层：情绪确认（按 skill 2.4 情绪确认表 + P1 修复）
 
     v2.11.68: 加 trend_1h（vs 1h 前 F，比 daily trend 更敏感）
@@ -1246,9 +1278,35 @@ def judge_layer4_emotion(curve: Dict, alert_data: Dict, layer1: Dict, gex: Dict,
             if not score_detail: score_detail = '乐观消退（空头信号）'
 
     # 3. ATM IV
+    # v2.11.91 P1-L4-1: ATM 隐波打分化 (绝对水平 + 方向)
+    # 飞书 2.4: "从高位回落 (恐慌溢价消退) = 多头; 持续上升 = 空头; 降波也可能是套保卖权 = 中性陷阱"
+    # 阈值参考: PTA 正常 0.18-0.25 (即 18-25%), 高位 >0.30 算恐慌, 低位 <0.15 算收租
+    # 单位: 小数 (0.31 = 31%), 不是百分数
     if atm_iv_call and atm_iv_put:
         avg_iv = (atm_iv_call + atm_iv_put) / 2
-        signals.append(f'ATM 隐波 {avg_iv:.2f}%')
+        signals.append(f'ATM 隐波 {avg_iv*100:.2f}%')
+        if avg_iv > 0.30:  # 高位恐慌 (>30%)
+            signals.append(f'ATM 隐波 {avg_iv*100:.1f}% 处于高位（恐慌区域）')
+            score += -0.1
+            if not score_detail: score_detail = '高位IV恐慌（弱空）'
+        elif avg_iv < 0.15:  # 低位收租 (<15%)
+            signals.append(f'ATM 隐波 {avg_iv*100:.1f}% 处于低位（收租区域）')
+            # 收租中性 (不强制给空分, 避免误判; cross-check L3 再调)
+        else:
+            signals.append(f'ATM 隐波 {avg_iv*100:.1f}% 中性区间')
+    # v2.11.91 P1-L4-2: "降波也可能是套保卖权" 陷阱 cross-check L3
+    # 业务: 隐波下降 + L3 Call 端 hedge_sell 主导 = 产业卖 Call 收租 (中性陷阱) → 不加分
+    #     隐波下降 + L3 没有 hedge_sell = 投机降波 / 恐慌消退 → 弱多
+    # 简化: 显式依赖 layer3 字段 (没传时不判定)
+    if layer3 and atm_iv_call and atm_iv_put:
+        avg_iv_now = (atm_iv_call + atm_iv_put) / 2
+        call_main = layer3.get('call_main_nat') or layer3.get('call_nature')
+        # 降波判断需要 prev, 这里用绝对低 (<0.20 = 20%) + L3 hedge_sell 推断
+        if avg_iv_now < 0.20 and call_main == 'hedge_sell':
+            signals.append(f'⚠️ 降波陷阱: 隐波低位 ({avg_iv_now*100:.1f}%) + L3 Call 套保卖权集中（产业收租，非投机降波）')
+            # 中性陷阱 → 撤回之前可能给的 +0.1 多头分 (但当前实现没有 +0.1, 所以无需撤回)
+            # 仅标记信号让前端看到
+            # score 不变 (中性陷阱)
 
     # 4. 趋势
     if trend == 'up':
