@@ -179,6 +179,15 @@ SLOPE_REGIME_THRESHOLDS = [
 SLOPE_WINDOW = 5
 
 # ============================================================
+# v2.11.90: PAIN 双侧陡独立分支 (飞书附录方案 P1)
+# 两侧 slope 绝对值都 > 80000 且比值 < 1.15 → both_steep=True
+# 业务语义: 双侧陡 = 上下阻力都大, 价格双向都"卡住", 趋势性弱
+# ============================================================
+BOTH_STEEP_THRESHOLD = 80000      # 两侧 slope |值| 都需 > 此数 (单位: 元/点)
+BOTH_STEEP_RATIO_MAX  = 1.15      # 两侧比值 < 此数才视为"对称陡峭" (不取 1.2 是因为 dyn_th=1.08 时会自然算对称)
+
+
+# ============================================================
 # v2.11.87: PAIN 形态动态阈值三因子 (飞书附录 2845-2897 方案 D)
 # ============================================================
 DYN_THRESHOLD_IV_HIGH = 75.0      # IV ≥ 75% 分位 → 高 IV 触发阈值降至 1.08
@@ -365,11 +374,20 @@ def compute_pain_slope(pain_curve: list, mp_strike: float, dyn_th: float = None)
         if ratio >= th:
             regime = label
             break
+
+    # === v2.11.90: 双侧陡独立判定 (P1 飞书附录方案) ===
+    # 条件: 两侧 |slope| 都 > 80000 且比值 < 1.15
+    # 业务语义: 上下阻力都大, 价格双向都"卡住", 趋势性弱
+    both_steep = bool(abs_d > BOTH_STEEP_THRESHOLD
+                      and abs_u > BOTH_STEEP_THRESHOLD
+                      and 0 < ratio < BOTH_STEEP_RATIO_MAX)
+
     return {
         'slope_down': round(slope_down, 2),
         'slope_up':   round(slope_up, 2),
         'slope_ratio': round(ratio, 3),
         'slope_regime': regime,
+        'both_steep': both_steep,           # v2.11.90: 双侧陡独立判定
         'thresholds_used': thresholds,
     }
 
@@ -432,6 +450,10 @@ def _build_intraday_change(slot_old: Optional[Dict], slot_new: Optional[Dict], l
         'gex_flip_change': round(flip_new - flip_old, 1),
         'slope_ratio_change': round(sr_new - sr_old, 3),
         'slope_regime_change': (reg_old != reg_new and bool(reg_old) and bool(reg_new)),
+        # === v2.11.90 P3: 动态阈值三因子变化 (供 L2/L3/L4 联动) ===
+        'iv_pct_change': round(float(slot_new.get('iv_percentile') or 0) - float(slot_old.get('iv_percentile') or 0), 1),
+        'oi_total_change': int(float(slot_new.get('oi_total_now') or 0) - float(slot_old.get('oi_total_now') or 0)),
+        'T_days_change': round(float(slot_new.get('T_days_remaining') or 0) - float(slot_old.get('T_days_remaining') or 0), 1),
         'layer': layer,
     }
 
@@ -526,10 +548,15 @@ def judge_layer1_pain_structure(gex: Dict, alert_data: Dict,
     slope_up_now    = slope_info['slope_up']
     slope_ratio_now = slope_info['slope_ratio']
     slope_regime_now = slope_info['slope_regime']
+    # v2.11.90: 双侧陡独立判定 (P1 飞书附录方案)
+    both_steep_now  = slope_info.get('both_steep', False)
     # v2.11.87: 暴露 thresholds_used 给前端调试
     slope_thresholds_used = slope_info.get('thresholds_used', SLOPE_REGIME_THRESHOLDS)
     # 映射 slope regime → 业务 shape（与 iv_smile.html 的 9 象限 labelMap 一致）
-    if slope_regime_now in ('强不对称', '一边主导', '略不对称'):
+    # v2.11.90 P1: 双侧陡独立分支, 优先级最高
+    if both_steep_now:
+        shape = 'bothSteep'
+    elif slope_regime_now in ('强不对称', '一边主导', '略不对称'):
         # 一边陡：slope_down > slope_up 视为 leftSteep（看跌阻力大）
         if abs(slope_down_now) > abs(slope_up_now):
             shape = 'leftSteep'
@@ -607,6 +634,18 @@ def judge_layer1_pain_structure(gex: Dict, alert_data: Dict,
     elif shape == 'sym':
         score = 0
         score_detail = 'pin risk / 低波动收敛（中性）'
+    # v2.11.90 P1: 双侧陡独立分支 (飞书附录 1.3 矩阵第 2/3 行)
+    # 正 GEX 中性 (第 2 行) / 负 GEX 观望 (第 3 行)
+    elif shape == 'bothSteep':
+        if gex_dir == 'positive':
+            score = 0
+            score_detail = '双侧陡+正GEX中性强支撑（中性）'
+        elif gex_dir == 'negative':
+            score = 0
+            score_detail = '双侧陡+负GEX观望等待（中性观望）'
+        else:
+            score = 0
+            score_detail = '双侧陡+GEX未知（中性）'
 
     # P0.2 fix: PCR 维度加成
     pcr_modifier = 0
@@ -661,7 +700,13 @@ def judge_layer1_pain_structure(gex: Dict, alert_data: Dict,
         'dyn_triggered': dyn_info['triggered'],
         'dyn_all_triggers': dyn_info['all_triggers'],
         'slope_thresholds_used': slope_thresholds_used,
-        'logic_brief': f'{shape} + {position} + GEX {gex_dir} + P vs Flip {p_vs_flip} → {score_detail}'
+        # === v2.11.90: 双侧陡独立判定 (P1) ===
+        'both_steep': both_steep_now,
+        # === v2.11.90 P4: 双轨过渡标记 (1 周后用户对比主观感受再决定是否替换) ===
+        'threshold_version': 'v2.11.90a',  # 新版 (both_steep 独立分支)
+        'logic_brief': (f'双侧陡 (|下|={abs(slope_down_now):.0f} |上|={abs(slope_up_now):.0f} 比={slope_ratio_now:.2f}) + GEX {gex_dir} → {score_detail}'
+                        if both_steep_now
+                        else f'{shape} + {position} + GEX {gex_dir} + P vs Flip {p_vs_flip} → {score_detail}')
     }
 
 
@@ -680,6 +725,11 @@ def _query_pain_matrix(shape: str, position: str, gex_dir: str, p_vs_flip: str) 
         if gex_dir == 'negative':  return '假突破后加速回归，负GEX放大跌幅，一旦跌破MP下行加速'
         if gex_dir == 'positive':  return '多空激烈博弈，左侧Put OI集中（左侧加速器埋伏）一旦价格向MP回归即触发下跌加速'
     if shape == 'sym':             return 'pin risk / 低波动收敛（价格被钉在MP附近）'
+    # v2.11.90 P1: 双侧陡独立分支 (飞书附录 1.3 矩阵第 2/3 行)
+    if shape == 'bothSteep':
+        if gex_dir == 'positive':  return '双侧陡+正GEX: 上下阻力对称存在, 正GEX提供稳定锚, 趋势性弱但有底, 适合区间策略'
+        if gex_dir == 'negative':  return '双侧陡+负GEX: 上下阻力对称但GEX负放大双向波动, 观望等待方向选择, 警惕假突破'
+        return '双侧陡 (GEX方向未知): 上下阻力对称存在, 趋势性弱, 等待GEX信号确认'
     return 'unknown matrix state'
 
 
