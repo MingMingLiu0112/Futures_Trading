@@ -1303,6 +1303,7 @@ def judge_layer4_emotion(curve: Dict, alert_data: Dict, layer1: Dict, gex: Dict,
     # 累加完用 _ladder_to_5grid 归到 5 档
     legacy_score = 0  # 保留双轨对比
     score_5grid_raw = 0.0  # 5 档量纲累加 (累加后 ladder 化)
+    score_detail = ''  # v2.11.93 修复: 必须初始化, 避免 vol_pcr=0 + atm_iv=None 边界 UnboundLocalError
 
     # 1. 成交 PCR (业务定义: 飞书 §2.4)
     if vol_pcr > 0:
@@ -1409,7 +1410,9 @@ def judge_layer4_emotion(curve: Dict, alert_data: Dict, layer1: Dict, gex: Dict,
         'F_1h_ago': F_1h_ago,
         'signals': signals,
         'score_detail': score_detail or '中性',
-        'layer_score': max(-1, min(1, score)),
+        # v2.11.93: layer_score 直接 5 档量纲 (旧 score 累加 ±0.1 已重命名为 score_5grid_raw/legacy_score)
+        'layer_score': layer_score,  # 5 档量纲 (-2/-1.5/-0.5/0/+0.5/+1.5/+2)
+        'legacy_layer_score': max(-1, min(1, legacy_score)),  # v2.11.90 P4 保留
         'logic_brief': ' | '.join(signals[:4]) if signals else 'no emotion signals'
     }
 
