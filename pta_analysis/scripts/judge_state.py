@@ -166,6 +166,23 @@ PCR_FEAR_HIGH = 1.5   # 恐慌
 PCR_BULLISH = 0.7     # 持仓 PCR 偏低（Call 多）→ 偏多
 PCR_BEARISH = 1.3     # 持仓 PCR 偏高（Put 多）→ 偏空
 
+# ============================================================
+# v2.11.93: 5 档 ladder (飞书原文 ±2/±1.5/±0.5/0)
+# ============================================================
+LADDER_5GRID = [-2.0, -1.5, -0.5, 0.0, +0.5, +1.5, +2.0]
+LADDER_5GRID_LABELS = {
+    -2.0: '强偏空', -1.5: '偏空', -0.5: '弱偏空', 0.0: '中性',
+    +0.5: '弱偏多', +1.5: '偏多', +2.0: '强偏多',
+}
+
+
+def _ladder_to_5grid(score: float) -> float:
+    """v2.11.93: 连续分数 → 5 档 ladder 最近邻
+    业务查表 + PCR 修饰可能产生 ±2.5 漂出 ladder, 用最近邻归位
+    """
+    return min(LADDER_5GRID, key=lambda x: abs(x - score))
+
+
 # v2.11.68: Pain 斜率算法（复用 skill pta-pain-slope-indicator）
 # ±5 邻域（500 点窗口）算 MP 两侧平均斜率
 SLOPE_WINDOW = 5
@@ -601,44 +618,45 @@ def judge_layer1_pain_structure(gex: Dict, alert_data: Dict,
     # skill 1.1/1.2 + 1.3 业务查表
     matrix_meaning = _query_pain_matrix(shape, position, gex_dir, p_vs_flip)
 
-    # 评分（按 skill 业务强度）
-    # P0.4 fix: 用标准 0.6/0.3/0.1
+    # v2.11.93: 业务查表直接输出 5 档量纲 (飞书原文 ±2/±1.5/±0.5/0)
+    # 旧 3 档 (0.6/0.3/0.1) → 新 5 档 (2.0/1.5/0.5/0) 比例 3.33x
+    # 取消中间 raw_score, 直接 5 档 (legacy_total 字段保留双轨对比)
     score = 0
     score_detail = ''
 
     if shape == 'rightSteep' and position == 'belowMP':
         if gex_dir == 'negative':
-            score = SCORE_WEAK
-            score_detail = '空头衰竭+反弹燃料（弱多）'
+            score = 0.5   # 弱偏多: 空头衰竭+反弹燃料
+            score_detail = '空头衰竭+反弹燃料（弱偏多）'
         elif gex_dir == 'positive':
-            score = SCORE_STRONG
-            score_detail = '底部反转确立+正GEX稳定（强多）'
+            score = 2.0   # 强偏多: 底部反转确立+正GEX稳定
+            score_detail = '底部反转确立+正GEX稳定（强偏多）'
     elif shape == 'rightSteep' and position == 'aboveMP':
         if gex_dir == 'negative':
-            score = -SCORE_MEDIUM
-            score_detail = '高位急跌+负GEX加速下行（中空）'
+            score = -1.5  # 偏空: 高位急跌+负GEX加速下行
+            score_detail = '高位急跌+负GEX加速下行（偏空）'
         elif gex_dir == 'positive':
-            score = SCORE_MEDIUM
-            score_detail = '强多头+正GEX保护（中多）'
+            score = 1.5   # 偏多: 强多头+正GEX保护
+            score_detail = '强多头+正GEX保护（偏多）'
     elif shape == 'leftSteep' and position == 'belowMP':
         if gex_dir == 'negative':
-            score = -SCORE_STRONG
-            score_detail = '强空头+负GEX放大（强空）'
+            score = -2.0  # 强偏空: 强空头+负GEX放大
+            score_detail = '强空头+负GEX放大（强偏空）'
         elif gex_dir == 'positive':
-            score = SCORE_MEDIUM
-            score_detail = '恐慌出清+正GEX抑制底部（中多）'
+            score = 1.5   # 偏多: 恐慌出清+正GEX抑制底部
+            score_detail = '恐慌出清+正GEX抑制底部（偏多）'
     elif shape == 'leftSteep' and position == 'aboveMP':
         if gex_dir == 'negative':
-            score = -SCORE_MEDIUM
-            score_detail = '假突破后加速回归（中空）'
+            score = -1.5  # 偏空: 假突破后加速回归
+            score_detail = '假突破后加速回归（偏空）'
         elif gex_dir == 'positive':
-            score = -SCORE_WEAK
-            score_detail = '多空博弈+左侧埋伏（弱空）'
+            score = -0.5  # 弱偏空: 多空博弈+左侧埋伏
+            score_detail = '多空博弈+左侧埋伏（弱偏空）'
     elif shape == 'sym':
         score = 0
         score_detail = 'pin risk / 低波动收敛（中性）'
     # v2.11.90 P1: 双侧陡独立分支 (飞书附录 1.3 矩阵第 2/3 行)
-    # 正 GEX 中性 (第 2 行) / 负 GEX 观望 (第 3 行)
+    # v2.11.93: 中性 0
     elif shape == 'bothSteep':
         if gex_dir == 'positive':
             score = 0
@@ -650,20 +668,29 @@ def judge_layer1_pain_structure(gex: Dict, alert_data: Dict,
             score = 0
             score_detail = '双侧陡+GEX未知（中性）'
 
-    # P0.2 fix: PCR 维度加成
+    # v2.11.93: PCR 维度调整 (5 档内 ±0.5 ladder 调整, 用 vol_pcr 跟 §1.1 矩阵'成交 PCR'列一致)
+    # 旧实装: pos_pcr > 1.3 → score -0.1; < 0.7 → +0.1
+    # 新实装: vol_pcr > 1.2 → score -0.5 (ladder 调整, 业务确认偏空)
+    #         vol_pcr < 0.8 → score +0.5 (ladder 调整, 业务确认偏多)
     pcr_modifier = 0
     pcr_meaning = ''
-    if pos_pcr > 0:
-        if pos_pcr > PCR_BEARISH:
-            pcr_modifier = -0.1
-            pcr_meaning = f'持仓PCR={pos_pcr:.2f} 偏高（Put 持仓占比大）→ 略偏空'
-        elif pos_pcr < PCR_BULLISH:
-            pcr_modifier = +0.1
-            pcr_meaning = f'持仓PCR={pos_pcr:.2f} 偏低（Call 持仓占比大）→ 略偏多'
+    if vol_pcr > 0:  # 用 vol_pcr 跟飞书原文 §1.1 矩阵'成交 PCR'列一致
+        if vol_pcr > 1.2:
+            pcr_modifier = -0.5
+            pcr_meaning = f'成交PCR={vol_pcr:.2f} 偏高（恐慌）→ 业务确认偏空方向'
+        elif vol_pcr < 0.8:
+            pcr_modifier = +0.5
+            pcr_meaning = f'成交PCR={vol_pcr:.2f} 偏低（过度乐观）→ 业务确认偏多方向'
         else:
-            pcr_meaning = f'持仓PCR={pos_pcr:.2f} 平衡'
+            pcr_meaning = f'成交PCR={vol_pcr:.2f} 中性区间'
 
-    score = max(-1, min(1, score + pcr_modifier))  # 限幅 [-1, 1]
+    # v2.11.93: 5 档 ladder 调整 (不用 max(-1,1) 限幅, 改 ladder 最近邻)
+    if pcr_modifier != 0:
+        score = _ladder_to_5grid(score + pcr_modifier)
+
+    # 5 档 ladder (强/弱 + 方向)
+    # 防止 score 漂出 ladder (业务查表 +0.5 修饰可能产生 ±2.5)
+    score = _ladder_to_5grid(score)
 
     return {
         'layer': 1,
@@ -771,32 +798,34 @@ def judge_layer2_gex(layer1: Dict, intraday_slots: list = None) -> Dict:
     # === v2.11.68: daily_change ===
     daily_change = _build_daily_change(prev_summary, summary, layer='L2')
 
+    # v2.11.93: 业务查表直接 5 档量纲 (飞书原文 §2.2 GEX × P-Flip 矩阵)
+    # 旧 3 档 (0.6/0.3/0.1) → 新 5 档 (2.0/1.5/0.5/0) 比例 3.33x
     if gex_dir == 'negative' and p_vs_flip == 'below':
         meaning = '负GEX + P在Flip下方 → 卖方对冲压力放大波动，下方无支撑'
-        score = -SCORE_STRONG
+        score = -2.0  # 强偏空 (旧 -SCORE_STRONG=-0.6)
         score_detail = '强空机制（负GEX放大下跌）'
     elif gex_dir == 'negative' and p_vs_flip == 'above':
         meaning = '负GEX + P在Flip上方 → 卖方对冲买压释放（涨幅被放大，但也有回调风险）'
-        score = -SCORE_WEAK
+        score = -0.5  # 弱偏空 (旧 -SCORE_WEAK=-0.1)
         score_detail = '弱空机制（涨幅放大但有支撑）'
     elif gex_dir == 'negative' and p_vs_flip == 'at':
         # v2.11.91 P1-L2-1: 负GEX + P接近Flip (即将翻正) = 放大减弱, 即将切换到正GEX抑制
         # 飞书 2.2 矩阵第 4 行: 业务含义 "即将切换到抑制机制, 拐点反向" → 偏多拐点
-        # 旧实现 score=-SCORE_MEDIUM(-0.3 中空) 跟飞书反向
+        # v2.11.93: 弱偏多 (旧 +SCORE_WEAK=+0.1)
         meaning = '负GEX + P接近Flip → 放大减弱，即将切换到正GEX抑制（拐点反向，中性偏多）'
-        score = SCORE_WEAK  # +0.1 偏多拐点 (比 0 中性更倾向"看到底了")
+        score = +0.5  # 弱偏多拐点
         score_detail = '弱多机制（负GEX即将转正，拐点有利）'
     elif gex_dir == 'positive' and p_vs_flip == 'above':
         meaning = '正GEX + P在Flip上方 → 卖方净正Gamma抑制波动，托底'
-        score = SCORE_MEDIUM
+        score = +1.5  # 偏多 (旧 +SCORE_MEDIUM=+0.3)
         score_detail = '中多机制（正GEX托底）'
     elif gex_dir == 'positive' and p_vs_flip == 'below':
         meaning = '正GEX + P在Flip下方 → 抑制减弱，下方支撑弱化'
-        score = 0
+        score = 0  # 中性
         score_detail = '中性机制（抑制减弱）'
     elif gex_dir == 'positive' and p_vs_flip == 'at':
         meaning = '正GEX + P接近Flip → 即将切换到放大机制'
-        score = -SCORE_WEAK
+        score = -0.5  # 弱偏空 (旧 -SCORE_WEAK=-0.1)
         score_detail = '弱空机制（即将切换）'
     else:
         meaning = 'unknown GEX state'
@@ -1000,7 +1029,28 @@ def judge_layer3_funding_intent(alert_data: Dict, gex: Dict, layer1: Dict,
             strike_score = -0.3
         # 多空分化 strike_score = 0（中性）
 
-    layer_score = (p_score + c_score + strike_score) / 2  # 归一化到 [-0.5, +0.5]
+    # v2.11.93: L3 5 档化 (飞书原文 14 行矩阵 → 5 档量纲 ±2/±1.5/±0.5/0)
+    # 旧: (p_score + c_score + strike_score) / 2 归一化到 [-0.5, +0.5]
+    # 新: 用 14 行矩阵 standardized_label → 5 档查表
+    L3_5GRID_TABLE = {
+        '看多共振 (强)':      +2.0,
+        '看多共振':           +1.5,
+        '单边偏多 (强)':      +1.5,
+        '单边偏多':           +0.5,
+        '箱体震荡':            0.0,
+        '多空分歧':            0.0,
+        '无方向':              0.0,
+        '单边偏空 (弱)':      -0.5,
+        '单边偏空':           -1.5,
+        '看空共振':           -1.5,
+        '看空共振 (强)':      -2.0,
+        '恐慌出清中（多头）':  +1.5,
+        '乐观消退中（空头）':  -1.5,
+    }
+    layer_score_5grid = L3_5GRID_TABLE.get(standardized_label, 0.0)
+
+    # legacy 字段保留双轨对比 (v2.11.90 P4)
+    legacy_layer_score = (p_score + c_score + strike_score) / 2
 
     return {
         'layer': 3,
@@ -1034,7 +1084,11 @@ def judge_layer3_funding_intent(alert_data: Dict, gex: Dict, layer1: Dict,
         'shape_label': nature_result.get('shape_label'),
         'position': nature_result.get('position'),
         'position_label': nature_result.get('position_label'),
-        'layer_score': layer_score,
+        # v2.11.93: layer_score 直接 5 档量纲 (±2/±1.5/±0.5/0)
+        'layer_score': layer_score_5grid,
+        # v2.11.93: legacy 字段保留双轨对比 (v2.11.90 P4)
+        'legacy_layer_score': legacy_layer_score,
+        'layer_score_5grid': layer_score_5grid,
         # === v2.11.68 B 方案：1h PCR delta + 跳段 3 链接标记 ===
         'pcr_delta_1h': round(pcr_delta_1h, 4),
         'slot_now': slot_now_label,
@@ -1245,49 +1299,53 @@ def judge_layer4_emotion(curve: Dict, alert_data: Dict, layer1: Dict, gex: Dict,
 
     # 信号列表
     signals = []
-    score = 0
-    score_detail = ''
+    # v2.11.93: 5 子信号累加直接 5 档量纲 (旧 ±0.1/0.2/0.3 → 新 ±0.5/1.0)
+    # 累加完用 _ladder_to_5grid 归到 5 档
+    legacy_score = 0  # 保留双轨对比
+    score_5grid_raw = 0.0  # 5 档量纲累加 (累加后 ladder 化)
 
-    # 1. 成交 PCR
+    # 1. 成交 PCR (业务定义: 飞书 §2.4)
     if vol_pcr > 0:
-        if vol_pcr > PCR_FEAR_HIGH:
+        if vol_pcr > PCR_FEAR_HIGH:  # > 1.5
             signals.append(f'成交PCR={vol_pcr:.2f} 持续>1.5（恐慌未消）')
-            score += -0.3
+            score_5grid_raw += -1.0  # 强空方向 (旧 -0.3)
+            legacy_score += -0.3
             score_detail = '恐慌情绪（强空头）'
-        elif vol_pcr < PCR_FEAR_LOW:
+        elif vol_pcr < PCR_FEAR_LOW:  # < 0.6
             signals.append(f'成交PCR={vol_pcr:.2f} 持续<0.6（过度乐观）')
-            score += -0.2
+            score_5grid_raw += -0.5  # 弱空方向 (旧 -0.2)
+            legacy_score += -0.2
             score_detail = '过度乐观（弱空头）'
-        elif PCR_NEUTRAL_LOW <= vol_pcr <= PCR_NEUTRAL_HIGH:
+        elif PCR_NEUTRAL_LOW <= vol_pcr <= PCR_NEUTRAL_HIGH:  # 0.8-1.2
             signals.append(f'成交PCR={vol_pcr:.2f} 中性区间')
             # score 不变
-        elif vol_pcr < 1.0:
+        elif vol_pcr < 1.0:  # 0.6-0.8
             signals.append(f'成交PCR={vol_pcr:.2f} 中性偏低')
-            score += +0.1
+            score_5grid_raw += +0.5  # 弱多方向 (旧 +0.1)
+            legacy_score += +0.1
             score_detail = '略偏多'
 
-    # 2. P1 fix: 恐慌出清判定
+    # 2. 恐慌出清判定
     if pcr_prev > 0 and vol_pcr > 0:
         if pcr_prev > PCR_FEAR_HIGH and vol_pcr < 1.0:
             signals.append(f'成交PCR 从 {pcr_prev:.2f} 回落至 {vol_pcr:.2f}（恐慌出清）→ 多头')
-            score += +0.3
+            score_5grid_raw += +1.0  # 强多方向 (旧 +0.3)
+            legacy_score += +0.3
             if not score_detail: score_detail = '恐慌出清（多头信号）'
         elif pcr_prev < PCR_FEAR_LOW and vol_pcr > 0.8:
             signals.append(f'成交PCR 从 {pcr_prev:.2f} 上升至 {vol_pcr:.2f}（乐观消退）→ 空头')
-            score += -0.2
+            score_5grid_raw += -1.0  # 强空方向 (旧 -0.2)
+            legacy_score += -0.2
             if not score_detail: score_detail = '乐观消退（空头信号）'
 
-    # 3. ATM IV
-    # v2.11.91 P1-L4-1: ATM 隐波打分化 (绝对水平 + 方向)
-    # 飞书 2.4: "从高位回落 (恐慌溢价消退) = 多头; 持续上升 = 空头; 降波也可能是套保卖权 = 中性陷阱"
-    # 阈值参考: PTA 正常 0.18-0.25 (即 18-25%), 高位 >0.30 算恐慌, 低位 <0.15 算收租
-    # 单位: 小数 (0.31 = 31%), 不是百分数
+    # 3. ATM IV (业务定义: 飞书 §2.4)
     if atm_iv_call and atm_iv_put:
         avg_iv = (atm_iv_call + atm_iv_put) / 2
         signals.append(f'ATM 隐波 {avg_iv*100:.2f}%')
         if avg_iv > 0.30:  # 高位恐慌 (>30%)
             signals.append(f'ATM 隐波 {avg_iv*100:.1f}% 处于高位（恐慌区域）')
-            score += -0.1
+            score_5grid_raw += -0.5  # 弱空 (旧 -0.1)
+            legacy_score += -0.1
             if not score_detail: score_detail = '高位IV恐慌（弱空）'
         elif avg_iv < 0.15:  # 低位收租 (<15%)
             signals.append(f'ATM 隐波 {avg_iv*100:.1f}% 处于低位（收租区域）')
@@ -1295,38 +1353,41 @@ def judge_layer4_emotion(curve: Dict, alert_data: Dict, layer1: Dict, gex: Dict,
         else:
             signals.append(f'ATM 隐波 {avg_iv*100:.1f}% 中性区间')
     # v2.11.91 P1-L4-2: "降波也可能是套保卖权" 陷阱 cross-check L3
-    # 业务: 隐波下降 + L3 Call 端 hedge_sell 主导 = 产业卖 Call 收租 (中性陷阱) → 不加分
-    #     隐波下降 + L3 没有 hedge_sell = 投机降波 / 恐慌消退 → 弱多
-    # 简化: 显式依赖 layer3 字段 (没传时不判定)
     if layer3 and atm_iv_call and atm_iv_put:
         avg_iv_now = (atm_iv_call + atm_iv_put) / 2
         call_main = layer3.get('call_main_nat') or layer3.get('call_nature')
-        # 降波判断需要 prev, 这里用绝对低 (<0.20 = 20%) + L3 hedge_sell 推断
         if avg_iv_now < 0.20 and call_main == 'hedge_sell':
             signals.append(f'⚠️ 降波陷阱: 隐波低位 ({avg_iv_now*100:.1f}%) + L3 Call 套保卖权集中（产业收租，非投机降波）')
-            # 中性陷阱 → 撤回之前可能给的 +0.1 多头分 (但当前实现没有 +0.1, 所以无需撤回)
-            # 仅标记信号让前端看到
-            # score 不变 (中性陷阱)
+            # 中性陷阱 → 不加分 (L4 业务定义 §2.4: 降波套保 = 中性陷阱)
 
     # 4. 趋势
     if trend == 'up':
         signals.append(f'趋势↑（F {prev_f:.0f} → {cur_f:.0f}，+{trend_diff:.0f}）')
-        score += +0.1
+        score_5grid_raw += +0.5  # 弱多 (旧 +0.1)
+        legacy_score += +0.1
     elif trend == 'down':
         signals.append(f'趋势↓（F {prev_f:.0f} → {cur_f:.0f}，{trend_diff:.0f}）')
-        score += -0.1
+        score_5grid_raw += -0.5  # 弱空 (旧 -0.1)
+        legacy_score += -0.1
     elif trend == 'flat':
         signals.append('趋势→（横盘）')
     else:
         signals.append('趋势 unknown')
 
-    # 5. v2.11.68: 1h 趋势打分加成（比 daily trend 更敏感，但不重复加分）
+    # 5. 1h 趋势打分加成（不重复加分）
     if trend_1h == 'up' and trend != 'up':
-        score += +0.1
+        score_5grid_raw += +0.5  # 弱多 (旧 +0.1)
+        legacy_score += +0.1
         if not score_detail: score_detail = '1h趋势↑'
     elif trend_1h == 'down' and trend != 'down':
-        score += -0.1
+        score_5grid_raw += -0.5  # 弱空 (旧 -0.1)
+        legacy_score += -0.1
         if not score_detail: score_detail = '1h趋势↓'
+
+    # v2.11.93: ladder 化 5 档量纲 (飞书原文 §2.4: 偏多/中性/偏空 3 档, 但允许 ±0.5 累加)
+    # L4 业务查表 3 档 (偏多/中性/偏空), 但 5 子信号累加可能产生 ±2
+    # 5 档 ladder 比 3 档更精细, 跟 L1/L2/L3 统一接口
+    layer_score = _ladder_to_5grid(score_5grid_raw)
 
     return {
         'layer': 4,
@@ -1421,35 +1482,28 @@ def _rescore_to_5grid(raw_score: float) -> Tuple[float, str]:
 
 
 def synthesize_decision(layers: List[Dict], T_days_remaining: Optional[float] = None) -> Dict:
-    """v2.11.92: 四层加权叠加 → 综合判断（飞书 5 档量纲 + θ 加权 4 档权重 + 5 档信号阈值）
-
-    两路线并行：
-      - 路线 1（评分路线）：5 档量纲 + θ 加权 + 5 档信号阈值 → 精确分数
-      - 路线 2（定性路线）：由 generate_daily_report._compute_decision_table() 查飞书 12+ 行规则表
-        → 此函数只输出 final_score/final_signal/bucket，路线 2 在 generate_daily_report.py 接管
+    """v2.11.93: 4 层直接 5 档量纲加权, 取消 _rescore_to_5grid 二次映射
+    业务查表直接输出 5 档量纲 (-2/-1.5/-0.5/0/+0.5/+1.5/+2)
+    legacy_total 字段保留双轨对比 (v2.11.90 P4 模式)
     """
     # === v2.11.92: θ 加权（用户拍板 = 只调权重）===
     weights = _get_theta_weights(T_days_remaining)
     layer_weight_map = {1: weights['L1'], 2: weights['L2'], 3: weights['L3'], 4: weights['L4']}
 
-    # === v2.11.92: 5 档量纲映射（评分路线）===
-    rescore_details = []
-    rescore_total = 0.0
+    # === v2.11.93: 4 层 layer_score 已经是 5 档量纲, 直接加权 ===
+    layer_5grid = []
     for l in layers:
-        raw = l.get('layer_score', 0)
-        score5, label5 = _rescore_to_5grid(raw)
-        w = layer_weight_map.get(l['layer'], l.get('weight', 0.25))
-        rescore_total += score5 * w
-        rescore_details.append({
+        score5 = l.get('layer_score', 0)  # 4 层直接输出 5 档
+        w = layer_weight_map.get(l.get('layer', 0), l.get('weight', 0.25))
+        layer_5grid.append({
             'layer': l.get('layer'),
             'layer_name': l.get('layer_name', ''),
-            'raw_score': round(raw, 3),
             'score_5grid': score5,
-            'label_5grid': label5,
+            'score_label': LADDER_5GRID_LABELS.get(score5, '中性'),
             'weight': round(w, 3),
             'contribution': round(score5 * w, 3),
         })
-    rescore_total = round(rescore_total, 3)
+    rescore_total = round(sum(d['contribution'] for d in layer_5grid), 3)
 
     # === v2.11.92: 5 档信号阈值（飞书原文）===
     if rescore_total >= SCORE_THRESH_STRONG_POS:
@@ -1473,19 +1527,19 @@ def synthesize_decision(layers: List[Dict], T_days_remaining: Optional[float] = 
         decision_v1 = '观望'
         confidence = '低'
 
-    # === 向后兼容: 旧 total_score 算法 (保留 1 周双轨对比) ===
-    legacy_total = sum(l.get('layer_score', 0) * l.get('weight', 0.25) for l in layers)
+    # === 向后兼容: 旧 3 档量纲 (0.6/0.3/0.1) 加权, 保留 1 周双轨对比 ===
+    legacy_total = sum(l.get('legacy_layer_score', l.get('layer_score', 0)) * l.get('weight', 0.25) for l in layers)
     legacy_total = round(legacy_total, 3)
 
     # 矛盾检测（5 档量纲下）
     signs = set()
-    for d in rescore_details:
+    for d in layer_5grid:
         if d['score_5grid'] > 0.5: signs.add('+')
         elif d['score_5grid'] < -0.5: signs.add('-')
 
     layer_breakdown = [
-        f"{d['layer_name']}={d['raw_score']:+.2f}→{d['score_5grid']:+.1f} ({d['label_5grid']}, 权重 {d['weight']*100:.0f}%)"
-        for d in rescore_details
+        f"{d['layer_name']}={d['score_5grid']:+.1f} ({d['score_label']}, 权重 {d['weight']*100:.0f}%)"
+        for d in layer_5grid
     ]
 
     # 各层逻辑串联
@@ -1505,15 +1559,15 @@ def synthesize_decision(layers: List[Dict], T_days_remaining: Optional[float] = 
     ]
 
     return {
-        # === 路线 1: 评分路线（飞书 5 档 + θ 加权）===
-        'final_score': rescore_total,           # 飞书 5 档量纲 [-1, +1]
-        'final_signal': signal_label,           # 强多共振/弱多/弱空/强空共振/矛盾
-        'decision_v1': decision_v1,             # 评分路线决策
-        'theta_weights': weights,               # θ 加权档位详情
-        'rescore_details': rescore_details,     # 每层 5 档映射详情
+        # === 路线 1: 评分路线（v2.11.93: 直接 5 档加权, 取消 5 档映射）===
+        'final_score': rescore_total,
+        'final_signal': signal_label,
+        'decision_v1': decision_v1,
+        'theta_weights': weights,
+        'layer_5grid': layer_5grid,           # v2.11.93 替代 rescore_details
         # === 向后兼容（保留 1 周双轨对比）===
-        'total_score': legacy_total,            # 旧算法（实装 0.6/0.3/0.1 量纲）
-        'decision': decision_v1,                # 主页 front-end 读这个字段
+        'total_score': legacy_total,            # 旧 3 档量纲加权
+        'decision': decision_v1,
         'confidence': confidence,
         'layer_breakdown': layer_breakdown,
         'logic_chain': logic_chain,

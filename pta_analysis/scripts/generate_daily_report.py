@@ -3453,6 +3453,14 @@ def _compute_decision_table(_scripts_dir: str, T_days_remaining: float = None) -
         l3 = dl.get('layer3', {})
         l4 = dl.get('layer4', {})
         final = dl.get('final', {})
+        # v2.11.93: 业务语义增强 - 拿关键价位/触发条件
+        l1_summary = l1.get('summary', {}) or {}
+        futures_price = l1.get('futures_price') or l1_summary.get('futures_price') or 0
+        max_pain = l1.get('max_pain') or l1_summary.get('max_pain') or 0
+        gex_flip = l1.get('gex_flip') or l1_summary.get('gex_flip') or 0
+        net_gex = l1.get('gex_flip') or l1_summary.get('net_gex') or 0
+        position_label = l1.get('position', '?')  # L1 position: aboveMP/belowMP/atMP
+        p_vs_flip = l2.get('p_vs_flip', 'unknown')  # L2: above/below/at
     except Exception as e:
         return {'error': f'cache 解析失败: {e}', 'T_bucket': T_bucket}
 
@@ -3500,14 +3508,31 @@ def _compute_decision_table(_scripts_dir: str, T_days_remaining: float = None) -
         'rescore_details': final.get('rescore_details', []),
         'theta_weights': final.get('theta_weights', {}),
         'generated_at': dl.get('generated_at'),
+        # v2.11.93: 业务语义增强字段
+        'futures_price': futures_price,
+        'max_pain': max_pain,
+        'gex_flip': gex_flip,
+        'net_gex': net_gex,
+        'position_label': position_label,
+        'p_vs_flip': p_vs_flip,
     }
 
 
 def _format_decision_table_text(dt: Dict) -> str:
-    """把 _compute_decision_table 输出格式化成多行文本（写入 conclusion 字段）"""
+    """把 _compute_decision_table 输出格式化成多行文本（写入 conclusion 字段）
+
+    v2.11.93: 业务语义增强 - 4 段输出
+    1. 决策 + 置信度 + 仓位 + 止损 (主决策)
+    2. 4 层信号综合 (评分依据)
+    3. 业务机理解释 (为什么这样决策 - 飞书原文术语)
+    4. 关键价位 / 触发条件 (反转点)
+    5. 风险提示 (失效条件)
+    6. 时间窗 / 关键节点 (θ 加权档 + 21:00 切换)
+    """
     if 'error' in dt:
         return f"⚠️ 决策规则表暂不可用：{dt['error']}"
     lines = []
+    # === 段 1: 主决策 ===
     lines.append(f"🧭 决策（飞书综合判断规则表 v2.11.92）：{dt['decision_final']}")
     lines.append(f"置信度：{dt['confidence']}")
     if dt['theta_modified']:
@@ -3517,6 +3542,8 @@ def _format_decision_table_text(dt: Dict) -> str:
     lines.append(f"仓位建议：{dt['position_size']}")
     lines.append(f"止损要求：{dt['stop_loss']}")
     lines.append('')
+
+    # === 段 2: 4 层信号综合 ===
     lines.append('【4 层信号综合】')
     lines.append(f"  • L1 结构：{dt['l1_qual']}")
     lines.append(f"  • L2 GEX：{dt['l2_qual']}")
@@ -3525,6 +3552,32 @@ def _format_decision_table_text(dt: Dict) -> str:
     lines.append('')
     lines.append(f"规则表命中：{dt['logic']}")
     lines.append('')
+
+    # === 段 3: 业务机理解释 (v2.11.93 业务语义增强) ===
+    rationale = _build_business_rationale(dt)
+    if rationale:
+        lines.append('【业务机理解释】')
+        for r in rationale:
+            lines.append(f"  • {r}")
+        lines.append('')
+
+    # === 段 4: 关键价位 / 触发条件 ===
+    levels = _build_key_levels(dt)
+    if levels:
+        lines.append('【关键价位 / 触发条件】')
+        for lv in levels:
+            lines.append(f"  • {lv}")
+        lines.append('')
+
+    # === 段 5: 风险提示 ===
+    risks = _build_risk_warnings(dt)
+    if risks:
+        lines.append('【风险提示 / 失效条件】')
+        for rk in risks:
+            lines.append(f"  • {rk}")
+        lines.append('')
+
+    # === 段 6: 评分路线（辅助）===
     lines.append('【评分路线（辅助）】')
     lines.append(f"  • 5 档总分：{dt['final_score']:+.3f}  信号：{dt['final_signal']}")
     lines.append(f"  • legacy 对照：{dt['legacy_total']:+.3f}")
@@ -3532,6 +3585,140 @@ def _format_decision_table_text(dt: Dict) -> str:
     if w:
         lines.append(f"  • θ 加权档：{w.get('T_bucket', '?')} (L1={w.get('L1', 0)*100:.0f}% L2={w.get('L2', 0)*100:.0f}% L3={w.get('L3', 0)*100:.0f}% L4={w.get('L4', 0)*100:.0f}%)")
     return '\n'.join(lines)
+
+
+def _build_business_rationale(dt: Dict) -> list:
+    """v2.11.93: 业务机理解释 (为什么这样决策)
+    飞书原文术语: L1 矩阵 24 cell + L2 GEX × P-Flip + L3 14 行矩阵 + L4 4 档定性
+    """
+    rationale = []
+    l1, l2, l3, l4 = dt['l1_qual'], dt['l2_qual'], dt['l3_qual'], dt['l4_qual']
+    decision = dt['decision']
+
+    # L1 业务机理解释
+    if '结构偏空（强）' in l1:
+        rationale.append('L1 强空：左侧 Put OI 集中（左侧加速器）已激活 + 负 GEX 放大跌幅，趋势自我强化（强空头+负GEX放大）')
+    elif '结构偏空（中）' in l1:
+        rationale.append('L1 中空：左侧 Put OI 集中但负 GEX 强度不足，结构形成但未强化（震荡调整）')
+    elif '结构偏空（弱）' in l1:
+        rationale.append('L1 弱空：左侧 Put OI 弱集中（左侧加速器未解除），需突破 MP 确认')
+    elif '结构偏多（强）' in l1:
+        rationale.append('L1 强多：右侧 Call OI 集中（右侧加速器）已激活 + 正 GEX 稳定，趋势自我强化（强多头+正GEX保护）')
+    elif '结构偏多（中）' in l1:
+        rationale.append('L1 中多：右侧 Call OI 集中 + 正 GEX 托底，结构形成但强度不足')
+    elif '结构偏多（弱）' in l1:
+        rationale.append('L1 弱多：右侧 Call OI 弱集中（右侧加速器待触发），需突破 MP 确认')
+    elif '结构中性（磁吸）' in l1:
+        rationale.append('L1 中性（磁吸）：sym 对称形态，价格被钉在 MP 附近，pin risk 低波动收敛')
+    elif '结构中性（事件驱动）' in l1:
+        rationale.append('L1 中性（事件驱动）：bothSteep 双侧陡 + 负 GEX，方向取决于突破')
+    else:
+        rationale.append(f'L1 中性/转折：形态与位置矛盾，方向不明（{l1}）')
+
+    # L2 业务机理解释 (用 p_vs_flip 字段: above/below/at, L2 业务定义)
+    pvf = dt.get('p_vs_flip', 'unknown')
+    if '波动放大（负GEX）' in l2 and pvf == 'above':
+        rationale.append('L2 弱空机制：负 GEX + 价格在 Flip 上方 → 卖方对冲买压释放（涨幅被放大但有回调风险）')
+    elif '波动放大（负GEX）' in l2 and pvf == 'below':
+        rationale.append('L2 强空机制：负 GEX + 价格在 Flip 下方 → 卖方对冲压力放大波动，下方无支撑')
+    elif '波动抑制（正GEX）' in l2 and pvf == 'above':
+        rationale.append('L2 中多机制：正 GEX + 价格在 Flip 上方 → 卖方净正 Gamma 抑制波动，托底（典型）')
+    elif '波动抑制（正GEX）' in l2 and pvf == 'below':
+        rationale.append('L2 中性：正 GEX + 价格在 Flip 下方 → 抑制减弱，下方支撑弱化')
+    elif '即将切换' in l2:
+        rationale.append(f'L2 拐点：{l2} → 即将切换波动机制（最危险拐点）')
+    else:
+        rationale.append(f'L2 波动机制：{l2}')
+
+    # L3 业务机理解释
+    if '看多共振' in l3 or '单边偏多' in l3:
+        rationale.append(f'L3 资金：{l3} → 产业/投机资金一致看多（双端共振）')
+    elif '看空共振' in l3 or '单边偏空' in l3:
+        rationale.append(f'L3 资金：{l3} → 产业/投机资金一致看空（双端共振）')
+    elif '多空分歧' in l3 or '箱体' in l3:
+        rationale.append(f'L3 资金：{l3} → 产业端双向锁仓（卖 Call 收租+卖 Put 收租），价格被钉在区间（观望）')
+    else:
+        rationale.append(f'L3 资金：{l3}')
+
+    # L4 业务机理解释
+    if '恐慌出清' in l4 or '乐观消退' in l4:
+        rationale.append(f'L4 情绪：{l4}（成交 PCR 翻转，关键情绪信号）')
+    elif '偏多' in l4:
+        rationale.append(f'L4 情绪：{l4}（情绪配合方向）')
+    elif '偏空' in l4:
+        rationale.append(f'L4 情绪：{l4}（情绪配合方向）')
+    else:
+        rationale.append(f'L4 情绪：{l4}（中性，情绪不阻碍）')
+
+    return rationale
+
+
+def _build_key_levels(dt: Dict) -> list:
+    """v2.11.93: 关键价位 / 触发条件
+    - Max Pain 磁吸 / GEX Flip 拐点 / 上下阻力位
+    """
+    levels = []
+    F = dt.get('futures_price', 0)
+    MP = dt.get('max_pain', 0)
+    FLIP = dt.get('gex_flip', 0)
+
+    if F and MP:
+        if F > MP:
+            dist = F - MP
+            pct = (dist / F) * 100
+            levels.append(f'当前 F={F:.0f} 站上 Max Pain {MP:.0f} 上方 {dist:+.0f} 点 ({pct:+.2f}%) → 反弹燃料在蓄积，磁吸效应弱')
+        elif F < MP:
+            dist = MP - F
+            pct = (dist / F) * 100
+            levels.append(f'当前 F={F:.0f} 跌破 Max Pain {MP:.0f} 下方 {dist:.0f} 点 ({pct:.2f}%) → 下方有 Max Pain 磁吸支撑')
+        else:
+            levels.append(f'当前 F={F:.0f} ≈ Max Pain {MP:.0f} → 钉住 MP 附近（pin risk 收敛）')
+
+    if F and FLIP:
+        if F > FLIP:
+            dist = F - FLIP
+            levels.append(f'当前 F={F:.0f} 站上 GEX Flip {FLIP:.0f} 上方 {dist:.0f} 点 → 卖方对冲买压释放（涨幅放大）')
+            levels.append(f'⚠️ 若跌破 GEX Flip {FLIP:.0f} → 卖方对冲切向卖压，放大变盘风险')
+        elif F < FLIP:
+            dist = FLIP - F
+            levels.append(f'当前 F={F:.0f} 跌破 GEX Flip {FLIP:.0f} 下方 {dist:.0f} 点 → 负 GEX 放大下行（卖方对冲卖压）')
+            levels.append(f'⚠️ 若重新站回 GEX Flip {FLIP:.0f} → 负 GEX 抑制，可能反弹')
+        else:
+            levels.append(f'当前 F={F:.0f} ≈ GEX Flip {FLIP:.0f} → 波动机制即将切换（最危险拐点）')
+
+    return levels
+
+
+def _build_risk_warnings(dt: Dict) -> list:
+    """v2.11.93: 风险提示 / 失效条件
+    飞书原文 §2.4 警示 + 实装业务约束
+    """
+    risks = []
+    l3 = dt['l3_qual']
+    decision = dt['decision']
+    l1 = dt['l1_qual']
+
+    if '多空分歧' in l3:
+        risks.append('L3 资金端多空分歧（产业/投机方向不一致），信号可能在 1-2 小时内反转')
+
+    if '观望' in decision:
+        risks.append('决策为观望（0% 仓位），等待四层信号共振再行动')
+        if l1 == '结构中性（事件驱动）':
+            risks.append('事件驱动型行情（双侧陡 + 负 GEX），突破方向决定交易方向 → 严控仓位等突破')
+
+    if '轻仓' in decision:
+        risks.append(f'仓位 {dt["position_size"]}（轻仓），信号证伪即严格止损离场')
+
+    if '强多共振' in dt.get('final_signal', '') or '强空共振' in dt.get('final_signal', ''):
+        risks.append('极强信号：可加仓至 100% 正常仓位，但需警惕突发事件（G20/库存/汇率）')
+
+    T_days = dt.get('T_days_remaining')
+    if T_days and T_days < 5:
+        risks.append(f'⚠️ T={T_days} 天临近到期：所有结构信号被 Gamma 指数级放大，价格波动加剧，警惕跳空')
+    elif T_days and T_days < 10:
+        risks.append(f'⚠️ T={T_days} 天临近到期：持仓变化比 IV 变化更能反映真实资金动向')
+
+    return risks
 
 
 def generate_intraday_analysis(report: Dict) -> Dict:
