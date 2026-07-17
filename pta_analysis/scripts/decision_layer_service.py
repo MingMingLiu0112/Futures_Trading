@@ -33,6 +33,7 @@ sys.path.insert(0, PROJECT_ROOT)
 # 与 web_app_integrated.py 保持一致的缓存目录
 FUNDAMENTAL_DIR = os.path.join(PROJECT_ROOT, 'data', 'fundamental')
 CACHE_PATH = os.path.join(FUNDAMENTAL_DIR, 'decision_layer_cache.json')
+HISTORY_PATH = os.path.join(FUNDAMENTAL_DIR, 'decision_layer_history.jsonl')  # v2.11.95a: 滚动历史落盘, 供时间维度路由回测
 
 # 调度参数
 SCHEDULE_INTERVAL_MINUTES = 15
@@ -620,6 +621,122 @@ def _write_cache(payload: Dict[str, Any]):
         'cache_path': CACHE_PATH,
     }
     _atomic_write_json(CACHE_PATH, data)
+# ============================================================
+# 滚动历史落盘（v2.11.95a 阶段 1）
+# 目的：每 15 分钟刷新后 append 一行 jsonl，供"时间维度路由"回测用
+# 设计：append + fsync（防断电），失败不影响 refresh 主流程
+# ============================================================
+def _build_history_row(decision_layer: dict, payload: dict) -> Optional[dict]:
+    """从决策层 dict 抽出回测所需的最小字段（4 层摘要 + final + ts + F）
+
+    返回 None 表示数据不完整（不写盘）
+
+    v2.11.95a 字段映射（实测过真实 cache 结构）：
+    - L1.score_detail: str（如 "强空头+负GEX放大（强偏空）"）
+    - L2.score_detail: str（如 "弱空机制（涨幅放大但有支撑） | 净GEX 恶化 -3.9M"）
+    - L3: score_detail 不在顶层, 在 funding_signal.signal_label 里（如 "无方向"）
+    - L4.score_detail: str（如 "略偏多"）
+    """
+    try:
+        ts = datetime.now().isoformat(timespec='seconds')
+        final = (decision_layer or {}).get('final') or {}
+        l1 = (decision_layer or {}).get('layer1') or {}
+        l2 = (decision_layer or {}).get('layer2') or {}
+        l3 = (decision_layer or {}).get('layer3') or {}
+        l4 = (decision_layer or {}).get('layer4') or {}
+
+        # L3 label 从 funding_signal dict 里取（fallback 到 raw_label）
+        l3_label = ((l3.get('funding_signal') or {}).get('signal_label')) or l3.get('raw_label')
+
+        # 4 层摘要（按"中长线组 / 短线组"分组）
+        row = {
+            'ts': ts,
+            'F': payload.get('futures_price'),
+            'max_pain': payload.get('max_pain'),
+            'data_update': payload.get('last_data_update'),
+            # 中长线组（PAIN 结构 + GEX 机制）
+            'L1': {
+                'score': l1.get('layer_score'),
+                'label': l1.get('score_detail'),
+                'shape': l1.get('shape'),
+                'position': l1.get('position'),
+                'gex_dir': l1.get('gex_dir'),
+                'p_vs_flip': l1.get('p_vs_flip'),
+                'dyn_threshold': l1.get('dyn_threshold'),
+                'dyn_triggered': l1.get('dyn_triggered'),
+            },
+            'L2': {
+                'score': l2.get('layer_score'),
+                'label': l2.get('score_detail'),
+                'gex_dir': l2.get('gex_dir'),
+                'p_vs_flip': l2.get('p_vs_flip'),
+                'net_gex': l2.get('net_gex_now'),
+                'gex_flip': l2.get('gex_flip_now'),
+            },
+            # 短线组（资金意图 + 情绪确认）
+            'L3': {
+                'score': l3.get('layer_score'),
+                'label': l3_label,
+                'direction': l3.get('direction'),
+                'weighted_verdict': l3.get('weighted_verdict'),
+                'cross_validation': l3.get('cross_validation_verdict'),
+                'call_nature': l3.get('call_nature'),
+                'put_nature': l3.get('put_nature'),
+                'fund_activity': ((l3.get('funding_signal') or {}).get('signal_strength')),
+            },
+            'L4': {
+                'score': l4.get('layer_score'),
+                'label': l4.get('score_detail'),
+                'vol_pcr': l4.get('vol_pcr'),
+                'atm_iv': l4.get('atm_iv_call'),
+                'trend': l4.get('trend'),
+                'trend_diff': l4.get('trend_diff'),
+            },
+            # final 决策
+            'final': {
+                'decision': final.get('decision'),
+                'decision_v1': final.get('decision_v1'),
+                'score': final.get('final_score') or final.get('total_score'),
+                'signal': final.get('final_signal'),
+                'confidence': final.get('confidence'),
+                'theta_bucket': (final.get('theta_weights') or {}).get('T_bucket'),
+                'theta_weights': final.get('theta_weights'),  # 保留: L1-L4 权重明细
+                'layer_5grid': final.get('layer_5grid'),  # 保留: 含 contribution / weight / score_5grid
+            },
+        }
+        # 必填字段校验（缺一不写）
+        if not all([row['F'] is not None, row['L1']['score'] is not None,
+                    row['L2']['score'] is not None, row['L3']['score'] is not None,
+                    row['L4']['score'] is not None, row['final']['decision']]):
+            _logger.warning('%s 历史落盘跳过：必填字段缺失 (F=%s L1=%s L2=%s L3=%s L4=%s final=%s)',
+                            LOG_TAG, row['F'], row['L1']['score'], row['L2']['score'],
+                            row['L3']['score'], row['L4']['score'], row['final']['decision'])
+            return None
+        return row
+    except Exception as e:
+        _logger.warning('%s 历史落盘构建失败: %s', LOG_TAG, e, exc_info=True)
+        return None
+
+
+def _append_history(row: dict):
+    """append 一行 jsonl + fsync（防断电丢数据）
+
+    失败不影响 refresh 主流程（catch 后只记日志）
+    """
+    try:
+        _ensure_cache_dir()
+        line = json.dumps(row, ensure_ascii=False) + '\n'
+        with open(HISTORY_PATH, 'a', encoding='utf-8') as f:
+            f.write(line)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except (OSError, AttributeError):
+                pass  # tmpfs 不支持 fsync, 跳过
+        _logger.info('%s 📊 历史落盘: %s (决策=%s)', LOG_TAG, row['ts'], row['final']['decision'])
+    except Exception as e:
+        # 失败兜底：不抛异常，refresh 主流程不能被历史落盘拖死
+        _logger.warning('%s 历史落盘失败（非致命）: %s', LOG_TAG, e, exc_info=True)
 
 
 # ============================================================
@@ -679,6 +796,11 @@ def refresh_decision_layer(force: bool = False) -> Dict[str, Any]:
             'max_pain': (gex.get('summary') or {}).get('max_pain'),
         }
         _write_cache(cache_payload)
+
+        # v2.11.95a: 滚动历史落盘（阶段 1）—— 失败不影响主流程
+        history_row = _build_history_row(decision_layer, cache_payload)
+        if history_row is not None:
+            _append_history(history_row)
 
         _logger.info('%s ✅ 决策层刷新完成 @ %s', LOG_TAG, datetime.now().strftime('%H:%M:%S'))
         return {'success': True, 'decision_layer': decision_layer}

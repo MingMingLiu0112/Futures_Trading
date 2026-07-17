@@ -1279,6 +1279,93 @@ def api_decision_layer():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+# v2.11.95a: 时间维度路由"理论决策"对照端点（不替代 final.decision, 只做对照参考)
+@app.route('/api/decision_layer/timeframe_router', methods=['GET'])
+def api_decision_layer_timeframe_router():
+    """读决策层 cache + 调 timeframe_router 算"理论决策"
+
+    返回:
+      {
+        'success': True,
+        'old_decision': '轻仓做空',           # v2.11.85b final.decision
+        'old_score': -0.825,
+        'routed_decision': '中仓跟随',        # v2.11.95a 路由理论决策
+        'routed_scenario': 'C',
+        'routed_position_pct': 0.6,
+        'long_verdict': '强偏空',
+        'short_verdict': '中性',
+        'theta_bucket': 'T≥10',
+        'rationale': '...',
+      }
+
+    注意:
+      - 不写 cache, 不动 final.decision
+      - 仅供前端"对照卡片"使用, 完全独立于生产决策
+      - 失败时返回 success=False (前端降级为不显示卡片)
+    """
+    try:
+        # 1) 读 cache
+        if not os.path.exists(DECISION_LAYER_CACHE_PATH):
+            return jsonify({'success': False, 'error': 'cache 尚未生成'}), 200
+        with open(DECISION_LAYER_CACHE_PATH, 'r', encoding='utf-8') as f:
+            cache = json.load(f)
+        decision_layer = cache.get('decision_layer')
+        if not decision_layer:
+            return jsonify({'success': False, 'error': 'cache 无 decision_layer 字段'}), 200
+
+        # 2) 调路由模块
+        from scripts.timeframe_router import route_decision_by_timeframe
+
+        l1 = decision_layer.get('layer1') or {}
+        l2 = decision_layer.get('layer2') or {}
+        l3 = decision_layer.get('layer3') or {}
+        l4 = decision_layer.get('layer4') or {}
+
+        # 从 L1.summary 或 L1.dyn_triggered 推断 T_days (fallback 15)
+        T_days = 15
+        l1_summary = l1.get('summary') or {}
+        if isinstance(l1_summary, dict):
+            days_left = l1_summary.get('days_left') or l1_summary.get('T_days_remaining')
+            if days_left:
+                T_days = int(float(days_left))
+        elif l1.get('dyn_triggered') and 't_near' in (l1.get('dyn_triggered') or []):
+            T_days = 3
+
+        F = cache.get('futures_price')
+
+        routed = route_decision_by_timeframe(l1, l2, l3, l4, T_days=T_days, F=F)
+
+        # 3) 旧决策对照
+        final = decision_layer.get('final') or {}
+
+        return jsonify({
+            'success': True,
+            'available': True,
+            'old_decision': final.get('decision'),
+            'old_score': final.get('final_score') or final.get('total_score'),
+            'old_confidence': final.get('confidence'),
+            # 新路由结果
+            'routed_decision': routed['decision'],
+            'routed_scenario': routed['scenario'],
+            'routed_position_pct': routed['position_pct'],
+            'long_verdict': routed['long_verdict'],
+            'long_strength': routed.get('long_strength', ''),
+            'short_verdict': routed['short_verdict'],
+            'short_strength': routed.get('short_strength', ''),
+            'theta_bucket': routed['theta_bucket'],
+            'short_term_weight': routed['short_term_weight'],
+            'long_term_weight': routed['long_term_weight'],
+            'fallback_to_22cell': routed['fallback_to_22cell'],
+            'rationale': routed['rationale'],
+            # 元信息
+            'F': F,
+            'T_days': T_days,
+            'last_refresh_at': (cache.get('_meta') or {}).get('last_refresh_at'),
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/decision_layer/refresh', methods=['POST'])
 def api_decision_layer_refresh():
     """手动触发决策层刷新（force=True，跳过 15min mtime 检查）"""

@@ -2815,6 +2815,64 @@ function getStrategyReportEndpoint() {
                 function escText(v) {
                     return String(v == null ? '' : v).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
                 }
+
+                // v2.11.95a: 时间维度路由"理论决策"对照卡片
+                // 数据源: /api/decision_layer/timeframe_router (intraday.timeframe_router)
+                // 显示: 旧决策 vs 新路由决策 + 场景 + 仓位建议 + 触发理由
+                // 关键: 独立于 v2.11.85b final.decision, 仅作观察参考
+                function renderTimeframeRouterCard(rtr) {
+                    if (!rtr || !rtr.success) return '';
+                    const cell = (v) => escText(v == null || v === '' ? '--' : v);
+                    const scenarioColor = {
+                        'A': '#26a69a', 'B': '#ffd700', 'C': '#4fc3f7',
+                        'D': '#ef5350', 'E': '#888', 'F': '#777'
+                    };
+                    const sc = rtr.routed_scenario || 'F';
+                    const color = scenarioColor[sc] || '#aaa';
+                    const posPct = Math.round((rtr.routed_position_pct || 0) * 100);
+                    const oldDecision = cell(rtr.old_decision);
+                    const oldScore = rtr.old_score != null ? rtr.old_score.toFixed(2) : '--';
+                    const newDecision = cell(rtr.routed_decision);
+                    const longV = cell(rtr.long_verdict);
+                    const longS = cell(rtr.long_strength || '');
+                    const shortV = cell(rtr.short_verdict);
+                    const shortS = cell(rtr.short_strength || '');
+                    const theta = cell(rtr.theta_bucket);
+                    const rationale = cell(rtr.rationale);
+
+                    return `<div style="margin:12px 0 10px 0;border:1px solid #444;border-radius:5px;padding:8px 10px;background:#181822;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                            <span style="color:#ffd700;font-size:12px;font-weight:bold;">🔀 时间维度路由（v2.11.95a 观察期）</span>
+                            <span style="color:#777;font-size:10px;">场景 <b style="color:${color};font-size:13px;">${cell(sc)}</b> · ${cell(rtr.F)} · T=${cell(rtr.T_days)}天 · θ=${theta}</span>
+                        </div>
+                        <table style="width:100%;border-collapse:collapse;font-size:11px;line-height:1.5;">
+                            <tr>
+                                <td style="color:#aaa;padding:3px 6px;width:90px;">旧决策(v2.11.85b)</td>
+                                <td style="color:#ddd;padding:3px 6px;"><b>${oldDecision}</b> <span style="color:#888;font-size:10px;">(${oldScore})</span></td>
+                            </tr>
+                            <tr>
+                                <td style="color:#aaa;padding:3px 6px;">路由决策(理论)</td>
+                                <td style="color:${color};padding:3px 6px;"><b>${newDecision}</b> <span style="color:#888;font-size:10px;">${posPct}% 仓</span></td>
+                            </tr>
+                            <tr>
+                                <td style="color:#aaa;padding:3px 6px;">中长线组</td>
+                                <td style="color:#ddd;padding:3px 6px;">PAIN+GEX → <b>${longV}</b><span style="color:#888;font-size:10px;"> (强度 ${longS})</span> · 权重 ${Math.round((rtr.long_term_weight||0)*100)}%</td>
+                            </tr>
+                            <tr>
+                                <td style="color:#aaa;padding:3px 6px;">短线组</td>
+                                <td style="color:#ddd;padding:3px 6px;">资金+情绪 → <b>${shortV}</b><span style="color:#888;font-size:10px;"> (强度 ${shortS})</span> · 权重 ${Math.round((rtr.short_term_weight||0)*100)}%</td>
+                            </tr>
+                            <tr>
+                                <td style="color:#aaa;padding:3px 6px;vertical-align:top;">依据</td>
+                                <td style="color:#cfcfcf;padding:3px 6px;font-size:10px;line-height:1.45;">${rationale}</td>
+                            </tr>
+                        </table>
+                        <div style="margin-top:6px;color:#888;font-size:10px;font-style:italic;line-height:1.5;">
+                            ⚠️ 本卡片仅作观察对照, 不替代 <b>v2.11.85b</b> 生产决策. 待 D 场景激进仓位评估后再决定是否切换.
+                        </div>
+                    </div>`;
+                }
+
                 function renderIntradayAnalysis(intraday, reportData = {}) {
                     const cell = (v) => escText(v == null || v === '' ? '--' : v);
                     function renderReportTable(title, headers, rows) {
@@ -3509,6 +3567,9 @@ function getStrategyReportEndpoint() {
                     // ============================================================
                     out += renderDecisionLayerBlock(intraday.decision_layer);
 
+                    // v2.11.95a: 时间维度路由"理论决策"对照卡片（独立于 v2.11.85b final.decision, 只作观察参考）
+                    out += renderTimeframeRouterCard(intraday.timeframe_router);
+
                     // ============================================================
                     // 【5 策略建议】3 段（期货 / 期权买方 / 期权卖方）
                     // ============================================================
@@ -4034,6 +4095,18 @@ function getStrategyReportEndpoint() {
                     }
                 } catch (e) {
                     // 静默失败:后端可能还没启动 daemon 或 cache 还没生成
+                }
+
+                // v2.11.95a: 拉取时间维度路由"理论决策"(独立端点, 不替代 final.decision)
+                try {
+                    const rtrResp = await fetch('/api/decision_layer/timeframe_router', { cache: 'no-store' });
+                    const rtrData = await rtrResp.json();
+                    if (rtrData && rtrData.success && rtrData.available) {
+                        intraday = intraday || {};
+                        intraday.timeframe_router = rtrData;
+                    }
+                } catch (e) {
+                    // 静默失败:理论决策模块可能未启用
                 }
 
                 let html = '';
