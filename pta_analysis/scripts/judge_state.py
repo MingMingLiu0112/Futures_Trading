@@ -197,11 +197,20 @@ SLOPE_WINDOW = 5
 
 # ============================================================
 # v2.11.90: PAIN 双侧陡独立分支 (飞书附录方案 P1)
-# 两侧 slope 绝对值都 > 80000 且比值 < 1.15 → both_steep=True
+# 两侧 slope 绝对值都 > BOTH_STEEP_THRESHOLD 且比值 < both_steep_ratio_max → both_steep=True
 # 业务语义: 双侧陡 = 上下阻力都大, 价格双向都"卡住", 趋势性弱
+#
+# v2.11.95b: both_steep_ratio_max 不再硬编码 1.15, 改用 dyn_th 联动
+#   1.15 只是参考基值, 真正的阈值是"baseline + 触发条件"计算后的 dyn_th
+#   一旦 dyn_th=1.05 (T<7 触发) → 对称/双侧陡 vs 偏斜的分界 = 1.05
+#   一旦 dyn_th=1.08 (IV≥75% 或 OI>10万触发) → 分界 = 1.08
+#   文档 L2025-2043 方案 D 案例: 比值 1.10 > 1.08 → leftSteep(略偏空)  ← 分界 1.08
+#   bothSteep 跟"略不对称"档互斥:
+#     - "略不对称"档: ratio >= dyn_th  → leftSteep/rightSteep
+#     - bothSteep:    ratio <  dyn_th  → 真正对称
+#   所以 both_steep_ratio_max = dyn_th (1.15 已被 dyn_th 替代)
 # ============================================================
-BOTH_STEEP_THRESHOLD = 80000      # 两侧 slope |值| 都需 > 此数 (单位: 元/点)
-BOTH_STEEP_RATIO_MAX  = 1.15      # 两侧比值 < 此数才视为"对称陡峭" (不取 1.2 是因为 dyn_th=1.08 时会自然算对称)
+BOTH_STEEP_THRESHOLD = 80000  # 两侧 slope |值| 都需 > 此数 (单位: 元/点)
 
 
 # ============================================================
@@ -393,11 +402,21 @@ def compute_pain_slope(pain_curve: list, mp_strike: float, dyn_th: float = None)
             break
 
     # === v2.11.90: 双侧陡独立判定 (P1 飞书附录方案) ===
-    # 条件: 两侧 |slope| 都 > 80000 且比值 < 1.15
+    # 条件: 两侧 |slope| 都 > BOTH_STEEP_THRESHOLD 且比值 < both_steep_ratio_max
     # 业务语义: 上下阻力都大, 价格双向都"卡住", 趋势性弱
+    #
+    # v2.11.95b: both_steep_ratio_max = dyn_th (1.15 已被 dyn_th 替代, 不再硬编码)
+    #   一旦 dyn_th=1.05 (T<7 触发) → 对称/双侧陡 vs 偏斜的分界 = 1.05
+    #   一旦 dyn_th=1.08 (IV≥75% 或 OI>10万触发) → 分界 = 1.08
+    #   dyn_th=None 时回退到 DYN_THRESHOLD_BASE=1.15 (compute_dynamic_threshold 的 baseline)
+    if dyn_th is not None and dyn_th > 0:
+        both_steep_ratio_max = dyn_th
+    else:
+        # 向后兼容: dyn_th 未传入时, 用 DYN_THRESHOLD_BASE 兜底 (跟 compute_dynamic_threshold 一致)
+        both_steep_ratio_max = DYN_THRESHOLD_BASE  # 1.15
     both_steep = bool(abs_d > BOTH_STEEP_THRESHOLD
                       and abs_u > BOTH_STEEP_THRESHOLD
-                      and 0 < ratio < BOTH_STEEP_RATIO_MAX)
+                      and 0 < ratio < both_steep_ratio_max)
 
     return {
         'slope_down': round(slope_down, 2),
