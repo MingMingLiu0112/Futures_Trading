@@ -316,8 +316,32 @@ def _build_decision_layer_payload(gex: dict, alert_data: dict, curve: dict) -> D
     l1 = js.judge_layer1_pain_structure(gex or {}, alert_data or {}, intraday_slots=intraday_slots)
     # L2: GEX 机制（依赖 L1）
     l2 = js.judge_layer2_gex(l1, intraday_slots=intraday_slots)
-    # L3: 资金意图（依赖 L1）
-    l3 = js.judge_layer3_funding_intent(alert_data or {}, gex or {}, l1, intraday_slots=intraday_slots)
+    # ============================================================
+    # v2.11.95c: 提前算 weighted (v2.11.85a 加权综合) — L3 需要用 main_nat 走 14 行表
+    # 之前顺序: L3 → weighted → 覆盖 L3 字段
+    # 修复后: weighted → L3 (传 weighted) → 后续覆盖其余字段
+    # 目的: 让 layer_score 跟 funding_signal / cross_validation_verdict 同源
+    # ============================================================
+    weighted = None
+    try:
+        from scripts.compute_weighted_nature import compute_weighted_nature as _cwn
+        import urllib.request
+        with urllib.request.urlopen(
+            'http://127.0.0.1:8424/api/iv_smile/alert_data', timeout=5
+        ) as resp:
+            alert_data_raw = json.loads(resp.read())
+        alert_rows_raw = (alert_data_raw or {}).get('rows') or []
+        F_raw = float(
+            (alert_data_raw or {}).get('futures_price')
+            or (gex or {}).get('summary', {}).get('futures_price')
+            or 0
+        )
+        weighted = _cwn(alert_rows_raw, F_raw) if alert_rows_raw and F_raw else None
+    except Exception as _e:
+        _logger.warning('%s v2.11.95c weighted 预计算失败, fallback: %s', LOG_TAG, _e)
+        weighted = None
+    # L3: 资金意图（依赖 L1, v2.11.95c 加 weighted 参数让 layer_score 走加权口径）
+    l3 = js.judge_layer3_funding_intent(alert_data or {}, gex or {}, l1, intraday_slots=intraday_slots, weighted=weighted)
     # L4: 情绪确认（依赖 L1, 跨层 cross-check L3 隐波陷阱）
     l4 = js.judge_layer4_emotion(curve or {}, alert_data or {}, l1, gex or {}, intraday_slots=intraday_slots, layer3=l3)
     # final: 综合判断（接受 list；v2.11.92: 传 T_days_remaining 触发 θ 加权）
@@ -342,226 +366,208 @@ def _build_decision_layer_payload(gex: dict, alert_data: dict, curve: dict) -> D
     # 前端: renderL3StrikeDetail 10 栏目表 NAT_MAP 早已对齐, 无需改
     # 兼容: compute_weighted_nature 内 _compute_side / _calc_fund_activity 加了 schema
     #       自动探测 (alert_data vs chain_legacy), 老调用方仍能跑 chain 口径
+    #
+    # v2.11.95c: weighted 已在 L3 调用前算好 (见上面 L316-345)
+    # 这里只做字段覆盖, 不再重算
     # ============================================================
-    try:
-        from scripts.compute_weighted_nature import compute_weighted_nature as _cwn
-        import urllib.request
-        # v2.11.85e: 拉 alert_data 而非 chain
-        with urllib.request.urlopen(
-            'http://127.0.0.1:8424/api/iv_smile/alert_data', timeout=5
-        ) as resp:
-            alert_data_raw = json.loads(resp.read())
-        alert_rows = (alert_data_raw or {}).get('rows') or []
-        # alert_data 没顶层 futures_price, 从 gex.summary 拿
-        F = float(
-            (alert_data_raw or {}).get('futures_price')
-            or (gex or {}).get('summary', {}).get('futures_price')
-            or 0
-        )
-        weighted = _cwn(alert_rows, F)
-        if weighted:
-            # ---------- v2.11.85a: 用 strike_role[] 重算 call_role / put_role 兼容老前端 ----------
-            def _rebuild_role_dict(strike_role_list):
-                """从 v2.11.85a 的 strike_role[] 重算老 call_role / put_role dict 结构
-                老结构: {spec_trim:[], spec_add:[], hedge_sell:[], hedge_buy:[], close_push:[], double_exit:[], role_summary, _top_n}
-                """
-                d = {'spec_trim': [], 'spec_add': [], 'hedge_sell': [],
-                     'hedge_buy': [], 'close_push': [], 'double_exit': [], 'mixed_neutral': []}
-                for s in (strike_role_list or []):
-                    nat = s.get('nature', '')
-                    row = {
-                        'strike': s.get('strike'),
-                        'side': s.get('side'),  # v2.11.85c: 加 side 字段，修复前端 7 栏目表 Call 端 strike 后缀 fallback 'P' bug
-                        'nature': nat,
-                        'oi_delta_pct': s.get('oi_pct'),
-                        'iv_delta_pp': s.get('iv_pp'),
-                        'oi_chg': s.get('oi_chg'),
-                        'moneyness': s.get('moneyness'),
-                        'contribution': s.get('contribution'),
-                        'weight': s.get('weight'),
-                    }
-                    # v2.11.85a 性质映射到 v2.11.63d 老分类
-                    # v2.11.85b 修复 5500P 错放: spec_buy_directional 必须显式映射
-                    # 原版 NAT_MAP 漏掉这一行 → .get() fallback 到 'spec_trim'
-                    #   业务语义 180° 反转（方向性投机看空 → 显示成撤退离场）
-                    NAT_MAP = {
-                        'hedge_sell': 'hedge_sell',
-                        'hedge_buy': 'hedge_buy',
-                        'spec_add': 'spec_add',
-                        'spec_trim': 'spec_trim',
-                        'close_push': 'close_push',
-                        'double_exit': 'double_exit',
-                        'passive_close': 'passive_close',
-                        'noise_close': 'noise_ignore',
-                        'noise_open': 'noise_ignore',
-                        'quote_adjust': 'noise_ignore',
-                        'theta_decay': 'noise_ignore',
-                        'spec_buy_lotto': 'spec_buy_lotto',
-                        'spec_buy_directional': 'spec_add',
-                        'hedge_rolling': 'hedge_rolling',
-                        'supply_overhang': 'supply_overhang',
-                        'mixed_neutral': 'mixed_neutral',
-                        'static': 'noise_ignore',
-                    }
-                    key = NAT_MAP.get(nat, 'noise_ignore')
-                    if key not in d:
-                        d[key] = []
-                    d[key].append(row)
-                # role_summary: 按 contribution 降序取 Top 5
-                top_n = 5
-                sorted_sr = sorted((strike_role_list or []), key=lambda x: -abs(x.get('contribution', 0)))
-                NATURE_LABEL = {
-                    'hedge_sell': '产业收租', 'hedge_buy': '产业买保',
-                    'spec_add': '投机加仓', 'spec_trim': '投机撤退',
-                    'close_push': '卖方平仓', 'double_exit': '双边撤退',
-                    'passive_close': '被动平仓', 'noise_close': '噪声平仓',
-                    'quote_adjust': '报价调整', 'spec_buy_lotto': '投机彩票',
-                    'mixed_neutral': '中性',
+    if weighted:
+        # ---------- v2.11.85a: 用 strike_role[] 重算 call_role / put_role 兼容老前端 ----------
+        def _rebuild_role_dict(strike_role_list):
+            """从 v2.11.85a 的 strike_role[] 重算老 call_role / put_role dict 结构
+            老结构: {spec_trim:[], spec_add:[], hedge_sell:[], hedge_buy:[], close_push:[], double_exit:[], role_summary, _top_n}
+            """
+            d = {'spec_trim': [], 'spec_add': [], 'hedge_sell': [],
+                 'hedge_buy': [], 'close_push': [], 'double_exit': [], 'mixed_neutral': []}
+            for s in (strike_role_list or []):
+                nat = s.get('nature', '')
+                row = {
+                    'strike': s.get('strike'),
+                    'side': s.get('side'),  # v2.11.85c: 加 side 字段，修复前端 7 栏目表 Call 端 strike 后缀 fallback 'P' bug
+                    'nature': nat,
+                    'oi_delta_pct': s.get('oi_pct'),
+                    'iv_delta_pp': s.get('iv_pp'),
+                    'oi_chg': s.get('oi_chg'),
+                    'moneyness': s.get('moneyness'),
+                    'contribution': s.get('contribution'),
+                    'weight': s.get('weight'),
                 }
-                def _fmt(r):
-                    sv = r.get('strike')
-                    side_letter = 'C' if r.get('side') == 'Call' else 'P'
-                    nat_lbl = NATURE_LABEL.get(r.get('nature'), r.get('nature', '?'))
-                    oi_pct = r.get('oi_pct')
-                    iv_pp = r.get('iv_pp')
-                    oi_str = f'{oi_pct:+.1f}%' if oi_pct is not None else '--'
-                    iv_str = f'{iv_pp:+.2f}pp' if iv_pp is not None else '--'
-                    return f'{sv}{side_letter}({nat_lbl} OI{oi_str} IV{iv_str})'
-                d['role_summary'] = ' / '.join(_fmt(r) for r in sorted_sr[:top_n]) or '无显著方向分化'
-                d['_top_n'] = top_n
-                return d
+                # v2.11.85a 性质映射到 v2.11.63d 老分类
+                # v2.11.85b 修复 5500P 错放: spec_buy_directional 必须显式映射
+                # 原版 NAT_MAP 漏掉这一行 → .get() fallback 到 'spec_trim'
+                #   业务语义 180° 反转（方向性投机看空 → 显示成撤退离场）
+                NAT_MAP = {
+                    'hedge_sell': 'hedge_sell',
+                    'hedge_buy': 'hedge_buy',
+                    'spec_add': 'spec_add',
+                    'spec_trim': 'spec_trim',
+                    'close_push': 'close_push',
+                    'double_exit': 'double_exit',
+                    'passive_close': 'passive_close',
+                    'noise_close': 'noise_ignore',
+                    'noise_open': 'noise_ignore',
+                    'quote_adjust': 'noise_ignore',
+                    'theta_decay': 'noise_ignore',
+                    'spec_buy_lotto': 'spec_buy_lotto',
+                    'spec_buy_directional': 'spec_add',
+                    'hedge_rolling': 'hedge_rolling',
+                    'supply_overhang': 'supply_overhang',
+                    'mixed_neutral': 'mixed_neutral',
+                    'static': 'noise_ignore',
+                }
+                key = NAT_MAP.get(nat, 'noise_ignore')
+                if key not in d:
+                    d[key] = []
+                d[key].append(row)
+            # role_summary: 按 contribution 降序取 Top 5
+            top_n = 5
+            sorted_sr = sorted((strike_role_list or []), key=lambda x: -abs(x.get('contribution', 0)))
+            NATURE_LABEL = {
+                'hedge_sell': '产业收租', 'hedge_buy': '产业买保',
+                'spec_add': '投机加仓', 'spec_trim': '投机撤退',
+                'close_push': '卖方平仓', 'double_exit': '双边撤退',
+                'passive_close': '被动平仓', 'noise_close': '噪声平仓',
+                'quote_adjust': '报价调整', 'spec_buy_lotto': '投机彩票',
+                'mixed_neutral': '中性',
+            }
+            def _fmt(r):
+                sv = r.get('strike')
+                side_letter = 'C' if r.get('side') == 'Call' else 'P'
+                nat_lbl = NATURE_LABEL.get(r.get('nature'), r.get('nature', '?'))
+                oi_pct = r.get('oi_pct')
+                iv_pp = r.get('iv_pp')
+                oi_str = f'{oi_pct:+.1f}%' if oi_pct is not None else '--'
+                iv_str = f'{iv_pp:+.2f}pp' if iv_pp is not None else '--'
+                return f'{sv}{side_letter}({nat_lbl} OI{oi_str} IV{iv_str})'
+            d['role_summary'] = ' / '.join(_fmt(r) for r in sorted_sr[:top_n]) or '无显著方向分化'
+            d['_top_n'] = top_n
+            return d
 
-            call_role_new = _rebuild_role_dict(weighted['Call']['strike_role'])
-            put_role_new = _rebuild_role_dict(weighted['Put']['strike_role'])
+        call_role_new = _rebuild_role_dict(weighted['Call']['strike_role'])
+        put_role_new = _rebuild_role_dict(weighted['Put']['strike_role'])
 
-            # ---------- v2.11.85a: 替换 L3 老字段（用新算法产出）----------
-            payload['layer3']['call_role'] = call_role_new
-            payload['layer3']['put_role'] = put_role_new
-            payload['layer3']['call_role_summary'] = call_role_new['role_summary']
-            payload['layer3']['put_role_summary'] = put_role_new['role_summary']
-            # v2.11.85e: 透传 main_nat 给 funding_signal 查表
-            payload['layer3']['call_main_nat'] = weighted['Call']['main_nat']
-            payload['layer3']['put_main_nat'] = weighted['Put']['main_nat']
-            payload['layer3']['standardized_label'] = weighted['Call']['label'] + ' / ' + weighted['Put']['label']
-            payload['layer3']['standardized_intensity'] = (
-                '强' if (weighted['Call']['main_pct'] > 60 or weighted['Put']['main_pct'] > 60) else
-                ('中' if (weighted['Call']['main_pct'] > 40 or weighted['Put']['main_pct'] > 40) else '弱')
-            )
-            payload['layer3']['strike_modifier'] = (
-                f'Call {weighted["Call"]["verdict"]} | Put {weighted["Put"]["verdict"]}'
-            )
-            payload['layer3']['data_quality'] = weighted['data_quality']
-            # v2.11.85a 增量字段（前端新渲染用）
-            payload['layer3']['strike_role'] = weighted['Call']['strike_role']
-            payload['layer3']['put_strike_role'] = weighted['Put']['strike_role']
-            payload['layer3']['weighted_pct'] = weighted['Call']['weighted_pct']
-            payload['layer3']['put_weighted_pct'] = weighted['Put']['weighted_pct']
-            payload['layer3']['weighted_label'] = weighted['Call']['label']
-            payload['layer3']['put_weighted_label'] = weighted['Put']['label']
-            payload['layer3']['weighted_verdict'] = weighted['Call']['verdict']
-            payload['layer3']['put_weighted_verdict'] = weighted['Put']['verdict']
-            payload['layer3']['direction'] = weighted['Call']['direction']
-            payload['layer3']['put_direction'] = weighted['Put']['direction']
-            payload['layer3']['weighted_version'] = 'v2.11.85a'
-            # v2.11.85d: 折叠行必须跟随新加权算法，避免继续显示老 _compute_nature_and_synthesis 的
-            # "Put spec_buy + Call spec_buy → 信号矛盾"，与 standardized_label/详情区互相打架。
-            payload['layer3']['logic_brief'] = (
-                f"Call {weighted['Call']['label']} ({weighted['Call']['main_pct']:.1f}%) / "
-                f"Put {weighted['Put']['label']} ({weighted['Put']['main_pct']:.1f}%)"
-            )
+        # ---------- v2.11.85a: 替换 L3 老字段（用新算法产出）----------
+        payload['layer3']['call_role'] = call_role_new
+        payload['layer3']['put_role'] = put_role_new
+        payload['layer3']['call_role_summary'] = call_role_new['role_summary']
+        payload['layer3']['put_role_summary'] = put_role_new['role_summary']
+        # v2.11.85e: 透传 main_nat 给 funding_signal 查表
+        payload['layer3']['call_main_nat'] = weighted['Call']['main_nat']
+        payload['layer3']['put_main_nat'] = weighted['Put']['main_nat']
+        payload['layer3']['standardized_label'] = weighted['Call']['label'] + ' / ' + weighted['Put']['label']
+        payload['layer3']['standardized_intensity'] = (
+            '强' if (weighted['Call']['main_pct'] > 60 or weighted['Put']['main_pct'] > 60) else
+            ('中' if (weighted['Call']['main_pct'] > 40 or weighted['Put']['main_pct'] > 40) else '弱')
+        )
+        payload['layer3']['strike_modifier'] = (
+            f'Call {weighted["Call"]["verdict"]} | Put {weighted["Put"]["verdict"]}'
+        )
+        payload['layer3']['data_quality'] = weighted['data_quality']
+        # v2.11.85a 增量字段（前端新渲染用）
+        payload['layer3']['strike_role'] = weighted['Call']['strike_role']
+        payload['layer3']['put_strike_role'] = weighted['Put']['strike_role']
+        payload['layer3']['weighted_pct'] = weighted['Call']['weighted_pct']
+        payload['layer3']['put_weighted_pct'] = weighted['Put']['weighted_pct']
+        payload['layer3']['weighted_label'] = weighted['Call']['label']
+        payload['layer3']['put_weighted_label'] = weighted['Put']['label']
+        payload['layer3']['weighted_verdict'] = weighted['Call']['verdict']
+        payload['layer3']['put_weighted_verdict'] = weighted['Put']['verdict']
+        payload['layer3']['direction'] = weighted['Call']['direction']
+        payload['layer3']['put_direction'] = weighted['Put']['direction']
+        payload['layer3']['weighted_version'] = 'v2.11.85a'
+        # v2.11.85d: 折叠行必须跟随新加权算法，避免继续显示老 _compute_nature_and_synthesis 的
+        # "Put spec_buy + Call spec_buy → 信号矛盾"，与 standardized_label/详情区互相打架。
+        payload['layer3']['logic_brief'] = (
+            f"Call {weighted['Call']['label']} ({weighted['Call']['main_pct']:.1f}%) / "
+            f"Put {weighted['Put']['label']} ({weighted['Put']['main_pct']:.1f}%)"
+        )
 
-            # v2.11.85d: PCR + Skew 交叉验证数据契约（飞书文档 §2.3.2 附录）
-            # 这些字段供 Step 2 综合判定函数消费，不影响现有 verdict 字段
-            # v2.11.85e: chain_data 已删除, 直接传 alert_data
+        # v2.11.85d: PCR + Skew 交叉验证数据契约（飞书文档 §2.3.2 附录）
+        # 这些字段供 Step 2 综合判定函数消费，不影响现有 verdict 字段
+        # v2.11.85e: chain_data 已删除, 直接传 alert_data
+        try:
+            cross_val_inputs = _build_cross_validation_inputs(alert_data, gex, weighted)
+            payload['layer3']['cross_validation'] = cross_val_inputs
+            # Step 2: 综合判定（4 子规则）→ 6 档置信度
             try:
-                cross_val_inputs = _build_cross_validation_inputs(alert_data, gex, weighted)
-                payload['layer3']['cross_validation'] = cross_val_inputs
-                # Step 2: 综合判定（4 子规则）→ 6 档置信度
-                try:
-                    from scripts.compute_weighted_nature import cross_validate_funding
-                    cv_result = cross_validate_funding(cross_val_inputs)
-                    payload['layer3']['cross_validation_verdict'] = cv_result
-                    # v2.11.85k: 把 cv 输出的 verdict/rationale/subrule/fund_flow_verdict/verdict_direction
-                    #   merge 回 call_role / put_role 顶层字段
-                    #   修复: 之前 _rebuild_role_dict 输出后, 这俩字段被覆盖为空, 前端展开区读不到 rationale
-                    #   merge 是叠加, 不破坏 NAT_MAP 分桶(7 类老字段保留)
-                    for side_key in ('call', 'put'):
-                        cv_side = cv_result.get(side_key, {}) or {}
-                        if side_key == 'call':
-                            call_role_new.update({k: v for k, v in cv_side.items() if k in (
-                                'verdict', 'rationale', 'subrule',
-                                'verdict_direction', 'fund_flow_verdict',
-                                'new_fund_net_long', 'new_fund_net_short', 'new_fund_net_neutral',
-                                'stock_adj_net_long', 'stock_adj_net_short',
-                                'new_fund_dominant_nature', 'dominant_nature',
-                            )})
-                        else:
-                            put_role_new.update({k: v for k, v in cv_side.items() if k in (
-                                'verdict', 'rationale', 'subrule',
-                                'verdict_direction', 'fund_flow_verdict',
-                                'new_fund_net_long', 'new_fund_net_short', 'new_fund_net_neutral',
-                                'stock_adj_net_long', 'stock_adj_net_short',
-                                'new_fund_dominant_nature', 'dominant_nature',
-                            )})
-                except Exception as cv2_e:
-                    _logger.warning('%s v2.11.85d cross_validate_funding skipped: %s', LOG_TAG, cv2_e)
-                    payload['layer3']['cross_validation_verdict'] = {'error': str(cv2_e)}
+                from scripts.compute_weighted_nature import cross_validate_funding
+                cv_result = cross_validate_funding(cross_val_inputs)
+                payload['layer3']['cross_validation_verdict'] = cv_result
+                # v2.11.85k: 把 cv 输出的 verdict/rationale/subrule/fund_flow_verdict/verdict_direction
+                #   merge 回 call_role / put_role 顶层字段
+                #   修复: 之前 _rebuild_role_dict 输出后, 这俩字段被覆盖为空, 前端展开区读不到 rationale
+                #   merge 是叠加, 不破坏 NAT_MAP 分桶(7 类老字段保留)
+                for side_key in ('call', 'put'):
+                    cv_side = cv_result.get(side_key, {}) or {}
+                    if side_key == 'call':
+                        call_role_new.update({k: v for k, v in cv_side.items() if k in (
+                            'verdict', 'rationale', 'subrule',
+                            'verdict_direction', 'fund_flow_verdict',
+                            'new_fund_net_long', 'new_fund_net_short', 'new_fund_net_neutral',
+                            'stock_adj_net_long', 'stock_adj_net_short',
+                            'new_fund_dominant_nature', 'dominant_nature',
+                        )})
+                    else:
+                        put_role_new.update({k: v for k, v in cv_side.items() if k in (
+                            'verdict', 'rationale', 'subrule',
+                            'verdict_direction', 'fund_flow_verdict',
+                            'new_fund_net_long', 'new_fund_net_short', 'new_fund_net_neutral',
+                            'stock_adj_net_long', 'stock_adj_net_short',
+                            'new_fund_dominant_nature', 'dominant_nature',
+                        )})
+            except Exception as cv2_e:
+                _logger.warning('%s v2.11.85d cross_validate_funding skipped: %s', LOG_TAG, cv2_e)
+                payload['layer3']['cross_validation_verdict'] = {'error': str(cv2_e)}
 
-                # v2.11.85e: 资金意图综合结论（严格按飞书 §2.3.1 第三层合成信号矩阵）
-                # 步骤 1: 合成信号查表
-                # 步骤 2: 持仓PCR×Skew 交叉验证（按飞书 §2.3.2 附录 三步走 + 4 子规则）
-                try:
-                    from scripts.compute_weighted_nature import (
-                        synthesize_funding_signal,
-                        cross_validate_synthesized_signal,
-                    )
-                    # 步骤 1: 合成信号 (call_main_nat, put_main_nat)
-                    funding_signal = synthesize_funding_signal(
-                        call_main_nat=weighted['Call']['main_nat'],
-                        put_main_nat=weighted['Put']['main_nat'],
-                        pcr_now=(cross_val_inputs.get('pcr') or {}).get('now', 0),
-                        pcr_prev=(cross_val_inputs.get('pcr') or {}).get('prev', 0),
-                        strike_modifier=weighted.get('Call', {}).get('label', '') + ' / ' + weighted.get('Put', {}).get('label', ''),
-                    )
-                    payload['layer3']['funding_signal'] = funding_signal
+            # v2.11.85e: 资金意图综合结论（严格按飞书 §2.3.1 第三层合成信号矩阵）
+            # 步骤 1: 合成信号查表
+            # 步骤 2: 持仓PCR×Skew 交叉验证（按飞书 §2.3.2 附录 三步走 + 4 子规则）
+            try:
+                from scripts.compute_weighted_nature import (
+                    synthesize_funding_signal,
+                    cross_validate_synthesized_signal,
+                )
+                # 步骤 1: 合成信号 (call_main_nat, put_main_nat)
+                funding_signal = synthesize_funding_signal(
+                    call_main_nat=weighted['Call']['main_nat'],
+                    put_main_nat=weighted['Put']['main_nat'],
+                    pcr_now=(cross_val_inputs.get('pcr') or {}).get('now', 0),
+                    pcr_prev=(cross_val_inputs.get('pcr') or {}).get('prev', 0),
+                    strike_modifier=weighted.get('Call', {}).get('label', '') + ' / ' + weighted.get('Put', {}).get('label', ''),
+                )
+                payload['layer3']['funding_signal'] = funding_signal
 
-                    # 步骤 2: 交叉验证（验证合成信号）
-                    pcr_dict = cross_val_inputs.get('pcr') or {}
-                    skew_dict = cross_val_inputs.get('skew') or {}
-                    fund_dict = cross_val_inputs.get('fund_activity') or {}
-                    funding_cv = cross_validate_synthesized_signal(
-                        synth_label=funding_signal.get('signal_label', ''),
-                        synth_direction=funding_signal.get('signal_direction', '中性'),
-                        pcr_dir=pcr_dict.get('direction', 'flat'),
-                        skew_dir=skew_dict.get('direction', 'flat'),
-                        fund_call_abs=(fund_dict.get('Call') or {}).get('abs_oi_chg', 0),
-                        fund_put_abs=(fund_dict.get('Put') or {}).get('abs_oi_chg', 0),
-                        iv_call_chg=skew_dict.get('call_iv_chg_pp', 0),
-                        iv_put_chg=skew_dict.get('put_iv_chg_pp', 0),
-                        skew_delta_pp=skew_dict.get('delta_pp', 0),
-                    )
-                    payload['layer3']['funding_signal_cv'] = funding_cv
-                except Exception as fs_e:
-                    _logger.warning('%s v2.11.85e funding_signal skipped: %s', LOG_TAG, fs_e)
-                    payload['layer3']['funding_signal'] = {'error': str(fs_e)}
-            except Exception as cv_e:
-                _logger.warning('%s v2.11.85d cross_validation skipped: %s', LOG_TAG, cv_e)
-                payload['layer3']['cross_validation'] = {'available': False, 'note': str(cv_e)}
+                # 步骤 2: 交叉验证（验证合成信号）
+                pcr_dict = cross_val_inputs.get('pcr') or {}
+                skew_dict = cross_val_inputs.get('skew') or {}
+                fund_dict = cross_val_inputs.get('fund_activity') or {}
+                funding_cv = cross_validate_synthesized_signal(
+                    synth_label=funding_signal.get('signal_label', ''),
+                    synth_direction=funding_signal.get('signal_direction', '中性'),
+                    pcr_dir=pcr_dict.get('direction', 'flat'),
+                    skew_dir=skew_dict.get('direction', 'flat'),
+                    fund_call_abs=(fund_dict.get('Call') or {}).get('abs_oi_chg', 0),
+                    fund_put_abs=(fund_dict.get('Put') or {}).get('abs_oi_chg', 0),
+                    iv_call_chg=skew_dict.get('call_iv_chg_pp', 0),
+                    iv_put_chg=skew_dict.get('put_iv_chg_pp', 0),
+                    skew_delta_pp=skew_dict.get('delta_pp', 0),
+                )
+                payload['layer3']['funding_signal_cv'] = funding_cv
+            except Exception as fs_e:
+                _logger.warning('%s v2.11.85e funding_signal skipped: %s', LOG_TAG, fs_e)
+                payload['layer3']['funding_signal'] = {'error': str(fs_e)}
+        except Exception as cv_e:
+            _logger.warning('%s v2.11.85d cross_validation skipped: %s', LOG_TAG, cv_e)
+            payload['layer3']['cross_validation'] = {'available': False, 'note': str(cv_e)}
 
-            _logger.info(
-                '%s v2.11.85a replace OK: Call=%s (%.1f%%) Put=%s (%.1f%%)',
-                LOG_TAG,
-                weighted['Call']['main_nat'] or 'none',
-                weighted['Call']['main_pct'],
-                weighted['Put']['main_nat'] or 'none',
-                weighted['Put']['main_pct'],
-            )
-    except Exception as e:
-        # 增量挂接失败 → 老字段保留（_compute_nature_and_synthesis 已有兜底），前端仍能渲染
-        _logger.warning('%s v2.11.85a replace skipped, fallback to old: %s', LOG_TAG, e)
-
+        _logger.info(
+            '%s v2.11.85a replace OK: Call=%s (%.1f%%) Put=%s (%.1f%%)',
+            LOG_TAG,
+            weighted['Call']['main_nat'] or 'none',
+            weighted['Call']['main_pct'],
+            weighted['Put']['main_nat'] or 'none',
+            weighted['Put']['main_pct'],
+        )
     return payload
-
 
 # ============================================================
 # 缓存读写（原子写：tmp → os.replace）
@@ -621,6 +627,8 @@ def _write_cache(payload: Dict[str, Any]):
         'cache_path': CACHE_PATH,
     }
     _atomic_write_json(CACHE_PATH, data)
+
+
 # ============================================================
 # 滚动历史落盘（v2.11.95a 阶段 1）
 # 目的：每 15 分钟刷新后 append 一行 jsonl，供"时间维度路由"回测用

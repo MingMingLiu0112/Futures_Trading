@@ -1372,8 +1372,13 @@ def api_decision_layer_refresh():
     try:
         from scripts import decision_layer_service
         result = decision_layer_service.refresh_decision_layer(force=True)
-        status = 200 if result.get('success') else 500
-        return jsonify(result), status
+        return jsonify({
+            'success': result.get('success', False),
+            'decision_layer': result.get('decision_layer'),
+            'error': result.get('error'),
+            'skipped': result.get('skipped'),
+            'reason': result.get('reason'),
+        })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 

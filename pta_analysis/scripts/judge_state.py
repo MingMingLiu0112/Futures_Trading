@@ -920,12 +920,24 @@ def judge_layer2_gex(layer1: Dict, intraday_slots: list = None) -> Dict:
 # 第三层：资金意图层（25%）
 # ============================================================
 def judge_layer3_funding_intent(alert_data: Dict, gex: Dict, layer1: Dict,
-                                intraday_slots: list = None) -> Dict:
+                                intraday_slots: list = None,
+                                weighted: Dict = None) -> Dict:
     """第三层：资金意图（用现成 _compute_nature_and_synthesis）
 
     v2.11.68:
       - B 方案：输出 standardized_label + 1h PCR delta + detail_section_ref 标记
         （避免与段 3 性质判定×合成信号重复；前端读 detail_section_ref 跳段 3 链接）
+
+    v2.11.95c:
+      - 加 weighted 参数 (v2.11.85a 加权综合结果)
+      - 当 weighted 存在时, put_nature/call_nature 用 weighted['Put']['main_nat']/['Call']['main_nat']
+        (加权综合主性质), 而不是 strike 级 nature
+      - 目的: 让 layer_score 走加权口径, 跟 funding_signal.signal_label / direction 同源
+        解决 v2.11.95b 之前的"3 套输入不一致" bug:
+        - strike 级 nature: 5000P spec_buy(投机彩票) → 14 行表 → "单边偏空" → -1.5
+        - 加权 main_nat:   put=hedge_buy(43%) → 14 行表 → "多空分歧" → 0
+        - 之前两套并存, 量化-1.5 跟定性"防御"矛盾, 用户感知"定性和量化矛盾"
+        - 现在统一走加权口径, 跟 funding_signal / cross_validation_verdict 一致
 
     评分映射（PUT_DIR/CALL_DIR）:
       spec_buy 看多/看空 = ±0.5
@@ -1013,6 +1025,18 @@ def judge_layer3_funding_intent(alert_data: Dict, gex: Dict, layer1: Dict,
 
     put_nature = nature_result.get('put', {}).get('nature', 'unknown')
     call_nature = nature_result.get('call', {}).get('nature', 'unknown')
+    # v2.11.95c: 当 weighted (v2.11.85a 加权综合) 存在时, 用 main_nat 覆盖 strike 级 nature
+    # 让 14 行表查表 / L3_5GRID_TABLE / layer_score 走加权口径, 跟 funding_signal 同源
+    # strike 级 nature 仍保留在 nature_label / business_meaning / role_summary (供前端展开区)
+    # 注意: 改 put_nature/call_nature 不会影响 nature_label (那个是 strike 级) — 前端展开区
+    #       看到的"性质"还是 strike 级, 但 layer_score / standardized_label 走加权口径
+    if weighted:
+        w_call_main = (weighted.get('Call') or {}).get('main_nat')
+        w_put_main  = (weighted.get('Put')  or {}).get('main_nat')
+        if w_call_main:
+            call_nature = w_call_main
+        if w_put_main:
+            put_nature = w_put_main
     synthesis = nature_result.get('synthesis', {}) or {}
     raw_label = synthesis.get('label', 'unknown')
     raw_intensity = synthesis.get('intensity', '')
@@ -1549,9 +1573,8 @@ def synthesize_decision(layers: List[Dict], T_days_remaining: Optional[float] = 
         decision_v1 = '观望'
         confidence = '低'
 
-    # === 向后兼容: 旧 3 档量纲 (0.6/0.3/0.1) 加权, 保留 1 周双轨对比 ===
-    legacy_total = sum(l.get('legacy_layer_score', l.get('layer_score', 0)) * l.get('weight', 0.25) for l in layers)
-    legacy_total = round(legacy_total, 3)
+    # v2.11.93+: 取消 legacy_total 双轨对比 (L1/L2 旧 0.6/0.3/0.1 旧法对照与 5 档量纲不一致, 已去除)
+    legacy_total = rescore_total  # 字段保留供前端兼容, 实际值 = 5 档总分
 
     # 矛盾检测（5 档量纲下）
     signs = set()
@@ -1575,7 +1598,6 @@ def synthesize_decision(layers: List[Dict], T_days_remaining: Optional[float] = 
         f"决策(评分): {decision_v1}（置信度: {confidence}）",
         f"信号强度: {signal_label}",
         f"总分(5档): {rescore_total:+.3f}",
-        f"总分(legacy对照): {legacy_total:+.3f}",
         f"θ 加权档: {weights['T_bucket']} (L1={weights['L1']*100:.0f}% L2={weights['L2']*100:.0f}% L3={weights['L3']*100:.0f}% L4={weights['L4']*100:.0f}%)",
         f"逻辑链: {logic_chain}",
     ]
