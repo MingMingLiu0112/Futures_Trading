@@ -671,6 +671,17 @@ def judge_layer1_pain_structure(gex: Dict, alert_data: Dict,
         elif gex_dir == 'positive':
             score = -0.5  # 弱偏空: 多空博弈+左侧埋伏
             score_detail = '多空博弈+左侧埋伏（弱偏空）'
+    # v2.11.95h: atMP 分支（B 方案）—— 价格贴 MP 附近震荡, 方向待选, 看 gex_dir 弱偏 ±0.5
+    elif position == 'atMP':
+        if gex_dir == 'positive':
+            score = +0.5  # 弱偏多: MP 磁吸+正 GEX 抑制下行, 下方有底
+            score_detail = 'MP 磁吸震荡+正 GEX 抑制下方（弱偏多）'
+        elif gex_dir == 'negative':
+            score = -0.5  # 弱偏空: MP 磁吸+负 GEX 放大向下突破风险
+            score_detail = 'MP 磁吸震荡+负 GEX 放大向下风险（弱偏空）'
+        else:
+            score = 0
+            score_detail = 'MP 磁吸震荡+GEX 未知（中性观望）'
     elif shape == 'sym':
         score = 0
         score_detail = 'pin risk / 低波动收敛（中性）'
@@ -773,6 +784,11 @@ def _query_pain_matrix(shape: str, position: str, gex_dir: str, p_vs_flip: str) 
     if shape == 'leftSteep' and position == 'aboveMP':
         if gex_dir == 'negative':  return '假突破后加速回归，负GEX放大跌幅，一旦跌破MP下行加速'
         if gex_dir == 'positive':  return '多空激烈博弈，左侧Put OI集中（左侧加速器埋伏）一旦价格向MP回归即触发下跌加速'
+    # v2.11.95h: atMP 分支（B 方案）—— MP 磁吸震荡, 业务含义兜底
+    if position == 'atMP':
+        if gex_dir == 'positive':  return '价格贴 MP 震荡（磁吸效应），正 GEX 提供下方抑制，但方向未选——弱偏多'
+        if gex_dir == 'negative':  return '价格贴 MP 震荡（磁吸效应），负 GEX 放大向下突破风险，方向未选——弱偏空'
+        return '价格贴 MP 震荡（磁吸效应），GEX 方向未知，中性观望'
     if shape == 'sym':             return 'pin risk / 低波动收敛（价格被钉在MP附近）'
     # v2.11.90 P1: 双侧陡独立分支 (飞书附录 1.3 矩阵第 2/3 行)
     if shape == 'bothSteep':
