@@ -3128,7 +3128,7 @@ function getStrategyReportEndpoint() {
                             const mp = L1.max_pain, fp = L1.futures_price, flip = L1.gex_flip;
                             const pcrTxt = L1.pcr_meaning || (L1.vol_pcr != null ? `成交PCR=${L1.vol_pcr.toFixed(2)}` : '-');
                             const l1Id = 'l1-expand-' + Math.random().toString(36).slice(2, 8);
-                            html += `<div style="margin:2px 0 0 26px;">
+                            html += `<div style="margin:2px 0 0 32px;">
                                 <div id="${l1Id}-btn" style="color:#4fc3f7;font-size:10px;cursor:pointer;line-height:1.6;user-select:none;" onclick="document.getElementById('${l1Id}').style.display==='none'?(document.getElementById('${l1Id}').style.display='block',document.getElementById('${l1Id}-btn').textContent='▼ 收起 L1 原始判据'):(document.getElementById('${l1Id}').style.display='none',document.getElementById('${l1Id}-btn').textContent='▶ 展开 L1 原始判据')">▶ 展开 L1 原始判据（形态/位置/斜率/阈值）</div>
                                 <div id="${l1Id}" style="display:none;margin-top:4px;padding:6px 8px;background:#0e0e16;border:1px solid #2a2a36;border-radius:3px;font-size:10px;line-height:1.7;color:#cfcfcf;">
                                     <div><span style="color:#888;">• 形态 shape：</span><b>${esc(l1Shape)}</b> | <span style="color:#888;">位置 position：</span><b>${esc(l1Position)}</b>${l1Regime ? ` <span style="color:#aaa;">(${esc(l1Regime)})</span>` : ''}</div>
@@ -3155,7 +3155,7 @@ function getStrategyReportEndpoint() {
                             const flipDir = L2.flip_cross_direction || '';
                             const flipCrossed = L2.gex_flip_crossed;
                             const l2Id = 'l2-expand-' + Math.random().toString(36).slice(2, 8);
-                            html += `<div style="margin:2px 0 0 26px;">
+                            html += `<div style="margin:2px 0 0 32px;">
                                 <div id="${l2Id}-btn" style="color:#4fc3f7;font-size:10px;cursor:pointer;line-height:1.6;user-select:none;" onclick="document.getElementById('${l2Id}').style.display==='none'?(document.getElementById('${l2Id}').style.display='block',document.getElementById('${l2Id}-btn').textContent='▼ 收起 L2 原始判据'):(document.getElementById('${l2Id}').style.display='none',document.getElementById('${l2Id}-btn').textContent='▶ 展开 L2 原始判据')">▶ 展开 L2 原始判据（GEX/Flip/P-Flip/Net GEX）</div>
                                 <div id="${l2Id}" style="display:none;margin-top:4px;padding:6px 8px;background:#0e0e16;border:1px solid #2a2a36;border-radius:3px;font-size:10px;line-height:1.7;color:#cfcfcf;">
                                     <div><span style="color:#888;">• GEX 方向：</span><b>${esc(L2.gex_dir || '-')}</b> | <span style="color:#888;">P vs Flip：</span><b>${esc(L2.p_vs_flip || '-')}</b></div>
@@ -3223,8 +3223,8 @@ function getStrategyReportEndpoint() {
                                           || (Array.isArray(L3.put_strike_role) && L3.put_strike_role.length > 0)
                                           || L3.weighted_verdict || L3.put_weighted_verdict;
                         if (hasL3Detail) {
-                            html += `<div style="margin:8px 0 0 0;">
-                                <div id="${l3ExpandId}-btn" style="color:#4fc3f7;font-size:10px;cursor:pointer;line-height:1.5;user-select:none;" onclick="document.getElementById('${l3ExpandId}').style.display==='none'?(()=>{document.getElementById('${l3ExpandId}').style.display='block';document.getElementById('${l3ExpandId}-btn').textContent='▼ 收起 L3 原始判据';})():(()=>{document.getElementById('${l3ExpandId}').style.display='none';document.getElementById('${l3ExpandId}-btn').textContent='▶ 展开 L3 原始判据';})()">▶ 展开 L3 原始判据</div>
+                            html += `<div style="margin:2px 0 0 32px;">
+                                <div id="${l3ExpandId}-btn" style="color:#4fc3f7;font-size:10px;cursor:pointer;line-height:1.6;user-select:none;" onclick="document.getElementById('${l3ExpandId}').style.display==='none'?(()=>{document.getElementById('${l3ExpandId}').style.display='block';document.getElementById('${l3ExpandId}-btn').textContent='▼ 收起 L3 原始判据';})():(()=>{document.getElementById('${l3ExpandId}').style.display='none';document.getElementById('${l3ExpandId}-btn').textContent='▶ 展开 L3 原始判据';})()">▶ 展开 L3 原始判据</div>
                                 <div id="${l3ExpandId}" style="display:none;margin-top:6px;padding:8px;background:#0e0e16;border:1px solid #2a2a36;border-radius:3px;">${renderL3StrikeDetail(L3)}</div>
                             </div>`;
                         }
@@ -3291,7 +3291,7 @@ function getStrategyReportEndpoint() {
                             else if (trendVal === 'down') trendJudge = '（偏空动能）';
                             else trendJudge = '（震荡）';
 
-                            html += `<div style="margin:2px 0 0 26px;">
+                            html += `<div style="margin:2px 0 0 32px;">
                                 <div id="${l4ExpandId}-btn" style="color:#4fc3f7;font-size:10px;cursor:pointer;line-height:1.6;user-select:none;" onclick="document.getElementById('${l4ExpandId}').style.display==='none'?(document.getElementById('${l4ExpandId}').style.display='block',document.getElementById('${l4ExpandId}-btn').textContent='▼ 收起 L4 原始判据'):(document.getElementById('${l4ExpandId}').style.display='none',document.getElementById('${l4ExpandId}-btn').textContent='▶ 展开 L4 原始判据')">▶ 展开 L4 原始判据（成交 PCR / 持仓 PCR / ATM IV / 趋势）</div>
                                 <div id="${l4ExpandId}" style="display:none;margin-top:4px;padding:6px 8px;background:#0e0e16;border:1px solid #2a2a36;border-radius:3px;font-size:10px;line-height:1.7;color:#cfcfcf;">
                                     <div><span style="color:#888;">• 成交 PCR：</span><b>${esc(fmtPcr(volPcrVal))}</b>${volPcrChg != null ? ` <span style="color:#888;">(较前次 ${esc(fmtChg(volPcrChg))})</span>` : ''} <span style="color:#aaa;">${esc(volPcrJudge)}</span></div>
@@ -5331,6 +5331,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.95f (四维决策 L1/L2/L3/L4 展开原始判据归位到各自结论行下 + 时间维度路由结构化)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.95g (四维决策 L1/L2/L3/L4 展开原始判据缩进对齐 32px + L3 容器对齐 + 归位各自结论行下 + iv_smile Pain 斜率 dyn_th 联动对齐)</div>
 </body>
 </html>
