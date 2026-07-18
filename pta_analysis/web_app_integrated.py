@@ -1357,6 +1357,12 @@ def api_decision_layer_timeframe_router():
             'long_term_weight': routed['long_term_weight'],
             'fallback_to_22cell': routed['fallback_to_22cell'],
             'rationale': routed['rationale'],
+            # v2.11.95e: 方向 + 仓位依据 + 冲突警告（前端时间维度路由卡片用）
+            'final_direction': routed.get('final_direction', '中性'),
+            'direction_score': routed.get('direction_score', 0),
+            'is_conflict': routed.get('is_conflict', False),
+            'position_reason': routed.get('position_reason', ''),
+            'conflict_note': routed.get('conflict_note', ''),
             # 元信息
             'F': F,
             'T_days': T_days,

@@ -2816,20 +2816,30 @@ function getStrategyReportEndpoint() {
                     return String(v == null ? '' : v).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
                 }
 
-                // v2.11.95a: 时间维度路由"理论决策"对照卡片
+                // v2.11.95e: 时间维度路由"理论决策"对照卡片（结构化重写）
                 // 数据源: /api/decision_layer/timeframe_router (intraday.timeframe_router)
-                // 显示: 旧决策 vs 新路由决策 + 场景 + 仓位建议 + 触发理由
+                // 显示: 旧决策 vs 新路由决策 + 场景 + 方向 + 仓位 + 冲突警告 + 仓位依据
                 // 关键: 独立于 v2.11.85b final.decision, 仅作观察参考
                 function renderTimeframeRouterCard(rtr) {
                     if (!rtr || !rtr.success) return '';
                     const cell = (v) => escText(v == null || v === '' ? '--' : v);
+                    // v2.11.95e: 方向颜色 + 场景色
+                    const directionColor = {
+                        '看多': '#ef5350',  // 红涨（业务：PTA 多 = 红，符合业界习惯）
+                        '看空': '#26a69a',  // 绿跌
+                        '中性': '#888'
+                    };
                     const scenarioColor = {
-                        'A': '#26a69a', 'B': '#ffd700', 'C': '#4fc3f7',
-                        'D': '#ef5350', 'E': '#888', 'F': '#777'
+                        'A': '#ef5350', 'B': '#ffd700', 'C': '#4fc3f7',
+                        'D': '#26a69a', 'E': '#888', 'F': '#777'
                     };
                     const sc = rtr.routed_scenario || 'F';
-                    const color = scenarioColor[sc] || '#aaa';
+                    const scColor = scenarioColor[sc] || '#aaa';
+                    const direction = rtr.final_direction || '中性';
+                    const dirColor = directionColor[direction] || '#888';
                     const posPct = Math.round((rtr.routed_position_pct || 0) * 100);
+                    const dirScore = rtr.direction_score != null ? rtr.direction_score : null;
+                    const isConflict = !!rtr.is_conflict;
                     const oldDecision = cell(rtr.old_decision);
                     const oldScore = rtr.old_score != null ? rtr.old_score.toFixed(2) : '--';
                     const newDecision = cell(rtr.routed_decision);
@@ -2838,12 +2848,25 @@ function getStrategyReportEndpoint() {
                     const shortV = cell(rtr.short_verdict);
                     const shortS = cell(rtr.short_strength || '');
                     const theta = cell(rtr.theta_bucket);
-                    const rationale = cell(rtr.rationale);
+                    const longW = rtr.long_term_weight != null ? Math.round(rtr.long_term_weight * 100) : 0;
+                    const shortW = rtr.short_term_weight != null ? Math.round(rtr.short_term_weight * 100) : 0;
+                    // rationale 现在是结构化（按 \n 分割）→ 列表渲染
+                    const rationaleRaw = String(rtr.rationale || '');
+                    const rationaleLines = rationaleRaw.split('\n').filter(Boolean);
+                    const positionReason = cell(rtr.position_reason || '');
+                    const conflictNote = cell(rtr.conflict_note || '');
+
+                    // 长短线方向颜色
+                    const lineDir = (v) => {
+                        if (v.includes('偏多')) return '#ef5350';
+                        if (v.includes('偏空')) return '#26a69a';
+                        return '#aaa';
+                    };
 
                     return `<div style="margin:12px 0 10px 0;border:1px solid #444;border-radius:5px;padding:8px 10px;background:#181822;">
-                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                            <span style="color:#ffd700;font-size:12px;font-weight:bold;">🔀 时间维度路由（v2.11.95a 观察期）</span>
-                            <span style="color:#777;font-size:10px;">场景 <b style="color:${color};font-size:13px;">${cell(sc)}</b> · ${cell(rtr.F)} · T=${cell(rtr.T_days)}天 · θ=${theta}</span>
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
+                            <span style="color:#ffd700;font-size:12px;font-weight:bold;">🔀 时间维度路由（v2.11.95e 结构化）</span>
+                            <span style="color:#777;font-size:10px;">场景 <b style="color:${scColor};font-size:13px;">${cell(sc)}</b> · ${cell(rtr.F)} · T=${cell(rtr.T_days)}天 · θ=${theta}</span>
                         </div>
                         <table style="width:100%;border-collapse:collapse;font-size:11px;line-height:1.5;">
                             <tr>
@@ -2852,22 +2875,47 @@ function getStrategyReportEndpoint() {
                             </tr>
                             <tr>
                                 <td style="color:#aaa;padding:3px 6px;">路由决策(理论)</td>
-                                <td style="color:${color};padding:3px 6px;"><b>${newDecision}</b> <span style="color:#888;font-size:10px;">${posPct}% 仓</span></td>
+                                <td style="padding:3px 6px;">
+                                    <b style="color:${dirColor};font-size:13px;">${newDecision}</b>
+                                    <span style="color:#888;font-size:10px;">${posPct}% 仓</span>
+                                    ${dirScore != null ? `<span style="color:#666;font-size:10px;margin-left:6px;">(方向分 ${dirScore >= 0 ? '+' : ''}${dirScore})</span>` : ''}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td style="color:#aaa;padding:3px 6px;">最终方向</td>
+                                <td style="padding:3px 6px;">
+                                    <b style="color:${dirColor};">${cell(direction)}</b>
+                                    ${isConflict ? '<span style="color:#ff9800;font-size:10px;margin-left:6px;">⚠️ 长短线分裂</span>' : '<span style="color:#888;font-size:10px;margin-left:6px;">长短线同向/中性</span>'}
+                                </td>
                             </tr>
                             <tr>
                                 <td style="color:#aaa;padding:3px 6px;">中长线组</td>
-                                <td style="color:#ddd;padding:3px 6px;">PAIN+GEX → <b>${longV}</b><span style="color:#888;font-size:10px;"> (强度 ${longS})</span> · 权重 ${Math.round((rtr.long_term_weight||0)*100)}%</td>
+                                <td style="color:#ddd;padding:3px 6px;">PAIN+GEX → <b style="color:${lineDir(longV)};">${longV}</b><span style="color:#888;font-size:10px;"> (强度 ${longS})</span> · 权重 ${longW}%</td>
                             </tr>
                             <tr>
                                 <td style="color:#aaa;padding:3px 6px;">短线组</td>
-                                <td style="color:#ddd;padding:3px 6px;">资金+情绪 → <b>${shortV}</b><span style="color:#888;font-size:10px;"> (强度 ${shortS})</span> · 权重 ${Math.round((rtr.short_term_weight||0)*100)}%</td>
+                                <td style="color:#ddd;padding:3px 6px;">资金+情绪 → <b style="color:${lineDir(shortV)};">${shortV}</b><span style="color:#888;font-size:10px;"> (强度 ${shortS})</span> · 权重 ${shortW}%</td>
                             </tr>
                             <tr>
-                                <td style="color:#aaa;padding:3px 6px;vertical-align:top;">依据</td>
-                                <td style="color:#cfcfcf;padding:3px 6px;font-size:10px;line-height:1.45;">${rationale}</td>
+                                <td style="color:#aaa;padding:3px 6px;vertical-align:top;">仓位依据</td>
+                                <td style="color:#cfcfcf;padding:3px 6px;font-size:10px;line-height:1.5;">${positionReason}</td>
                             </tr>
+                            <tr>
+                                <td style="color:#aaa;padding:3px 6px;vertical-align:top;">逻辑链</td>
+                                <td style="color:#cfcfcf;padding:3px 6px;font-size:10px;line-height:1.6;">
+                                    ${rationaleLines.map(l => {
+                                        const lc = l.includes('看多') ? '#ef5350' : (l.includes('看空') ? '#26a69a' : '#aaa');
+                                        const cc = l.includes('⚠️') ? '#ff9800' : lc;
+                                        return `<div style="color:${cc};">· ${cell(l)}</div>`;
+                                    }).join('')}
+                                </td>
+                            </tr>
+                            ${isConflict && conflictNote ? `<tr>
+                                <td style="color:#aaa;padding:3px 6px;vertical-align:top;">冲突警告</td>
+                                <td style="color:#ff9800;padding:3px 6px;font-size:10px;line-height:1.5;background:#2a1a0a;border-left:2px solid #ff9800;">${conflictNote}</td>
+                            </tr>` : ''}
                         </table>
-                        <div style="margin-top:6px;color:#888;font-size:10px;font-style:italic;line-height:1.5;">
+                        <div style="margin-top:8px;color:#888;font-size:10px;font-style:italic;line-height:1.5;">
                             ⚠️ 本卡片仅作观察对照, 不替代 <b>v2.11.85b</b> 生产决策. 待 D 场景激进仓位评估后再决定是否切换.
                         </div>
                     </div>`;
@@ -5284,6 +5332,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.95d (四维决策 L1/L2/L3/L4 结论行+展开原始判据统一风格 + iv_smile Pain 斜率 dyn_th 联动对齐)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.95e (时间维度路由卡片结构化重写: 方向带名+仓位依据+冲突警告+逻辑链分行 + 四维决策 L1/L2/L3/L4 结论行+展开原始判据统一风格)</div>
 </body>
 </html>

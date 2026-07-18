@@ -149,6 +149,115 @@ def _theta_group_weights(T_days: Optional[int]) -> Tuple[float, float]:
 
 
 # ============================================================
+# 最终方向推断：θ 加权综合长短线判定
+# ============================================================
+# 把 5 档量纲标签 → 数值（用于加权求和）
+_DIR_VAL = {
+    '强偏多': 2.0, '偏多': 1.5, '弱偏多': 0.5,
+    '中性': 0.0,
+    '弱偏空': -0.5, '偏空': -1.5, '强偏空': -2.0,
+}
+
+
+def _infer_final_direction(long_v: str, short_v: str,
+                           long_w: float, short_w: float) -> Tuple[str, float, bool]:
+    """θ 加权长短线判定 → 最终方向
+
+    业务规则:
+      1) 主导组（权重大的）若偏多/偏空，最终方向跟主导组
+      2) 仅当主导组中性时，看加权综合分（阈值 ±0.25）
+      3) 长短线方向不一致即冲突（业务警告）
+
+    Returns: (direction_label, weighted_score, is_conflict)
+      direction_label: '看多' / '看空' / '中性'
+      weighted_score: 加权分（-2~+2）
+      is_conflict: 长短线方向不一致
+    """
+    lv = _DIR_VAL.get(long_v, 0.0)
+    sv = _DIR_VAL.get(short_v, 0.0)
+    score = lv * long_w + sv * short_w
+    long_bull = lv > 0
+    short_bull = sv > 0
+    long_bear = lv < 0
+    short_bear = sv < 0
+    is_conflict = (long_bull and short_bear) or (long_bear and short_bull)
+    # 主导组方向（业务直觉：权重大的说了算）
+    dominant = long_v if long_w >= short_w else short_v
+    dv = _DIR_VAL.get(dominant, 0.0)
+    if dv > 0:
+        return ('看多', score, is_conflict)
+    if dv < 0:
+        return ('看空', score, is_conflict)
+    # 主导组中性 → 看加权综合分（更宽松阈值 ±0.25）
+    if score >= 0.25:
+        return ('看多', score, is_conflict)
+    if score <= -0.25:
+        return ('看空', score, is_conflict)
+    return ('中性', score, is_conflict)
+
+
+def _direction_decision_cn(scenario: str, direction: str) -> str:
+    """场景 + 方向 → 业务决策名（带方向）
+
+    A 满仓买入 / D 满仓卖出 (方向固定)
+    B 短线主导：方向看短线判断
+    C 中长线主导：方向看中长线判断
+    E 观望 / F 退化
+    """
+    if scenario == 'A':
+        return '满仓做多'
+    if scenario == 'D':
+        return '满仓做空'
+    if scenario == 'B':
+        return '轻仓试多' if direction == '看多' else ('轻仓试空' if direction == '看空' else '轻仓观望')
+    if scenario == 'C':
+        return '中仓跟随做多' if direction == '看多' else ('中仓跟随做空' if direction == '看空' else '中仓观望')
+    if scenario == 'E':
+        return '观望'
+    if scenario == 'F':
+        return '退化到22cell'
+    return '观望'
+
+
+def _position_reason_text(scenario: str, theta_bucket: str,
+                          long_w: float, short_w: float) -> str:
+    """仓位的来源（让用户知道为什么是这个百分比）"""
+    base = {
+        'A': '双组同向多',
+        'B': '短线主导',
+        'C': '中长线主导',
+        'D': '双组同向空',
+        'E': '双组强反向',
+        'F': '退化场景',
+    }.get(scenario, '未知场景')
+
+    if scenario == 'E':
+        return f'{base}（长短线根本性冲突，0% 仓观望）'
+    if scenario == 'F':
+        return f'{base}（不在 A-E 主轨，0% 仓走 22 cell 表）'
+
+    # θ 桶 → 主导组
+    if theta_bucket == 'T≥10':
+        dominant = '中长线' if long_w > short_w else '短线'
+    elif theta_bucket == '5≤T<10':
+        dominant = '长短线平衡'
+    else:
+        dominant = '短线（临到期 PAIN 滞后）'
+    return f'{base} · θ={theta_bucket}（{dominant}主导）'
+
+
+def _conflict_note_text(long_v: str, short_v: str, is_conflict: bool) -> str:
+    """长短线冲突信号的业务解释"""
+    if not is_conflict:
+        if long_v == short_v:
+            return f'长短线同向 → {long_v}（共振，无冲突）'
+        # 一致偏多/偏空或中性
+        return f'长线 {long_v} / 短线 {short_v}（同向，无冲突）'
+    # 冲突
+    return f'⚠️ 长短线分裂：长线 {long_v} vs 短线 {short_v}，时序维度信号矛盾，仓位按主导组方向但降权'
+
+
+# ============================================================
 # 场景判定
 # ============================================================
 def _classify_scenario(long_v: str, short_v: str, long_strength: str = '', short_strength: str = '') -> str:
@@ -270,16 +379,12 @@ def _position_pct(scenario: str, theta_bucket: str) -> float:
     return 0.00
 
 
-def _scenario_to_decision(scenario: str) -> str:
-    """场景 → 中文决策名（与现有 final.decision 字符串对齐）"""
-    return {
-        'A': '满仓买入',
-        'B': '轻仓试多',
-        'C': '中仓跟随',
-        'D': '满仓卖出',
-        'E': '观望',
-        'F': '退化到22cell',
-    }.get(scenario, '观望')
+def _scenario_to_decision(scenario: str, direction: str = '') -> str:
+    """场景 → 中文决策名（与现有 final.decision 字符串对齐，兼容旧调用）
+
+    新版推荐用 _direction_decision_cn(scenario, direction) 带方向。
+    """
+    return _direction_decision_cn(scenario, direction or '中性')
 
 
 # ============================================================
@@ -341,45 +446,51 @@ def route_decision_by_timeframe(
     # 4) 场景路由
     scenario = _classify_scenario(long_v, short_v, long_strength, short_strength)
 
-    # 5) 仓位 + 决策
-    if scenario == 'F':
-        # 退化：保持观望（由调用方决定是否走 22 cell）
-        result = {
-            "decision": "退化到22cell",
-            "scenario": "F",
-            "position_pct": 0.0,
-            "long_verdict": long_v,
-            "long_strength": long_strength,
-            "short_verdict": short_v,
-            "short_strength": short_strength,
-            "short_term_weight": short_w,
-            "long_term_weight": long_w,
-            "theta_bucket": theta_bucket,
-            "fallback_to_22cell": True,
-            "rationale": f"F 场景：长({long_v}/{long_strength})+短({short_v}/{short_strength}) 不在 A-E 主轨，退化到 22 cell 表",
-        }
-    else:
-        decision_cn = _scenario_to_decision(scenario)
-        pos_pct = _position_pct(scenario, theta_bucket)
-        rationale = (
-            f"{scenario} 场景：长({long_v}/{long_strength},权重{long_w:.0%}) + "
-            f"短({short_v}/{short_strength},权重{short_w:.0%}) @ {theta_bucket} → "
-            f"{decision_cn} {pos_pct:.0%}仓"
-        )
-        result = {
-            "decision": decision_cn,
-            "scenario": scenario,
-            "position_pct": pos_pct,
-            "long_verdict": long_v,
-            "long_strength": long_strength,
-            "short_verdict": short_v,
-            "short_strength": short_strength,
-            "short_term_weight": short_w,
-            "long_term_weight": long_w,
-            "theta_bucket": theta_bucket,
-            "fallback_to_22cell": False,
-            "rationale": rationale,
-        }
+    # 5) 方向推断（θ 加权长短线判定） + 仓位 + 决策
+    direction, dir_score, is_conflict = _infer_final_direction(long_v, short_v, long_w, short_w)
+    pos_pct = _position_pct(scenario, theta_bucket)
+    decision_cn = _direction_decision_cn(scenario, direction)
+    position_reason = _position_reason_text(scenario, theta_bucket, long_w, short_w)
+    conflict_note = _conflict_note_text(long_v, short_v, is_conflict)
+
+    # 结构化 rationale：方向结论 / 长线信号 / 短线信号 / 仓位依据 / 冲突警告
+    rationale_lines = [
+        f'方向：θ加权综合分={dir_score:+.2f} → {direction}',
+        f'中长线（{long_v}/{long_strength},权重{long_w:.0%}）：' + (
+            'PAIN+GEX 联动偏多' if long_v in ('强偏多', '偏多', '弱偏多') else
+            'PAIN+GEX 联动偏空' if long_v in ('强偏空', '偏空', '弱偏空') else
+            'PAIN+GEX 中性'
+        ),
+        f'短线（{short_v}/{short_strength},权重{short_w:.0%}）：' + (
+            '资金+情绪 偏多' if short_v in ('强偏多', '偏多', '弱偏多') else
+            '资金+情绪 偏空' if short_v in ('强偏空', '偏空', '弱偏空') else
+            '资金+情绪 中性'
+        ),
+        f'仓位 {pos_pct:.0%} → {position_reason}',
+    ]
+    if is_conflict:
+        rationale_lines.append(conflict_note)
+
+    result = {
+        "decision": decision_cn,
+        "scenario": scenario,
+        "position_pct": pos_pct,
+        "long_verdict": long_v,
+        "long_strength": long_strength,
+        "short_verdict": short_v,
+        "short_strength": short_strength,
+        "short_term_weight": short_w,
+        "long_term_weight": long_w,
+        "theta_bucket": theta_bucket,
+        "fallback_to_22cell": scenario == 'F',
+        # v2.11.95e: 新增字段（前端用）
+        "final_direction": direction,
+        "direction_score": round(dir_score, 3),
+        "is_conflict": is_conflict,
+        "position_reason": position_reason,
+        "conflict_note": conflict_note,
+        "rationale": '\n'.join(rationale_lines),
+    }
 
     logger.info(
         "🎯 [timeframe_router] F=%s T=%s天 | 中长线(%s/%s, w=%.0f%%) | 短线(%s/%s, w=%.0f%%) | %s | %s",
