@@ -3114,17 +3114,13 @@ function getStrategyReportEndpoint() {
                         const l1Matrix = L1.matrix_meaning || '';
                         const l1Verdict = `${l1Shape} · ${l1Position}${l1Regime ? ` (${l1Regime})` : ''}${l1Matrix && l1Matrix !== 'unknown matrix state' ? ` | ${l1Matrix}` : ''}`;
                         html += layerRow(1, 'PAIN 结构', L1.weight || 0.35, L1.layer_score, l1Verdict, false, L1);
-                        // L2 结论行 = score_detail（与 brief 同源但更紧凑）
-                        const l2Verdict = (L2.score_detail || L2.matrix_meaning || L2.logic_brief || '').trim();
-                        html += layerRow(2, 'GEX 机制', L2.weight || 0.25, L2.layer_score, l2Verdict, false, L2);
-                        // v2.11.95d: L1 原始判据展开块 (形态 / 位置 / 双侧斜率 / 比值 / 阈值表 / dyn_th / GEX / PCR)
+                        // v2.11.95f: L1 原始判据展开块 (形态 / 位置 / 双侧斜率 / 比值 / 阈值表 / dyn_th / GEX / PCR)
                         {
                             const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                            const fmtPct = (x) => x == null ? '--' : (x >= 0 ? '+' : '') + Number(x).toFixed(1);
                             const fmtM = (v) => {
                                 if (v == null) return '-';
                                 const av = Math.abs(v);
-                                return (v >= 0 ? '' : '') + (av >= 1e6 ? (v/1e6).toFixed(2) + 'M' : (av >= 1e3 ? (v/1e3).toFixed(1) + 'K' : Math.round(v).toString()));
+                                return (av >= 1e6 ? (v/1e6).toFixed(2) + 'M' : (av >= 1e3 ? (v/1e3).toFixed(1) + 'K' : Math.round(v).toString()));
                             };
                             const dynTrig = Array.isArray(L1.dyn_triggered) ? L1.dyn_triggered : [];
                             const thrTable = Array.isArray(L1.slope_thresholds_used) ? L1.slope_thresholds_used : [];
@@ -3144,7 +3140,10 @@ function getStrategyReportEndpoint() {
                                 </div>
                             </div>`;
                         }
-                        // v2.11.95d: L2 原始判据展开块 (GEX 方向 / Flip 上下 / Net GEX 变化 / matrix_meaning)
+                        // L2 结论行 = score_detail（与 brief 同源但更紧凑）
+                        const l2Verdict = (L2.score_detail || L2.matrix_meaning || L2.logic_brief || '').trim();
+                        html += layerRow(2, 'GEX 机制', L2.weight || 0.25, L2.layer_score, l2Verdict, false, L2);
+                        // v2.11.95f: L2 原始判据展开块 (GEX 方向 / Flip 上下 / Net GEX 变化 / matrix_meaning)
                         {
                             const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                             const fmtM = (v) => {
@@ -3215,6 +3214,20 @@ function getStrategyReportEndpoint() {
                             ${_newFundDir ? `<span style="color:#888;"> | </span><span style="color:#888;font-weight:500;">方向:</span> <b style="color:${_ffDirColor};">${cell(_newFundDir)}</b>` : ''}
                         </div>` : '';
                         html += layerRow(3, '资金意图', L3.weight || 0.25, L3.layer_score, l3Brief + _fsBriefHtml, true, L3);
+                        // v2.11.95f: L3 展开块 (加权判定 + PCR×Skew 交叉验证 + Top 8 strike 贡献 + 角色分布)
+                        // 默认收起，点击 ▶ 展开查看详情；折叠时 L3 行保持简洁
+                        const l3ExpandId = 'l3-expand-' + Math.random().toString(36).slice(2, 8);
+                        const hasL3Detail = (L3.call_role && Object.keys(L3.call_role).length > 1)
+                                          || (L3.put_role && Object.keys(L3.put_role).length > 1)
+                                          || (Array.isArray(L3.strike_role) && L3.strike_role.length > 0)
+                                          || (Array.isArray(L3.put_strike_role) && L3.put_strike_role.length > 0)
+                                          || L3.weighted_verdict || L3.put_weighted_verdict;
+                        if (hasL3Detail) {
+                            html += `<div style="margin:8px 0 0 0;">
+                                <div id="${l3ExpandId}-btn" style="color:#4fc3f7;font-size:10px;cursor:pointer;line-height:1.5;user-select:none;" onclick="document.getElementById('${l3ExpandId}').style.display==='none'?(()=>{document.getElementById('${l3ExpandId}').style.display='block';document.getElementById('${l3ExpandId}-btn').textContent='▼ 收起 L3 原始判据';})():(()=>{document.getElementById('${l3ExpandId}').style.display='none';document.getElementById('${l3ExpandId}-btn').textContent='▶ 展开 L3 原始判据';})()">▶ 展开 L3 原始判据</div>
+                                <div id="${l3ExpandId}" style="display:none;margin-top:6px;padding:8px;background:#0e0e16;border:1px solid #2a2a36;border-radius:3px;">${renderL3StrikeDetail(L3)}</div>
+                            </div>`;
+                        }
                         // L4: 情绪确认 (v2.11.95d: 默认显示一行结论 score_detail, 展开看 4 个原始判据)
                         // 4 个原始判据: 成交PCR / 持仓PCR / ATM IV / 趋势 —— 从 L4 raw 字段拉
                         const l4Verdict = (L4.score_detail || '').trim();
@@ -3288,21 +3301,7 @@ function getStrategyReportEndpoint() {
                                 </div>
                             </div>`;
                         }
-                        // v2.11.85d: L3 折叠展开（加权判定 + PCR×Skew 交叉验证 + Top 8 strike 贡献 + 角色分布）
-                        // 默认收起，点击 ▶ 展开查看详情；折叠时 L3 行保持简洁
-                        const l3ExpandId = 'l3-expand-' + Math.random().toString(36).slice(2, 8);
-                        const hasL3Detail = (L3.call_role && Object.keys(L3.call_role).length > 1)
-                                          || (L3.put_role && Object.keys(L3.put_role).length > 1)
-                                          || (Array.isArray(L3.strike_role) && L3.strike_role.length > 0)
-                                          || (Array.isArray(L3.put_strike_role) && L3.put_strike_role.length > 0)
-                                          || L3.weighted_verdict || L3.put_weighted_verdict;
-                        // v2.11.95d: L3 展开按钮文案统一为"展开 L3 原始判据"（与 L1/L2/L4 一致）
-                        if (hasL3Detail) {
-                            html += `<div style="margin:8px 0 0 0;">
-                                <div id="${l3ExpandId}-btn" style="color:#4fc3f7;font-size:10px;cursor:pointer;line-height:1.5;user-select:none;" onclick="document.getElementById('${l3ExpandId}').style.display==='none'?(()=>{document.getElementById('${l3ExpandId}').style.display='block';document.getElementById('${l3ExpandId}-btn').textContent='▼ 收起 L3 原始判据';})():(()=>{document.getElementById('${l3ExpandId}').style.display='none';document.getElementById('${l3ExpandId}-btn').textContent='▶ 展开 L3 原始判据';})()">▶ 展开 L3 原始判据</div>
-                                <div id="${l3ExpandId}" style="display:none;margin-top:6px;padding:8px;background:#0e0e16;border:1px solid #2a2a36;border-radius:3px;">${renderL3StrikeDetail(L3)}</div>
-                            </div>`;
-                        }
+                        // [v2.11.95f: L3 展开块已移到 layerRow(3) 后 - 见 renderDecisionLayerBlock 中对应位置]
                         // 逻辑链（各层一句话串联）
                         if (fin.logic_chain) {
                             html += `<div style="margin:8px 0 0 0;color:#aaa;font-size:10px;line-height:1.6;background:#0e0e16;padding:6px 8px;border-radius:3px;">
@@ -5332,6 +5331,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.95e (时间维度路由卡片结构化重写: 方向带名+仓位依据+冲突警告+逻辑链分行 + 四维决策 L1/L2/L3/L4 结论行+展开原始判据统一风格)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.95f (四维决策 L1/L2/L3/L4 展开原始判据归位到各自结论行下 + 时间维度路由结构化)</div>
 </body>
 </html>
