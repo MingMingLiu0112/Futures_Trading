@@ -3058,9 +3058,66 @@ function getStrategyReportEndpoint() {
                             </div>
                             ${contradiction ? '<div style="margin-top:4px;color:#ef5350;font-size:10px;">⚠️ 四层信号方向矛盾 → 决策降级为观望</div>' : ''}
                         </div>`;
-                        // 4 层（含动态对比）
-                        html += layerRow(1, 'PAIN 结构', L1.weight || 0.35, L1.layer_score, L1.logic_brief, false, L1);
-                        html += layerRow(2, 'GEX 机制', L2.weight || 0.25, L2.layer_score, L2.logic_brief, false, L2);
+                        // 4 层（含动态对比 + 结论行 + 展开原始判据）
+                        // v2.11.95d: L1 结论行 = 形态 + 位置 + 矩阵语义摘要
+                        const l1Shape = L1.shape || '?';
+                        const l1Position = L1.position || '?';
+                        const l1Regime = L1.slope_regime_now || '';
+                        const l1Matrix = L1.matrix_meaning || '';
+                        const l1Verdict = `${l1Shape} · ${l1Position}${l1Regime ? ` (${l1Regime})` : ''}${l1Matrix && l1Matrix !== 'unknown matrix state' ? ` | ${l1Matrix}` : ''}`;
+                        html += layerRow(1, 'PAIN 结构', L1.weight || 0.35, L1.layer_score, l1Verdict, false, L1);
+                        // L2 结论行 = score_detail（与 brief 同源但更紧凑）
+                        const l2Verdict = (L2.score_detail || L2.matrix_meaning || L2.logic_brief || '').trim();
+                        html += layerRow(2, 'GEX 机制', L2.weight || 0.25, L2.layer_score, l2Verdict, false, L2);
+                        // v2.11.95d: L1 原始判据展开块 (形态 / 位置 / 双侧斜率 / 比值 / 阈值表 / dyn_th / GEX / PCR)
+                        {
+                            const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                            const fmtPct = (x) => x == null ? '--' : (x >= 0 ? '+' : '') + Number(x).toFixed(1);
+                            const fmtM = (v) => {
+                                if (v == null) return '-';
+                                const av = Math.abs(v);
+                                return (v >= 0 ? '' : '') + (av >= 1e6 ? (v/1e6).toFixed(2) + 'M' : (av >= 1e3 ? (v/1e3).toFixed(1) + 'K' : Math.round(v).toString()));
+                            };
+                            const dynTrig = Array.isArray(L1.dyn_triggered) ? L1.dyn_triggered : [];
+                            const thrTable = Array.isArray(L1.slope_thresholds_used) ? L1.slope_thresholds_used : [];
+                            const thrTxt = thrTable.map(t => `${esc(t[0])}:${esc(t[1])}`).join(' / ') || '-';
+                            const mp = L1.max_pain, fp = L1.futures_price, flip = L1.gex_flip;
+                            const pcrTxt = L1.pcr_meaning || (L1.vol_pcr != null ? `成交PCR=${L1.vol_pcr.toFixed(2)}` : '-');
+                            const l1Id = 'l1-expand-' + Math.random().toString(36).slice(2, 8);
+                            html += `<div style="margin:2px 0 0 26px;">
+                                <div id="${l1Id}-btn" style="color:#4fc3f7;font-size:10px;cursor:pointer;line-height:1.6;user-select:none;" onclick="document.getElementById('${l1Id}').style.display==='none'?(document.getElementById('${l1Id}').style.display='block',document.getElementById('${l1Id}-btn').textContent='▼ 收起 L1 原始判据'):(document.getElementById('${l1Id}').style.display='none',document.getElementById('${l1Id}-btn').textContent='▶ 展开 L1 原始判据')">▶ 展开 L1 原始判据（形态/位置/斜率/阈值）</div>
+                                <div id="${l1Id}" style="display:none;margin-top:4px;padding:6px 8px;background:#0e0e16;border:1px solid #2a2a36;border-radius:3px;font-size:10px;line-height:1.7;color:#cfcfcf;">
+                                    <div><span style="color:#888;">• 形态 shape：</span><b>${esc(l1Shape)}</b> | <span style="color:#888;">位置 position：</span><b>${esc(l1Position)}</b>${l1Regime ? ` <span style="color:#aaa;">(${esc(l1Regime)})</span>` : ''}</div>
+                                    <div><span style="color:#888;">• 双侧斜率：</span>↓看跌阻力 <b>${esc(fmtM(L1.slope_down_now))}</b> / ↑看涨阻力 <b>${esc(fmtM(L1.slope_up_now))}</b> | 比值 <b>${esc((L1.slope_ratio_now || 0).toFixed(2))}x</b></div>
+                                    <div><span style="color:#888;">• 阈值表：</span>${thrTxt}${L1.threshold_version ? ` <span style="color:#666;">(${esc(L1.threshold_version)})</span>` : ''}</div>
+                                    <div><span style="color:#888;">• 动态阈值 dyn_th：</span><b>${esc((L1.dyn_threshold || '-'))}</b>${dynTrig.length ? ` <span style="color:#aaa;">（触发：${dynTrig.map(esc).join(', ')}）</span>` : ''}</div>
+                                    <div><span style="color:#888;">• GEX 状态：</span>方向 <b>${esc(L1.gex_dir || '-')}</b> | Flip <b>${esc(flip)}</b> | MP <b>${esc(mp)}</b> | F <b>${esc(fp)}</b></div>
+                                    <div><span style="color:#888;">• PCR：</span>${esc(pcrTxt)}${L1.pcr_modifier != null && L1.pcr_modifier !== 0 ? ` <span style="color:#aaa;">(mod ${esc(L1.pcr_modifier)})</span>` : ''}</div>
+                                </div>
+                            </div>`;
+                        }
+                        // v2.11.95d: L2 原始判据展开块 (GEX 方向 / Flip 上下 / Net GEX 变化 / matrix_meaning)
+                        {
+                            const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                            const fmtM = (v) => {
+                                if (v == null) return '-';
+                                const av = Math.abs(v);
+                                return (av >= 1e6 ? (v/1e6).toFixed(2) + 'M' : (av >= 1e3 ? (v/1e3).toFixed(1) + 'K' : Math.round(v).toString()));
+                            };
+                            const fmtPct = (v) => v == null ? '-' : (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%';
+                            const flipDir = L2.flip_cross_direction || '';
+                            const flipCrossed = L2.gex_flip_crossed;
+                            const l2Id = 'l2-expand-' + Math.random().toString(36).slice(2, 8);
+                            html += `<div style="margin:2px 0 0 26px;">
+                                <div id="${l2Id}-btn" style="color:#4fc3f7;font-size:10px;cursor:pointer;line-height:1.6;user-select:none;" onclick="document.getElementById('${l2Id}').style.display==='none'?(document.getElementById('${l2Id}').style.display='block',document.getElementById('${l2Id}-btn').textContent='▼ 收起 L2 原始判据'):(document.getElementById('${l2Id}').style.display='none',document.getElementById('${l2Id}-btn').textContent='▶ 展开 L2 原始判据')">▶ 展开 L2 原始判据（GEX/Flip/P-Flip/Net GEX）</div>
+                                <div id="${l2Id}" style="display:none;margin-top:4px;padding:6px 8px;background:#0e0e16;border:1px solid #2a2a36;border-radius:3px;font-size:10px;line-height:1.7;color:#cfcfcf;">
+                                    <div><span style="color:#888;">• GEX 方向：</span><b>${esc(L2.gex_dir || '-')}</b> | <span style="color:#888;">P vs Flip：</span><b>${esc(L2.p_vs_flip || '-')}</b></div>
+                                    <div><span style="color:#888;">• GEX Flip：</span>当前 <b>${esc(L2.gex_flip_now)}</b> ${L2.gex_flip_prev != null ? `| 前次 <b>${esc(L2.gex_flip_prev)}</b> (${esc(fmtM(L2.gex_flip_migration))})` : ''} ${flipCrossed != null ? `<span style="color:#aaa;">(${esc(flipCrossed ? '已穿越' : '未穿越')}${flipDir ? ' ' + esc(flipDir) : ''})</span>` : ''}</div>
+                                    <div><span style="color:#888;">• Net GEX：</span>当前 <b>${esc(fmtM(L2.net_gex_now))}</b> ${L2.net_gex_prev != null ? `| 前次 <b>${esc(fmtM(L2.net_gex_prev))}</b>` : ''} ${L2.net_gex_change != null ? `<span style="color:#aaa;">(变化 ${esc(fmtM(L2.net_gex_change))} / ${esc(fmtPct(L2.net_gex_change_pct))})</span>` : ''}</div>
+                                    ${L2.matrix_meaning ? `<div><span style="color:#888;">• 矩阵语义：</span>${esc(L2.matrix_meaning)}</div>` : ''}
+                                </div>
+                            </div>`;
+                        }
                         // L3: 资金意图（B 方案：标准化 label + 1h PCR delta + 跳段 3 链接）
                         const l3Label = cell((L3.standardized_label || L3.raw_label || '未判定'));
                         const l3PcrDelta = L3.pcr_delta_1h != null && L3.pcr_delta_1h !== 0
@@ -3110,9 +3167,79 @@ function getStrategyReportEndpoint() {
                             ${_newFundDir ? `<span style="color:#888;"> | </span><span style="color:#888;font-weight:500;">方向:</span> <b style="color:${_ffDirColor};">${cell(_newFundDir)}</b>` : ''}
                         </div>` : '';
                         html += layerRow(3, '资金意图', L3.weight || 0.25, L3.layer_score, l3Brief + _fsBriefHtml, true, L3);
-                        // L4: 情绪确认（用 signals 列表前 3 个）
-                        const l4Signals = Array.isArray(L4.signals) ? L4.signals.slice(0, 3).join(' | ') : '';
-                        html += layerRow(4, '情绪确认', L4.weight || 0.15, L4.layer_score, l4Signals, false, L4);
+                        // L4: 情绪确认 (v2.11.95d: 默认显示一行结论 score_detail, 展开看 4 个原始判据)
+                        // 4 个原始判据: 成交PCR / 持仓PCR / ATM IV / 趋势 —— 从 L4 raw 字段拉
+                        const l4Verdict = (L4.score_detail || '').trim();
+                        const l4Signals = Array.isArray(L4.signals) ? L4.signals : [];
+                        html += layerRow(4, '情绪确认', L4.weight || 0.15, L4.layer_score, l4Verdict || l4Signals.join(' | '), false, L4);
+                        const l4ExpandId = 'l4-expand-' + Math.random().toString(36).slice(2, 8);
+                        const hasL4Detail = l4Signals.length > 0 || L4.vol_pcr != null || L4.pos_pcr != null
+                                            || L4.atm_iv_call != null || L4.atm_iv_put != null;
+                        if (hasL4Detail) {
+                            const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                            const fmtPcr = (v) => (v == null) ? '-' : v.toFixed(2);
+                            const fmtIv = (v) => (v == null) ? '-' : (v * 100).toFixed(1) + '%';
+                            const fmtChg = (v, signed = true) => {
+                                if (v == null) return '';
+                                const sign = signed && v > 0 ? '+' : '';
+                                return `${sign}${typeof v === 'number' ? v.toFixed(2) : v}`;
+                            };
+                            // 1. 成交 PCR
+                            const volPcrVal = L4.vol_pcr;
+                            const volPcrPrev = L4.vol_pcr_prev;
+                            const volPcrChg = (volPcrVal != null && volPcrPrev != null) ? (volPcrVal - volPcrPrev) : null;
+                            let volPcrJudge = '（中性区间）';
+                            if (volPcrVal != null) {
+                                if (volPcrVal < 0.6) volPcrJudge = '（过低，过度乐观）';
+                                else if (volPcrVal > 1.4) volPcrJudge = '（过高，过度恐慌）';
+                            }
+                            // 2. 持仓 PCR
+                            const posPcrVal = L4.pos_pcr;
+                            const posPcrPrev = L4.pos_pcr_prev;
+                            const posPcrChg = (posPcrVal != null && posPcrPrev != null) ? (posPcrVal - posPcrPrev) : null;
+                            let posPcrJudge = '（中性区间）';
+                            if (posPcrVal != null) {
+                                if (posPcrVal > 1.2) posPcrJudge = '（偏高，空头持仓集中）';
+                                else if (posPcrVal < 0.7) posPcrJudge = '（偏低，多头持仓集中）';
+                            }
+                            // 3. ATM IV (call/put 双侧)
+                            const atmIvCall = L4.atm_iv_call;
+                            const atmIvPut = L4.atm_iv_put;
+                            const ivVals = [atmIvCall, atmIvPut].filter(v => v != null);
+                            const atmIvAvg = ivVals.length ? (ivVals.reduce((a, b) => a + b, 0) / ivVals.length * 100) : null;
+                            let ivJudge = '';
+                            if (atmIvAvg != null) {
+                                if (atmIvAvg >= 30) ivJudge = '（高位，恐慌区域）';
+                                else if (atmIvAvg >= 20) ivJudge = '（中位）';
+                                else ivJudge = '（低位，平静区域）';
+                            }
+                            // 4. 趋势
+                            const trendVal = L4.trend || '?';
+                            const trendArrow = { up: '↑', down: '↓', flat: '→' }[trendVal] || trendVal;
+                            const trend1h = L4.trend_1h ? ` <span style="color:#666;">(1h=${esc(L4.trend_1h)})</span>` : '';
+                            const trendDiff = L4.trend_diff;
+                            const prevF = L4.prev_f;
+                            const curF = L4.cur_f;
+                            let trendDiffTxt = '';
+                            if (trendDiff != null && prevF != null && curF != null) {
+                                const sign = trendDiff >= 0 ? '+' : '';
+                                trendDiffTxt = ` <span style="color:#888;">(F ${prevF.toFixed(0)} → ${curF.toFixed(0)}，${sign}${trendDiff.toFixed(0)})</span>`;
+                            }
+                            let trendJudge = '';
+                            if (trendVal === 'up') trendJudge = '（偏多动能）';
+                            else if (trendVal === 'down') trendJudge = '（偏空动能）';
+                            else trendJudge = '（震荡）';
+
+                            html += `<div style="margin:2px 0 0 26px;">
+                                <div id="${l4ExpandId}-btn" style="color:#4fc3f7;font-size:10px;cursor:pointer;line-height:1.6;user-select:none;" onclick="document.getElementById('${l4ExpandId}').style.display==='none'?(document.getElementById('${l4ExpandId}').style.display='block',document.getElementById('${l4ExpandId}-btn').textContent='▼ 收起 L4 原始判据'):(document.getElementById('${l4ExpandId}').style.display='none',document.getElementById('${l4ExpandId}-btn').textContent='▶ 展开 L4 原始判据')">▶ 展开 L4 原始判据（成交 PCR / 持仓 PCR / ATM IV / 趋势）</div>
+                                <div id="${l4ExpandId}" style="display:none;margin-top:4px;padding:6px 8px;background:#0e0e16;border:1px solid #2a2a36;border-radius:3px;font-size:10px;line-height:1.7;color:#cfcfcf;">
+                                    <div><span style="color:#888;">• 成交 PCR：</span><b>${esc(fmtPcr(volPcrVal))}</b>${volPcrChg != null ? ` <span style="color:#888;">(较前次 ${esc(fmtChg(volPcrChg))})</span>` : ''} <span style="color:#aaa;">${esc(volPcrJudge)}</span></div>
+                                    <div><span style="color:#888;">• 持仓 PCR：</span><b>${esc(fmtPcr(posPcrVal))}</b>${posPcrChg != null ? ` <span style="color:#888;">(较前次 ${esc(fmtChg(posPcrChg))})</span>` : ''} <span style="color:#aaa;">${esc(posPcrJudge)}</span></div>
+                                    <div><span style="color:#888;">• ATM IV：</span>Call <b>${esc(fmtIv(atmIvCall))}</b> / Put <b>${esc(fmtIv(atmIvPut))}</b>${atmIvAvg != null ? `，均值 <b>${atmIvAvg.toFixed(1)}%</b>` : ''} <span style="color:#aaa;">${esc(ivJudge)}</span></div>
+                                    <div><span style="color:#888;">• 趋势：</span><b>${esc(trendArrow)}</b>${trend1h}${trendDiffTxt} <span style="color:#aaa;">${esc(trendJudge)}</span></div>
+                                </div>
+                            </div>`;
+                        }
                         // v2.11.85d: L3 折叠展开（加权判定 + PCR×Skew 交叉验证 + Top 8 strike 贡献 + 角色分布）
                         // 默认收起，点击 ▶ 展开查看详情；折叠时 L3 行保持简洁
                         const l3ExpandId = 'l3-expand-' + Math.random().toString(36).slice(2, 8);
@@ -3121,9 +3248,10 @@ function getStrategyReportEndpoint() {
                                           || (Array.isArray(L3.strike_role) && L3.strike_role.length > 0)
                                           || (Array.isArray(L3.put_strike_role) && L3.put_strike_role.length > 0)
                                           || L3.weighted_verdict || L3.put_weighted_verdict;
+                        // v2.11.95d: L3 展开按钮文案统一为"展开 L3 原始判据"（与 L1/L2/L4 一致）
                         if (hasL3Detail) {
                             html += `<div style="margin:8px 0 0 0;">
-                                <div id="${l3ExpandId}-btn" style="color:#4fc3f7;font-size:10px;cursor:pointer;line-height:1.5;user-select:none;" onclick="document.getElementById('${l3ExpandId}').style.display==='none'?(()=>{document.getElementById('${l3ExpandId}').style.display='block';document.getElementById('${l3ExpandId}-btn').textContent='▼ 收起 L3 综合结论详情';})():(()=>{document.getElementById('${l3ExpandId}').style.display='none';document.getElementById('${l3ExpandId}-btn').textContent='▶ 展开 L3 综合结论详情';})()">▶ 展开 L3 综合结论详情</div>
+                                <div id="${l3ExpandId}-btn" style="color:#4fc3f7;font-size:10px;cursor:pointer;line-height:1.5;user-select:none;" onclick="document.getElementById('${l3ExpandId}').style.display==='none'?(()=>{document.getElementById('${l3ExpandId}').style.display='block';document.getElementById('${l3ExpandId}-btn').textContent='▼ 收起 L3 原始判据';})():(()=>{document.getElementById('${l3ExpandId}').style.display='none';document.getElementById('${l3ExpandId}-btn').textContent='▶ 展开 L3 原始判据';})()">▶ 展开 L3 原始判据</div>
                                 <div id="${l3ExpandId}" style="display:none;margin-top:6px;padding:8px;background:#0e0e16;border:1px solid #2a2a36;border-radius:3px;">${renderL3StrikeDetail(L3)}</div>
                             </div>`;
                         }
@@ -5156,6 +5284,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.95 (飞书 5 档量纲 + θ 加权 4 档 + 12+ 行规则表 + 单层量化统一 5 档 + ts 格式兼容)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.95d (四维决策 L1/L2/L3/L4 结论行+展开原始判据统一风格 + iv_smile Pain 斜率 dyn_th 联动对齐)</div>
 </body>
 </html>

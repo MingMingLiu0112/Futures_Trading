@@ -1254,12 +1254,12 @@ function updateGexCharts(gexData, alertData) {
     const baseTh = (dynTh != null && dynTh > 0 && dynTh < 1.5) ? dynTh : 1.2;
     const ratio = Math.max(downResist, upResist) / Math.min(downResist, upResist);
     // v2.11.90: 双侧陡独立判定 (与后端 judge_state.py compute_pain_slope.both_steep 对齐)
-    // 条件: 两侧 |slope| > 80000 且 ratio < 1.15
+    // 条件: 两侧 |slope| > BOTH_STEEP_THRESHOLD 且比值 < dyn_th
+    // v2.11.95b: both_steep_ratio_max 不再硬编码 1.15, 改用 dyn_th 联动 (与后端一致)
     const BOTH_STEEP_THRESHOLD = 80000;
-    const BOTH_STEEP_RATIO_MAX = 1.15;
     const isBothSteep = downResist > BOTH_STEEP_THRESHOLD
                      && upResist > BOTH_STEEP_THRESHOLD
-                     && 0 < ratio && ratio < BOTH_STEEP_RATIO_MAX;
+                     && 0 < ratio && ratio < baseTh;
     // 形态（shape）: bothSteep / leftSteep / rightSteep / sym
     // v2.11.90: 双侧陡优先级最高
     let shape;
@@ -1297,10 +1297,12 @@ function updateGexCharts(gexData, alertData) {
   };
   // v2.11.90: 双侧陡独立判定 (独立函数, 不破坏 classifyRegime 返回 string 的契约)
   // 与后端 judge_state.py compute_pain_slope.both_steep 算法完全对齐
-  const isBothSteepRegime = (downResist, upResist) => {
+  // v2.11.95b: 传 dynTh 联动（与后端 fallback 行为一致: dynTh 有效用 dynTh, 否则回退 DYN_TH_BASE 1.15）
+  const isBothSteepRegime = (downResist, upResist, dynTh) => {
     if (downResist == null || upResist == null || downResist <= 0 || upResist <= 0) return false;
     const ratio = Math.max(downResist, upResist) / Math.min(downResist, upResist);
-    return downResist > 80000 && upResist > 80000 && ratio < 1.15;
+    const baseTh = (dynTh != null && dynTh > 0 && dynTh < 1.5) ? dynTh : 1.15;
+    return downResist > 80000 && upResist > 80000 && ratio < baseTh;
   };
   // 位置距离文本（v2.11.60+ 新增第二行）
   const fmtPosDist = (futPrice, maxPain) => {
@@ -1336,7 +1338,7 @@ function updateGexCharts(gexData, alertData) {
     const baseTh = (dynTh && dynTh > 0 && dynTh < 1.5) ? dynTh : 1.2;
     // 副显示第 1 行：业务标签（形态×位置） + vs 前次基准 + 比值阈值
     const regime = classifyRegime(downResist, upResist, futPrice, maxPain, dynTh);
-    const isBothSteep = isBothSteepRegime(downResist, upResist);  // v2.11.90
+    const isBothSteep = isBothSteepRegime(downResist, upResist, dynTh);  // v2.11.90 + v2.11.95b dynTh 联动
     const sideDesc = regime || (downResist > upResist * 1.05 ? '看跌阻力大' :
                      upResist > downResist * 1.05 ? '看涨阻力大' : '对称');
     // v2.11.90: 双侧陡触发时, sideDesc 前面加 "双侧陡" 标记 (与后端 logic_brief 一致)
@@ -1911,6 +1913,6 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 </script>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.95 (飞书 5 档量纲 + θ 加权 4 档 + 12+ 行规则表 + 单层量化统一 5 档 + ts 格式兼容)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.95d (四维决策 L1/L2/L3/L4 结论行+展开原始判据统一风格 + iv_smile Pain 斜率 dyn_th 联动对齐)</div>
 </body>
 </html>

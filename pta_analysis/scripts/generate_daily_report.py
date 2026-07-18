@@ -3497,6 +3497,8 @@ def _compute_decision_table(_scripts_dir: str, T_days_remaining: float = None) -
         'net_gex': net_gex,
         'position_label': position_label,
         'p_vs_flip': p_vs_flip,
+        # v2.11.95d: L4 原始判据（供业务机理展示 成交 PCR / 持仓 PCR / ATM IV / 趋势）
+        'layer4_raw': l4,
     }
 
 
@@ -3622,7 +3624,7 @@ def _build_business_rationale(dt: Dict) -> list:
     else:
         rationale.append(f'L3 资金：{l3}')
 
-    # L4 业务机理解释
+    # L4 业务机理解释 (v2.11.95d: 结论行 + 4 个原始判据分行列出)
     if '恐慌出清' in l4 or '乐观消退' in l4:
         rationale.append(f'L4 情绪：{l4}（成交 PCR 翻转，关键情绪信号）')
     elif '偏多' in l4:
@@ -3631,6 +3633,83 @@ def _build_business_rationale(dt: Dict) -> list:
         rationale.append(f'L4 情绪：{l4}（情绪配合方向）')
     else:
         rationale.append(f'L4 情绪：{l4}（中性，情绪不阻碍）')
+
+    # L4 原始判据 (成交 PCR / 持仓 PCR / ATM IV / 趋势)
+    l4_raw = dt.get('layer4_raw') or {}
+    if l4_raw:
+        # 1. 成交 PCR
+        vol_pcr = l4_raw.get('vol_pcr')
+        vol_pcr_prev = l4_raw.get('vol_pcr_prev')
+        if vol_pcr is not None:
+            if vol_pcr_prev is not None and vol_pcr_prev != 0:
+                vol_pcr_chg = vol_pcr - vol_pcr_prev
+                chg_txt = f", 较前次 {vol_pcr_chg:+.2f}"
+            else:
+                chg_txt = ""
+            vol_pcr_judge = ""
+            if vol_pcr < 0.6:
+                vol_pcr_judge = "（过低，过度乐观）"
+            elif vol_pcr > 1.4:
+                vol_pcr_judge = "（过高，过度恐慌）"
+            else:
+                vol_pcr_judge = "（中性区间）"
+            rationale.append(f'  - 成交 PCR：{vol_pcr:.2f}{chg_txt}{vol_pcr_judge}')
+
+        # 2. 持仓 PCR
+        pos_pcr = l4_raw.get('pos_pcr')
+        pos_pcr_prev = l4_raw.get('pos_pcr_prev')
+        if pos_pcr is not None:
+            if pos_pcr_prev is not None and pos_pcr_prev != 0:
+                pos_pcr_chg = pos_pcr - pos_pcr_prev
+                chg_txt = f", 较前次 {pos_pcr_chg:+.2f}"
+            else:
+                chg_txt = ""
+            pos_pcr_judge = ""
+            if pos_pcr > 1.2:
+                pos_pcr_judge = "（偏高，空头持仓集中）"
+            elif pos_pcr < 0.7:
+                pos_pcr_judge = "（偏低，多头持仓集中）"
+            else:
+                pos_pcr_judge = "（中性区间）"
+            rationale.append(f'  - 持仓 PCR：{pos_pcr:.2f}{chg_txt}{pos_pcr_judge}')
+
+        # 3. ATM IV (call / put 双侧平均)
+        atm_iv_call = l4_raw.get('atm_iv_call')
+        atm_iv_put = l4_raw.get('atm_iv_put')
+        atm_iv_vals = [v for v in (atm_iv_call, atm_iv_put) if v is not None]
+        if atm_iv_vals:
+            atm_iv_avg = sum(atm_iv_vals) / len(atm_iv_vals)
+            atm_iv_pct = atm_iv_avg * 100  # cache 中是 0.xx 小数
+            if atm_iv_pct >= 30:
+                iv_judge = "（高位，恐慌区域）"
+            elif atm_iv_pct >= 20:
+                iv_judge = "（中位）"
+            else:
+                iv_judge = "（低位，平静区域）"
+            call_txt = f"{atm_iv_call*100:.1f}%" if atm_iv_call is not None else "-"
+            put_txt = f"{atm_iv_put*100:.1f}%" if atm_iv_put is not None else "-"
+            rationale.append(f'  - ATM IV：Call {call_txt} / Put {put_txt}，均值 {atm_iv_pct:.1f}% {iv_judge}')
+
+        # 4. 趋势 (1h/日内)
+        trend = l4_raw.get('trend', '?')
+        trend_1h = l4_raw.get('trend_1h')
+        trend_diff = l4_raw.get('trend_diff')
+        cur_f = l4_raw.get('cur_f')
+        prev_f = l4_raw.get('prev_f')
+        trend_arrow = {'up': '↑', 'down': '↓', 'flat': '→'}.get(trend, trend)
+        diff_txt = ""
+        if trend_diff is not None and prev_f is not None and cur_f is not None:
+            sign = '+' if trend_diff >= 0 else ''
+            diff_txt = f"（F {prev_f:.0f} → {cur_f:.0f}，{sign}{trend_diff:.0f}）"
+        trend_judge = ""
+        if trend == 'up':
+            trend_judge = "（偏多动能）"
+        elif trend == 'down':
+            trend_judge = "（偏空动能）"
+        else:
+            trend_judge = "（震荡）"
+        h1_txt = f" 1h={trend_1h}" if trend_1h else ""
+        rationale.append(f'  - 趋势：{trend_arrow}{h1_txt}{diff_txt}{trend_judge}')
 
     return rationale
 
