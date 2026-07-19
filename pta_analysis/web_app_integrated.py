@@ -962,6 +962,88 @@ def _override_report_with_kline_price(report):
     return report
 
 
+def _override_report_with_realtime_decision(report):
+    """v2.11.95j: 用实时 decision_layer_cache.json 覆盖研报里的 4 层判定 + 22 cell 决策
+
+    背景: daily_report.json 是 15:00 收盘后冻结的研报快照, 但四维决策 (/api/decision_layer) 是实时数据。
+    单层 L1 修复 (v2.11.95h atMP 分支) 后, 15:00 时的 l1_qual='结构中性' (旧 atMP 无分支 score=0)
+    跟当前实时 L1='弱偏多' (新分支 score=+0.5) 不一致。
+    用户期望: 研报面板展示的 4 层 qual / decision / decision_final / final_score 跟四维决策同步。
+
+    修复: 展示前实时调 _compute_decision_table() 重算 decision_table, 覆盖原报告里的旧值。
+    - 段落叙事 (narrative/trader_report/conclusion 文本) 保持 15:00 收盘定稿 (业务复盘需要历史)
+    - 决策判定字段 (l1/l2/l3/l4_qual/decision/final_score 等) 用实时版
+    """
+    if not isinstance(report, dict):
+        return report
+    try:
+        from scripts.generate_daily_report import _compute_decision_table
+    except ImportError as _e:
+        app.logger.warning('[覆盖-决策] 导入 _compute_decision_table 失败, 跳过: %s', _e)
+        return report
+
+    # T_days_remaining 优先用研报自己的 (基于当时 close_state.json), 否则用实时 cache 的
+    try:
+        import json as _json
+        _dl_cache_path = os.path.join(STRATEGY_REPORT_DIR, 'decision_layer_cache.json')
+        _T_days = None
+        if os.path.exists(_dl_cache_path):
+            with open(_dl_cache_path, 'r', encoding='utf-8') as _f:
+                _dl = _json.load(_f)
+                _summary = (_dl.get('decision_layer', {}).get('layer1', {}).get('summary') or {})
+                _T_days = _summary.get('T_days_remaining')
+        _scripts_dir = os.path.join(WORKSPACE, 'scripts')
+        realtime_table = _compute_decision_table(_scripts_dir, T_days_remaining=_T_days)
+    except Exception as _e:
+        app.logger.warning('[覆盖-决策] _compute_decision_table 失败, 跳过: %s', _e)
+        return report
+
+    if not realtime_table or realtime_table.get('error'):
+        return report
+
+    # 覆盖所有节点的 decision_table (intraday_analysis / market_brief / 嵌套 snapshots)
+    def _override_node(node):
+        if not isinstance(node, dict):
+            return
+        if 'decision_table' in node and isinstance(node['decision_table'], dict):
+            # 保留 daily_report.json 原有的扩展字段 (futures_price/max_pain/gex_flip/net_gex/
+            # position_label/p_vs_flip/layer4_raw 等), 只覆盖 4 层 qual + 22 cell 决策字段
+            _dt = node['decision_table']
+            _override_keys = (
+                'l1_qual', 'l2_qual', 'l3_qual', 'l4_qual',
+                'decision', 'confidence', 'logic',
+                'theta_modified', 'decision_final', 'position_size', 'stop_loss',
+                'final_score', 'final_signal', 'legacy_total',
+                'theta_weights', 'T_bucket', 'T_days_remaining',
+                'generated_at',
+            )
+            for _k in _override_keys:
+                if _k in realtime_table:
+                    _dt[_k] = realtime_table[_k]
+            # 标记: 这一段是实时覆盖版 (UI 可选展示)
+            _dt['realtime_override'] = True
+            _dt['realtime_override_at'] = dt_datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            # v2.11.95j+: conclusion 文本也是基于 decision_table 生成的, 必须重算否则显示不一致
+            # 例如: decision_table 改成"观望/极弱置信度", 但 conclusion 还显示"卖出宽跨式/高置信度"会让用户困惑
+            try:
+                from scripts.generate_daily_report import _format_decision_table_text
+                node['conclusion'] = _format_decision_table_text(realtime_table)
+                node['title'] = '盘中综合研判（实时覆盖）'
+            except Exception as _ce:
+                app.logger.warning('[覆盖-决策] _format_decision_table_text 失败, 跳过 conclusion 覆盖: %s', _ce)
+
+    if isinstance(report.get('intraday_analysis'), dict):
+        _override_node(report['intraday_analysis'])
+    if isinstance(report.get('market_brief'), dict):
+        _override_node(report['market_brief'])
+    for snap in report.get('intraday_snapshots') or []:
+        if isinstance(snap, dict):
+            for sub in ('intraday_analysis', 'market_brief'):
+                if isinstance(snap.get(sub), dict):
+                    _override_node(snap[sub])
+    return report
+
+
 def _trigger_strategy_report_background_refresh():
     """后台刷新15分钟研报；/realtime接口只负责快速返回缓存，不阻塞页面。"""
     global _strategy_report_refreshing
@@ -1203,6 +1285,8 @@ def api_strategy_report_realtime():
             close_path = _maybe_write_close_report(cached)
             # 新鲜缓存也要用 K线实时价覆盖盘面主力参考价，避免缓存里固化的旧价与首页K线图不一致。
             cached = _override_report_with_kline_price(cached)
+            # v2.11.95j: 用实时 decision_layer_cache 覆盖 4 层判定 + 22 cell 决策
+            cached = _override_report_with_realtime_decision(cached)
             return jsonify({'success': True, 'data': cached, 'cached': True, 'cache_time': mtime.strftime('%Y-%m-%d %H:%M:%S'), 'cache_minutes': STRATEGY_REPORT_CACHE_MINUTES, 'close_report_ready': bool(close_path)})
 
         # 缓存过期时立即返回旧缓存，并触发后台刷新；页面请求不再等待外部宏观/基本面抓取。
@@ -1210,12 +1294,15 @@ def api_strategy_report_realtime():
             _trigger_strategy_report_background_refresh()
             # 出口前用 K 线接口实时价覆盖字段/表格/正文；和前端 loadDailyReport() 一致。
             cached = _override_report_with_kline_price(cached)
+            # v2.11.95j: stale 路径同样用实时 4 层判定覆盖 (用户看到的就是当前实时)
+            cached = _override_report_with_realtime_decision(cached)
             return jsonify({'success': True, 'data': cached, 'cached': True, 'stale': True, 'cache_time': mtime.strftime('%Y-%m-%d %H:%M:%S'), 'cache_minutes': STRATEGY_REPORT_CACHE_MINUTES, 'refreshing': True})
 
         # 首次无缓存时才同步生成一次；若失败，返回结构化JSON错误而不是HTML 500。
         with _strategy_report_lock:
             report = _generate_strategy_report(force_close=False)
             report = _override_report_with_kline_price(report)
+            report = _override_report_with_realtime_decision(report)
             close_path = _maybe_write_close_report(report)
             return jsonify({'success': True, 'data': report, 'cached': False, 'cache_minutes': STRATEGY_REPORT_CACHE_MINUTES, 'close_report_ready': bool(close_path)})
     except Exception as e:
@@ -1231,6 +1318,8 @@ def api_strategy_report_refresh():
             is_after_close = dt_datetime.now().hour >= 15
             report = _generate_strategy_report(force_close=is_after_close)
             report = _override_report_with_kline_price(report)
+            # v2.11.95j: 手动刷新也用实时 4 层判定覆盖
+            report = _override_report_with_realtime_decision(report)
             close_path = _maybe_write_close_report(report)
         return jsonify({'success': True, 'data': report, 'cached': False, 'manual': True, 'cache_minutes': STRATEGY_REPORT_CACHE_MINUTES, 'close_report_ready': bool(close_path)})
     except Exception as e:
