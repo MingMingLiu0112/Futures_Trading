@@ -182,7 +182,7 @@ def _record_close_baseline(smile_smooth, smile_raw, strike_oi, S, strike_vol=Non
         'S': float(S),
         'ts': datetime.now().isoformat(),
         'contract': _state.get('active_contract'),
-        'expiry': _state.get('expiry').isoformat() if _state.get('expiry') else None,
+        'expiry': _iso_expiry(_state.get('expiry')),
         # === v2.11.68 新增 4 斜率字段 ===
         'slope_down': round(slope_down, 2),
         'slope_up': round(slope_up, 2),
@@ -275,6 +275,22 @@ def _parse_iso_dt(value):
         return datetime.fromisoformat(str(value).replace('Z', '+00:00'))
     except Exception:
         return None
+
+
+def _iso_expiry(value):
+    """v2.11.95i: 安全返回 expiry ISO 字符串。兼容 str / datetime / None。
+    修复 close_state.json 反序列化后 expiry 是 str 而非 datetime 的 AttributeError 链式故障。
+    """
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, str):
+        # 已经是 ISO 字符串（close_state.json 反序列化场景）
+        return value
+    # 兜底：尝试解析再 iso
+    parsed = _parse_iso_dt(value)
+    return parsed.isoformat() if parsed else str(value)
 
 
 def _payload_state_timestamp(payload_or_state):
@@ -383,7 +399,7 @@ def _save_prev_baseline(snap_15, today_str):
         'timestamp': f'{today_str}T15:00:00',  # 语义：今日 15:00 收盘
         'state': {
             'active_contract': snap_15.get('contract') or _state.get('active_contract'),
-            'expiry': snap_15.get('expiry') or (_state.get('expiry').isoformat() if _state.get('expiry') else None),
+            'expiry': snap_15.get('expiry') or (_iso_expiry(_state.get('expiry'))),
             'futures_price': snap_15.get('S') or snap_15.get('futures_price'),
             'atm_strike': snap_15.get('atm_strike'),
             'max_pain': snap_15.get('max_pain'),
@@ -453,7 +469,7 @@ def _save_close_state(close_point='15:00'):
     """
     _ensure_snapshot_dir()
     # 只保存可序列化的字段
-    _expiry_iso = _state.get('expiry').isoformat() if _state.get('expiry') else None
+    _expiry_iso = _iso_expiry(_state.get('expiry'))
     payload = {
         'close_point': close_point,           # '15:00' = 真正的日内收盘基准；其他值视为污染
         'timestamp': datetime.now().isoformat(),
@@ -1026,7 +1042,7 @@ def _load_close_state():
         # 优先使用 save 时写入的 active_contract（v2.11.36+ 已写入 close_state.json），
         # 否则兜底用 _state（tqsdk_loop 启动后才设），再否则从 svi_params.note 反推。
         recovered_contract = saved_state.get('active_contract') or _state.get('active_contract')
-        recovered_expiry = saved_state.get('expiry') or (_state.get('expiry').isoformat() if _state.get('expiry') else None)
+        recovered_expiry = saved_state.get('expiry') or (_iso_expiry(_state.get('expiry')))
         if not recovered_contract:
             # 兜底：svi_params.note 里通常有 contract；或者从 expiry 字段反推
             note = (saved_state.get('svi_params') or {}).get('note', '')
@@ -1476,6 +1492,9 @@ def _count_remaining_trading_minutes(now, expiry):
         expiry_dt = expiry
         if expiry_dt.hour == 0 and expiry_dt.minute == 0 and expiry_dt.second == 0 and expiry_dt.microsecond == 0:
             expiry_dt = expiry_dt.replace(hour=15, minute=0)
+    elif isinstance(expiry, str):
+        # v2.11.95i: close_state.json 反序列化后 expiry 是 str, 解析回 datetime
+        expiry_dt = _parse_iso_dt(expiry) or datetime.combine(date.today(), datetime.min.time()).replace(hour=15, minute=0)
     else:
         expiry_dt = datetime.combine(expiry, datetime.min.time()).replace(hour=15, minute=0)
     if now >= expiry_dt:
@@ -1975,7 +1994,7 @@ def _ensure_today_close_baseline_after_21():
             'close_point': '15:00',  # 明确标记：这是 15:00 收盘基准
             # v2.11.62a+ 修复: 加 contract 和 expiry (避免 21:00 切换后 alert_data baseline_contract_match=False)
             'contract': snap_15.get('contract') or snap_15.get('active_contract') or _state.get('active_contract'),
-            'expiry': snap_15.get('expiry') or (_state.get('expiry').isoformat() if _state.get('expiry') else None),
+            'expiry': snap_15.get('expiry') or (_iso_expiry(_state.get('expiry'))),
         }
         # v2.11.54+: 同时把今日 15:00 写入 prev_baseline.json
         # 这样次日 14:59 启动时，_load_close_state() 从 prev_baseline.json 拿到今日 15:00（即"昨日 15:00"）
@@ -3627,7 +3646,7 @@ def register_routes(app):
                 'atm_strike': cb_atm,
                 'option_count': len(_state.get('smile_raw', {})),
                 'last_update': _state['last_update'],
-                'expiry': _state['expiry'].isoformat() if _state.get('expiry') else None,
+                'expiry': _iso_expiry(_state.get('expiry')),
                 'rate': _state['rate'],
                 'rate_src': _state.get('rate_src', 'unknown'),
                 'active_contract': _state.get('active_contract'),
@@ -3981,7 +4000,7 @@ def register_routes(app):
                     'underlying_price': band_underlying,
                     'atm_iv': atm_iv,
                     'T': T_val,
-                    'expiry': _state['expiry'].isoformat() if _state.get('expiry') else None,
+                    'expiry': _iso_expiry(_state.get('expiry')),
                     'horizon': 'to_expiry',
                     'formula': 'S ± z * S * ATM_IV * sqrt(T)',
                     'source': 'iv_smile_curve.option_underlying_price + svi_params.atm_vol',
@@ -4001,7 +4020,7 @@ def register_routes(app):
             'atm_strike': _state['atm_strike'],
             'prev_atm_strike': prev_atm_strike,
             'last_update': _state['last_update'],
-            'expiry': _state['expiry'].isoformat() if _state.get('expiry') else None,
+            'expiry': _iso_expiry(_state.get('expiry')),
             'T': curve_T,  # 交易日T
             'svi_params': svi,
             'skew_audit': skew_audit,
@@ -4110,7 +4129,7 @@ def register_routes(app):
                 'S': _state.get('futures_price') or _last_valid.get('futures_price'),
                 'ts': _semantic_ts,
                 'contract': _state.get('active_contract'),
-                'expiry': _state.get('expiry').isoformat() if _state.get('expiry') else None,
+                'expiry': _iso_expiry(_state.get('expiry')),
                 'close_point': close_point,
             }
             # 3. 补 15:00 边界槽
@@ -5146,6 +5165,9 @@ def register_routes(app):
             if expiry:
                 if hasattr(expiry, 'hour'):
                     expiry_dt = expiry if expiry.hour or expiry.minute or expiry.second or expiry.microsecond else expiry.replace(hour=15, minute=0)
+                elif isinstance(expiry, str):
+                    # v2.11.95i: close_state.json 反序列化后 expiry 是 str, 解析回 datetime
+                    expiry_dt = _parse_iso_dt(expiry) or datetime.combine(date.today(), datetime.min.time()).replace(hour=15, minute=0)
                 else:
                     expiry_dt = datetime.combine(expiry, datetime.min.time()).replace(hour=15, minute=0)
                 days_left = round((expiry_dt - datetime.now()).total_seconds() / 86400, 1)
@@ -5188,7 +5210,7 @@ def register_routes(app):
                 'gex_direction': 'positive' if net_gex_total > 0 else 'negative',
                 'gex_flip': gex_flip,
                 'T': round(T, 6) if T else None, 'days_left': days_left,
-                'expiry': expiry.isoformat() if expiry else None,
+                'expiry': _iso_expiry(expiry),
                 'total_call_oi': int(tc), 'total_put_oi': int(tp),
                 # === v2.11.87: 动态阈值三因子字段 ===
                 'oi_total_now': int(tc) + int(tp),       # OI 总量 (触发阈值 >10万→1.08)
