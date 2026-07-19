@@ -4274,13 +4274,355 @@ def load_previous_trading_day_close_report(date_text: Optional[str] = None) -> O
     return None
 
 
+def load_decision_layer_history(date_text: Optional[str] = None) -> List[Dict]:
+    """v2.11.95k: 读取指定日期的整点 4 维决策快照（从 decision_layer_history.jsonl）
+
+    数据源: decision_layer_history.jsonl (decision_layer_service 每整点 append 一行)
+    过滤: date_text 前缀 (YYYY-MM-DD), 同小时只保留最新一条
+
+    Args:
+        date_text: YYYYMMDD 格式日期, None=今天
+
+    Returns:
+        List[Dict]: 按时间正序的整点快照列表
+        每条含 ts/F/max_pain/L1/L2/L3/L4/final (完整 4 维决策判定)
+    """
+    if date_text is None:
+        date_text = datetime.now().strftime('%Y%m%d')
+    iso_date = f"{date_text[:4]}-{date_text[4:6]}-{date_text[6:8]}"
+    # v2.11.95k: 推导 fundamental 目录 (OUTPUT_PATH = WORKSPACE/data/fundamental/daily_report.json)
+    fundamental_dir = os.path.dirname(OUTPUT_PATH)
+    history_path = os.path.join(fundamental_dir, 'decision_layer_history.jsonl')
+    if not os.path.exists(history_path):
+        return []
+    rows = []
+    try:
+        with open(history_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except Exception:
+                    continue
+                ts = row.get('ts', '')
+                if ts.startswith(iso_date):
+                    rows.append(row)
+    except Exception:
+        return []
+    # 同小时去重（保留每小时最后一条 = 该小时最终判定）
+    by_hour = {}
+    for r in rows:
+        ts = r.get('ts', '')
+        # 取 HH:00 形式
+        hour_key = ts[:13] if len(ts) >= 13 else ts  # 'YYYY-MM-DDTHH'
+        # 同小时多条 → 保留时间戳最大的
+        if hour_key not in by_hour or ts > by_hour[hour_key].get('ts', ''):
+            by_hour[hour_key] = r
+    # 按时间正序
+    return sorted(by_hour.values(), key=lambda x: x.get('ts', ''))
+
+
+def load_previous_trading_day_decision_snapshot(date_text: Optional[str] = None) -> Optional[Dict]:
+    """v2.11.95k: 从 decision_layer_history.jsonl 读取上一交易日 15:00 收盘时刻的 4 维决策快照
+
+    用作 build_daily_comparison 的日间对比基准（替代旧的 price-only 对比）
+    找不到时返回 None（保持向后兼容）
+    """
+    base_dt = datetime.strptime(_safe_date_text(date_text), '%Y%m%d')
+    # 倒推 1-7 天找交易日（跳过周末）
+    for i in range(1, 8):
+        d = base_dt - timedelta(days=i)
+        if d.weekday() >= 5:
+            continue
+        prev_date_text = d.strftime('%Y%m%d')
+        history = load_decision_layer_history(prev_date_text)
+        if not history:
+            continue
+        # 优先找 15:00（精确），否则找最接近 15:00 的（14:45-15:15 之间）
+        target_h = '15'
+        exact = [h for h in history if h.get('ts', '')[11:13] == target_h]
+        if exact:
+            # 同 15 点多条取最后一条
+            return max(exact, key=lambda x: x.get('ts', ''))
+        # 兜底：找最近的一条（14:00-15:59 之间）
+        afternoon = [h for h in history if '14:00' <= h.get('ts', '')[11:16] <= '15:59']
+        if afternoon:
+            return max(afternoon, key=lambda x: x.get('ts', ''))
+    return None
+
+
+def _build_decision_track(decision_history: List[Dict], current_report: Optional[Dict] = None) -> Dict:
+    """v2.11.95k: 把整点/15分钟决策历史格式化成日内轨迹 + 整点聚合视图
+
+    Args:
+        decision_history: load_decision_layer_history() 返回的列表
+        current_report: 当前研报 (用于补充最末点, 如果历史还没写到当前时刻)
+
+    Returns:
+        Dict {
+          'available': bool,
+          'point_count': int,
+          'points': [{slot, ts, decision, score, L1_score, L2_score, L3_score, L4_score,
+                      decision_changed_vs_prev, layer_changes}],  # 15分钟级
+          'hourly': [{hour, ts, decision, score, delta_score, decision_changed_vs_prev}],  # 整点聚合
+          'flips': [{slot, from_decision, to_decision}],  # decision 翻转点
+          'score_stats': {min, max, mean, final, drift_total},
+          'summary': str  # 一句话中文摘要
+        }
+    """
+    if not decision_history:
+        return {'available': False, 'point_count': 0, 'points': [], 'hourly': [],
+                'flips': [], 'score_stats': {}, 'summary': '4 维决策日内轨迹不可用（无历史数据）'}
+
+    # 补最末点（如果 current_report 里有更新的 4 维决策）
+    history_with_current = list(decision_history)
+    if current_report:
+        cur_dt = current_report.get('decision_table') or {}
+        cur_final_score = current_report.get('final_score')
+        # current_report 不是从 history 来的结构, 用 decision_table 提取
+        cur_l1q = cur_dt.get('l1_qual')
+        cur_decision = cur_dt.get('decision') or cur_dt.get('decision_final')
+        # 简单做法: 仅当 decision_track 内最后一个 ts < 15 分钟前 才补
+        if history_with_current:
+            last_ts = history_with_current[-1].get('ts', '')
+            try:
+                last_dt = datetime.fromisoformat(last_ts)
+                if (datetime.now() - last_dt).total_seconds() > 15 * 60 and cur_decision:
+                    # 暂不补 — 等下次 history 自动写入
+                    pass
+            except Exception:
+                pass
+
+    # === 15 分钟级 points ===
+    points = []
+    prev_decision = None
+    for h in history_with_current:
+        ts = h.get('ts', '')
+        final = h.get('final') or {}
+        L1, L2, L3, L4 = h.get('L1', {}), h.get('L2', {}), h.get('L3', {}), h.get('L4', {})
+        decision = final.get('decision', '?')
+        decision_changed = (prev_decision is not None and decision != prev_decision)
+        # 单层变化（vs 上一个整点）
+        if points:
+            prev = points[-1]
+            layer_changes = []
+            for L in ['L1', 'L2', 'L3', 'L4']:
+                prev_s = prev.get(f'{L}_score')
+                cur_s = h.get(L, {}).get('score')
+                if prev_s is not None and cur_s is not None and abs(cur_s - prev_s) > 0.01:
+                    layer_changes.append({
+                        'layer': L,
+                        'from_score': prev_s,
+                        'to_score': cur_s,
+                        'delta': round(cur_s - prev_s, 3),
+                    })
+        else:
+            layer_changes = []
+        points.append({
+            'slot': ts[11:16] if len(ts) >= 16 else '',  # 'HH:MM'
+            'ts': ts,
+            'F': h.get('F'),
+            'decision': decision,
+            'score': final.get('score'),
+            'signal': final.get('signal', ''),
+            'confidence': final.get('confidence', ''),
+            'L1_score': L1.get('score'),
+            'L1_label': (L1.get('label') or '')[:40],
+            'L2_score': L2.get('score'),
+            'L2_label': (L2.get('label') or '')[:40],
+            'L3_score': L3.get('score'),
+            'L3_label': (L3.get('label') or '')[:40],
+            'L4_score': L4.get('score'),
+            'L4_label': (L4.get('label') or '')[:40],
+            'decision_changed_vs_prev': decision_changed,
+            'layer_changes': layer_changes,
+        })
+        prev_decision = decision
+
+    # === 整点聚合（每小时取最后一条）===
+    hourly_map = {}
+    for h in history_with_current:
+        ts = h.get('ts', '')
+        if len(ts) < 13:
+            continue
+        hour_key = ts[:13]  # 'YYYY-MM-DDTHH'
+        if hour_key not in hourly_map or ts > hourly_map[hour_key].get('ts', ''):
+            hourly_map[hour_key] = h
+    hourly = []
+    prev_hour_decision = None
+    prev_hour_score = None
+    for hour_key in sorted(hourly_map.keys()):
+        h = hourly_map[hour_key]
+        ts = h.get('ts', '')
+        final = h.get('final') or {}
+        decision = final.get('decision', '?')
+        score = final.get('score')
+        delta_score = (score - prev_hour_score) if (score is not None and prev_hour_score is not None) else None
+        decision_changed = (prev_hour_decision is not None and decision != prev_hour_decision)
+        hourly.append({
+            'hour': ts[11:13],
+            'ts': ts,
+            'decision': decision,
+            'score': score,
+            'delta_score': round(delta_score, 3) if delta_score is not None else None,
+            'decision_changed_vs_prev_hour': decision_changed,
+        })
+        prev_hour_decision = decision
+        prev_hour_score = score
+
+    # === decision 翻转点（15 分钟级）===
+    flips = []
+    for p in points:
+        if p['decision_changed_vs_prev']:
+            flips.append({
+                'slot': p['slot'],
+                'ts': p['ts'],
+                'from_decision': points[points.index(p) - 1]['decision'] if points.index(p) > 0 else None,
+                'to_decision': p['decision'],
+                'F': p['F'],
+            })
+
+    # === score 统计 ===
+    scores = [p['score'] for p in points if p['score'] is not None]
+    score_stats = {}
+    if scores:
+        score_stats = {
+            'min': round(min(scores), 3),
+            'max': round(max(scores), 3),
+            'mean': round(sum(scores) / len(scores), 3),
+            'final': scores[-1],
+            'drift_total': round(scores[-1] - scores[0], 3) if len(scores) >= 2 else 0.0,
+            'flips_count': len(flips),
+        }
+
+    # === summary 一句话中文 ===
+    summary_parts = []
+    if hourly:
+        decision_changes = sum(1 for h in hourly if h['decision_changed_vs_prev_hour'])
+        summary_parts.append(f'日内整点{len(hourly)}个判定，决策翻转{decision_changes}次')
+    if flips:
+        summary_parts.append(f'15分钟级决策翻转{len(flips)}次')
+    if score_stats:
+        summary_parts.append(f'5档总分区间[{score_stats["min"]:+.2f}, {score_stats["max"]:+.2f}]，'
+                             f'总漂移{score_stats["drift_total"]:+.3f}')
+    summary = '；'.join(summary_parts) if summary_parts else '4 维决策日内轨迹可用，但无显著变化'
+
+    return {
+        'available': True,
+        'point_count': len(points),
+        'points': points,
+        'hourly': hourly,
+        'flips': flips,
+        'score_stats': score_stats,
+        'summary': summary,
+    }
+
+
+def _build_decision_day_diff(prev_snap: Optional[Dict],
+                              decision_history: List[Dict],
+                              current_report: Optional[Dict] = None) -> Dict:
+    """v2.11.95k: 日间 4 维决策差异 — 当前决策 vs 上一交易日 15:00 收盘快照
+
+    返回:
+    - available: bool
+    - prev_snapshot_ts / curr_snapshot_ts: 时间戳
+    - L1/L2/L3/L4/final: {prev_score, curr_score, delta, changed}
+    - decision_changed: bool (final decision 翻转)
+    - layer_decision_changes: [L1_changed, L2_changed, ...]
+    - summary: str
+    """
+    if not prev_snap:
+        return {
+            'available': False,
+            'reason': '上一交易日 15:00 决策快照不可用（历史不足 1 天）',
+            'summary': '日间 4 维决策对比不可用（无上一交易日决策快照）',
+        }
+    # 当前决策: 从 decision_history 最后一条取
+    if not decision_history:
+        return {
+            'available': False,
+            'reason': '当日决策历史为空',
+            'prev_snapshot_ts': prev_snap.get('ts'),
+            'summary': '日间 4 维决策对比不可用（当日无数据）',
+        }
+    curr = decision_history[-1]
+    prev_f = prev_snap.get('final') or {}
+    curr_f = curr.get('final') or {}
+    layer_changes = []
+    for L in ['L1', 'L2', 'L3', 'L4']:
+        prev_s = prev_snap.get(L, {}).get('score')
+        curr_s = curr.get(L, {}).get('score')
+        prev_lbl = prev_snap.get(L, {}).get('label') or ''
+        curr_lbl = curr.get(L, {}).get('label') or ''
+        layer_changes.append({
+            'layer': L,
+            'prev_score': prev_s,
+            'curr_score': curr_s,
+            'delta': round(curr_s - prev_s, 3) if (prev_s is not None and curr_s is not None) else None,
+            'prev_label': prev_lbl[:40],
+            'curr_label': curr_lbl[:40],
+            'changed': (prev_s != curr_s) if (prev_s is not None and curr_s is not None) else False,
+        })
+    decision_changed = (prev_f.get('decision') != curr_f.get('decision'))
+    # 漂移: 5 档总分变化
+    drift = None
+    if prev_f.get('score') is not None and curr_f.get('score') is not None:
+        drift = round(curr_f['score'] - prev_f['score'], 3)
+    # 价格变化 (vs prev_snap.F)
+    F_diff = None
+    if prev_snap.get('F') and curr.get('F'):
+        F_diff = round(curr['F'] - prev_snap['F'], 1)
+    # summary
+    sum_parts = []
+    # 业务预期: 基准 = "上一交易日 15:00 收盘决策"，但历史里实际可能是 15:45 / 14:30 等
+    prev_ts_short = prev_snap.get('ts', '')[:16]  # 'YYYY-MM-DDTHH:MM'
+    sum_parts.append(f'vs 上一交易日{prev_ts_short}收盘决策')
+    if decision_changed:
+        sum_parts.append(f'决策{prev_f.get("decision", "?")}→{curr_f.get("decision", "?")}')
+    else:
+        sum_parts.append(f'决策不变({curr_f.get("decision", "?")})')
+    layer_changed = [lc['layer'] for lc in layer_changes if lc['changed']]
+    if layer_changed:
+        sum_parts.append(f'{",".join(layer_changed)}层有变化')
+    if drift is not None:
+        sum_parts.append(f'5档总分{drift:+.3f}')
+    if F_diff is not None:
+        sum_parts.append(f'价格{F_diff:+.0f}点')
+
+    return {
+        'available': True,
+        'prev_snapshot_ts': prev_snap.get('ts'),
+        'curr_snapshot_ts': curr.get('ts'),
+        'decision_changed': decision_changed,
+        'prev_decision': prev_f.get('decision'),
+        'curr_decision': curr_f.get('decision'),
+        'prev_final_score': prev_f.get('score'),
+        'curr_final_score': curr_f.get('score'),
+        'score_drift': drift,
+        'F_diff': F_diff,
+        'layer_changes': layer_changes,
+        'summary': '；'.join(sum_parts),
+    }
+
+
 def build_daily_comparison(current_report: Dict, previous_report: Optional[Dict], intraday_snapshots: List[Dict]) -> Dict:
     """生成全天总研报的日内变化和前日对比,并明确数据覆盖度。
 
     PTA 交易日边界定义:一个完整交易日 = 前一日夜盘 21:00 开盘 → 当日日盘 15:00 收盘(夜盘 21:00-23:00 + 日盘 09:00-15:00)。
     intraday_review.open_slot 应取该交易日**第一段**(夜盘 21:00 槽或当日 09:00 槽),而非只看 09:00。
     previous_day_dynamic.previous_close_price 取**上一交易日日盘 15:00 收盘价**(=前一交易日 baseline)。
+
+    v2.11.95k+: 新增 4 维决策轨迹 (decision_track) + 日间对比 (previous_day_decision_diff)
+    数据源: decision_layer_history.jsonl (decision_layer_service 每 15 分钟 append)
     """
+    # v2.11.95k+: 推导 date_text (YYYYMMDD) 用于读决策历史
+    _ts_raw = current_report.get('timestamp', '') or ''
+    try:
+        date_text = datetime.strptime(_ts_raw[:10], '%Y-%m-%d').strftime('%Y%m%d')
+    except Exception:
+        date_text = datetime.now().strftime('%Y%m%d')
     def pick_price(r):
         ia = (r or {}).get('intraday_analysis') or {}
         # v2.11.49: 主力研报口径只取 TA609 主力合约(K线 main_futures_price),禁止回退到
@@ -4461,6 +4803,15 @@ def build_daily_comparison(current_report: Dict, previous_report: Optional[Dict]
     else:
         intraday_review['summary'] = intraday_note
 
+    # === v2.11.95k: 4 维决策日内轨迹（替代/补充旧的 bias 字符串匹配）===
+    # 数据源: decision_layer_history.jsonl (每 15 分钟一条, 按小时聚合取最后一条 = 该小时最终判定)
+    decision_history = load_decision_layer_history(date_text)
+    decision_track = _build_decision_track(decision_history, current_report)
+    intraday_review['decision_track'] = decision_track  # type: ignore[index]
+
+    # === v2.11.95k: 上一交易日 15:00 4 维决策快照（用于日间对比）===
+    prev_decision_snap = load_previous_trading_day_decision_snapshot(date_text)
+
     if previous_day_available and prev_price is not None and cur_price is not None:
         day_change = cur_price - prev_price
         # v2.11.47+: summary 明确这是"上一交易日日盘 15:00 收盘基准"(PTA 交易日 = 前夜盘 21:00 → 当日 15:00,
@@ -4491,6 +4842,11 @@ def build_daily_comparison(current_report: Dict, previous_report: Optional[Dict]
     data_limitation_note = '' if comparison_quality == '完整' else f'{intraday_note}{day_note}'
     full_summary = f"全天共归档{snapshot_count}份15分钟研报；{intraday_review.get('summary')}{day_note}"
 
+    # === v2.11.95k: 日间 4 维决策差异（vs 上一交易日 15:00 收盘）===
+    # 数据源: prev_decision_snap (上一交易日 15:00 决策快照) + 当前决策
+    # 用 4 维决策口径替代旧的 price-only 对比
+    decision_diff = _build_decision_day_diff(prev_decision_snap, decision_history, current_report)
+
     return {
         'snapshot_count': snapshot_count,
         'intraday_slots': slots,
@@ -4502,6 +4858,10 @@ def build_daily_comparison(current_report: Dict, previous_report: Optional[Dict]
         'current_vs_previous_price_change': (cur_price - prev_price) if cur_price is not None and prev_price is not None else None,
         'intraday_review': intraday_review,
         'previous_day_dynamic': previous_day_dynamic,
+        # v2.11.95k+: 新增 4 维决策版日内 + 日间对比
+        'decision_track': decision_track,
+        'previous_day_decision_diff': decision_diff,
+        'previous_day_decision_snapshot': prev_decision_snap,  # 完整快照给前端展示
         'summary': full_summary,
     }
 

@@ -3783,7 +3783,14 @@ function getStrategyReportEndpoint() {
                     }
                     const review = cmp.intraday_review || {};
                     const prevDyn = cmp.previous_day_dynamic || {};
-                    if (review.summary || (review.segments && review.segments.length) || prevDyn.summary) {
+                    // v2.11.95k: 加 cmp.decision_track / cmp.previous_day_decision_diff / cmp.previous_day_decision_snapshot 三块条件
+                    const decTrack = cmp.decision_track || {};
+                    const prevDecDiff = cmp.previous_day_decision_diff || {};
+                    const prevDecSnap = cmp.previous_day_decision_snapshot || {};
+                    const hasDecTrack = decTrack.available === true || (Array.isArray(decTrack.hourly) && decTrack.hourly.length);
+                    const hasPrevDiff = prevDecDiff.available === true;
+                    const hasPrevSnap = prevDecSnap.available !== false && prevDecSnap.ts;
+                    if (review.summary || (review.segments && review.segments.length) || prevDyn.summary || hasDecTrack || hasPrevDiff || hasPrevSnap) {
                         out += `<div style="margin:8px 0;padding:8px 10px;background:#15151f;border-left:3px solid #26a69a;border-radius:5px;">`;
                         out += `<div style="color:#26a69a;font-size:12px;font-weight:bold;margin-bottom:6px;">📈 日内走势复盘 + 前日动态对比</div>`;
                         if (review.summary) {
@@ -3865,6 +3872,136 @@ function getStrategyReportEndpoint() {
                                     `</tr></tbody></table>`;
                             }
                         }
+
+                        // ============================================================
+                        // v2.11.95k: 4 维决策日间对比 + 日内 track + 上一交易日快照
+                        // 数据源: build_daily_comparison 写入 cmp.decision_track / previous_day_decision_diff / previous_day_decision_snapshot
+                        // 取代老的"价格+bias"对比，让前端看到 4 维决策视角的日内/日间变化
+                        // ============================================================
+                        if (hasDecTrack) {
+                            const hourly = Array.isArray(decTrack.hourly) ? decTrack.hourly : [];
+                            const flips = Array.isArray(decTrack.flips) ? decTrack.flips : [];
+                            const stats = decTrack.score_stats || {};
+                            out += `<div style="color:#ffd700;font-size:11px;font-weight:bold;margin:10px 0 4px 0;">日内 4 维决策 track（按整点聚合）</div>`;
+                            if (decTrack.summary) {
+                                out += `<div style="color:#cfcfcf;font-size:11px;line-height:1.6;margin:0 0 6px 0;">${cell(decTrack.summary)}</div>`;
+                            }
+                            if (hourly.length) {
+                                const decColor = (s) => s > 0.5 ? '#ef5350' : (s < -0.5 ? '#26a69a' : '#aaa');
+                                const decBg = (s) => s > 0.5 ? '#3a1f1f' : (s < -0.5 ? '#1f3a2a' : '#1a1a26');
+                                out += `<div style="max-height:240px;overflow-y:auto;border:1px solid #2a2a36;background:#12121b;border-radius:3px;margin-bottom:6px;"><table style="width:100%;border-collapse:collapse;font-size:10px;line-height:1.4;">`;
+                                out += `<thead><tr style="position:sticky;top:0;background:#1a1a26;z-index:1;">` +
+                                    `<th style="color:#aaa;text-align:left;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">时</th>` +
+                                    `<th style="color:#aaa;text-align:left;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">决策</th>` +
+                                    `<th style="color:#aaa;text-align:right;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">5档总分</th>` +
+                                    `<th style="color:#aaa;text-align:right;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">Δ</th>` +
+                                    `<th style="color:#aaa;text-align:left;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">L1</th>` +
+                                    `<th style="color:#aaa;text-align:left;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">L2</th>` +
+                                    `<th style="color:#aaa;text-align:left;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">L3</th>` +
+                                    `<th style="color:#aaa;text-align:left;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">L4</th>` +
+                                    `<th style="color:#aaa;text-align:center;padding:4px 6px;border-bottom:1px solid #333;font-weight:500;">变化</th>` +
+                                    `</tr></thead><tbody>`;
+                                hourly.forEach(h => {
+                                    const sc = h.score;
+                                    const l1 = h.L1 || {}, l2 = h.L2 || {}, l3 = h.L3 || {}, l4 = h.L4 || {};
+                                    const l1s = l1.score_5grid != null ? l1.score_5grid : (l1.score != null ? l1.score : null);
+                                    const l2s = l2.score_5grid != null ? l2.score_5grid : (l2.score != null ? l2.score : null);
+                                    const l3s = l3.score_5grid != null ? l3.score_5grid : (l3.score != null ? l3.score : null);
+                                    const l4s = l4.score_5grid != null ? l4.score_5grid : (l4.score != null ? l4.score : null);
+                                    const l1l = l1.score_label || l1.label || '-';
+                                    const l2l = l2.score_label || l2.label || '-';
+                                    const l3l = l3.score_label || l3.label || '-';
+                                    const l4l = l4.score_label || l4.label || '-';
+                                    const changedMark = h.decision_changed_vs_prev_hour ? '<span style="color:#ef5350;font-weight:bold;">●</span>' : '';
+                                    const dlt = h.delta_score;
+                                    const dltStr = dlt == null ? '-' : (dlt >= 0 ? '+' : '') + dlt.toFixed(3);
+                                    const dltColor = dlt == null ? '#888' : (dlt > 0 ? '#ef5350' : (dlt < 0 ? '#26a69a' : '#888'));
+                                    out += `<tr>` +
+                                        `<td style="color:#888;padding:3px 6px;border-bottom:1px solid #242430;">${cell(h.hour)}:00</td>` +
+                                        `<td style="color:${decColor(sc)};background:${decBg(sc)};padding:3px 6px;border-bottom:1px solid #242430;font-weight:bold;">${cell(h.decision)}</td>` +
+                                        `<td style="color:${decColor(sc)};text-align:right;padding:3px 6px;border-bottom:1px solid #242430;">${sc != null ? sc.toFixed(3) : '-'}</td>` +
+                                        `<td style="color:${dltColor};text-align:right;padding:3px 6px;border-bottom:1px solid #242430;">${dltStr}</td>` +
+                                        `<td style="color:#cfcfcf;padding:3px 6px;border-bottom:1px solid #242430;">${l1s != null ? l1s.toFixed(1) : '-'} ${cell(l1l)}</td>` +
+                                        `<td style="color:#cfcfcf;padding:3px 6px;border-bottom:1px solid #242430;">${l2s != null ? l2s.toFixed(1) : '-'} ${cell(l2l)}</td>` +
+                                        `<td style="color:#cfcfcf;padding:3px 6px;border-bottom:1px solid #242430;">${l3s != null ? l3s.toFixed(1) : '-'} ${cell(l3l)}</td>` +
+                                        `<td style="color:#cfcfcf;padding:3px 6px;border-bottom:1px solid #242430;">${l4s != null ? l4s.toFixed(1) : '-'} ${cell(l4l)}</td>` +
+                                        `<td style="text-align:center;padding:3px 6px;border-bottom:1px solid #242430;">${changedMark}</td>` +
+                                        `</tr>`;
+                                });
+                                out += `</tbody></table></div>`;
+                            }
+                            if (flips.length) {
+                                out += `<div style="color:#ffd700;font-size:11px;font-weight:bold;margin:6px 0 4px 0;">决策翻转点（${flips.length} 次）</div>`;
+                                out += `<table style="width:100%;border-collapse:collapse;font-size:10px;line-height:1.4;background:#12121b;border:1px solid #2a2a36;margin-bottom:6px;"><thead><tr>` +
+                                    `<th style="color:#aaa;text-align:left;padding:3px 6px;border-bottom:1px solid #333;font-weight:500;">时点</th>` +
+                                    `<th style="color:#aaa;text-align:left;padding:3px 6px;border-bottom:1px solid #333;font-weight:500;">原决策</th>` +
+                                    `<th style="color:#aaa;text-align:left;padding:3px 6px;border-bottom:1px solid #333;font-weight:500;">新决策</th>` +
+                                    `<th style="color:#aaa;text-align:right;padding:3px 6px;border-bottom:1px solid #333;font-weight:500;">Δ score</th>` +
+                                    `</tr></thead><tbody>`;
+                                flips.forEach(f => {
+                                    out += `<tr>` +
+                                        `<td style="color:#ddd;padding:3px 6px;border-bottom:1px solid #242430;">${cell(f.hour)}:00</td>` +
+                                        `<td style="color:#888;padding:3px 6px;border-bottom:1px solid #242430;">${cell(f.from_decision)}</td>` +
+                                        `<td style="color:#ef5350;padding:3px 6px;border-bottom:1px solid #242430;font-weight:bold;">${cell(f.to_decision)}</td>` +
+                                        `<td style="color:#aaa;text-align:right;padding:3px 6px;border-bottom:1px solid #242430;">${f.delta_score != null ? (f.delta_score >= 0 ? '+' : '') + f.delta_score.toFixed(3) : '-'}</td>` +
+                                        `</tr>`;
+                                });
+                                out += `</tbody></table>`;
+                            }
+                            if (stats.min != null || stats.max != null) {
+                                const drift = stats.drift;
+                                const driftStr = drift != null ? (drift >= 0 ? '+' : '') + drift.toFixed(3) : '-';
+                                const driftColor = drift == null ? '#888' : (drift > 0.1 ? '#ef5350' : (drift < -0.1 ? '#26a69a' : '#aaa'));
+                                out += `<div style="color:#888;font-size:10px;margin-top:4px;">score 区间：[${stats.min != null ? stats.min.toFixed(3) : '-'}, ${stats.max != null ? stats.max.toFixed(3) : '-'}]，均值 ${stats.mean != null ? stats.mean.toFixed(3) : '-'}，总漂移 <span style="color:${driftColor};font-weight:bold;">${driftStr}</span></div>`;
+                            }
+                        }
+                        if (hasPrevDiff || hasPrevSnap) {
+                            out += `<div style="color:#ffd700;font-size:11px;font-weight:bold;margin:10px 0 4px 0;">4 维决策 vs 上一交易日 15:00 收盘</div>`;
+                            if (hasPrevDiff) {
+                                if (prevDecDiff.summary) {
+                                    out += `<div style="color:#cfcfcf;font-size:11px;line-height:1.6;margin:0 0 6px 0;">${cell(prevDecDiff.summary)}</div>`;
+                                }
+                                const layerChanges = Array.isArray(prevDecDiff.layer_changes) ? prevDecDiff.layer_changes : [];
+                                if (layerChanges.length) {
+                                    out += `<table style="width:100%;border-collapse:collapse;font-size:10px;line-height:1.4;background:#12121b;border:1px solid #2a2a36;margin-bottom:6px;"><thead><tr>` +
+                                        `<th style="color:#aaa;text-align:center;padding:3px 6px;border-bottom:1px solid #333;font-weight:500;">层</th>` +
+                                        `<th style="color:#aaa;text-align:left;padding:3px 6px;border-bottom:1px solid #333;font-weight:500;">上一交易日 15:00</th>` +
+                                        `<th style="color:#aaa;text-align:center;padding:3px 6px;border-bottom:1px solid #333;font-weight:500;">→</th>` +
+                                        `<th style="color:#aaa;text-align:left;padding:3px 6px;border-bottom:1px solid #333;font-weight:500;">当前</th>` +
+                                        `<th style="color:#aaa;text-align:right;padding:3px 6px;border-bottom:1px solid #333;font-weight:500;">Δ score</th>` +
+                                        `<th style="color:#aaa;text-align:center;padding:3px 6px;border-bottom:1px solid #333;font-weight:500;">变化</th>` +
+                                        `</tr></thead><tbody>`;
+                                    layerChanges.forEach(lc => {
+                                        const ds = lc.delta;
+                                        const dsStr = ds == null ? '-' : (ds >= 0 ? '+' : '') + ds.toFixed(2);
+                                        const dsColor = ds == null ? '#888' : (ds > 0 ? '#ef5350' : (ds < 0 ? '#26a69a' : '#aaa'));
+                                        const changeMark = lc.changed ? '<span style="color:#ef5350;">●</span>' : '<span style="color:#666;">-</span>';
+                                        out += `<tr>` +
+                                            `<td style="color:#ffd700;text-align:center;padding:3px 6px;border-bottom:1px solid #242430;font-weight:bold;">${cell(lc.layer)}</td>` +
+                                            `<td style="color:#888;padding:3px 6px;border-bottom:1px solid #242430;">${lc.prev_score != null ? lc.prev_score.toFixed(2) : '-'} ${cell(lc.prev_label || '')}</td>` +
+                                            `<td style="color:#666;text-align:center;padding:3px 6px;border-bottom:1px solid #242430;">→</td>` +
+                                            `<td style="color:#cfcfcf;padding:3px 6px;border-bottom:1px solid #242430;">${lc.curr_score != null ? lc.curr_score.toFixed(2) : '-'} ${cell(lc.curr_label || '')}</td>` +
+                                            `<td style="color:${dsColor};text-align:right;padding:3px 6px;border-bottom:1px solid #242430;font-weight:bold;">${dsStr}</td>` +
+                                            `<td style="text-align:center;padding:3px 6px;border-bottom:1px solid #242430;">${changeMark}</td>` +
+                                            `</tr>`;
+                                    });
+                                    out += `</tbody></table>`;
+                                }
+                                if (prevDecDiff.score_drift != null || prevDecDiff.price_delta != null) {
+                                    const sd = prevDecDiff.score_drift;
+                                    const sdStr = sd != null ? (sd >= 0 ? '+' : '') + sd.toFixed(3) : '-';
+                                    const sdColor = sd == null ? '#888' : (sd > 0.1 ? '#ef5350' : (sd < -0.1 ? '#26a69a' : '#aaa'));
+                                    const pd = prevDecDiff.price_delta;
+                                    const pdStr = pd != null ? (pd >= 0 ? '+' : '') + pd : '-';
+                                    const pdColor = pd == null ? '#888' : (pd > 0 ? '#ef5350' : (pd < 0 ? '#26a69a' : '#aaa'));
+                                    out += `<div style="color:#888;font-size:10px;margin-top:2px;">5 档总分漂移：<span style="color:${sdColor};font-weight:bold;">${sdStr}</span>　价格：<span style="color:${pdColor};font-weight:bold;">${pdStr} 点</span>${prevDecDiff.decision_changed ? '　<span style="color:#ef5350;font-weight:bold;">决策翻转</span>' : '　<span style="color:#888;">决策不变</span>'}</div>`;
+                                }
+                            }
+                            if (hasPrevSnap) {
+                                out += `<div style="color:#888;font-size:10px;margin-top:6px;font-style:italic;">参考：上一交易日 15:00 收盘决策快照 @ ${cell(prevDecSnap.ts)}</div>`;
+                            }
+                        }
+
                         out += `</div>`;
                     }
 
@@ -5331,6 +5468,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.95g (四维决策 L1/L2/L3/L4 展开原始判据缩进对齐 32px + L3 容器对齐 + 归位各自结论行下 + iv_smile Pain 斜率 dyn_th 联动对齐)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.95k (研报日间/日内对比前端渲染 4 维决策 track + L1/L2/L3/L4 跨日 diff + 上一交易日 15:00 快照 + 决策翻转点)</div>
 </body>
 </html>
