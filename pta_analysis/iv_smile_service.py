@@ -3775,7 +3775,17 @@ def register_routes(app):
                 cb_ts = cb.get('ts') or cb.get('timestamp') or ''
                 if contract_match and cb_ts:
                     try:
-                        cb_date = datetime.fromisoformat(cb_ts[:10] if len(cb_ts) >= 10 else cb_ts).date()
+                        # [v2.11.96+] 兼容 2 种 cb_ts 格式：
+                        # - ISO 短横线: "2026-07-17T15:00:00" (close_state.json / _load_close_state 写入)
+                        # - prev_baseline 无分隔线紧凑: "20260717T15:00:00" (line 399 _save_prev_baseline)
+                        # 原来 datetime.fromisoformat("20260717T") 抛 ValueError,被 except 静默吞掉,
+                        # 导致 cb_eligible=False,曲线路由静默回退到 _prev_day_baseline,
+                        # 前端"前次基准"显示陈旧日期(7/16 vs 7/17)。
+                        _cb_raw = cb_ts[:10] if len(cb_ts) >= 10 else cb_ts
+                        if '-' in _cb_raw:
+                            cb_date = datetime.fromisoformat(_cb_raw).date()
+                        else:
+                            cb_date = datetime.strptime(_cb_raw, '%Y%m%d').date()
                         today = now_dt.date()
                         # ⚠️ 夜盘守卫 + 跨节假日守卫：
                         # - cb_date == today: 今日15:00写入的cb，全天有效（21:00前后都用）
@@ -3786,14 +3796,16 @@ def register_routes(app):
                         #   (b) 节后首日 21:00 后 cb_date<today（如6/18→6/22），has_night=True → 切到节前最后日cb
                         #   (c) 节假日中 cb_date<today 且 has_night=False → 仍走历史cb（不切换）
                         # v2.11.38+ 切换原则：
-                        # - 今日 15:00 已过 → 用今日 cb（today）
-                        # - 节后首日 9:00 早盘开盘后 → 用节前最后交易日
+                        # - 今日 15:00 已过 → 用今日 cb（即 today）
+                        # - 节后首个交易日 9:00 早盘开盘后 → 切到节前最后交易日
                         # - 有夜盘的交易日 21:00 后 → 用今日 cb
                         # - 其他时段 → 用上一交易日
                         # cb_date == _get_expected_baseline_date(now) 即为有效
                         cb_eligible = _cb_should_apply(cb_date, now_dt)
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        # [v2.11.96+] 改为打 warn 日志，不再静默 pass — 方便未来排查。
+                        # 注意：cb_eligible 仍保持 False（保守行为不变）。
+                        print(f"[iv_smile] ⚠️ cb_date 解析失败: cb_ts={cb_ts!r} err={_e}")
 
             if cb_eligible:
                 close_baseline = cb
