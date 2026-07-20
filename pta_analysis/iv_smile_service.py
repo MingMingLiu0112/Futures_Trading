@@ -293,6 +293,45 @@ def _iso_expiry(value):
     return parsed.isoformat() if parsed else str(value)
 
 
+def _parse_cb_ts(cb_ts):
+    """v2.11.96a: 兼容 2 种 cb_ts 格式解析为 date 对象。
+
+    背景：_close_baseline.ts 既可能是 ISO 短横线（close_state.json / _load_close_state 写入），
+    也可能是无分隔线紧凑格式（prev_baseline.json / _save_prev_baseline 写入）。
+    原来 datetime.fromisoformat 对紧凑格式抛 ValueError，被各处 except 静默吞掉，
+    导致 cb_eligible=False / baseline_label 乱码。
+
+    返回 datetime.date 或 None（None 表示 cb_ts 为空或无法解析）。
+    """
+    if not cb_ts or not isinstance(cb_ts, str):
+        return None
+    # cb_ts 两种格式：
+    # - "2026-07-17T15:00:00" (ISO 短横线) → 前 10 字符 "2026-07-17"
+    # - "20260717T15:00:00" (无分隔线紧凑) → 实际日期前缀是前 8 字符 "20260717"
+    # 不能简单 cb_ts[:10], 否则紧凑格式会取到 "20260717T" 让 strptime 失败
+    if '-' in cb_ts[:10]:
+        try:
+            return datetime.fromisoformat(cb_ts[:10]).date()
+        except Exception:
+            return None
+    try:
+        return datetime.strptime(cb_ts[:8], '%Y%m%d').date()
+    except Exception:
+        return None
+
+
+def _format_cb_label_date(cb_ts):
+    """v2.11.96a: 从 cb_ts 提取 MM-DD 字符串用于 baseline_label 显示。
+
+    兼容 ISO 短横线（"2026-07-17T15:00:00"）和无分隔线紧凑（"20260717T15:00:00"）。
+    返回 "MM-DD" 字符串或 None。
+    """
+    d = _parse_cb_ts(cb_ts)
+    if d is None:
+        return None
+    return d.strftime('%m-%d')
+
+
 def _payload_state_timestamp(payload_or_state):
     """取用于 current 防回退比较的时间：state.last_update 优先，其次 payload.timestamp/ts。"""
     if not isinstance(payload_or_state, dict):
@@ -3655,9 +3694,13 @@ def register_routes(app):
                 # v2.11.55+: 前端 status 面板需要 prev_timestamp / baseline_label
                 'prev_timestamp': _close_baseline.get('ts', '') if _close_baseline else '',
                 'baseline_label': (
-                    f"今日15:00 ({_close_baseline.get('ts','')[5:10]})"
-                    if (_close_baseline and _close_baseline.get('ts','')[:10] == _dt_status.now().strftime('%Y-%m-%d'))
-                    else (f"前日15:00 ({_close_baseline.get('ts','')[5:10]})" if _close_baseline and _close_baseline.get('ts','') else None)
+                    (f"今日15:00 ({_format_cb_label_date(_close_baseline.get('ts', ''))})"
+                     if (_close_baseline and _format_cb_label_date(_close_baseline.get('ts', ''))
+                         and _parse_cb_ts(_close_baseline.get('ts', '')) == _dt_status.now().date())
+                     else
+                     (f"前日15:00 ({_format_cb_label_date(_close_baseline.get('ts', ''))})"
+                      if (_close_baseline and _format_cb_label_date(_close_baseline.get('ts', '')))
+                      else None))
                 ),
             })
 
@@ -3775,17 +3818,15 @@ def register_routes(app):
                 cb_ts = cb.get('ts') or cb.get('timestamp') or ''
                 if contract_match and cb_ts:
                     try:
-                        # [v2.11.96+] 兼容 2 种 cb_ts 格式：
-                        # - ISO 短横线: "2026-07-17T15:00:00" (close_state.json / _load_close_state 写入)
-                        # - prev_baseline 无分隔线紧凑: "20260717T15:00:00" (line 399 _save_prev_baseline)
-                        # 原来 datetime.fromisoformat("20260717T") 抛 ValueError,被 except 静默吞掉,
-                        # 导致 cb_eligible=False,曲线路由静默回退到 _prev_day_baseline,
+                        # [v2.11.96a] 用公共 _parse_cb_ts() 兼容 2 种格式：
+                        # - ISO 短横线: "2026-07-17T15:00:00" (close_state.json 写入)
+                        # - prev_baseline 无分隔线紧凑: "20260717T15:00:00" (_save_prev_baseline 写入)
+                        # v2.11.96 之前 datetime.fromisoformat("20260717T") 抛 ValueError,
+                        # 被 bare except 静默吞掉 → cb_eligible=False → 静默回退到 _prev_day_baseline,
                         # 前端"前次基准"显示陈旧日期(7/16 vs 7/17)。
-                        _cb_raw = cb_ts[:10] if len(cb_ts) >= 10 else cb_ts
-                        if '-' in _cb_raw:
-                            cb_date = datetime.fromisoformat(_cb_raw).date()
-                        else:
-                            cb_date = datetime.strptime(_cb_raw, '%Y%m%d').date()
+                        cb_date = _parse_cb_ts(cb_ts)
+                        if cb_date is None:
+                            raise ValueError(f"无法解析 cb_ts={cb_ts!r}")
                         today = now_dt.date()
                         # ⚠️ 夜盘守卫 + 跨节假日守卫：
                         # - cb_date == today: 今日15:00写入的cb，全天有效（21:00前后都用）
@@ -3803,7 +3844,7 @@ def register_routes(app):
                         # cb_date == _get_expected_baseline_date(now) 即为有效
                         cb_eligible = _cb_should_apply(cb_date, now_dt)
                     except Exception as _e:
-                        # [v2.11.96+] 改为打 warn 日志，不再静默 pass — 方便未来排查。
+                        # [v2.11.96a] 改为打 warn 日志，不再静默 pass — 方便未来排查。
                         # 注意：cb_eligible 仍保持 False（保守行为不变）。
                         print(f"[iv_smile] ⚠️ cb_date 解析失败: cb_ts={cb_ts!r} err={_e}")
 
@@ -4854,10 +4895,15 @@ def register_routes(app):
             'last_update': _state.get('last_update'),
             # v2.11.55+: 前端 L740 路径会从 alert_data 取 prev_timestamp / baseline_label
             'prev_timestamp': close_ts,
+            # [v2.11.96a] 用 _format_cb_label_date 兼容 prev_baseline 紧凑格式, 显示正确的 MM-DD
             'baseline_label': (
-                f"今日15:00 ({close_ts[5:10]})"
-                if close_ts and close_ts[:10] == datetime.now().strftime('%Y-%m-%d')
-                else (f"前日15:00 ({close_ts[5:10]})" if close_ts else None)
+                (f"今日15:00 ({_format_cb_label_date(close_ts)})"
+                 if close_ts and _format_cb_label_date(close_ts)
+                    and _parse_cb_ts(close_ts) == datetime.now().date()
+                 else
+                 (f"前日15:00 ({_format_cb_label_date(close_ts)})"
+                  if close_ts and _format_cb_label_date(close_ts)
+                  else None))
             ),
         })
 
@@ -5264,9 +5310,9 @@ def register_routes(app):
             cb_ts = cb.get('ts') or cb.get('timestamp') or ''
             if not cb_ts:
                 return False
-            try:
-                cb_date = datetime.fromisoformat(cb_ts[:10] if len(cb_ts) >= 10 else cb_ts).date()
-            except Exception:
+            # [v2.11.96a] 用公共 _parse_cb_ts() 兼容 prev_baseline 紧凑格式
+            cb_date = _parse_cb_ts(cb_ts)
+            if cb_date is None:
                 return False
             now_dt = datetime.now()
             today = now_dt.date()
@@ -5282,12 +5328,18 @@ def register_routes(app):
             cb_ts = (cb.get('ts') or cb.get('timestamp') or '')[:10]
             # v2.11.58+: _close_baseline 来自 prev_baseline.json，语义是"前次基准"（最近一个 15:00 收盘）
             # 不论 _cb_should_apply 返回 True/False，标签都应该是"前次基准 (MM-DD)"，与 status 端点对齐
+            # [v2.11.96a] 用 _format_cb_label_date 兼容 prev_baseline 紧凑格式, 显示正确的 MM-DD
             from datetime import datetime as _dt_label
+            cb_label_date = _format_cb_label_date(cb.get('ts') or '')
             today_str_lbl = _dt_label.now().strftime('%Y-%m-%d')
-            if cb_ts == today_str_lbl:
-                baseline_label = f"今日15:00 ({cb_ts[5:10]})" if cb_ts else '今日15:00收盘'
+            if cb_ts == today_str_lbl and cb_label_date:
+                baseline_label = f"今日15:00 ({cb_label_date})"
+            elif cb_label_date:
+                baseline_label = f"前次基准 ({cb_label_date})"
+            elif cb_ts:
+                baseline_label = '今日15:00收盘' if cb_ts == today_str_lbl else '前次基准'
             else:
-                baseline_label = f"前次基准 ({cb_ts[5:10]})" if cb_ts else '前次基准'
+                baseline_label = '前次基准'
             # T/r/expiry 也用 15:00 收盘时点的（若可推断）
             cb_expiry_ts = cb.get('expiry') or cb.get('state', {}).get('expiry')
             if cb_expiry_ts:
