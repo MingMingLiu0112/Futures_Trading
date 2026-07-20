@@ -4457,6 +4457,7 @@ def _build_decision_track(decision_history: List[Dict], current_report: Optional
         h = hourly_map[hour_key]
         ts = h.get('ts', '')
         final = h.get('final') or {}
+        L1, L2, L3, L4 = h.get('L1', {}), h.get('L2', {}), h.get('L3', {}), h.get('L4', {})
         decision = final.get('decision', '?')
         score = final.get('score')
         delta_score = (score - prev_hour_score) if (score is not None and prev_hour_score is not None) else None
@@ -4468,6 +4469,15 @@ def _build_decision_track(decision_history: List[Dict], current_report: Optional
             'score': score,
             'delta_score': round(delta_score, 3) if delta_score is not None else None,
             'decision_changed_vs_prev_hour': decision_changed,
+            # v2.11.96b: 平铺 L1-L4 score + label (与 points[] 对齐, 修复前端 hourly forEach L1-L4 全 null)
+            'L1_score': L1.get('score'),
+            'L1_label': (L1.get('label') or '')[:40],
+            'L2_score': L2.get('score'),
+            'L2_label': (L2.get('label') or '')[:40],
+            'L3_score': L3.get('score'),
+            'L3_label': (L3.get('label') or '')[:40],
+            'L4_score': L4.get('score'),
+            'L4_label': (L4.get('label') or '')[:40],
         })
         prev_hour_decision = decision
         prev_hour_score = score

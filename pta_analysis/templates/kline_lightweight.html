@@ -3903,15 +3903,20 @@ function getStrategyReportEndpoint() {
                                     `</tr></thead><tbody>`;
                                 hourly.forEach(h => {
                                     const sc = h.score;
-                                    const l1 = h.L1 || {}, l2 = h.L2 || {}, l3 = h.L3 || {}, l4 = h.L4 || {};
-                                    const l1s = l1.score_5grid != null ? l1.score_5grid : (l1.score != null ? l1.score : null);
-                                    const l2s = l2.score_5grid != null ? l2.score_5grid : (l2.score != null ? l2.score : null);
-                                    const l3s = l3.score_5grid != null ? l3.score_5grid : (l3.score != null ? l3.score : null);
-                                    const l4s = l4.score_5grid != null ? l4.score_5grid : (l4.score != null ? l4.score : null);
-                                    const l1l = l1.score_label || l1.label || '-';
-                                    const l2l = l2.score_label || l2.label || '-';
-                                    const l3l = l3.score_label || l3.label || '-';
-                                    const l4l = l4.score_label || l4.label || '-';
+                                    // v2.11.96b: 兼容 hourly 后端平铺 (L1_score / L1_label) + 嵌套 (h.L1.score) 两种格式
+                                    const readLayer = (layer) => {
+                                        const obj = h[layer] || {};
+                                        return {
+                                            score: (h[`${layer}_score`] != null) ? h[`${layer}_score`] :
+                                                   (obj.score_5grid != null) ? obj.score_5grid :
+                                                   (obj.score != null) ? obj.score : null,
+                                            label: h[`${layer}_label`] || obj.score_label || obj.label || '-'
+                                        };
+                                    };
+                                    const l1 = readLayer('L1');
+                                    const l2 = readLayer('L2');
+                                    const l3 = readLayer('L3');
+                                    const l4 = readLayer('L4');
                                     const changedMark = h.decision_changed_vs_prev_hour ? '<span style="color:#ef5350;font-weight:bold;">●</span>' : '';
                                     const dlt = h.delta_score;
                                     const dltStr = dlt == null ? '-' : (dlt >= 0 ? '+' : '') + dlt.toFixed(3);
@@ -3921,10 +3926,10 @@ function getStrategyReportEndpoint() {
                                         `<td style="color:${decColor(sc)};background:${decBg(sc)};padding:3px 6px;border-bottom:1px solid #242430;font-weight:bold;">${cell(h.decision)}</td>` +
                                         `<td style="color:${decColor(sc)};text-align:right;padding:3px 6px;border-bottom:1px solid #242430;">${sc != null ? sc.toFixed(3) : '-'}</td>` +
                                         `<td style="color:${dltColor};text-align:right;padding:3px 6px;border-bottom:1px solid #242430;">${dltStr}</td>` +
-                                        `<td style="color:#cfcfcf;padding:3px 6px;border-bottom:1px solid #242430;">${l1s != null ? l1s.toFixed(1) : '-'} ${cell(l1l)}</td>` +
-                                        `<td style="color:#cfcfcf;padding:3px 6px;border-bottom:1px solid #242430;">${l2s != null ? l2s.toFixed(1) : '-'} ${cell(l2l)}</td>` +
-                                        `<td style="color:#cfcfcf;padding:3px 6px;border-bottom:1px solid #242430;">${l3s != null ? l3s.toFixed(1) : '-'} ${cell(l3l)}</td>` +
-                                        `<td style="color:#cfcfcf;padding:3px 6px;border-bottom:1px solid #242430;">${l4s != null ? l4s.toFixed(1) : '-'} ${cell(l4l)}</td>` +
+                                        `<td style="color:#cfcfcf;padding:3px 6px;border-bottom:1px solid #242430;">${l1.score != null ? l1.score.toFixed(1) : '-'} ${cell(l1.label)}</td>` +
+                                        `<td style="color:#cfcfcf;padding:3px 6px;border-bottom:1px solid #242430;">${l2.score != null ? l2.score.toFixed(1) : '-'} ${cell(l2.label)}</td>` +
+                                        `<td style="color:#cfcfcf;padding:3px 6px;border-bottom:1px solid #242430;">${l3.score != null ? l3.score.toFixed(1) : '-'} ${cell(l3.label)}</td>` +
+                                        `<td style="color:#cfcfcf;padding:3px 6px;border-bottom:1px solid #242430;">${l4.score != null ? l4.score.toFixed(1) : '-'} ${cell(l4.label)}</td>` +
                                         `<td style="text-align:center;padding:3px 6px;border-bottom:1px solid #242430;">${changedMark}</td>` +
                                         `</tr>`;
                                 });
