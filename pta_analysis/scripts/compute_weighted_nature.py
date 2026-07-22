@@ -165,6 +165,33 @@ def _calc_fund_flow_split(strike_role_list, side):
     else:
         new_fund_dominant = 'unknown'
 
+    # ============================================================
+    # v2.11.97b: 业务方向一致性字段 (B1-i 子规则 2b 业务前置)
+    #   - new_dominant_dir  : 新资金 NAT label 主导方向 ('看多'/'看空'/'中性')
+    #   - stock_dominant_dir: 存量 NAT label 主导方向
+    #   - fund_consistent   : 新资金 vs 存量 NAT label 是否一致(都非中性且相同)
+    #   - fund_dominant_dir : 综合业务方向(一致→new,矛盾→'矛盾',一端中性→另一端)
+    # ============================================================
+    def _label_dir(net_long, net_short):
+        """NAT label 主导方向: 看多/看空/中性 按数量大小取主导"""
+        pos = abs(net_long)
+        neg = abs(net_short)
+        if pos > neg: return '看多'
+        if neg > pos: return '看空'
+        return '中性'
+
+    new_dir  = _label_dir(new_long, new_short)
+    stock_dir = _label_dir(stock_long, stock_short)
+    fund_consistent = (new_dir != '中性' and stock_dir != '中性' and new_dir == stock_dir)
+    if fund_consistent:
+        fund_dominant_dir = new_dir
+    elif new_dir == '中性':
+        fund_dominant_dir = stock_dir
+    elif stock_dir == '中性':
+        fund_dominant_dir = new_dir
+    else:
+        fund_dominant_dir = '矛盾'
+
     return {
         'new_fund_net_long': round(new_long),
         'new_fund_net_short': round(new_short),
@@ -174,6 +201,11 @@ def _calc_fund_flow_split(strike_role_list, side):
         'oi_total_chg': round(oi_total),
         'dominant_nature': dominant_nature,
         'new_fund_dominant_nature': new_fund_dominant,
+        # v2.11.97b 新增 (B1-i 业务方向一致性前置判定字段)
+        'new_dominant_dir': new_dir,
+        'stock_dominant_dir': stock_dir,
+        'fund_consistent': fund_consistent,
+        'fund_dominant_dir': fund_dominant_dir,
     }
 PCT_MID = 40.0
 
@@ -706,24 +738,39 @@ def cross_validate_funding(cv_inputs):
             abs_new = abs(new_long) + abs(new_short) + abs(new_neutral)
             abs_stock = abs(stock_long) + abs(stock_short)
 
-            # 新资金 vs 存量 主导判定
-            if abs_new > abs_stock * NEW_FUND_DOMINANCE_RATIO:
-                flow_verdict = '新资金主导'
-            elif abs_stock > abs_new * NEW_FUND_DOMINANCE_RATIO:
-                flow_verdict = '存量调整主导'
-            else:
-                flow_verdict = '资金僵持'
+            # ============================================================
+            # v2.11.97b: B1-i 业务方向一致性前置判定
+            #   若新资金 vs 存量 NAT label 业务方向一致 → 不算僵持
+            #     → flow_verdict = '方向一致(X)' + direction = X
+            #   否则走原 1.5× 阈值逻辑(量级比较)
+            # ============================================================
+            fund_consistent_label = ff.get('fund_consistent', False)
+            fund_dominant_dir = ff.get('fund_dominant_dir', '中性')
 
-            # 方向判定: 仅当新资金主导时给方向
-            if flow_verdict == '新资金主导':
-                if new_long > abs(new_short):
-                    direction = '看多'
-                elif abs(new_short) > new_long:
-                    direction = '看空'
-                else:
-                    direction = None  # 新资金内部多空均衡
+            if fund_consistent_label and fund_dominant_dir in ('看多', '看空'):
+                # 业务方向一致 → 直接给方向,不再判僵持
+                flow_verdict = f'方向一致({fund_dominant_dir})'
+                direction = fund_dominant_dir
             else:
-                direction = None  # 存量主导/僵持 → 不给方向,让 9 行表结论主导
+                # 一端中性 或 新/存量 NAT 矛盾 → 走原量级阈值逻辑
+                # 新资金 vs 存量 主导判定
+                if abs_new > abs_stock * NEW_FUND_DOMINANCE_RATIO:
+                    flow_verdict = '新资金主导'
+                elif abs_stock > abs_new * NEW_FUND_DOMINANCE_RATIO:
+                    flow_verdict = '存量调整主导'
+                else:
+                    flow_verdict = '资金僵持'
+
+                # 方向判定: 仅当新资金主导时给方向
+                if flow_verdict == '新资金主导':
+                    if new_long > abs(new_short):
+                        direction = '看多'
+                    elif abs(new_short) > new_long:
+                        direction = '看空'
+                    else:
+                        direction = None  # 新资金内部多空均衡
+                else:
+                    direction = None  # 存量主导/僵持 → 不给方向,让 9 行表结论主导
 
             # v2.11.85h+ (A 拍板): rationale 删 `新主导[{new_dom}]` 段
             #   理由: strike 详情已列出每个 nature, rationale 重复展示"新资金最大项"冗余且易误读为方向主导
@@ -813,54 +860,83 @@ def cross_validate_funding(cv_inputs):
         result[side] = side_data
 
     # ============================================================
-    # v2.11.85f: 综合两端 new_fund_direction（仅 contradictory 时有意义）
+    # v2.11.97b: B1-i 综合方向判定(NAT_DIR 双端业务反向翻译 + 1.5× 阈值)
+    #   关键业务逻辑:
+    #     NAT label "看多" / "看空" 在 Call/Put 端的业务含义是反向的:
+    #       Call NAT '看多' (= spec_buy/close_push) = 业务标的多头有利 / under_long
+    #       Call NAT '看空' (= hedge_buy)          = 业务标的空头有利 / under_short
+    #       Put  NAT '看空' (= spec_buy)           = 业务标的空头有利 / under_short
+    #       Put  NAT '看多' (= close_push)         = 业务标的多头有利 / under_long
+    #     → 必须先把 NAT label 翻译成"标的多空方向"(under_long/under_short),
+    #       再综合两端力量, 否则会出现"Call NAT 看多 + Put NAT 看空 = 业务同向(都 under_long)"
+    #       这类语义反向 bug
     # ============================================================
     if consistency == 'contradictory':
         ff_c = fund_flow.get('Call', {})
         ff_p = fund_flow.get('Put', {})
-        c_long = ff_c.get('new_fund_net_long', 0)
-        c_short = ff_c.get('new_fund_net_short', 0)
-        p_long = ff_p.get('new_fund_net_long', 0)
-        p_short = ff_p.get('new_fund_net_short', 0)
-        abs_c_new = abs(c_long) + abs(c_short) + abs(ff_c.get('new_fund_net_neutral', 0))
-        abs_p_new = abs(p_long) + abs(p_short) + abs(ff_p.get('new_fund_net_neutral', 0))
-        abs_c_stock = abs(ff_c.get('stock_adj_net_long', 0)) + abs(ff_c.get('stock_adj_net_short', 0))
-        abs_p_stock = abs(ff_p.get('stock_adj_net_long', 0)) + abs(ff_p.get('stock_adj_net_short', 0))
-        c_new_dom = abs_c_new > abs_c_stock * NEW_FUND_DOMINANCE_RATIO
-        p_new_dom = abs_p_new > abs_p_stock * NEW_FUND_DOMINANCE_RATIO
 
-        # 标的看多力 = Call 多 - Put 多(反向)
-        # 标的看空力 = Put 空 - Call 空(反向)
-        bull_force = c_long - p_long
-        bear_force = p_short - c_short
+        # NAT label → 业务方向(标的的多头方向)的翻译
+        # Call NAT '看多' = under_long(标的多头有利)
+        # Put  NAT '看空' = under_short(标的空头有利,投机买 Put 看跌)
+        # 平铺成 long_force / short_force 比较
+        # 注: _calc_fund_flow_split 已经输出 fund_consistent/fund_dominant_dir,
+        #     这里直接读, 不重复计算
+        def _nat_to_under(side, nat_label):
+            if nat_label == '中性':
+                return 'neutral'
+            if side == 'Call':
+                return 'under_long' if nat_label in ('看多', '偏多') else 'under_short'
+            else:  # Put
+                # NAT_DIR_PUT 里: '看空' = under_short(投机买 Put = 标的空头有利)
+                #                  '看多' = under_long(Put close_push 对冲卖压释放 = 标的多头有利)
+                return 'under_short' if nat_label in ('看空', '偏空') else 'under_long' if nat_label in ('看多', '偏多') else 'neutral'
 
-        if c_new_dom and p_new_dom:
-            # 两端都新资金主导 → 比较力量
-            if bear_force > bull_force and bear_force > 0:
-                result['new_fund_direction'] = '看空'
-            elif bull_force > bear_force and bull_force > 0:
-                result['new_fund_direction'] = '看多'
-            else:
-                result['new_fund_direction'] = '多空博弈'
-        elif c_new_dom and not p_new_dom:
-            # 只有 Call 新资金主导
-            if c_long > abs(c_short):
-                result['new_fund_direction'] = '看多'
-            elif abs(c_short) > c_long:
-                result['new_fund_direction'] = '看空'
-            else:
-                result['new_fund_direction'] = None
-        elif p_new_dom and not c_new_dom:
-            # 只有 Put 新资金主导
-            if p_short > abs(p_long):
-                result['new_fund_direction'] = '看空'
-            elif abs(p_long) > p_short:
-                result['new_fund_direction'] = '看多'
-            else:
-                result['new_fund_direction'] = None
-        else:
-            # 两端存量主导或僵持 → 不给方向
+        c_dom = ff_c.get('fund_dominant_dir', '中性')
+        p_dom = ff_p.get('fund_dominant_dir', '中性')
+        c_under = _nat_to_under('Call', c_dom)
+        p_under = _nat_to_under('Put',  p_dom)
+
+        # 只在两端 fund_dominant_dir 都有方向时启用 B1-i 的同向/反向判定
+        # (放宽条件:不再强制 fund_consistent,只要主导方向有值就算)
+        c_dom_nn = c_dom in ('看多', '看空')
+        p_dom_nn = p_dom in ('看多', '看空')
+
+        if not (c_dom_nn and p_dom_nn):
+            # 任一端主导方向为中性 → 不强行判定
             result['new_fund_direction'] = None
+        else:
+            # B1-i 综合:按业务方向(标的的多头方向)累加双端力量
+            long_force  = 0  # 业务"标的多头有利"方向累计
+            short_force = 0  # 业务"标的空头有利"方向累计
+
+            # Call 端力量归类:
+            if c_under == 'under_long':
+                long_force  += abs(ff_c.get('new_fund_net_long', 0))
+            elif c_under == 'under_short':
+                short_force += abs(ff_c.get('new_fund_net_short', 0))
+
+            # Put 端力量归类(Put 端 NAT label 与 Call 端的业务含义按 _nat_to_under 翻译)
+            if p_under == 'under_long':
+                long_force  += abs(ff_p.get('new_fund_net_long', 0))
+            elif p_under == 'under_short':
+                short_force += abs(ff_p.get('new_fund_net_short', 0))
+
+            # 阈值判定
+            if long_force > 0 and short_force > 0:
+                # 双端都有力量 → 比较 max/min
+                ratio = max(long_force, short_force) / min(long_force, short_force)
+                if ratio <= NEW_FUND_DOMINANCE_RATIO:
+                    result['new_fund_direction'] = '多空分歧'  # 大致相当
+                elif long_force > short_force * NEW_FUND_DOMINANCE_RATIO:
+                    result['new_fund_direction'] = '看多'
+                else:
+                    result['new_fund_direction'] = '看空'
+            elif long_force > 0:
+                result['new_fund_direction'] = '看多'
+            elif short_force > 0:
+                result['new_fund_direction'] = '看空'
+            else:
+                result['new_fund_direction'] = None
     else:
         result['new_fund_direction'] = None
 
