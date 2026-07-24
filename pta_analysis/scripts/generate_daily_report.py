@@ -4168,6 +4168,28 @@ def generate_intraday_analysis(report: Dict) -> Dict:
                 }
                 _four_layer_text = _format_report(_result)
                 sections = [_four_layer_text, ''] + sections
+
+                # v2.11.97c: 注入 PCR × Skew 交叉验证段（飞书 §2.3.2 附录 4 子规则）
+                #  复用 _dl 已读出来的 cache, 不再打开文件
+                _cv = _dl.get('layer3', {}).get('cross_validation', {}) or {}
+                _cvv = _dl.get('layer3', {}).get('cross_validation_verdict', {}) or {}
+                if _cv.get('available') and _cvv and not _cvv.get('error'):
+                    _pcr_d = (_cv.get('pcr') or {}).get('direction', 'flat')
+                    _skew_d = (_cv.get('skew') or {}).get('direction', 'flat')
+                    _consist = _cvv.get('consistency', '-')
+                    _pcr_v = _cvv.get('call', {}).get('verdict', '-')
+                    _put_v = _cvv.get('put', {}).get('verdict', '-')
+                    _call_r = _cvv.get('call', {}).get('rationale', '')
+                    _put_r = _cvv.get('put', {}).get('rationale', '')
+                    _cross_text = (
+                        "\n--- PCR × Skew 交叉验证（v2.11.97c）---\n"
+                        f"  PCR 方向: {_pcr_d} | Skew 方向: {_skew_d} | consistency: {_consist}\n"
+                        f"  Call 端判定: {_pcr_v}\n"
+                        f"    {_call_r}\n"
+                        f"  Put 端判定: {_put_v}\n"
+                        f"    {_put_r}\n"
+                    )
+                    sections = [_four_layer_text, _cross_text, ''] + sections
     except Exception as _e:
         print(f'[v2.11.85b] format_report 注入跳过: {_e}')
 

@@ -484,80 +484,82 @@ def _build_decision_layer_payload(gex: dict, alert_data: dict, curve: dict) -> D
         # v2.11.85d: PCR + Skew 交叉验证数据契约（飞书文档 §2.3.2 附录）
         # 这些字段供 Step 2 综合判定函数消费，不影响现有 verdict 字段
         # v2.11.85e: chain_data 已删除, 直接传 alert_data
+        # v2.11.97c: 拆 3 个独立 try — 一个 Step 崩了不阻塞其它 Step, 日志明确指明崩在哪步
+        # --- Step 1: PCR/Skew 驱动因素 + 资金活跃度 ---
         try:
             cross_val_inputs = _build_cross_validation_inputs(alert_data, gex, weighted)
             payload['layer3']['cross_validation'] = cross_val_inputs
-            # Step 2: 综合判定（4 子规则）→ 6 档置信度
-            try:
-                from scripts.compute_weighted_nature import cross_validate_funding
-                cv_result = cross_validate_funding(cross_val_inputs)
-                payload['layer3']['cross_validation_verdict'] = cv_result
-                # v2.11.85k: 把 cv 输出的 verdict/rationale/subrule/fund_flow_verdict/verdict_direction
-                #   merge 回 call_role / put_role 顶层字段
-                #   修复: 之前 _rebuild_role_dict 输出后, 这俩字段被覆盖为空, 前端展开区读不到 rationale
-                #   merge 是叠加, 不破坏 NAT_MAP 分桶(7 类老字段保留)
-                for side_key in ('call', 'put'):
-                    cv_side = cv_result.get(side_key, {}) or {}
-                    if side_key == 'call':
-                        call_role_new.update({k: v for k, v in cv_side.items() if k in (
-                            'verdict', 'rationale', 'subrule',
-                            'verdict_direction', 'fund_flow_verdict',
-                            'new_fund_net_long', 'new_fund_net_short', 'new_fund_net_neutral',
-                            'stock_adj_net_long', 'stock_adj_net_short',
-                            'new_fund_dominant_nature', 'dominant_nature',
-                        )})
-                    else:
-                        put_role_new.update({k: v for k, v in cv_side.items() if k in (
-                            'verdict', 'rationale', 'subrule',
-                            'verdict_direction', 'fund_flow_verdict',
-                            'new_fund_net_long', 'new_fund_net_short', 'new_fund_net_neutral',
-                            'stock_adj_net_long', 'stock_adj_net_short',
-                            'new_fund_dominant_nature', 'dominant_nature',
-                        )})
-            except Exception as cv2_e:
-                _logger.warning('%s v2.11.85d cross_validate_funding skipped: %s', LOG_TAG, cv2_e)
-                payload['layer3']['cross_validation_verdict'] = {'error': str(cv2_e)}
-
-            # v2.11.85e: 资金意图综合结论（严格按飞书 §2.3.1 第三层合成信号矩阵）
-            # 步骤 1: 合成信号查表
-            # 步骤 2: 持仓PCR×Skew 交叉验证（按飞书 §2.3.2 附录 三步走 + 4 子规则）
-            try:
-                from scripts.compute_weighted_nature import (
-                    synthesize_funding_signal,
-                    cross_validate_synthesized_signal,
-                )
-                # 步骤 1: 合成信号 (call_main_nat, put_main_nat)
-                funding_signal = synthesize_funding_signal(
-                    call_main_nat=weighted['Call']['main_nat'],
-                    put_main_nat=weighted['Put']['main_nat'],
-                    pcr_now=(cross_val_inputs.get('pcr') or {}).get('now', 0),
-                    pcr_prev=(cross_val_inputs.get('pcr') or {}).get('prev', 0),
-                    strike_modifier=weighted.get('Call', {}).get('label', '') + ' / ' + weighted.get('Put', {}).get('label', ''),
-                )
-                payload['layer3']['funding_signal'] = funding_signal
-
-                # 步骤 2: 交叉验证（验证合成信号）
-                pcr_dict = cross_val_inputs.get('pcr') or {}
-                skew_dict = cross_val_inputs.get('skew') or {}
-                fund_dict = cross_val_inputs.get('fund_activity') or {}
-                funding_cv = cross_validate_synthesized_signal(
-                    synth_label=funding_signal.get('signal_label', ''),
-                    synth_direction=funding_signal.get('signal_direction', '中性'),
-                    pcr_dir=pcr_dict.get('direction', 'flat'),
-                    skew_dir=skew_dict.get('direction', 'flat'),
-                    fund_call_abs=(fund_dict.get('Call') or {}).get('abs_oi_chg', 0),
-                    fund_put_abs=(fund_dict.get('Put') or {}).get('abs_oi_chg', 0),
-                    iv_call_chg=skew_dict.get('call_iv_chg_pp', 0),
-                    iv_put_chg=skew_dict.get('put_iv_chg_pp', 0),
-                    skew_delta_pp=skew_dict.get('delta_pp', 0),
-                )
-                payload['layer3']['funding_signal_cv'] = funding_cv
-            except Exception as fs_e:
-                _logger.warning('%s v2.11.85e funding_signal skipped: %s', LOG_TAG, fs_e)
-                payload['layer3']['funding_signal'] = {'error': str(fs_e)}
         except Exception as cv_e:
-            _logger.warning('%s v2.11.85d cross_validation skipped: %s', LOG_TAG, cv_e)
+            _logger.warning('%s v2.11.97c step1 cross_validation inputs skipped: %s', LOG_TAG, cv_e)
             payload['layer3']['cross_validation'] = {'available': False, 'note': str(cv_e)}
+            cross_val_inputs = {}
+
+        # --- Step 2: 4 子规则综合判定 + merge 回 call_role/put_role ---
+        try:
+            from scripts.compute_weighted_nature import cross_validate_funding
+            cv_result = cross_validate_funding(cross_val_inputs)
+            payload['layer3']['cross_validation_verdict'] = cv_result
+            # v2.11.85k: 把 cv 输出的 verdict/rationale/subrule/fund_flow_verdict/verdict_direction
+            #   merge 回 call_role / put_role 顶层字段
+            #   修复: 之前 _rebuild_role_dict 输出后, 这俩字段被覆盖为空, 前端展开区读不到 rationale
+            #   merge 是叠加, 不破坏 NAT_MAP 分桶(7 类老字段保留)
+            for side_key in ('call', 'put'):
+                cv_side = cv_result.get(side_key, {}) or {}
+                if side_key == 'call':
+                    call_role_new.update({k: v for k, v in cv_side.items() if k in (
+                        'verdict', 'rationale', 'subrule',
+                        'verdict_direction', 'fund_flow_verdict',
+                        'new_fund_net_long', 'new_fund_net_short', 'new_fund_net_neutral',
+                        'stock_adj_net_long', 'stock_adj_net_short',
+                        'new_fund_dominant_nature', 'dominant_nature',
+                    )})
+                else:
+                    put_role_new.update({k: v for k, v in cv_side.items() if k in (
+                        'verdict', 'rationale', 'subrule',
+                        'verdict_direction', 'fund_flow_verdict',
+                        'new_fund_net_long', 'new_fund_net_short', 'new_fund_net_neutral',
+                        'stock_adj_net_long', 'stock_adj_net_short',
+                        'new_fund_dominant_nature', 'dominant_nature',
+                    )})
+        except Exception as cv2_e:
+            _logger.warning('%s v2.11.97c step2 cross_validate_funding skipped: %s', LOG_TAG, cv2_e)
+            payload['layer3']['cross_validation_verdict'] = {'error': str(cv2_e)}
+
+        # --- Step 3: 资金意图综合结论 (synthesize_funding_signal + cross_validate_synthesized_signal) ---
+        try:
+            from scripts.compute_weighted_nature import (
+                synthesize_funding_signal,
+                cross_validate_synthesized_signal,
+            )
+            # 步骤 1: 合成信号 (call_main_nat, put_main_nat)
+            funding_signal = synthesize_funding_signal(
+                call_main_nat=weighted['Call']['main_nat'],
+                put_main_nat=weighted['Put']['main_nat'],
+                pcr_now=(cross_val_inputs.get('pcr') or {}).get('now', 0),
+                pcr_prev=(cross_val_inputs.get('pcr') or {}).get('prev', 0),
+                strike_modifier=weighted.get('Call', {}).get('label', '') + ' / ' + weighted.get('Put', {}).get('label', ''),
+            )
+            payload['layer3']['funding_signal'] = funding_signal
+
+            # 步骤 2: 交叉验证（验证合成信号）
+            pcr_dict = cross_val_inputs.get('pcr') or {}
+            skew_dict = cross_val_inputs.get('skew') or {}
+            fund_dict = cross_val_inputs.get('fund_activity') or {}
+            funding_cv = cross_validate_synthesized_signal(
+                synth_label=funding_signal.get('signal_label', ''),
+                synth_direction=funding_signal.get('signal_direction', '中性'),
+                pcr_dir=pcr_dict.get('direction', 'flat'),
+                skew_dir=skew_dict.get('direction', 'flat'),
+                fund_call_abs=(fund_dict.get('Call') or {}).get('abs_oi_chg', 0),
+                fund_put_abs=(fund_dict.get('Put') or {}).get('abs_oi_chg', 0),
+                iv_call_chg=skew_dict.get('call_iv_chg_pp', 0),
+                iv_put_chg=skew_dict.get('put_iv_chg_pp', 0),
+                skew_delta_pp=skew_dict.get('delta_pp', 0),
+            )
+            payload['layer3']['funding_signal_cv'] = funding_cv
+        except Exception as fs_e:
+            _logger.warning('%s v2.11.97c step3 funding_signal skipped: %s', LOG_TAG, fs_e)
+            payload['layer3']['funding_signal'] = {'error': str(fs_e)}
 
         _logger.info(
             '%s v2.11.85a replace OK: Call=%s (%.1f%%) Put=%s (%.1f%%)',

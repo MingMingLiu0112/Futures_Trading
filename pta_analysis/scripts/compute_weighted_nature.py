@@ -160,8 +160,6 @@ def _calc_fund_flow_split(strike_role_list, side):
     # new_fund_dominant 也用 weight 加权
     if new_fund_nature_weight and any(v > 0 for v in new_fund_nature_weight.values()):
         new_fund_dominant = max(new_fund_nature_weight, key=new_fund_nature_weight.get)
-    elif new_fund_nature_oi:
-        new_fund_dominant = max(new_fund_nature_oi, key=new_fund_nature_oi.get)
     else:
         new_fund_dominant = 'unknown'
 
