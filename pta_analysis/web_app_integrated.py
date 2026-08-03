@@ -404,17 +404,46 @@ def drawing_test():
 
 # ==================== API接口 ====================
 
+# ===== 8s 硬超时防御（防 akshare 阻塞拖垮 Flask 单线程）=====
+# Werkzeug threaded 模式每个请求在子线程跑 → signal.SIGALRM 不能用(只能主线程)
+# 用 ThreadPoolExecutor + future.result(timeout=N) 跨线程等待,到点直接放弃 future
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutTimeout
+
+_CHAIN_TIMEOUT_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix='chain-timeout')
+
+def _run_with_hard_timeout(fn, seconds=8):
+    """跨线程硬超时 — 主线程 future.result(seconds) 等结果,超时立刻抛 TimeoutError
+
+    与 SIGALRM 区别:不杀线程,只让主线程不再等,后台线程继续跑(但请求已返 504 不会拖垮)
+    """
+    future = _CHAIN_TIMEOUT_EXECUTOR.submit(fn)
+    try:
+        return future.result(timeout=seconds)
+    except _FutTimeout:
+        # 不再 cancel(子线程卡死 cancel 也无效) — 让它自己跑完,但我们已返 504 给前端
+        raise TimeoutError(f"hard timeout after {seconds}s")
+
 @app.route('/api/options/chain')
 def api_option_chain():
-    """期权链数据API"""
+    """期权链数据API — v2.11.98: 加 8s 硬超时防 akshare hang"""
     try:
-        api = oca.get_option_api()
-        # 自我修复：如果上次请求异常退出，pending可能卡住
-        if api._pending:
-            print("[api_option_chain] 检测到pending卡住，重置状态")
-            api._pending = False
-        result = api.get_full_chain()
-        return jsonify(result)
+        def _do():
+            api = oca.get_option_api()
+            if api._pending:
+                print("[api_option_chain] 检测到pending卡住，重置状态")
+                api._pending = False
+            return api.get_full_chain()
+        try:
+            result = _run_with_hard_timeout(_do, seconds=8)
+            return jsonify(result)
+        except TimeoutError as e:
+            # 8s 超时 → 返降级 JSON，让前端继续渲染（用旧缓存）
+            print(f"[api_option_chain] ⚠️ {e}，返回 cached_fallback 降级响应")
+            return jsonify({
+                'success': False,
+                'error': 'akshare 8s 超时（外部数据源 hang）',
+                'cached_fallback': True
+            }), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
@@ -637,10 +666,21 @@ def download_option_excel(filename):
 
 @app.route('/api/fundamental')
 def api_fundamental():
-    """PTA基本面数据API"""
+    """PTA基本面数据API — v2.11.98: 加 8s 硬超时防 akshare hang"""
     try:
-        data = pta_industry.get_pta_industry_data()
-        return jsonify(data)
+        try:
+            data = _run_with_hard_timeout(
+                lambda: pta_industry.get_pta_industry_data(),
+                seconds=8
+            )
+            return jsonify(data)
+        except TimeoutError as e:
+            print(f"[api_fundamental] ⚠️ {e}，返回 cached_fallback 降级响应")
+            return jsonify({
+                'success': False,
+                'error': 'akshare 8s 超时（外部数据源 hang）',
+                'cached_fallback': True
+            }), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
