@@ -4459,12 +4459,13 @@ function getStrategyReportEndpoint() {
 
         async function loadOptionChain() {
             try {
-                // 先加载期权链数据（核心数据）
-                const optRes = await fetch('/api/options/chain');
+                // 先加载期权链数据（核心数据）— v2.11.99 加客户端 12s 超时保护
+                // (服务端 8s 已返降级 JSON,客户端 12s 比服务端多 4s 缓冲,确保能拿到降级响应)
+                const optRes = await fetch('/api/options/chain', { signal: AbortSignal.timeout(12000) });
                 const data = await optRes.json();
-                
+
                 if (!data.success) {
-                    document.getElementById('optionTableBody').innerHTML = 
+                    document.getElementById('optionTableBody').innerHTML =
                         `<tr><td colspan="23" class="error">加载失败: ${data.error}</td></tr>`;
                     return;
                 }
@@ -4648,26 +4649,33 @@ function getStrategyReportEndpoint() {
 
                 document.getElementById('optionTableBody').innerHTML = html || '<tr><td colspan="23" class="error">暂无数据</td></tr>';
                 document.getElementById('optionTimestamp').textContent = `数据时间: ${data.timestamp || '--'} | 近月: ${data.near_expiry} | 全市场PCR: 成交${fmPcr.volume_pcr?.toFixed(2)} / 持仓${fmPcr.position_pcr?.toFixed(2)}`;
-                
+
                 // 更新图表（只显示ATM虚值±10档）
                 updateIvSmileChart(data, atmStrike);
-                
-                // 非阻塞加载波动锥数据（10秒超时）
-                setTimeout(() => {
-                    fetch('/api/options/vol_cone', { signal: AbortSignal.timeout(10000) })
-                        .then(r => r.json())
-                        .then(volData => {
-                            updateVolConeChart(volData);
-                        })
-                        .catch(() => {
-                            console.log('Vol cone data load timeout or error');
-                        });
-                }, 100);
-                
+
             } catch (e) {
                 console.error('Option error:', e);
                 document.getElementById('optionTableBody').innerHTML = `<tr><td colspan="23" class="error">加载失败</td></tr>`;
             }
+
+            // 注意: 不在这里调 loadVolCone() — 因 if(!data.success) return; 在 try 内会早退,
+            // 波动锥的独立调度完全交给 ready handler 的 setInterval(loadVolCone, 5min)。
+            // (v2.11.99b: 第一次 patch 误以为 catch 会执行, 实际 return 直接退出函数)
+        }
+
+        // ==================== 波动锥独立加载 (v2.11.99) ====================
+        // 从 loadOptionChain 拆出, 即使 chain 失败也跑, 让用户至少能看到历史波动锥
+        function loadVolCone() {
+            fetch('/api/options/vol_cone', { signal: AbortSignal.timeout(10000) })
+                .then(r => r.json())
+                .then(volData => {
+                    if (volData.success) {
+                        updateVolConeChart(volData);
+                    } else {
+                        console.log('Vol cone: success=false', volData.error);
+                    }
+                })
+                .catch(err => console.log('Vol cone fetch error:', err));
         }
 
         // ==================== 近月期货实时价格轮询（每分钟，自动跟随合约切换） ====================
@@ -5110,6 +5118,8 @@ function getStrategyReportEndpoint() {
                 });
             });
             loadOptionChain();
+            // v2.11.99b: 立即调一次 loadVolCone, 让 chain 失败时波动锥也能显示
+            loadVolCone();
             loadDailyReport();
             // 研报与策略：PTA交易时段对齐00/15/30/45整15分钟自动刷新；盘后/休盘不产生日内刷新
             function scheduleStrategyReportAutoRefresh() {
@@ -5134,6 +5144,8 @@ function getStrategyReportEndpoint() {
             setInterval(pollTa606Price, 60000);
             // 期权链数据每5分钟自动刷新（保持OI/IV等数据时效性）
             setInterval(loadOptionChain, 5 * 60 * 1000);
+            // v2.11.99: 波动锥独立调度, chain 失败时仍能刷
+            setInterval(loadVolCone, 5 * 60 * 1000);
             // v2.11.83 R4: 每60秒增量刷新K线（30s→60s 进一步减负:对齐1min K线天然周期,TqSdk调用再-50%, Flask内存估再省50MB）
             setInterval(incrementalUpdate, 60000);
         });
@@ -5473,6 +5485,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.98 (/api/options/chain + /api/fundamental 加 8s 硬超时,防 akshare hang 拖垮 Flask 单线程)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.99b (波动锥独立调度:ready handler 调 + 5min setInterval;chain fetch 客户端 12s 超时)</div>
 </body>
 </html>
