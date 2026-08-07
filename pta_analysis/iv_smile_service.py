@@ -2197,18 +2197,29 @@ def _get_risk_free_rate_cached(T=None, force=False):
         except ValueError:
             pass
 
-    # 2) akshare 拉国债收益率(v2.11.82 R3-A: 加 8s 硬超时 + cache 保留旧值防失败立刻覆盖)
+    # 2) akshare 拉国债收益率
+    # v2.11.82 R3-A: 8s 硬超时防 hang
+    # v2.11.99d: 改用 ThreadPoolExecutor(future.result(timeout))替代 SIGALRM
+    #   原因: SIGALRM 是进程级全局信号,会打断其他线程(decision_layer/tqsdk_watchdog)的 sleep/阻塞调用,
+    #         且 service 是 multi-thread(Flask threaded=True + scheduler daemon + watchdog),
+    #         signal.signal() 在子线程设置会抛 "signal only works in main thread"
     try:
-        import signal as _sig
-        class _AkshareTimeout(Exception): pass
-        def _on_timeout(s, f): raise _AkshareTimeout("akshare 8s timeout")
-        _sig.signal(_sig.SIGALRM, _on_timeout)
-        _sig.alarm(8)
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutTimeout
+        # 复用全局 executor 而非每次新建,避免线程泄露
+        global _AKSHARE_EXECUTOR
         try:
+            _AKSHARE_EXECUTOR  # noqa
+        except NameError:
+            _AKSHARE_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix='akshare-rate')
+
+        def _fetch_bond_rate():
             import akshare as ak
-            df = ak.bond_zh_us_rate()
-        finally:
-            _sig.alarm(0)
+            return ak.bond_zh_us_rate()
+
+        try:
+            df = _AKSHARE_EXECUTOR.submit(_fetch_bond_rate).result(timeout=8)
+        except _FutTimeout:
+            raise TimeoutError('akshare bond_zh_us_rate 8s timeout (fut)')
         if df is None or len(df) == 0:
             raise ValueError('akshare 返回空数据')
         last = df.iloc[-1]
