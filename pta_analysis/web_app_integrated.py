@@ -425,7 +425,8 @@ def _run_with_hard_timeout(fn, seconds=8):
 
 @app.route('/api/options/chain')
 def api_option_chain():
-    """期权链数据API — v2.11.98: 加 8s 硬超时防 akshare hang"""
+    """期权链数据API — v2.11.98: 加 8s 硬超时防 akshare hang
+    v2.11.99+: 超时后优先用 OptionChainAPI._cache 兜底,缓解 akshare 高频限流"""
     try:
         def _do():
             api = oca.get_option_api()
@@ -437,8 +438,21 @@ def api_option_chain():
             result = _run_with_hard_timeout(_do, seconds=8)
             return jsonify(result)
         except TimeoutError as e:
-            # 8s 超时 → 返降级 JSON，让前端继续渲染（用旧缓存）
-            print(f"[api_option_chain] ⚠️ {e}，返回 cached_fallback 降级响应")
+            # 8s 超时 → 优先用 _cache 兜底(让前端继续渲染)
+            # v2.11.99+: akshare 高频限流(每分钟 >5 次触发 8s+ hang),
+            # _cache 命中时直接返 cache 包成 cached_fallback,前端 cache 渲染
+            try:
+                api = oca.get_option_api()
+                if api._cache and api._last_update and (time.time() - api._last_update) < 1800:
+                    cached = dict(api._cache)
+                    cached['cached_fallback'] = True
+                    cached['from_cache'] = True
+                    print(f"[api_option_chain] ⚠️ {e}，返内存 cache (age={int(time.time() - api._last_update)}s)")
+                    return jsonify(cached), 200
+            except Exception:
+                pass
+            # cache 也没数据 → 维持原降级响应
+            print(f"[api_option_chain] ⚠️ {e}，返降级响应（无 cache）")
             return jsonify({
                 'success': False,
                 'error': 'akshare 8s 超时（外部数据源 hang）',

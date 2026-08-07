@@ -1255,7 +1255,7 @@ class OptionChainAPI:
         self.trade_date = None
         self._lock = threading.Lock()
         self._cache = {}
-        self._cache_ttl = 300  # 缓存5分钟
+        self._cache_ttl = 1800  # 缓存30分钟 (v2.11.99+ akshare 高频限流缓解,拉长 TTL 减少 akshare 调用)
         self._last_update = None
         self._pending = False   # 是否有请求正在处理中（尚未返回）
         self._pending_error = None  # 正在处理中的请求如果失败，记录错误
