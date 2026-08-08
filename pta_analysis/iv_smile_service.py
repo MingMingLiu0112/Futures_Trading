@@ -2283,10 +2283,13 @@ def get_active_ta_contract():
         raise RuntimeError(f"无法确定 PTA 主力合约: akshare失败+cache空+本地fallback也空: {e}")
 
 
-# ===================== 无风险利率（akshare 国债收益率，1h 缓存） =====================
+# ===================== 无风险利率（akshare 国债收益率，24h 缓存） =====================
+# v2.11.99e: 1h → 24h, 缓解 akshare 30 天 7336 次失败封禁 (8/7 实测 2 次成功)
+# 配合 .env IV_RISK_FREE_RATE 走第一层覆盖, 24h TTL 是兜底防线
+# 日内国债波动 < 5bp, 24h 刷新对 IV 计算影响 < 0.1%
 
 _rate_cache = {'value': None, 'src': None, 'ts': 0.0}
-_RATE_TTL = 3600  # 1 小时刷新一次（日内国债波动 < 5bp）
+_RATE_TTL = 86400  # 24 小时刷新一次（日内国债波动 < 5bp）
 
 
 def _get_risk_free_rate_cached(T=None, force=False):
