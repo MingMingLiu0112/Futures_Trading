@@ -505,6 +505,11 @@ def _save_close_state(close_point='15:00'):
     收盘快照：将当前 _state + _last_valid 完整写入 close_state.json。
     **只在 15:00 收盘时**自动调用（10:15/11:30/23:00 不再写此文件，避免污染"前次基准=15:00"语义）。
     `close_point` 字段标记语义用途，_load_close_state 加载时会校验。
+
+    v2.11.99f+: 当 close_point='15:00' 时,同步把 15:00 槽位写入 _interval_snapshots + 持久化,
+    不依赖主循环跑 _check_and_save_close_state (避免 strategy-report 死循环期间
+    _copy_close_state_to_interval_snapshot 被跳过,导致 iv_snapshots_*.json 缺 15:00 槽,
+    21:00 _ensure_today_close_baseline_after_21() 找不到今日 15:00 基准而不切换)。
     """
     _ensure_snapshot_dir()
     # 只保存可序列化的字段
@@ -556,6 +561,30 @@ def _save_close_state(close_point='15:00'):
             raise
     except Exception as e:
         print(f"[iv_smile] ⚠️ 收盘快照保存失败: {e}")
+
+    # v2.11.99f+: close_state 写入成功后,15:00 同步到 _interval_snapshots + 落盘,
+    # 不再依赖主循环 _check_and_save_close_state 调度 (防 strategy-report 死循环
+    # 期间 _copy_close_state_to_interval_snapshot 被 if interval_key in _interval_snapshots
+    # 静默 return False,导致 15:00 槽不进磁盘 iv_snapshots,21:00 切换失败)
+    if close_point == '15:00':
+        try:
+            _interval_snapshots['15:00'] = {
+                'smooth': {k: float(v) for k, v in (_state.get('smile_smooth') or {}).items()},
+                'raw': {k: (dict(v) if isinstance(v, dict) else v) for k, v in (_state.get('smile_raw') or {}).items()},
+                'svi_params': _state.get('svi_params'),
+                'futures_price': _state.get('futures_price'),
+                'ref_strike': _state.get('ref_strike'),
+                'max_pain': _state.get('max_pain'),
+                'atm_strike': _state.get('atm_strike'),
+                'strike_oi': {k: dict(v) for k, v in (_state.get('strike_oi') or {}).items()},
+                'strike_vol': {k: dict(v) for k, v in (_state.get('strike_vol') or {}).items()},
+                'timestamp': payload['timestamp'],
+                'close_boundary': True,
+            }
+            _save_all_snapshots()
+            print(f"[iv_smile] 📌 15:00 边界已同步到 _interval_snapshots + 落盘 (strategy-report 死循环兜底)")
+        except Exception as _e:
+            print(f"[iv_smile] ⚠️ 15:00 边界同步失败 (不影响 close_state.json): {_e}")
 
 
 def _copy_close_state_to_interval_snapshot(hh, mm, now):
