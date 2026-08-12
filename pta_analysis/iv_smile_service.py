@@ -2069,6 +2069,26 @@ def _ensure_today_close_baseline_after_21():
         # 不会被次日 15:00 收盘时 close_state.json 覆盖而污染
         _save_prev_baseline(snap_15, today)
         print(f"[iv_smile] 🔁 21:00基准自动切换: 今日15:00 ({today}) smooth={len(_close_baseline['smooth'])}档 oi={len(_close_baseline.get('strike_oi') or {})}档 ts={snap_ts[:19]}")
+
+        # v2.11.99g+: 21:00 同步切换 active_contract（根治 active_contract 卡在到期日 bug）
+        # 之前 TqSdk 启动后 active_contract 永不变（只在 init_async 调 get_active_ta_contract 一次），
+        # 导致到期日 21:00 夜盘开市后主力换月但服务继续锁在老合约 → tick 静默。
+        # 现在 21:00 切换时调一次 get_active_ta_contract()，15:00 之后它会选到期日 > 今天的最近月合约。
+        try:
+            new_contract, new_expiry = get_active_ta_contract()
+            if new_contract and new_contract != _state.get('active_contract'):
+                old_contract = _state.get('active_contract')
+                _state['active_contract'] = new_contract
+                if new_expiry:
+                    _state['expiry'] = new_expiry
+                    _T = _calc_T_trading_days(new_expiry)
+                    _state['T'] = _T
+                print(f"[iv_smile] 🔁 21:00 active_contract 同步: {old_contract} → {new_contract} expiry={new_expiry.date() if new_expiry else 'N/A'}")
+            elif new_contract:
+                print(f"[iv_smile] ℹ️ 21:00 active_contract 已是最新: {new_contract}")
+        except Exception as ac_e:
+            print(f"[iv_smile] ⚠️ 21:00 active_contract 同步失败（不阻塞基准切换）: {ac_e}")
+
         return True
     except Exception as e:
         print(f"[iv_smile] ⚠️ 21:00基准自动切换失败: {e}")
@@ -2173,18 +2193,23 @@ _OPTION_STRIKES_CACHE = {}  # {contract_code: [strike, ...]}
 # 数据来源：交易所月度合约上市公告 + 2026-06 历史 snapshot。
 # 注意：实际到期日以交易所公告为准，本表"近似日期"用于 fallback 选合约即可。
 # 维护规则：每季度在月初加 3-6 个月的新合约（按需更新）。
+# ⚠️ 合约命名规律：TA + 6位年份末位 + 2位合约名义月
+#    TA609 = 2026 年 9 月合约（不是 8 月合约），到期日（最后交易日）= 8 月中旬
+#    实际到期日 ≈ 合约名义月前一个月的第 N 个周三
+#    数据源：akshare.option_contract_info_ctp() 字段 最后交易日（YYYY-MM-DD）
+#    维护规则：每季度初必须 akshare 实测校正所有合约到期日
 _LOCAL_PTA_EXPIRY_FALLBACK = {
-    'TA608': '2026-07-14',  # 2026-07 月期权
-    'TA609': '2026-08-12',  # 2026-08 月期权
-    'TA610': '2026-09-15',  # 2026-09 月期权
-    'TA611': '2026-10-15',  # 2026-10 月期权
-    'TA612': '2026-11-13',  # 2026-11 月期权
-    'TA701': '2026-12-15',  # 2026-12 月期权
-    'TA702': '2027-01-15',  # 2027-01 月期权
-    'TA703': '2027-02-12',  # 2027-02 月期权
-    'TA704': '2027-03-15',  # 2027-03 月期权
-    'TA705': '2027-04-15',  # 2027-04 月期权
-    'TA706': '2027-05-14',  # 2027-05 月期权
+    'TA608': '2026-07-13',  # 2026-08 月期权名义, 实际到期 2026-07-13 (周一)
+    'TA609': '2026-08-12',  # 2026-09 月期权名义, 实际到期 2026-08-12 (周三)
+    'TA610': '2026-09-11',  # 2026-10 月期权名义, 实际到期 2026-09-11 (周五)
+    'TA611': '2026-10-13',  # 2026-11 月期权名义, 实际到期 2026-10-13 (周二)
+    'TA612': '2026-11-11',  # 2026-12 月期权名义, 实际到期 2026-11-11 (周三)
+    'TA701': '2026-12-11',  # 2027-01 月期权名义, 实际到期 2026-12-11 (周五)
+    'TA702': '2027-01-15',  # 2027-02 月期权名义, 实际到期 2027-01-15 (周五)
+    'TA703': '2027-02-12',  # 2027-03 月期权名义, 实际到期 2027-02-12 (周五)
+    'TA704': '2027-03-15',  # 2027-04 月期权名义, 实际到期 2027-03-15 (周一)
+    'TA705': '2027-04-15',  # 2027-05 月期权名义, 实际到期 2027-04-15 (周四)
+    'TA706': '2027-05-14',  # 2027-06 月期权名义, 实际到期 2027-05-14 (周五)
 }
 
 def _get_option_strikes_for_contract(opt_prefix):
