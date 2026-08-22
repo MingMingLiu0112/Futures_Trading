@@ -1593,12 +1593,12 @@
         // ==================== 合约选择弹窗 ====================
 
         let allSymbols = [];  // 动态从API加载
-        // v2.11.99h+: 默认值仅作 fallback，真实默认值由 syncMainContract() 从 iv_smile.active_contract 同步
+        // v2.11.99i: 默认值仅作 fallback，真实默认值由 syncMainContract() 从 iv_smile.active_contract 同步
         let currentSymbol = 'TA609';
         let _mainContractSynced = false;  // 防止每次 loadAllData 都重新拉 /api/iv_smile/status
 
         async function syncMainContract() {
-            // v2.11.99h: K线图板块默认合约跟随 iv_smile.active_contract（21:00 切日后的真实主力），
+            // v2.11.99i: K线图板块默认合约跟随 iv_smile.active_contract（21:00 切日后的真实主力），
             // 避免与 iv_smile 报告的"前次基准 15:00"价格口径不一致。
             if (_mainContractSynced) return currentSymbol;
             try {
@@ -1711,7 +1711,7 @@
                     await initMainChart();
                 }
 
-                // v2.11.99h: 每次加载前先跟 iv_smile 的 active_contract 对齐（仅首次拉取，后续不再请求）
+                // v2.11.99i: 每次加载前先跟 iv_smile 的 active_contract 对齐（仅首次拉取，后续不再请求）
                 await syncMainContract();
 
                 const period = document.getElementById('period').value;
@@ -5512,6 +5512,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.99h (K线板块默认合约跟随 iv_smile.active_contract)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.99i (K线板块默认合约跟随 iv_smile.active_contract)</div>
 </body>
 </html>
