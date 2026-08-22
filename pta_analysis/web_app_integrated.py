@@ -2841,7 +2841,18 @@ def api_contracts_list():
             unique_codes.sort()
             for code in unique_codes:
                 result.append({'code': code, 'name': product})
-        
+
+        # v2.11.99j: 在每个"精对苯二甲酸期货"分组的顶部插入 PTA 主力连续 (TA0),
+        # 否则 K 线板块默认合约 TA0 不会出现在合约下拉中,用户无法切回
+        for i, item in enumerate(result):
+            if item.get('name') == '精对苯二甲酸期货' and item.get('code') != 'TA0':
+                result.insert(i, {'code': 'TA0', 'name': '精对苯二甲酸期货'})
+                break  # 只插一次（第一个 PTA 项之前）
+        # 兜底:如果 akshare 完全没返 PTA,result 里压根没有"精对苯二甲酸期货",
+        # 仍要确保 TA0 在列表最前(让用户至少能选)
+        if not any(c.get('code') == 'TA0' for c in result):
+            result.insert(0, {'code': 'TA0', 'name': '精对苯二甲酸期货'})
+
         return jsonify({'success': True, 'contracts': result})
     except Exception as e:
         import traceback; traceback.print_exc()

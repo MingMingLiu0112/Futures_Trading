@@ -341,7 +341,7 @@
     <div class="header">
         <div class="title">📈 PTA期货综合分析</div>
         <div class="controls" style="gap:6px;display:flex;align-items:center;">
-            <button id="symbolBtn" onclick="openSymbolModal()" style="padding:6px 12px;border-radius:4px;border:1px solid #444;background:#2d2d44;color:#fff;cursor:pointer;font-size:13px;min-width:120px;text-align:left;">📋 TA609 ▼</button>
+            <button id="symbolBtn" onclick="openSymbolModal()" style="padding:6px 12px;border-radius:4px;border:1px solid #444;background:#2d2d44;color:#fff;cursor:pointer;font-size:13px;min-width:120px;text-align:left;">📋 TA0 ▼</button>
             <select id="period">
                 <option value="1min">1分钟</option>
                 <option value="5min">5分钟</option>
@@ -1593,31 +1593,9 @@
         // ==================== 合约选择弹窗 ====================
 
         let allSymbols = [];  // 动态从API加载
-        // v2.11.99i: 默认值仅作 fallback，真实默认值由 syncMainContract() 从 iv_smile.active_contract 同步
-        let currentSymbol = 'TA609';
-        let _mainContractSynced = false;  // 防止每次 loadAllData 都重新拉 /api/iv_smile/status
-
-        async function syncMainContract() {
-            // v2.11.99i: K线图板块默认合约跟随 iv_smile.active_contract（21:00 切日后的真实主力），
-            // 避免与 iv_smile 报告的"前次基准 15:00"价格口径不一致。
-            if (_mainContractSynced) return currentSymbol;
-            try {
-                const res = await fetch('/api/iv_smile/status', { cache: 'no-cache' });
-                if (!res.ok) throw new Error('status http ' + res.status);
-                const data = await res.json();
-                const ac = data && data.active_contract;
-                if (ac && typeof ac === 'string' && ac.startsWith('TA')) {
-                    currentSymbol = ac;
-                    const btn = document.getElementById('symbolBtn');
-                    if (btn) btn.innerHTML = `📋 ${ac} ▼`;
-                    console.log('[syncMainContract] K线图板块默认合约同步 →', ac);
-                }
-            } catch (e) {
-                console.warn('[syncMainContract] 拉取 iv_smile 状态失败，沿用默认', currentSymbol, e.message);
-            }
-            _mainContractSynced = true;
-            return currentSymbol;
-        }
+        // v2.11.99j: K线板块固定使用 PTA 主力连续指数合约 (TA0 → KQ.m@CZCE.TA, 天勤内部自动 roll 主力)
+        // 不要 sync iv_smile.active_contract — 那是具体月份(TA610),用于期权;K线板块要的是主连指数
+        let currentSymbol = 'TA0';
 
         async function loadContractList() {
             if (allSymbols.length > 0) return;  // 已加载则跳过
@@ -1635,6 +1613,7 @@
                 console.error('Failed to load contract list:', e);
                 // fallback到常用合约
                 allSymbols = [
+                    { code: 'TA0', name: 'PTA主力连续', desc: '天勤自动跟随真实主力' },
                     { code: 'TA609', name: '精对苯二甲酸期货', desc: '' },
                     { code: 'TA501', name: '精对苯二甲酸期货', desc: '' },
                     { code: 'MA609', name: '甲醇期货', desc: '' },
@@ -1711,9 +1690,7 @@
                     await initMainChart();
                 }
 
-                // v2.11.99i: 每次加载前先跟 iv_smile 的 active_contract 对齐（仅首次拉取，后续不再请求）
-                await syncMainContract();
-
+                // v2.11.99j: currentSymbol 固定为 TA0 (PTA 主连),无需 sync
                 const period = document.getElementById('period').value;
                 
                 // 并行加载K线数据和缠论数据
@@ -5512,6 +5489,6 @@ function restoreDrawingData(d) {
         <button class="btn-cancel" onclick="event.stopPropagation();closePropsPanel()">取消</button>
     </div>
 </div>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.99i (K线板块默认合约跟随 iv_smile.active_contract)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.99j (K线板块固定 TA0 PTA 主力连续指数,不跟具体月份)</div>
 </body>
 </html>
