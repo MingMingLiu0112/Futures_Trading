@@ -288,20 +288,7 @@ def init_db():
 # v2.11.102: 绘图持久化 API 已删除（主页 K 线已下放，绘图功能迁出）
 
 # ==================== 主页面 ====================
-# v2.11.102: 主页 / 路由已删除（K 线由其他软件提供），仅保留 /iv_smile + /trading + /chan/
-
-@app.route('/trading')
-def trading_page():
-    """交易系统页面"""
-    try:
-        with open(os.path.join(WORKSPACE, 'templates', 'trading.html'), 'r', encoding='utf-8') as f:
-            content = f.read()
-        from flask import make_response
-        resp = make_response(content)
-        resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-        return resp
-    except FileNotFoundError:
-        return "页面正在开发中，请稍后访问", 404
+# v2.11.103: 主页 + /trading + /drawing_test 路由已物理删除（K 线由其他软件提供，仅 /iv_smile）
 
 @app.route('/drawing_test')
 def drawing_test():
