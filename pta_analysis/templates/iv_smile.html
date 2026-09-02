@@ -13,343 +13,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PTA期权动态监控</title>
-<script src="/static/js/echarts.min.js">
+<script src="/static/js/echarts.min.js"></script>
 
-// ===== v2.11.100 主页三块集成（从 kline_lightweight.html 抽取） =====
-let ivSmileChartDaily = null;
-let volConeChart = null;
-let _dailyReportLoaded = false;
 
-function fetchWithTimeout(url, timeoutMs = 8000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timer));
-}
-
-// 日频 Smile 曲线（昨收 vs 今收，与现有 smileChart 互补：分钟实时 vs 日频快照）
-async function loadDailySmileChart() {
-  try {
-    const res = await fetchWithTimeout('/api/options/chain', 12000);
-    const data = await res.json();
-    if (!data.success) {
-      const el = document.getElementById('ivSmileChartDaily');
-      if (el) el.innerHTML = '<div style="text-align:center;padding:50px;color:#888;">数据未就绪（' + (data.error || '') + '）</div>';
-      return;
-    }
-    const rows = data.data && data.data.strike_rows ? data.data.strike_rows : [];
-    const atmStrike = data.data && data.data.atm_strike ? data.data.atm_strike
-      : (data.data && data.data.futures_price ? data.data.futures_price : 0);
-    if (!rows.length) {
-      const el = document.getElementById('ivSmileChartDaily');
-      if (el) el.innerHTML = '<div style="text-align:center;padding:50px;color:#888;">暂无 strike_rows 数据</div>';
-      return;
-    }
-    updateIvSmileChartDaily(data.data, atmStrike);
-  } catch (e) {
-    console.error('dailySmileChart error:', e);
-    const el = document.getElementById('ivSmileChartDaily');
-    if (el) el.innerHTML = '<div style="text-align:center;padding:50px;color:#888;">加载失败: ' + e.message + '</div>';
-  }
-}
-
-function updateIvSmileChartDaily(data, atmStrike) {
-  const el = document.getElementById('ivSmileChartDaily');
-  if (!el) return;
-  if (!ivSmileChartDaily) ivSmileChartDaily = echarts.init(el);
-
-  const rows = (data && data.strike_rows) || [];
-  const sortedRows = [...rows].sort((a, b) => a.strike - b.strike);
-  let atmIdx = sortedRows.findIndex(r => r.strike >= atmStrike);
-  if (atmIdx < 0) atmIdx = Math.floor(sortedRows.length / 2);
-  const startIdx = Math.max(0, atmIdx - 10);
-  const endIdx = Math.min(sortedRows.length, atmIdx + 10);
-  const displayRows = sortedRows.slice(startIdx, endIdx);
-
-  const otmLeft = displayRows.filter(r => r.strike <= atmStrike).sort((a, b) => a.strike - b.strike);
-  const otmRight = displayRows.filter(r => r.strike > atmStrike).sort((a, b) => a.strike - b.strike);
-
-  const smileStrikes = [
-    ...otmLeft.map(r => r.strike.toFixed(0)),
-    ...otmRight.map(r => r.strike.toFixed(0))
-  ];
-  const smilePutIv = [
-    ...otmLeft.map(r => r.put_iv || null),
-    ...otmRight.map(r => null)
-  ];
-  const smileCallIv = [
-    ...otmLeft.map(r => null),
-    ...otmRight.map(r => r.call_iv || null)
-  ];
-  const smilePrevPutIv = [
-    ...otmLeft.map(r => r.prev_put_iv || null),
-    ...otmRight.map(r => null)
-  ];
-  const smilePrevCallIv = [
-    ...otmLeft.map(r => null),
-    ...otmRight.map(r => r.prev_call_iv || null)
-  ];
-  const hasPrevData = smilePrevPutIv.some(v => v > 0) || smilePrevCallIv.some(v => v > 0);
-
-  const labelFmt = function(p) { return p.value !== null ? p.value.toFixed(2) + '%' : ''; };
-  const series = [
-    { name: 'Put IV(今)', data: smilePutIv, color: '#4169e1', style: { width: 2.5 }, showLabel: true },
-    { name: 'Call IV(今)', data: smileCallIv, color: '#ff6347', style: { width: 2.5 }, showLabel: true }
-  ];
-  if (hasPrevData) {
-    series.push(
-      { name: 'Put IV(昨)', data: smilePrevPutIv, color: '#4169e1', style: { type: 'dashed', width: 1.5, opacity: 0.5 }, showLabel: true },
-      { name: 'Call IV(昨)', data: smilePrevCallIv, color: '#ff6347', style: { type: 'dashed', width: 1.5, opacity: 0.5 }, showLabel: true }
-    );
-  }
-
-  const allIv = [...smilePutIv, ...smileCallIv].filter(v => v > 0);
-  const minIv = allIv.length ? Math.min(...allIv) : 0;
-  const maxIv = allIv.length ? Math.max(...allIv) : 100;
-  const ivPadding = (maxIv - minIv) * 0.3;
-
-  ivSmileChartDaily.setOption({
-    tooltip: { trigger: 'axis', formatter: function(params) {
-      let r = '<b>' + params[0].axisValue + '</b><br/>';
-      params.forEach(p => {
-        if (p.value !== null && p.value !== '' && p.value !== undefined) {
-          r += '<span style="color:' + p.color + ';">●</span> ' + p.seriesName + ': ' + p.value.toFixed(2) + '%<br/>';
-        }
-      });
-      return r;
-    }},
-    legend: { data: series.map(s => s.name), textStyle: { color: '#aaa' }, top: 5 },
-    grid: { left: '5%', right: '5%', bottom: '15%', top: '15%' },
-    xAxis: {
-      type: 'category', data: smileStrikes,
-      axisLabel: { color: '#aaa', fontSize: 11, rotate: 0 },
-      axisLine: { lineStyle: { color: '#666' } },
-      name: '行权价', nameLocation: 'middle', nameGap: 30
-    },
-    yAxis: {
-      type: 'value',
-      axisLabel: { color: '#aaa', fontSize: 12, formatter: '{value}%' },
-      min: Math.max(0, Math.floor(minIv - ivPadding)),
-      max: Math.ceil(maxIv + ivPadding),
-      splitNumber: 5
-    },
-    series: series.map(s => ({
-      name: s.name, type: 'line', data: s.data, smooth: true,
-      itemStyle: { color: s.color }, lineStyle: s.style,
-      symbol: 'circle', symbolSize: 6,
-      label: { show: s.showLabel, formatter: labelFmt, fontSize: 9, color: s.color },
-      connectNulls: true
-    }))
-  });
-}
-
-// 历史波动锥
-async function loadVolConeChart() {
-  try {
-    const res = await fetchWithTimeout('/api/options/vol_cone', 10000);
-    const data = await res.json();
-    updateVolConeChart(data);
-  } catch (e) {
-    console.error('volCone error:', e);
-    const el = document.getElementById('volConeChart');
-    if (el) el.innerHTML = '<div style="text-align:center;padding:50px;color:#888;">波动锥数据暂不可用</div>';
-  }
-}
-
-function updateVolConeChart(data) {
-  const el = document.getElementById('volConeChart');
-  if (!el) return;
-  if (!volConeChart) volConeChart = echarts.init(el);
-
-  if (!data || !data.tenors || !data.tenors.length) {
-    el.innerHTML = '<div style="text-align:center;padding:50px;color:#888;">波动锥数据: ' + (data && data.note ? data.note : '加载中...') + '</div>';
-    return;
-  }
-
-  const hvCurrent = data.hv_current || 0;
-  const atmIv = data.atm_iv || 0;
-  const daysToExpiry = data.days_to_expiry || 24;
-  const tenorIndices = data.tenors.map((t, i) => ({ tenor: parseInt(t), idx: i }));
-  tenorIndices.sort((a, b) => a.tenor - b.tenor);
-  const sortedTenors = tenorIndices.map(ti => data.tenors[ti.idx]);
-  const nearestTenorLabel = sortedTenors.reduce((prev, curr) =>
-    Math.abs(parseInt(curr) - daysToExpiry) < Math.abs(parseInt(prev) - daysToExpiry) ? curr : prev
-  );
-  const sortedHvMax = tenorIndices.map(ti => data.hv_max[ti.idx]);
-  const sortedHv75 = tenorIndices.map(ti => data.hv_75pct[ti.idx]);
-  const sortedHvMed = tenorIndices.map(ti => data.hv_median[ti.idx]);
-  const sortedHv25 = tenorIndices.map(ti => data.hv_25pct[ti.idx]);
-  const sortedHvMin = tenorIndices.map(ti => data.hv_min[ti.idx]);
-
-  volConeChart.setOption({
-    tooltip: { trigger: 'axis' },
-    legend: {
-      type: 'scroll',
-      data: ['最大值', '75%', '中位数', '25%', '最小值', '当前HV', 'ATM-IV'],
-      textStyle: { color: '#aaa' }, top: 5,
-      selectedMode: 'multiple',
-      selected: {'最大值': true, '75%': true, '中位数': true, '25%': true, '最小值': true, '当前HV': false, 'ATM-IV': true}
-    },
-    grid: { left: '8%', right: '8%', bottom: '15%', top: '20%' },
-    xAxis: {
-      type: 'category', data: sortedTenors,
-      axisLabel: { color: '#aaa', fontSize: 11 },
-      axisLine: { lineStyle: { color: '#666' } },
-      name: '期限(日)', nameLocation: 'middle', nameGap: 25
-    },
-    yAxis: {
-      type: 'value',
-      axisLabel: { color: '#aaa', fontSize: 11, formatter: '{value}%' },
-      splitLine: { lineStyle: { color: '#333' } },
-      min: function(value) { return Math.floor(value.min * 0.3 / 5) * 5; },
-      max: function(value) { return Math.ceil(value.max * 1.3 / 5) * 5; }
-    },
-    series: [
-      { name: '最大值', type: 'line', data: sortedHvMax, itemStyle: { color: '#ff6b6b' }, lineStyle: { width: 1.5, type: 'dashed' }, symbol: 'none', smooth: true },
-      { name: '75%', type: 'line', data: sortedHv75, itemStyle: { color: '#ffa500' }, lineStyle: { width: 2 }, symbol: 'none', smooth: true, areaStyle: { color: 'rgba(255,165,0,0.1)' } },
-      { name: '中位数', type: 'line', data: sortedHvMed, itemStyle: { color: '#4ecdc4' }, lineStyle: { width: 2.5 }, symbol: 'none', smooth: true },
-      { name: '25%', type: 'line', data: sortedHv25, itemStyle: { color: '#45b7d1' }, lineStyle: { width: 2 }, symbol: 'none', smooth: true },
-      { name: '最小值', type: 'line', data: sortedHvMin, itemStyle: { color: '#96ceb4' }, lineStyle: { width: 1.5, type: 'dashed' }, symbol: 'none', smooth: true },
-      { name: 'ATM-IV', type: 'scatter', data: atmIv > 0 ? [[nearestTenorLabel, atmIv]] : [], itemStyle: { color: '#ffd700', borderColor: '#000', borderWidth: 1.5 }, symbolSize: 22, z: 30 },
-      { name: '当前HV', type: 'scatter', data: sortedTenors.map((t, i) => t === sortedTenors[sortedTenors.length-1] ? [t, hvCurrent] : null), itemStyle: { color: '#ff6b6b', borderColor: '#fff', borderWidth: 1.5 }, symbolSize: 20, z: 30 }
-    ]
-  });
-}
-
-// 研报与策略（摘要版 — 不搬 loadDailyReport 1700 行巨函数，仅渲染关键摘要字段）
-async function loadDailyReport(endpoint) {
-  endpoint = endpoint || '/api/strategy_report/realtime';
-  const container = document.getElementById('dailyReportContent');
-  if (!container) return;
-  try {
-    const res = await fetchWithTimeout(endpoint, endpoint.includes('/refresh') ? 120000 : 10000);
-    const r = await res.json();
-    if (!r.success) {
-      container.innerHTML = '<div style="color:#f44336;text-align:center;padding:20px;">日报生成失败: ' + (r.error || '') + '</div>';
-      return;
-    }
-    const d = r.data || {};
-    const intraday = d.intraday_analysis || d.market_brief || {};
-    const cacheMark = r.cached ? '  缓存' + (r.cache_minutes || 15) + '分钟' : '  最新';
-    const sessionMark = d.market_session ? '  ' + d.market_session : '';
-    const timeEl = document.getElementById('dailyReportTime');
-    if (timeEl) timeEl.textContent = (d.timestamp || '') + sessionMark + cacheMark;
-
-    const fc = (v, dec = 0) => v != null ? Number(v).toFixed(dec) : '--';
-    const title = escHtml(intraday.title || d.title || 'PTA 期权研报');
-    const summary = escHtml(intraday.summary || '');
-    const conclusionRaw = intraday.conclusion || '';
-    // 解析 conclusion 里的关键决策块
-    const decision = extractDecisionBlock(conclusionRaw);
-
-    let html = '<div style="font-size:13px;line-height:1.6;">';
-    // 标题
-    html += '<div style="font-size:15px;font-weight:bold;color:#ffd700;margin-bottom:10px;border-bottom:1px solid #444;padding-bottom:6px;">' + title + '</div>';
-    // 一句话摘要
-    if (summary) {
-      html += '<div style="background:#1e1e2e;padding:10px 12px;border-left:3px solid #ffd700;border-radius:3px;margin-bottom:12px;color:#e0e0e0;">' + summary + '</div>';
-    }
-    // 决策摘要
-    html += '<div style="background:#181822;border:1px solid #444;border-radius:5px;padding:10px 12px;margin-bottom:12px;">';
-    html += '<div style="font-size:12px;color:#aaa;margin-bottom:6px;">🧭 综合决策</div>';
-    if (decision.direction) {
-      html += '<div style="margin-bottom:6px;">方向: <b style="color:' + (decision.direction.includes('看多') ? '#ef5350' : decision.direction.includes('看空') ? '#26a69a' : '#aaa') + ';font-size:14px;">' + escHtml(decision.direction) + '</b>';
-      if (decision.confidence) html += ' <span style="color:#888;font-size:11px;">(' + escHtml(decision.confidence) + ')</span>';
-      html += '</div>';
-    }
-    if (decision.positionPct != null) html += '<div style="margin-bottom:6px;">仓位建议: <b style="color:#ffd700;">' + decision.positionPct + '%</b></div>';
-    if (decision.stopLoss) html += '<div style="margin-bottom:6px;font-size:11px;color:#888;">止损要求: ' + escHtml(decision.stopLoss) + '</div>';
-    if (decision.thetaBucket) html += '<div style="margin-bottom:6px;font-size:11px;color:#888;">θ 加权档: ' + escHtml(decision.thetaBucket) + '</div>';
-    if (decision.layers && decision.layers.length) {
-      html += '<div style="margin-top:8px;font-size:11px;color:#888;">4 层信号:</div>';
-      decision.layers.forEach(l => {
-        const color = l.includes('多') ? '#ef5350' : l.includes('空') ? '#26a69a' : '#aaa';
-        html += '<div style="font-size:11px;color:' + color + ';padding-left:8px;">· ' + escHtml(l) + '</div>';
-      });
-    }
-    if (decision.ruleHit) {
-      html += '<div style="margin-top:8px;font-size:10px;color:#666;">规则表: ' + escHtml(decision.ruleHit) + '</div>';
-    }
-    html += '</div>';
-
-    // 业务机理解释(完整 conclusion 文本)
-    if (conclusionRaw) {
-      const mechMatch = conclusionRaw.match(/【业务机理解释】([\s\S]*?)$/);
-      if (mechMatch) {
-        html += '<details style="margin-bottom:12px;"><summary style="cursor:pointer;color:#aaa;font-size:12px;padding:6px;background:#1e1e2e;border-radius:3px;">📖 业务机理解释（点击展开）</summary>';
-        html += '<div style="padding:10px 12px;font-size:11px;line-height:1.6;color:#cfcfcf;white-space:pre-wrap;">' + escHtml(mechMatch[1].trim()) + '</div>';
-        html += '</details>';
-      }
-    }
-
-    // 关键产业链/价格数据
-    if (d.cost) {
-      html += '<div style="background:#1e1e2e;padding:8px 12px;border-radius:3px;margin-bottom:8px;font-size:11px;color:#aaa;">';
-      html += '产业链: PTA 成本 ' + fc(d.cost.pta_cost) + ' · 外盘参考 ' + fc(d.cost.pta_external_cost) + ' · 加工费 ' + fc(d.cost.profit) + ' (' + fc(d.cost.profit_pct, 1) + '%)';
-      html += '</div>';
-    }
-
-    // 链接到完整研报
-    html += '<div style="margin-top:12px;text-align:center;font-size:11px;color:#666;">💡 完整研报（含 GEX/OI/IV 表格、决策统计）请访问 <a href="/" target="_blank" style="color:#94a3b8;">主页</a></div>';
-    html += '</div>';
-
-    container.innerHTML = html;
-    _dailyReportLoaded = true;
-  } catch (e) {
-    console.error('dailyReport error:', e);
-    container.innerHTML = '<div style="color:#f44336;text-align:center;padding:20px;">研报加载失败: ' + e.message + '</div>';
-  }
-}
-
-function escHtml(s) {
-  return String(s == null ? '' : s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-}
-
-function extractDecisionBlock(text) {
-  const out = { direction: '', confidence: '', positionPct: null, stopLoss: '', thetaBucket: '', layers: [], ruleHit: '' };
-  if (!text) return out;
-  // 🧭 决策（飞书综合判断规则表 v2.11.92）：观望
-  const dirMatch = text.match(/决策[（(][^）)]+[）)][：:]\s*(\S+)/);
-  if (dirMatch) out.direction = dirMatch[1];
-  // 置信度：极弱
-  const confMatch = text.match(/置信度[：:]\s*(\S+)/);
-  if (confMatch) out.confidence = confMatch[1];
-  // 仓位建议：0%
-  const posMatch = text.match(/仓位建议[：:]\s*(\d+)%/);
-  if (posMatch) out.positionPct = parseInt(posMatch[1]);
-  // 止损要求：不交易
-  const stopMatch = text.match(/止损要求[：:]\s*([^
-]+)/);
-  if (stopMatch) out.stopLoss = stopMatch[1].trim();
-  // θ 加权档：5≤T<10（无调整）
-  const thetaMatch = text.match(/θ\s*加权档[：:]\s*([^
-]+)/);
-  if (thetaMatch) out.thetaBucket = thetaMatch[1].trim();
-  // 4 层信号
-  const layerRegex = /•\s*(L\d[^：:]+)[：:]\s*([^
-]+)/g;
-  let lm;
-  while ((lm = layerRegex.exec(text)) !== null) {
-    out.layers.push((lm[1] + ': ' + lm[2]).trim());
-  }
-  // 规则表命中
-  const ruleMatch = text.match(/规则表命中[：:]\s*([^
-]+)/);
-  if (ruleMatch) out.ruleHit = ruleMatch[1].trim();
-  return out;
-}
-
-function refreshDailyReport() {
-  loadDailyReport('/api/strategy_report/refresh');
-}
-
-function exportStrategyReport() {
-  const now = new Date();
-  const minutes = now.getHours() * 60 + now.getMinutes();
-  const type = minutes >= 15 * 60 ? 'daily' : 'realtime';
-  window.location.href = '/api/strategy_report/export?type=' + type + '&format=docx';
-}
-
-</script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -854,28 +520,27 @@ function exportStrategyReport() {
   </table>
 </div>
 
-<!-- ===== v2.11.100: 主页三块集成（研报摘要 + 波动锥 + 日频 Smile） ===== -->
-<div class="chart-grid-2col">
-  <div class="card">
-    <div class="card-title">📉 日频 Smile 曲线（昨收 vs 今收）</div>
-    <div id="ivSmileChartDaily" style="width:100%;height:280px;"></div>
-  </div>
-  <div class="card">
-    <div class="card-title">📊 历史波动率锥（Volatility Cone）</div>
-    <div id="volConeChart" style="width:100%;height:280px;"></div>
-  </div>
+<!-- ===== v2.11.100: 主页三块集成（研报完整版 + 波动锥 + 日频 Smile，三行各占一行） ===== -->
+<div class="card" style="margin-bottom:10px;">
+  <div class="card-title">📉 日频 Smile 曲线（昨收 vs 今收 · 全档 IV/OI）</div>
+  <div id="ivSmileChartDaily" style="width:100%;height:340px;"></div>
+</div>
+
+<div class="card" style="margin-bottom:10px;">
+  <div class="card-title">📊 历史波动率锥（Volatility Cone · HV/IV 分位）</div>
+  <div id="volConeChart" style="width:100%;height:340px;"></div>
 </div>
 
 <div class="card" style="margin-bottom:10px;">
   <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
-    <span>📋 研报与策略摘要 <span id="dailyReportTime" style="color:#888;font-size:11px;font-weight:normal;"></span></span>
+    <span>📋 研报与策略完整版 <span style="color:#94a3b8;font-size:11px;font-weight:normal;margin-left:6px;">— 板块一/二/三 + trader_report + strategy_blocks + decision_table</span> <span id="dailyReportTime" style="color:#888;font-size:11px;font-weight:normal;margin-left:8px;"></span></span>
     <span style="display:flex;gap:6px;">
       <button onclick="refreshDailyReport()" style="background:#e65100;color:#fff;border:none;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px;">手动刷新</button>
       <button onclick="exportStrategyReport()" style="background:#2e7d32;color:#fff;border:none;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px;">导出Word</button>
     </span>
   </div>
-  <div id="dailyReportContent" style="padding:10px;background:#252538;border-radius:0 0 8px 8px;max-height:600px;overflow-y:auto;">
-    <div style="color:#888;text-align:center;padding:20px;">⏳ 正在加载研报...</div>
+  <div id="dailyReportContent" style="padding:14px 18px;background:#252538;border-radius:0 0 8px 8px;max-height:800px;overflow-y:auto;font-size:13px;line-height:1.7;color:#e0e0e0;">
+    <div style="color:#888;text-align:center;padding:20px;">⏳ 正在加载完整研报...</div>
   </div>
 </div>
 
@@ -1994,7 +1659,7 @@ function exportTTableExcel() {
   const ts = new Date();
   const pad = n => String(n).padStart(2, '0');
   const stamp = `${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}_${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}`;
-  const html = `<!doctype html><html><head><meta charset="utf-8"></head><body>${metricTable}${clone.outerHTML}</body></html>`;
+  const html = `<!doctype html><html><head><meta charset="utf-8"></head><body>${metricTable}${clone.outerHTML}<\/body><\/html>`;
   const blob = new Blob(['\ufeff', html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -2281,7 +1946,1005 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 });
+// ===== v2.11.100 主页三块集成（从 kline_lightweight.html 抽取） =====
+let ivSmileChartDaily = null;
+let volConeChart = null;
+let _dailyReportLoaded = false;
+
+function fetchWithTimeout(url, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
+// 日频 Smile 曲线（昨收 vs 今收，与现有 smileChart 互补：分钟实时 vs 日频快照）
+async function loadDailySmileChart() {
+  try {
+    const res = await fetchWithTimeout('/api/options/chain', 12000);
+    const data = await res.json();
+    if (!data.success) {
+      const el = document.getElementById('ivSmileChartDaily');
+      if (el) el.innerHTML = '<div style="text-align:center;padding:50px;color:#888;">数据未就绪（' + (data.error || '') + '）</div>';
+      return;
+    }
+    // v2.11.100+: /api/options/chain 字段在顶层(strike_rows/atm_strike/underlying),不在 data 下
+    const rows = data.strike_rows || [];
+    const atmStrike = data.atm_strike || data.underlying_price || 0;
+    if (!rows.length) {
+      const el = document.getElementById('ivSmileChartDaily');
+      if (el) el.innerHTML = '<div style="text-align:center;padding:50px;color:#888;">暂无 strike_rows 数据</div>';
+      return;
+    }
+    updateIvSmileChartDaily(data, atmStrike);
+  } catch (e) {
+    console.error('dailySmileChart error:', e);
+    const el = document.getElementById('ivSmileChartDaily');
+    if (el) el.innerHTML = '<div style="text-align:center;padding:50px;color:#888;">加载失败: ' + e.message + '</div>';
+  }
+}
+
+function updateIvSmileChartDaily(data, atmStrike) {
+  const el = document.getElementById('ivSmileChartDaily');
+  if (!el) return;
+  if (!ivSmileChartDaily) ivSmileChartDaily = echarts.init(el);
+
+  const rows = (data && data.strike_rows) || [];
+  const sortedRows = [...rows].sort((a, b) => a.strike - b.strike);
+  let atmIdx = sortedRows.findIndex(r => r.strike >= atmStrike);
+  if (atmIdx < 0) atmIdx = Math.floor(sortedRows.length / 2);
+  const startIdx = Math.max(0, atmIdx - 10);
+  const endIdx = Math.min(sortedRows.length, atmIdx + 10);
+  const displayRows = sortedRows.slice(startIdx, endIdx);
+
+  const otmLeft = displayRows.filter(r => r.strike <= atmStrike).sort((a, b) => a.strike - b.strike);
+  const otmRight = displayRows.filter(r => r.strike > atmStrike).sort((a, b) => a.strike - b.strike);
+
+  const smileStrikes = [
+    ...otmLeft.map(r => r.strike.toFixed(0)),
+    ...otmRight.map(r => r.strike.toFixed(0))
+  ];
+  const smilePutIv = [
+    ...otmLeft.map(r => r.put_iv || null),
+    ...otmRight.map(r => null)
+  ];
+  const smileCallIv = [
+    ...otmLeft.map(r => null),
+    ...otmRight.map(r => r.call_iv || null)
+  ];
+  const smilePrevPutIv = [
+    ...otmLeft.map(r => r.prev_put_iv || null),
+    ...otmRight.map(r => null)
+  ];
+  const smilePrevCallIv = [
+    ...otmLeft.map(r => null),
+    ...otmRight.map(r => r.prev_call_iv || null)
+  ];
+  const hasPrevData = smilePrevPutIv.some(v => v > 0) || smilePrevCallIv.some(v => v > 0);
+
+  const labelFmt = function(p) { return p.value !== null ? p.value.toFixed(2) + '%' : ''; };
+  const series = [
+    { name: 'Put IV(今)', data: smilePutIv, color: '#4169e1', style: { width: 2.5 }, showLabel: true },
+    { name: 'Call IV(今)', data: smileCallIv, color: '#ff6347', style: { width: 2.5 }, showLabel: true }
+  ];
+  if (hasPrevData) {
+    series.push(
+      { name: 'Put IV(昨)', data: smilePrevPutIv, color: '#4169e1', style: { type: 'dashed', width: 1.5, opacity: 0.5 }, showLabel: true },
+      { name: 'Call IV(昨)', data: smilePrevCallIv, color: '#ff6347', style: { type: 'dashed', width: 1.5, opacity: 0.5 }, showLabel: true }
+    );
+  }
+
+  const allIv = [...smilePutIv, ...smileCallIv].filter(v => v > 0);
+  const minIv = allIv.length ? Math.min(...allIv) : 0;
+  const maxIv = allIv.length ? Math.max(...allIv) : 100;
+  const ivPadding = (maxIv - minIv) * 0.3;
+
+  ivSmileChartDaily.setOption({
+    tooltip: { trigger: 'axis', formatter: function(params) {
+      let r = '<b>' + params[0].axisValue + '</b><br/>';
+      params.forEach(p => {
+        if (p.value !== null && p.value !== '' && p.value !== undefined) {
+          r += '<span style="color:' + p.color + ';">●</span> ' + p.seriesName + ': ' + p.value.toFixed(2) + '%<br/>';
+        }
+      });
+      return r;
+    }},
+    legend: { data: series.map(s => s.name), textStyle: { color: '#aaa' }, top: 5 },
+    grid: { left: '5%', right: '5%', bottom: '15%', top: '15%' },
+    xAxis: {
+      type: 'category', data: smileStrikes,
+      axisLabel: { color: '#aaa', fontSize: 11, rotate: 0 },
+      axisLine: { lineStyle: { color: '#666' } },
+      name: '行权价', nameLocation: 'middle', nameGap: 30
+    },
+    yAxis: {
+      type: 'value',
+      axisLabel: { color: '#aaa', fontSize: 12, formatter: '{value}%' },
+      min: Math.max(0, Math.floor(minIv - ivPadding)),
+      max: Math.ceil(maxIv + ivPadding),
+      splitNumber: 5
+    },
+    series: series.map(s => ({
+      name: s.name, type: 'line', data: s.data, smooth: true,
+      itemStyle: { color: s.color }, lineStyle: s.style,
+      symbol: 'circle', symbolSize: 6,
+      label: { show: s.showLabel, formatter: labelFmt, fontSize: 9, color: s.color },
+      connectNulls: true
+    }))
+  });
+}
+
+// 历史波动锥
+async function loadVolConeChart() {
+  try {
+    const res = await fetchWithTimeout('/api/options/vol_cone', 10000);
+    const data = await res.json();
+    updateVolConeChart(data);
+  } catch (e) {
+    console.error('volCone error:', e);
+    const el = document.getElementById('volConeChart');
+    if (el) el.innerHTML = '<div style="text-align:center;padding:50px;color:#888;">波动锥数据暂不可用</div>';
+  }
+}
+
+function updateVolConeChart(data) {
+  const el = document.getElementById('volConeChart');
+  if (!el) return;
+  if (!volConeChart) volConeChart = echarts.init(el);
+
+  if (!data || !data.tenors || !data.tenors.length) {
+    el.innerHTML = '<div style="text-align:center;padding:50px;color:#888;">波动锥数据: ' + (data && data.note ? data.note : '加载中...') + '</div>';
+    return;
+  }
+
+  const hvCurrent = data.hv_current || 0;
+  const atmIv = data.atm_iv || 0;
+  const daysToExpiry = data.days_to_expiry || 24;
+  const tenorIndices = data.tenors.map((t, i) => ({ tenor: parseInt(t), idx: i }));
+  tenorIndices.sort((a, b) => a.tenor - b.tenor);
+  const sortedTenors = tenorIndices.map(ti => data.tenors[ti.idx]);
+  const nearestTenorLabel = sortedTenors.reduce((prev, curr) =>
+    Math.abs(parseInt(curr) - daysToExpiry) < Math.abs(parseInt(prev) - daysToExpiry) ? curr : prev
+  );
+  const sortedHvMax = tenorIndices.map(ti => data.hv_max[ti.idx]);
+  const sortedHv75 = tenorIndices.map(ti => data.hv_75pct[ti.idx]);
+  const sortedHvMed = tenorIndices.map(ti => data.hv_median[ti.idx]);
+  const sortedHv25 = tenorIndices.map(ti => data.hv_25pct[ti.idx]);
+  const sortedHvMin = tenorIndices.map(ti => data.hv_min[ti.idx]);
+
+  volConeChart.setOption({
+    tooltip: { trigger: 'axis' },
+    legend: {
+      type: 'scroll',
+      data: ['最大值', '75%', '中位数', '25%', '最小值', '当前HV', 'ATM-IV'],
+      textStyle: { color: '#aaa' }, top: 5,
+      selectedMode: 'multiple',
+      selected: {'最大值': true, '75%': true, '中位数': true, '25%': true, '最小值': true, '当前HV': false, 'ATM-IV': true}
+    },
+    grid: { left: '8%', right: '8%', bottom: '15%', top: '20%' },
+    xAxis: {
+      type: 'category', data: sortedTenors,
+      axisLabel: { color: '#aaa', fontSize: 11 },
+      axisLine: { lineStyle: { color: '#666' } },
+      name: '期限(日)', nameLocation: 'middle', nameGap: 25
+    },
+    yAxis: {
+      type: 'value',
+      axisLabel: { color: '#aaa', fontSize: 11, formatter: '{value}%' },
+      splitLine: { lineStyle: { color: '#333' } },
+      min: function(value) { return Math.floor(value.min * 0.3 / 5) * 5; },
+      max: function(value) { return Math.ceil(value.max * 1.3 / 5) * 5; }
+    },
+    series: [
+      { name: '最大值', type: 'line', data: sortedHvMax, itemStyle: { color: '#ff6b6b' }, lineStyle: { width: 1.5, type: 'dashed' }, symbol: 'none', smooth: true },
+      { name: '75%', type: 'line', data: sortedHv75, itemStyle: { color: '#ffa500' }, lineStyle: { width: 2 }, symbol: 'none', smooth: true, areaStyle: { color: 'rgba(255,165,0,0.1)' } },
+      { name: '中位数', type: 'line', data: sortedHvMed, itemStyle: { color: '#4ecdc4' }, lineStyle: { width: 2.5 }, symbol: 'none', smooth: true },
+      { name: '25%', type: 'line', data: sortedHv25, itemStyle: { color: '#45b7d1' }, lineStyle: { width: 2 }, symbol: 'none', smooth: true },
+      { name: '最小值', type: 'line', data: sortedHvMin, itemStyle: { color: '#96ceb4' }, lineStyle: { width: 1.5, type: 'dashed' }, symbol: 'none', smooth: true },
+      { name: 'ATM-IV', type: 'scatter', data: atmIv > 0 ? [[nearestTenorLabel, atmIv]] : [], itemStyle: { color: '#ffd700', borderColor: '#000', borderWidth: 1.5 }, symbolSize: 22, z: 30 },
+      { name: '当前HV', type: 'scatter', data: sortedTenors.map((t, i) => t === sortedTenors[sortedTenors.length-1] ? [t, hvCurrent] : null), itemStyle: { color: '#ff6b6b', borderColor: '#fff', borderWidth: 1.5 }, symbolSize: 20, z: 30 }
+    ]
+  });
+}
+
+// 研报与策略（v2.11.100+: 完整版 — 板块一/二/三 + trader_report + strategy_blocks + decision_table）
+// 研报与策略 — v2.11.101: 只渲染四维决策（L1/L2/L3/L4 展开），数据从 API 扁平字段适配
+// 研报与策略 — v2.11.101: 只渲染四维决策（L1/L2/L3/L4 展开），数据从 API 扁平字段适配
+// 后端字段：intraday.decision_layer = { layer1, layer2, layer3, layer4, final }
+// 99j 主页 cell/escText helper (顶层版)
+const cell = (v) => (v == null || v === '' ? '--' : v);
+const escText = (s) => String(s == null ? '' : s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+function renderReportTable(title, headers, rows) {
+  rows = Array.isArray(rows) ? rows : [];
+  if (!rows.length) return '';
+  let html = `<div style="margin:8px 0 10px 0;"><div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">${cell(title)}</div>`;
+  html += `<table style="width:100%;border-collapse:collapse;font-size:11px;line-height:1.45;background:#12121b;border:1px solid #2a2a36;">`;
+  html += `<thead><tr>${headers.map(h => `<th style="color:#aaa;text-align:left;padding:5px 6px;border-bottom:1px solid #333;font-weight:500;">${cell(h)}</th>`).join('')}</tr></thead><tbody>`;
+  rows.slice(0, 8).forEach(row => {
+    html += `<tr>${(Array.isArray(row) ? row : []).map(v => `<td style="color:#ddd;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">${cell(v)}</td>`).join('')}</tr>`;
+  });
+  html += `</tbody></table></div>`;
+  return html;
+}
+function splitNarrativeNotes(text) {
+  const notes = { market: [], gex: [], oi: [], iv: [], macro: [], strategy: [], other: [] };
+  String(text || '').split(/\n+|。|；/).map(x => x.trim()).filter(Boolean).forEach(part => {
+    const t = part.replace(/^[-•\s]+/, '');
+    if (/GEX|Gamma|Pain|痛点|翻转/.test(t)) notes.gex.push(t);
+    else if (/持仓|OI|Put|Call|支撑|压力/.test(t)) notes.oi.push(t);
+    else if (/IV|隐波|波动|偏斜|Skew|曲率|T表/.test(t)) notes.iv.push(t);
+    else if (/原油|PX|成本|宏观|快讯|美元|库存|开工|利润/.test(t)) notes.macro.push(t);
+    else if (/策略|操作|买方|卖方|期货|期权|建议|风险/.test(t)) notes.strategy.push(t);
+    else if (/盘面|价格|主力|标的|节奏|基差/.test(t)) notes.market.push(t);
+    else notes.other.push(t);
+  });
+  return notes;
+}
+function textKey(x) {
+  return String(x || '').replace(/【[^】]+】/g, '').replace(/[\s，。；;,.、：:！!？?（）()\[\]【】"“”'’`~\-—_]/g, '').toLowerCase();
+}
+function combinedInterpretation(base, extraList) {
+  const parts = [];
+  const seen = new Set();
+  function add(x) {
+    const text = String(x || '').trim();
+    if (!text) return;
+    const key = textKey(text);
+    if (!key) return;
+    if (seen.has(key)) return;
+    for (const old of seen) {
+      if (key === old || key.includes(old) || old.includes(key)) return;
+    }
+    seen.add(key);
+    parts.push(text);
+  }
+  add(base);
+  (extraList || []).forEach(add);
+  return parts.join('；');
+}
+function renderChainOperationSnapshot(snapshot) {
+  const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
+  if (!items.length) return '';
+  const colorDelta = v => String(v || '').startsWith('↑') ? '#ef5350' : (String(v || '').startsWith('↓') ? '#26a69a' : '#aaa');
+  const cards = items.map(it => `<div style="flex:1 1 150px;min-width:150px;border:1px solid #30303d;border-radius:4px;padding:6px 8px;background:#12121a;">
+    <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:4px;"><b style="color:#ffd700;font-size:12px;">${cell(it.name || '--')}</b><span style="color:#777;font-size:10px;">${cell(snapshot.source || '人工宏观与基本面文本')}</span></div>
+    <div style="display:flex;flex-wrap:wrap;gap:4px 10px;color:#d0d0d0;font-size:11px;line-height:1.55;">
+      <span>开工 <b style="color:#eee;">${cell(it.operating_rate_text || '--')}</b> <em style="font-style:normal;color:${colorDelta(it.operating_rate_delta)};">${cell(it.operating_rate_delta || '暂无前值')}</em></span>
+      <span>库存 <b style="color:#eee;">${cell(it.inventory_text || '--')}</b> <em style="font-style:normal;color:${colorDelta(it.inventory_delta)};">${cell(it.inventory_delta || '暂无前值')}</em></span>
+    </div>
+    ${it.inventory_desc ? `<div style="margin-top:3px;color:#888;font-size:10px;line-height:1.4;">${cell(it.inventory_desc)}</div>` : ''}
+  </div>`).join('');
+  return `<div style="margin:6px 0 10px 0;"><div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">产业链运行快照</div><div style="display:flex;flex-wrap:wrap;gap:6px;">${cards}</div></div>`;
+}
+function renderInterpretation(text) {
+  if (!text) return '';
+  return `<div style="margin:-4px 0 10px 0;color:#cfcfcf;font-size:11px;line-height:1.65;background:#101018;border-left:2px solid #444;padding:6px 8px;border-radius:3px;">${cell(text)}</div>`;
+}
+// v2.11.68 A 方案: 5.5 性质判定×合成信号 整块删除,内容合并到段 4 L3 展开区
+
+// ============================================================
+function renderDecisionLayerBlock(d) {
+  // v2.11.101: 原 99j 主页 cell/escText 在 renderIntradayAnalysis 闭包内；搬到顶层后自己定义
+  const cell = (v) => (v == null || v === '' ? '--' : v);
+  const escText = (s) => String(s == null ? '' : s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  if (!d) {
+    return `<div style="margin:8px 0 10px 0;"><div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:5px;">🧭 四维决策（v2.11.86 资金意图综合+子规则2b新资金分层）</div><div style="color:#888;font-size:11px;font-style:italic;padding:4px 0;">决策层数据未生成（可手动跑 <code>python3 scripts/judge_state.py</code> 验证）</div></div>`;
+  }
+  const L1 = d.layer1 || {}, L2 = d.layer2 || {}, L3 = d.layer3 || {}, L4 = d.layer4 || {};
+  const fin = d.final || {};
+  const scoreColor = (s) => s > 0.1 ? '#26a69a' : (s < -0.1 ? '#ef5350' : '#aaa');
+  const fmtScore = (s) => s == null ? '--' : (s >= 0 ? '+' : '') + Number(s).toFixed(2);
+  // v2.11.68: 动态对比行渲染（vs 1h 整点 / vs 昨日 15:00）
+  const renderDynamicLine = (layer) => {
+    if (!layer) return '';
+    const parts = [];
+    const ic = layer.intraday_change;
+    if (ic && ic.F_change != null && ic.F_change !== 0) {
+      parts.push(`F ${ic.F_change > 0 ? '+' : ''}${ic.F_change.toFixed(0)}`);
+    }
+    if (ic && ic.net_gex_change != null && Math.abs(ic.net_gex_change) > 1e5) {
+      parts.push(`净GEX ${(ic.net_gex_change/1e6).toFixed(2)}M`);
+    }
+    if (ic && ic.gex_flip_change != null && ic.gex_flip_change !== 0) {
+      parts.push(`Flip ${ic.gex_flip_change > 0 ? '+' : ''}${ic.gex_flip_change.toFixed(0)}`);
+    }
+    if (ic && ic.slope_ratio_change != null && Math.abs(ic.slope_ratio_change) > 0.05) {
+      parts.push(`斜率比 ${ic.slope_ratio_change > 0 ? '+' : ''}${ic.slope_ratio_change.toFixed(2)}`);
+    }
+    if (ic && ic.slope_regime_change) {
+      parts.push('形态变');
+    }
+    const dc = layer.daily_change;
+    if (dc && new Date().getHours() >= 15) {
+      if (dc.max_pain_migration != null && dc.max_pain_migration !== 0) {
+        parts.push(`MP ${dc.max_pain_migration > 0 ? '↑' : '↓'}${Math.abs(dc.max_pain_migration).toFixed(0)}`);
+      }
+      if (dc.gex_flip_migration != null && dc.gex_flip_migration !== 0) {
+        parts.push(`Flip ${dc.gex_flip_migration > 0 ? '+' : ''}${dc.gex_flip_migration.toFixed(0)}`);
+      }
+      if (dc.net_gex_change != null && Math.abs(dc.net_gex_change) > 1e5) {
+        parts.push(`净GEX ${(dc.net_gex_change/1e6).toFixed(1)}M`);
+      }
+      if (dc.slope_regime_change) {
+        parts.push(`形态 ${dc.slope_regime_prev}→${dc.slope_regime_now}`);
+      }
+    }
+    // v2.11.87: 动态阈值三因子明细 (L1 专有, 主页研报详细显示)
+    // 先展示因子明细，再追加最终阈值
+    if (layer.dyn_all_triggers) {
+      const dt = layer.dyn_all_triggers;
+      // 每个因子：值 + 触发状态 + post_th
+      const fmtFactor = (key, label) => {
+        const d = dt[key];
+        if (!d) return null;
+        const val = d.value;
+        let valStr = '--';
+        if (val != null && !isNaN(val)) {
+          if (key === 'oi_huge') valStr = `${(val/10000).toFixed(1)}万手`;
+          else if (key === 'iv_high') valStr = val.toFixed(1);
+          else valStr = val.toFixed(1);
+        }
+        const mark = d.triggered ? '✓' : '·';
+        return `${mark}${label}=${valStr}`;
+      };
+      const f1 = fmtFactor('iv_high', 'IV分位');
+      const f2 = fmtFactor('t_near', 'T');
+      const f3 = fmtFactor('oi_huge', 'OI');
+      const factorStr = [f1, f2, f3].filter(Boolean).join(' / ');
+      if (factorStr) parts.push(`dyn[${factorStr}]`);
+    }
+    if (layer.dyn_threshold != null && layer.dyn_threshold < 1.15) {
+      parts.push(`→ 阈值${layer.dyn_threshold.toFixed(2)} (baseline 1.15)`);
+    }
+    if (parts.length === 0) return '';
+    const isDaily = dc && new Date().getHours() >= 15;
+    return `<div style="color:#888;font-size:10px;margin-top:2px;line-height:1.4;">📊 ${isDaily ? 'vs 昨+1h' : 'vs 1h'}: ${parts.join(' | ')}</div>`;
+  };
+  // brief 字段：L1/L2/L4 是纯文本 → cell 转义；L3 故意含 <span> → raw
+  const layerRow = (n, name, weight, score, brief, rawBrief = false, layer = null) => {
+    const dynamic = layer ? renderDynamicLine(layer) : '';
+    return `<div style="display:flex;align-items:flex-start;gap:8px;padding:4px 0;border-bottom:1px dashed #2a2a36;">
+      <div style="color:#888;font-size:10px;min-width:24px;font-weight:bold;">L${n}</div>
+      <div style="flex:1;color:#cfcfcf;font-size:11px;line-height:1.55;">
+        <span style="color:#ffd700;font-weight:bold;">${name}</span>
+        <span style="color:#666;font-size:10px;">（权重 ${(weight*100).toFixed(0)}%）</span>
+        <div style="color:#888;font-size:10px;margin-top:2px;">${rawBrief ? (brief || '') : cell(brief || '')}</div>
+        ${dynamic}
+      </div>
+      <div style="color:${scoreColor(score)};font-size:13px;font-weight:bold;min-width:48px;text-align:right;">${fmtScore(score)}</div>
+    </div>`;
+  };
+  // 最终决策 banner
+  const totalScore = fin.total_score;
+  const decision = cell(fin.decision || '观望');
+  const confidence = cell(fin.confidence || '--');
+  const contradiction = fin.contradiction;
+  // v2.11.93+: total_score 字段 = 5 档总分 (±2 量纲), 阈值改 ±0.6 (强多/强空)/中间为中性
+  const decisionColor = (totalScore == null) ? '#888' : (totalScore >= 0.6 ? '#26a69a' : (totalScore <= -0.6 ? '#ef5350' : '#ffd700'));
+  let html = `<div style="margin:14px 0 10px 0;padding:10px 12px;background:#15151f;border-left:3px solid #ffd700;border-radius:5px;">`;
+  html += `<div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:8px;">🧭 四维决策（v2.11.86 资金意图综合+子规则2b新资金分层）</div>`;
+  // 决策 banner
+  html += `<div style="margin:4px 0 10px 0;padding:8px 10px;background:#101018;border-left:3px solid ${decisionColor};border-radius:3px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+      <div style="color:#fff;font-size:13px;font-weight:bold;">${decision} <span style="color:#888;font-size:10px;font-weight:normal;">（置信度：${confidence}）</span></div>
+      <div style="color:${decisionColor};font-size:14px;font-weight:bold;">${totalScore != null ? (totalScore >= 0 ? '+' : '') + totalScore.toFixed(3) : '--'}</div>
+    </div>
+    ${contradiction ? '<div style="margin-top:4px;color:#ef5350;font-size:10px;">⚠️ 四层信号方向矛盾 → 决策降级为观望</div>' : ''}
+  </div>`;
+  // 4 层（含动态对比 + 结论行 + 展开原始判据）
+  // v2.11.95d: L1 结论行 = 形态 + 位置 + 矩阵语义摘要
+  const l1Shape = L1.shape || '?';
+  const l1Position = L1.position || '?';
+  const l1Regime = L1.slope_regime_now || '';
+  const l1Matrix = L1.matrix_meaning || '';
+  const l1Verdict = `${l1Shape} · ${l1Position}${l1Regime ? ` (${l1Regime})` : ''}${l1Matrix && l1Matrix !== 'unknown matrix state' ? ` | ${l1Matrix}` : ''}`;
+  html += layerRow(1, 'PAIN 结构', L1.weight || 0.35, L1.layer_score, l1Verdict, false, L1);
+  // v2.11.95f: L1 原始判据展开块 (形态 / 位置 / 双侧斜率 / 比值 / 阈值表 / dyn_th / GEX / PCR)
+  {
+    const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const fmtM = (v) => {
+      if (v == null) return '-';
+      const av = Math.abs(v);
+      return (av >= 1e6 ? (v/1e6).toFixed(2) + 'M' : (av >= 1e3 ? (v/1e3).toFixed(1) + 'K' : Math.round(v).toString()));
+    };
+    const dynTrig = Array.isArray(L1.dyn_triggered) ? L1.dyn_triggered : [];
+    const thrTable = Array.isArray(L1.slope_thresholds_used) ? L1.slope_thresholds_used : [];
+    const thrTxt = thrTable.map(t => `${esc(t[0])}:${esc(t[1])}`).join(' / ') || '-';
+    const mp = L1.max_pain, fp = L1.futures_price, flip = L1.gex_flip;
+    const pcrTxt = L1.pcr_meaning || (L1.vol_pcr != null ? `成交PCR=${L1.vol_pcr.toFixed(2)}` : '-');
+    const l1Id = 'l1-expand-' + Math.random().toString(36).slice(2, 8);
+    html += `<div style="margin:2px 0 0 32px;">
+      <div id="${l1Id}-btn" style="color:#4fc3f7;font-size:10px;cursor:pointer;line-height:1.6;user-select:none;" onclick="document.getElementById('${l1Id}').style.display==='none'?(document.getElementById('${l1Id}').style.display='block',document.getElementById('${l1Id}-btn').textContent='▼ 收起 L1 原始判据'):(document.getElementById('${l1Id}').style.display='none',document.getElementById('${l1Id}-btn').textContent='▶ 展开 L1 原始判据')">▶ 展开 L1 原始判据（形态/位置/斜率/阈值）</div>
+      <div id="${l1Id}" style="display:none;margin-top:4px;padding:6px 8px;background:#0e0e16;border:1px solid #2a2a36;border-radius:3px;font-size:10px;line-height:1.7;color:#cfcfcf;">
+        <div><span style="color:#888;">• 形态 shape：</span><b>${esc(l1Shape)}</b> | <span style="color:#888;">位置 position：</span><b>${esc(l1Position)}</b>${l1Regime ? ` <span style="color:#aaa;">(${esc(l1Regime)})</span>` : ''}</div>
+        <div><span style="color:#888;">• 双侧斜率：</span>↓看跌阻力 <b>${esc(fmtM(L1.slope_down_now))}</b> / ↑看涨阻力 <b>${esc(fmtM(L1.slope_up_now))}</b> | 比值 <b>${esc((L1.slope_ratio_now || 0).toFixed(2))}x</b></div>
+        <div><span style="color:#888;">• 阈值表：</span>${thrTxt}${L1.threshold_version ? ` <span style="color:#666;">(${esc(L1.threshold_version)})</span>` : ''}</div>
+        <div><span style="color:#888;">• 动态阈值 dyn_th：</span><b>${esc((L1.dyn_threshold || '-'))}</b>${dynTrig.length ? ` <span style="color:#aaa;">（触发：${dynTrig.map(esc).join(', ')}）</span>` : ''}</div>
+        <div><span style="color:#888;">• GEX 状态：</span>方向 <b>${esc(L1.gex_dir || '-')}</b> | Flip <b>${esc(flip)}</b> | MP <b>${esc(mp)}</b> | F <b>${esc(fp)}</b></div>
+        <div><span style="color:#888;">• PCR：</span>${esc(pcrTxt)}${L1.pcr_modifier != null && L1.pcr_modifier !== 0 ? ` <span style="color:#aaa;">(mod ${esc(L1.pcr_modifier)})</span>` : ''}</div>
+      </div>
+    </div>`;
+  }
+  // L2 结论行 = score_detail（与 brief 同源但更紧凑）
+  const l2Verdict = (L2.score_detail || L2.matrix_meaning || L2.logic_brief || '').trim();
+  html += layerRow(2, 'GEX 机制', L2.weight || 0.25, L2.layer_score, l2Verdict, false, L2);
+  // v2.11.95f: L2 原始判据展开块 (GEX 方向 / Flip 上下 / Net GEX 变化 / matrix_meaning)
+  {
+    const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const fmtM = (v) => {
+      if (v == null) return '-';
+      const av = Math.abs(v);
+      return (av >= 1e6 ? (v/1e6).toFixed(2) + 'M' : (av >= 1e3 ? (v/1e3).toFixed(1) + 'K' : Math.round(v).toString()));
+    };
+    const fmtPct = (v) => v == null ? '-' : (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%';
+    const flipDir = L2.flip_cross_direction || '';
+    const flipCrossed = L2.gex_flip_crossed;
+    const l2Id = 'l2-expand-' + Math.random().toString(36).slice(2, 8);
+    html += `<div style="margin:2px 0 0 32px;">
+      <div id="${l2Id}-btn" style="color:#4fc3f7;font-size:10px;cursor:pointer;line-height:1.6;user-select:none;" onclick="document.getElementById('${l2Id}').style.display==='none'?(document.getElementById('${l2Id}').style.display='block',document.getElementById('${l2Id}-btn').textContent='▼ 收起 L2 原始判据'):(document.getElementById('${l2Id}').style.display='none',document.getElementById('${l2Id}-btn').textContent='▶ 展开 L2 原始判据')">▶ 展开 L2 原始判据（GEX/Flip/P-Flip/Net GEX）</div>
+      <div id="${l2Id}" style="display:none;margin-top:4px;padding:6px 8px;background:#0e0e16;border:1px solid #2a2a36;border-radius:3px;font-size:10px;line-height:1.7;color:#cfcfcf;">
+        <div><span style="color:#888;">• GEX 方向：</span><b>${esc(L2.gex_dir || '-')}</b> | <span style="color:#888;">P vs Flip：</span><b>${esc(L2.p_vs_flip || '-')}</b></div>
+        <div><span style="color:#888;">• GEX Flip：</span>当前 <b>${esc(L2.gex_flip_now)}</b> ${L2.gex_flip_prev != null ? `| 前次 <b>${esc(L2.gex_flip_prev)}</b> (${esc(fmtM(L2.gex_flip_migration))})` : ''} ${flipCrossed != null ? `<span style="color:#aaa;">(${esc(flipCrossed ? '已穿越' : '未穿越')}${flipDir ? ' ' + esc(flipDir) : ''})</span>` : ''}</div>
+        <div><span style="color:#888;">• Net GEX：</span>当前 <b>${esc(fmtM(L2.net_gex_now))}</b> ${L2.net_gex_prev != null ? `| 前次 <b>${esc(fmtM(L2.net_gex_prev))}</b>` : ''} ${L2.net_gex_change != null ? `<span style="color:#aaa;">(变化 ${esc(fmtM(L2.net_gex_change))} / ${esc(fmtPct(L2.net_gex_change_pct))})</span>` : ''}</div>
+        ${L2.matrix_meaning ? `<div><span style="color:#888;">• 矩阵语义：</span>${esc(L2.matrix_meaning)}</div>` : ''}
+      </div>
+    </div>`;
+  }
+  // L3: 资金意图（B 方案：标准化 label + 1h PCR delta + 跳段 3 链接）
+  const l3Label = cell((L3.standardized_label || L3.raw_label || '未判定'));
+  const l3PcrDelta = L3.pcr_delta_1h != null && L3.pcr_delta_1h !== 0
+    ? ` | <span style="color:#888;">PCR 1h ${L3.pcr_delta_1h > 0 ? '+' : ''}${L3.pcr_delta_1h.toFixed(3)}</span>`
+    : '';
+  const l3Brief = L3.logic_brief
+    ? `${cell(L3.logic_brief)} <span style="color:#888;">| ${l3Label}</span>${l3PcrDelta}`
+    : `Put ${cell(L3.put_nature || '?')} + Call ${cell(L3.call_nature || '?')} <span style="color:#888;">| ${l3Label}</span>${l3PcrDelta}`;
+  // v2.11.85g: 折叠态顶部一行"🎯 综合结论"（飞书 §2.3.1 + §2.3.2 联合摘要）
+  // v2.11.85h: + fund_flow_verdict (新资金主导/存量调整/僵持) + new_fund_direction (矛盾场景方向)
+  const _fsBrief = L3.funding_signal || {};
+  const _fsCvBrief = L3.funding_signal_cv || {};
+  const _ffBrief = (L3.cross_validation_verdict || {}).fund_flow_verdict
+    || (((L3.cross_validation || {}).fund_flow || {}).Call
+      && ((L3.cross_validation || {}).fund_flow || {}).Put
+      ? (() => {
+        const c = ((L3.cross_validation || {}).fund_flow || {}).Call || {};
+        const p = ((L3.cross_validation || {}).fund_flow || {}).Put || {};
+        const cNew = (c.new_fund_net_long||0) + (c.new_fund_net_short||0) + (c.new_fund_net_neutral||0);
+        const pNew = (p.new_fund_net_long||0) + (p.new_fund_net_short||0) + (p.new_fund_net_neutral||0);
+        const cStock = Math.abs(c.stock_adj_net_long||0) + Math.abs(c.stock_adj_net_short||0);
+        const pStock = Math.abs(p.stock_adj_net_long||0) + Math.abs(p.stock_adj_net_short||0);
+        const maxNew = Math.max(cNew, pNew);
+        const maxStock = Math.max(cStock, pStock);
+        if (maxNew > maxStock * 1.5) return '新资金主导';
+        if (maxStock > maxNew * 1.5) return '存量调整主导';
+        return '资金僵持';
+      })()
+      : '');
+  const _newFundDir = (L3.cross_validation_verdict || {}).new_fund_direction || '';
+  const _consistency = (L3.cross_validation_verdict || {}).consistency || '';
+  const _fsBriefLabel = _fsBrief.signal_label || '';
+  const _fsBriefStrength = _fsBrief.signal_strength || '';
+  const _fsBriefCv = _fsCvBrief.verdict || '';
+  let _fsBriefColor = '#888';
+  if (_fsBriefStrength === '强' || _fsBriefCv === '确认' || _fsBriefCv === '强确认') _fsBriefColor = '#26a69a';
+  else if (_fsBriefStrength === '中' || _fsBriefCv === '弱确认') _fsBriefColor = '#ffd700';
+  else if (_fsBriefStrength.includes('观望') || _fsBriefCv === '无修正' || _fsBriefCv === '忽略噪音') _fsBriefColor = '#888';
+  // v2.11.85h: 资金流颜色（矛盾场景下方向颜色敏感）
+  const _ffDirColor = _newFundDir === '看空' ? '#5d5'
+    : (_newFundDir === '看多' ? '#ef5350'
+    : (_newFundDir === '多空博弈' ? '#ffd700' : '#888'));
+  const _fsBriefHtml = _fsBriefLabel ? `<div style="margin:2px 0 0 0;font-size:10px;color:${_fsBriefColor};">
+    <span style="color:#888;">🎯 综合:</span> <b>${cell(_fsBriefLabel)}</b>
+    ${_fsBriefCv ? `<span style="color:#888;"> | ${cell(_fsBriefCv)}</span>` : ''}
+    ${_ffBrief ? `<span style="color:#888;"> | </span><span style="color:#9bc;font-weight:500;">资金流:</span> <b>${cell(_ffBrief)}</b>` : ''}
+    ${_newFundDir ? `<span style="color:#888;"> | </span><span style="color:#888;font-weight:500;">方向:</span> <b style="color:${_ffDirColor};">${cell(_newFundDir)}</b>` : ''}
+  </div>` : '';
+  html += layerRow(3, '资金意图', L3.weight || 0.25, L3.layer_score, l3Brief + _fsBriefHtml, true, L3);
+  // v2.11.95f: L3 展开块 (加权判定 + PCR×Skew 交叉验证 + Top 8 strike 贡献 + 角色分布)
+  // 默认收起，点击 ▶ 展开查看详情；折叠时 L3 行保持简洁
+  const l3ExpandId = 'l3-expand-' + Math.random().toString(36).slice(2, 8);
+  const hasL3Detail = (L3.call_role && Object.keys(L3.call_role).length > 1)
+           || (L3.put_role && Object.keys(L3.put_role).length > 1)
+           || (Array.isArray(L3.strike_role) && L3.strike_role.length > 0)
+           || (Array.isArray(L3.put_strike_role) && L3.put_strike_role.length > 0)
+           || L3.weighted_verdict || L3.put_weighted_verdict;
+  if (hasL3Detail) {
+    html += `<div style="margin:2px 0 0 32px;">
+      <div id="${l3ExpandId}-btn" style="color:#4fc3f7;font-size:10px;cursor:pointer;line-height:1.6;user-select:none;" onclick="document.getElementById('${l3ExpandId}').style.display==='none'?(()=>{document.getElementById('${l3ExpandId}').style.display='block';document.getElementById('${l3ExpandId}-btn').textContent='▼ 收起 L3 原始判据';})():(()=>{document.getElementById('${l3ExpandId}').style.display='none';document.getElementById('${l3ExpandId}-btn').textContent='▶ 展开 L3 原始判据';})()">▶ 展开 L3 原始判据</div>
+      <div id="${l3ExpandId}" style="display:none;margin-top:6px;padding:8px;background:#0e0e16;border:1px solid #2a2a36;border-radius:3px;">${renderL3StrikeDetail(L3)}</div>
+    </div>`;
+  }
+  // L4: 情绪确认 (v2.11.95d: 默认显示一行结论 score_detail, 展开看 4 个原始判据)
+  // 4 个原始判据: 成交PCR / 持仓PCR / ATM IV / 趋势 —— 从 L4 raw 字段拉
+  const l4Verdict = (L4.score_detail || '').trim();
+  const l4Signals = Array.isArray(L4.signals) ? L4.signals : [];
+  html += layerRow(4, '情绪确认', L4.weight || 0.15, L4.layer_score, l4Verdict || l4Signals.join(' | '), false, L4);
+  const l4ExpandId = 'l4-expand-' + Math.random().toString(36).slice(2, 8);
+  const hasL4Detail = l4Signals.length > 0 || L4.vol_pcr != null || L4.pos_pcr != null
+            || L4.atm_iv_call != null || L4.atm_iv_put != null;
+  if (hasL4Detail) {
+    const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const fmtPcr = (v) => (v == null) ? '-' : v.toFixed(2);
+    const fmtIv = (v) => (v == null) ? '-' : (v * 100).toFixed(1) + '%';
+    const fmtChg = (v, signed = true) => {
+      if (v == null) return '';
+      const sign = signed && v > 0 ? '+' : '';
+      return `${sign}${typeof v === 'number' ? v.toFixed(2) : v}`;
+    };
+    // 1. 成交 PCR
+    const volPcrVal = L4.vol_pcr;
+    const volPcrPrev = L4.vol_pcr_prev;
+    const volPcrChg = (volPcrVal != null && volPcrPrev != null) ? (volPcrVal - volPcrPrev) : null;
+    let volPcrJudge = '（中性区间）';
+    if (volPcrVal != null) {
+      if (volPcrVal < 0.6) volPcrJudge = '（过低，过度乐观）';
+      else if (volPcrVal > 1.4) volPcrJudge = '（过高，过度恐慌）';
+    }
+    // 2. 持仓 PCR
+    const posPcrVal = L4.pos_pcr;
+    const posPcrPrev = L4.pos_pcr_prev;
+    const posPcrChg = (posPcrVal != null && posPcrPrev != null) ? (posPcrVal - posPcrPrev) : null;
+    let posPcrJudge = '（中性区间）';
+    if (posPcrVal != null) {
+      if (posPcrVal > 1.2) posPcrJudge = '（偏高，空头持仓集中）';
+      else if (posPcrVal < 0.7) posPcrJudge = '（偏低，多头持仓集中）';
+    }
+    // 3. ATM IV (call/put 双侧)
+    const atmIvCall = L4.atm_iv_call;
+    const atmIvPut = L4.atm_iv_put;
+    const ivVals = [atmIvCall, atmIvPut].filter(v => v != null);
+    const atmIvAvg = ivVals.length ? (ivVals.reduce((a, b) => a + b, 0) / ivVals.length * 100) : null;
+    let ivJudge = '';
+    if (atmIvAvg != null) {
+      if (atmIvAvg >= 30) ivJudge = '（高位，恐慌区域）';
+      else if (atmIvAvg >= 20) ivJudge = '（中位）';
+      else ivJudge = '（低位，平静区域）';
+    }
+    // 4. 趋势
+    const trendVal = L4.trend || '?';
+    const trendArrow = { up: '↑', down: '↓', flat: '→' }[trendVal] || trendVal;
+    const trend1h = L4.trend_1h ? ` <span style="color:#666;">(1h=${esc(L4.trend_1h)})</span>` : '';
+    const trendDiff = L4.trend_diff;
+    const prevF = L4.prev_f;
+    const curF = L4.cur_f;
+    let trendDiffTxt = '';
+    if (trendDiff != null && prevF != null && curF != null) {
+      const sign = trendDiff >= 0 ? '+' : '';
+      trendDiffTxt = ` <span style="color:#888;">(F ${prevF.toFixed(0)} → ${curF.toFixed(0)}，${sign}${trendDiff.toFixed(0)})</span>`;
+    }
+    let trendJudge = '';
+    if (trendVal === 'up') trendJudge = '（偏多动能）';
+    else if (trendVal === 'down') trendJudge = '（偏空动能）';
+    else trendJudge = '（震荡）';
+
+    html += `<div style="margin:2px 0 0 32px;">
+      <div id="${l4ExpandId}-btn" style="color:#4fc3f7;font-size:10px;cursor:pointer;line-height:1.6;user-select:none;" onclick="document.getElementById('${l4ExpandId}').style.display==='none'?(document.getElementById('${l4ExpandId}').style.display='block',document.getElementById('${l4ExpandId}-btn').textContent='▼ 收起 L4 原始判据'):(document.getElementById('${l4ExpandId}').style.display='none',document.getElementById('${l4ExpandId}-btn').textContent='▶ 展开 L4 原始判据')">▶ 展开 L4 原始判据（成交 PCR / 持仓 PCR / ATM IV / 趋势）</div>
+      <div id="${l4ExpandId}" style="display:none;margin-top:4px;padding:6px 8px;background:#0e0e16;border:1px solid #2a2a36;border-radius:3px;font-size:10px;line-height:1.7;color:#cfcfcf;">
+        <div><span style="color:#888;">• 成交 PCR：</span><b>${esc(fmtPcr(volPcrVal))}</b>${volPcrChg != null ? ` <span style="color:#888;">(较前次 ${esc(fmtChg(volPcrChg))})</span>` : ''} <span style="color:#aaa;">${esc(volPcrJudge)}</span></div>
+        <div><span style="color:#888;">• 持仓 PCR：</span><b>${esc(fmtPcr(posPcrVal))}</b>${posPcrChg != null ? ` <span style="color:#888;">(较前次 ${esc(fmtChg(posPcrChg))})</span>` : ''} <span style="color:#aaa;">${esc(posPcrJudge)}</span></div>
+        <div><span style="color:#888;">• ATM IV：</span>Call <b>${esc(fmtIv(atmIvCall))}</b> / Put <b>${esc(fmtIv(atmIvPut))}</b>${atmIvAvg != null ? `，均值 <b>${atmIvAvg.toFixed(1)}%</b>` : ''} <span style="color:#aaa;">${esc(ivJudge)}</span></div>
+        <div><span style="color:#888;">• 趋势：</span><b>${esc(trendArrow)}</b>${trend1h}${trendDiffTxt} <span style="color:#aaa;">${esc(trendJudge)}</span></div>
+      </div>
+    </div>`;
+  }
+  // [v2.11.95f: L3 展开块已移到 layerRow(3) 后 - 见 renderDecisionLayerBlock 中对应位置]
+  // 逻辑链（各层一句话串联）
+  if (fin.logic_chain) {
+    html += `<div style="margin:8px 0 0 0;color:#aaa;font-size:10px;line-height:1.6;background:#0e0e16;padding:6px 8px;border-radius:3px;">
+      <span style="color:#888;">逻辑链：</span>${cell(fin.logic_chain)}
+    </div>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
+// v2.11.85d: 加权判定 + PCR×Skew 交叉验证确认 + Top 8 strike 贡献 + 10 类角色分布
+// 老 24 行表（hedge_sell/hedge_buy/spec_add/spec_trim/close_push）改为按贡献度排序的 strike 列表
+// 后端 payload['layer3'].call_role / put_role 已重算为兼容老 dict 结构，但优先用 strike_role[] 直接渲染
+function renderL3StrikeDetail(L3) {
+  // v2.11.101: 原 99j cell 在 renderIntradayAnalysis 闭包内；顶层定义
+  const cell = (v) => (v == null || v === '' ? '--' : v);
+  const escText = (s) => String(s == null ? '' : s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  if (!L3) return '<div style="color:#888;font-size:10px;">无 L3 数据</div>';
+  const callRole = L3.call_role || {};
+  const putRole = L3.put_role || {};
+  // v2.11.85a 优先用 strike_role[] 直接渲染；老 dict 兜底
+  const callStrikeRole = L3.strike_role || [];
+  const putStrikeRole = L3.put_strike_role || [];
+  const weightedVerdict = L3.weighted_verdict || '';
+  const putWeightedVerdict = L3.put_weighted_verdict || '';
+  const crossVerdict = L3.cross_validation_verdict || {};
+  const crossValidation = L3.cross_validation || {};
+  const weightedLabel = L3.weighted_label || '';
+  const putWeightedLabel = L3.put_weighted_label || '';
+  const callDirection = L3.direction || '';
+  const putDirection = L3.put_direction || '';
+  const fmtPct = (x) => x == null ? '--' : (x >= 0 ? '+' : '') + Number(x).toFixed(1) + '%';
+  const fmtPP  = (x) => x == null ? '--' : (x >= 0 ? '+' : '') + Number(x).toFixed(2) + 'pp';
+  // v2.11.85a: 性质标签表（含 v2.11.85a 新增的 passive_close/noise_close/quote_adjust/spec_buy_lotto）
+  const NATURE_LABEL = {
+    'spec_buy': '投机买', 'spec_add': '投机加',
+    'spec_trim': '投机撤', 'close_push': '卖方平',
+    'hedge_buy': '产业买保', 'hedge_sell': '产业收租',
+    'double_exit': '双边撤', 'mixed_neutral': '中性',
+    'passive_close': '被动平', 'noise_close': '噪声平',
+    'quote_adjust': '报价调', 'spec_buy_lotto': '投机彩票',
+  };
+  // v2.11.85a: strike 行渲染（含 moneyness / contribution / weight）
+  const fmtStrikeRowV2 = (s) => {
+    if (!s) return null;
+    const sv = s.strike;
+    const sStr = sv != null ? `${Math.round(sv)}${s.side === 'Call' ? 'C' : 'P'}` : '--';
+    const nat = NATURE_LABEL[s.nature] || s.nature || '?';
+    const money = s.moneyness || '';
+    const contrib = s.contribution != null ? `贡献${(s.contribution*100).toFixed(1)}%` : '';
+    return `<span title="nature=${s.nature} moneyness=${money} oi_chg=${s.oi_chg} impact=${s.impact}">${sStr} ${nat} OI${fmtPct(s.oi_pct)} IV${fmtPP(s.iv_pp)} ${contrib}</span>`;
+  };
+  const callStr = (key) => (callRole[key] || []).map(s => fmtStrikeRowV2(s)).filter(Boolean).join('<br>') || '--';
+  const putStr = (key) => (putRole[key] || []).map(s => fmtStrikeRowV2(s)).filter(Boolean).join('<br>') || '--';
+  const callSummary = callRole.role_summary || '无显著方向分化';
+  const putSummary = putRole.role_summary || '无显著方向分化';
+  const topN = callRole._top_n || 5;
+  // v2.11.85a: callStrikeRole 按 contribution 降序排（取前 8）
+  const callTopList = (callStrikeRole || []).slice().sort((a,b) => (b.contribution||0) - (a.contribution||0)).slice(0, 8);
+  const putTopList = (putStrikeRole || []).slice().sort((a,b) => (b.contribution||0) - (a.contribution||0)).slice(0, 8);
+  const callStrikeHtml = callTopList.length ? callTopList.map(fmtStrikeRowV2).filter(Boolean).join('<br>') : '--';
+  const putStrikeHtml = putTopList.length ? putTopList.map(fmtStrikeRowV2).filter(Boolean).join('<br>') : '--';
+  // v2.11.85d: 10 栏目表
+  // 桶名严格对齐后端 _rebuild_role_dict 的 NAT_MAP（scripts/decision_layer_service.py:148）
+  //   spec_add ← v2.11.85a spec_buy_directional（OI↑IV↑ ATM/OTM_slight/ITM_slight）
+  //   double_exit ← v2.11.85a double_exit（OI↓IV↓）
+  //   noise_ignore ← noise_close / noise_open / quote_adjust / theta_decay / static
+  // 注意: 老的 spec_trim 桶在后端 NAT_MAP 里没有任何 source 映射，永远空
+  const rows = [
+    {label: '产业卖权收租 (OI↑IV↓)',   key: 'hedge_sell'},
+    {label: '产业买保 (OI↑IV—)',        key: 'hedge_buy'},
+    {label: '投机买入 (OI↑IV↑)',        key: 'spec_add'},
+    {label: '双边撤退 (OI↓IV↓)',        key: 'double_exit'},
+    {label: '卖方平仓 (OI↓IV↑)',        key: 'close_push'},
+    {label: '被动平仓 (OI↓IV—)',        key: 'passive_close'},
+    {label: '套保移仓 (深度ITM OI↑IV↑)', key: 'hedge_rolling'},
+    {label: '卖压 (OI—IV↓)',            key: 'supply_overhang'},
+    {label: '投机彩票 (深度OTM OI↑IV↑)', key: 'spec_buy_lotto'},
+    {label: '深度档噪声(报价调/平)',    key: 'noise_ignore'},
+  ];
+  let tableRows = '';
+  rows.forEach(r => {
+    const cs = callStr(r.key);
+    const ps = putStr(r.key);
+    tableRows += `<tr>
+      <td style="color:#9bc;padding:3px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;width:28%;font-size:10px;">${r.label}</td>
+      <td style="color:#ddd;padding:3px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;width:36%;font-size:10px;line-height:1.55;">${cs}</td>
+      <td style="color:#ddd;padding:3px 5px;border-bottom:1px solid #1e1e28;vertical-align:top;width:36%;font-size:10px;line-height:1.55;">${ps}</td>
+    </tr>`;
+  });
+  const weightedVerdictHtml = (weightedVerdict || putWeightedVerdict) ? `
+    <div style="margin:0 0 6px 0;padding:6px 8px;background:#1a1a25;border-radius:3px;border-left:2px solid #9b59b6;">
+      <div style="color:#9b59b6;font-size:10px;font-weight:bold;margin-bottom:3px;">⚖️ v2.11.86 加权判定</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:10px;line-height:1.5;">
+        <div style="flex:1 1 220px;background:#101018;padding:3px 6px;border-radius:2px;">
+          <span style="color:#4a90e2;font-weight:500;">📈 Call:</span>
+          <span style="color:#cfcfcf;">${weightedLabel || '<i style="color:#888;">(无)</i>'}</span>
+          <span style="color:#888;"> | </span>
+          <span style="color:${(callDirection === '看多' || callDirection === '偏多') ? '#ef5350' : ((callDirection === '看空' || callDirection === '偏空') ? '#5d5' : '#888')};">${callDirection || '-'}</span>
+          <div style="color:#aaa;font-size:9px;margin-top:2px;">${weightedVerdict || ''}</div>
+        </div>
+        <div style="flex:1 1 220px;background:#101018;padding:3px 6px;border-radius:2px;">
+          <span style="color:#e2904a;font-weight:500;">📉 Put:</span>
+          <span style="color:#cfcfcf;">${putWeightedLabel || '<i style="color:#888;">(无)</i>'}</span>
+          <span style="color:#888;"> | </span>
+          <span style="color:${(putDirection === '看空' || putDirection === '偏空') ? '#5d5' : ((putDirection === '看多' || putDirection === '偏多') ? '#ef5350' : '#888')};">${putDirection || '-'}</span>
+          <div style="color:#aaa;font-size:9px;margin-top:2px;">${putWeightedVerdict || ''}</div>
+        </div>
+      </div>
+    </div>` : '';
+  // v2.11.85e: 资金意图综合结论（严格按飞书 §2.3.1 第三层 Put端与Call端合成信号矩阵）
+  const fundingSignal = L3.funding_signal || {};
+  const fundingSignalCv = L3.funding_signal_cv || {};
+  const fsLabel = fundingSignal.signal_label || '';
+  const fsStrength = fundingSignal.signal_strength || '';
+  const fsDirection = fundingSignal.signal_direction || '中性';
+  const fsCvVerdict = fundingSignalCv.verdict || '';
+  const fsCvSubrule = fundingSignalCv.subrule || 0;
+  const fsCvRationale = fundingSignalCv.rationale || '';
+  // 合成信号颜色: 强=绿, 中=黄, 弱=灰, 观望=暗
+  const fsStrengthColor = (fsStrength === '强' || fsStrength === '强') ? '#26a69a'
+    : (fsStrength === '中') ? '#ffd700'
+    : (fsStrength === '中（弱）') ? '#ffb74d'
+    : (fsStrength === '弱（观望）' || fsStrength === '极弱（观望）') ? '#888'
+    : '#888';
+  // v2.11.85k: 子规则 2b 仅在子规则 2（contradictory 场景）才显示,
+  //   consistent / pcr_flat 时不出现这一块, 让 2b 成为 2 的子节点
+  const _isCv2 = (fsCvSubrule === 2);
+  // 交叉验证 verdict 颜色
+  const fsCvColor = (fsCvVerdict === '强确认' || fsCvVerdict === '确认') ? '#26a69a'
+    : (fsCvVerdict === '弱确认' || fsCvVerdict === '弱确认（降级）') ? '#ffd700'
+    : (fsCvVerdict === '无修正' || fsCvVerdict === '忽略噪音') ? '#888'
+    : '#aaa';
+  const fundingSignalHtml = fsLabel ? `
+    <div style="margin:0 0 6px 0;padding:8px 10px;background:#1a1a25;border-radius:3px;border-left:2px solid ${fsStrengthColor};">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px;">
+        <span style="color:${fsStrengthColor};font-size:11px;font-weight:bold;">🎯 资金意图综合</span>
+        <span style="color:#888;font-size:9px;">飞书 §2.3.1 第三层合成信号矩阵</span>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12px;margin-bottom:4px;">
+        <b style="color:${fsStrengthColor};font-size:13px;">${cell(fsLabel)}</b>
+        <span style="color:#888;">|</span>
+        <span style="color:#888;font-size:10px;">强度:</span>
+        <b style="color:${fsStrengthColor};">${cell(fsStrength)}</b>
+      </div>
+      ${fsCvVerdict ? `
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11px;margin-top:4px;padding-top:4px;border-top:1px solid #2a2a36;">
+        <span style="color:#9bc;font-size:10px;font-weight:bold;">🔍 §2.3.2 附录交叉验证</span>
+        <span style="color:#888;font-size:9px;">子规则 ${fsCvSubrule}${_isCv2 ? ' · 含 2b 新资金分层' : ''}</span>
+        <span style="color:#888;">|</span>
+        <b style="color:${fsCvColor};">${cell(fsCvVerdict)}</b>
+      </div>
+      <div style="color:#888;font-size:9px;margin-top:3px;line-height:1.5;">${cell(fsCvRationale)}</div>
+      ${(() => {
+        // v2.11.85k: 子规则 2b 嵌套在子规则 2 内, 仅 contradictory 场景显示
+        if (!_isCv2) return '';
+        const cv = L3.cross_validation_verdict || {};
+        const cv_ff = L3.cross_validation || {};
+        const ff = cv_ff.fund_flow || {};
+        if (!cv.call && !cv.put) return '';
+        const callV = cv.call || {};
+        const putV = cv.put || {};
+        const fundFlowVerdict = callV.fund_flow_verdict || putV.fund_flow_verdict || '';
+        const newDir = cv.new_fund_direction || '';
+        if (!fundFlowVerdict && !newDir) return '';
+        const ffColor = fundFlowVerdict === '新资金主导' ? '#26a69a'
+          : (fundFlowVerdict === '存量调整主导' ? '#ffd700' : '#888');
+        const dirColor = newDir === '看空' ? '#5d5'
+          : (newDir === '看多' ? '#ef5350'
+          : (newDir === '多空博弈' ? '#ffd700' : '#888'));
+        const callDirTag = callV.verdict_direction ? `<span style="color:#4a90e2;">Call:</span> <b style="color:${callV.verdict_direction === '看空' ? '#5d5' : (callV.verdict_direction === '看多' ? '#ef5350' : '#888')};">${cell(callV.verdict_direction)}</b>` : '';
+        const putDirTag = putV.verdict_direction ? `<span style="color:#e2904a;">Put:</span> <b style="color:${putV.verdict_direction === '看空' ? '#5d5' : (putV.verdict_direction === '看多' ? '#ef5350' : '#888')};">${cell(putV.verdict_direction)}</b>` : '';
+        const newFundNature = callV.new_fund_dominant_nature || putV.new_fund_dominant_nature || '';
+        const NATURE_TXT = {
+          'spec_buy_directional': '投机买入', 'spec_buy_lotto': '投机彩票',
+          'hedge_buy': '产业买保', 'hedge_sell': '产业收租',
+          'close_push': '卖方平仓', 'double_exit': '双边撤退',
+          'passive_close': '被动平仓', 'hedge_rolling': '套保移仓',
+          'noise_open': '噪声开', 'noise_close': '噪声平',
+          'quote_adjust': '报价调', 'supply_overhang': '卖压',
+          'theta_decay': 'Theta', 'static': '静态',
+        };
+        const newFundTxt = newFundNature ? NATURE_TXT[newFundNature] || newFundNature : '';
+        // v2.11.85k: 缩进 18px 让 2b 视觉上嵌入"🔍 交叉验证"块
+        return `
+      <div style="margin:4px 0 0 18px;padding:6px 0 0 10px;border-left:2px solid #2a3a4a;display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11px;">
+        <span style="color:#9bc;font-size:10px;font-weight:bold;">└─ 🆕 子规则 2b 新资金分层</span>
+        <span style="color:#888;font-size:9px;">v2.11.86</span>
+        <span style="color:#888;">|</span>
+        <span style="color:#888;font-weight:500;">资金流:</span> <b style="color:${ffColor};">${cell(fundFlowVerdict || '--')}</b>
+        ${newFundTxt ? `<span style="color:#888;">|</span><span style="color:#888;font-weight:500;">新主导:</span> <span style="color:#cfcfcf;">${cell(newFundTxt)}</span>` : ''}
+        ${(callDirTag || putDirTag) ? `<span style="color:#888;">|</span><span style="color:#888;font-weight:500;">单端:</span> ${callDirTag} ${putDirTag}` : ''}
+        ${newDir ? `<span style="color:#888;">|</span><span style="color:#888;font-weight:500;">综合:</span> <b style="color:${dirColor};font-size:12px;">${cell(newDir)}</b>` : ''}
+      </div>
+      ${(() => {
+        // 详细拆分表（Call/Put 两端）—— 同样嵌入 2b 内
+        if (!ff.Call || !ff.Put) return '';
+        const fmtOI = (x) => x == null ? '--' : (x >= 0 ? '+' : '') + Number(x).toFixed(0);
+        const cells = (side) => {
+          const d = ff[side] || {};
+          return `
+            <td style="padding:2px 5px;border-bottom:1px solid #1e1e28;font-size:10px;color:#cfcfcf;text-align:right;">${fmtOI(d.new_fund_net_long)}</td>
+            <td style="padding:2px 5px;border-bottom:1px solid #1e1e28;font-size:10px;color:#cfcfcf;text-align:right;">${fmtOI(d.new_fund_net_short)}</td>
+            <td style="padding:2px 5px;border-bottom:1px solid #1e1e28;font-size:10px;color:#888;text-align:right;">${fmtOI(d.new_fund_net_neutral)}</td>
+            <td style="padding:2px 5px;border-bottom:1px solid #1e1e28;font-size:10px;color:#cfcfcf;text-align:right;">${fmtOI(d.stock_adj_net_long)}</td>
+            <td style="padding:2px 5px;border-bottom:1px solid #1e1e28;font-size:10px;color:#cfcfcf;text-align:right;">${fmtOI(d.stock_adj_net_short)}</td>`;
+        };
+        return `
+      <div style="margin:4px 0 0 18px;padding-left:10px;border-left:2px solid #2a3a4a;">
+      <table style="width:100%;border-collapse:collapse;margin-top:2px;background:#101018;border:1px solid #1e1e28;table-layout:fixed;">
+        <colgroup>
+          <col style="width:60px;"><col><col><col><col><col>
+        </colgroup>
+        <thead><tr>
+          <th style="color:#888;text-align:center;padding:2px 5px;font-size:9px;font-weight:500;">端</th>
+          <th style="color:#5d5;text-align:right;padding:2px 5px;font-size:9px;font-weight:500;">新多</th>
+          <th style="color:#ef5350;text-align:right;padding:2px 5px;font-size:9px;font-weight:500;">新空</th>
+          <th style="color:#666;text-align:right;padding:2px 5px;font-size:9px;font-weight:500;">新中性</th>
+          <th style="color:#888;text-align:right;padding:2px 5px;font-size:9px;font-weight:500;">存多</th>
+          <th style="color:#888;text-align:right;padding:2px 5px;font-size:9px;font-weight:500;">存空</th>
+        </tr></thead>
+        <tbody>
+          <tr>
+            <td style="padding:2px 5px;border-bottom:1px solid #1e1e28;font-size:10px;color:#4a90e2;text-align:center;font-weight:bold;">Call</td>
+            ${cells('Call')}
+          </tr>
+          <tr>
+            <td style="padding:2px 5px;font-size:10px;color:#e2904a;text-align:center;font-weight:bold;">Put</td>
+            ${cells('Put')}
+          </tr>
+        </tbody>
+      </table>
+      </div>`;
+      })()}
+      `;
+      })()}
+      ` : ''}
+    </div>` : '';
+  // v2.11.85d: strike_role 列表（按 contribution 降序，取 Top 8）
+  const strikeRoleListHtml = (callStrikeHtml !== '--' || putStrikeHtml !== '--') ? `
+    <div style="margin:0 0 6px 0;padding:4px 6px;background:#0e0e16;border:1px solid #2a2a36;border-radius:3px;">
+      <div style="color:#9bc;font-size:10px;font-weight:500;margin-bottom:3px;">🎯 Strike 详情 (Top 8 按贡献度)</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <div style="flex:1 1 240px;color:#cfcfcf;font-size:10px;line-height:1.5;">${callStrikeHtml}</div>
+        <div style="flex:1 1 240px;color:#cfcfcf;font-size:10px;line-height:1.5;">${putStrikeHtml}</div>
+      </div>
+    </div>` : '';
+  // 数据质量
+  const dq = L3.data_quality || {};
+  let dqHtml = '';
+  if (dq.confidence) {
+    const dqColor = dq.confidence === 'high' ? '#5d5' : (dq.confidence === 'medium' ? '#da4' : '#e55');
+    // v2.11.85a: iv_threshold_pct 是 5.0（百分比），iv_threshold_pp 是 0.5（pp）
+    const ver = dq.threshold_version || 'unknown';
+    const ivDisplay = ver === 'v2.11.85a'
+      ? `${dq.iv_threshold_pct}% / ${dq.iv_threshold_pp}pp`
+      : `${dq.iv_threshold_pp}%`;
+    dqHtml = `<div style="margin:0 0 6px 0;color:${dqColor};font-size:9px;">📊 数据质量: ${dq.confidence.toUpperCase()} (${ver} Call ${dq.eligible_call||'-'}/${dq.total_strikes||'-'} 档有效, Put ${dq.eligible_put||'-'}/${dq.total_strikes||'-'}, OI≥${dq.oi_threshold}手, IV≥${ivDisplay})</div>`;
+  }
+  const _rolesHtml = `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+      <div style="flex:1 1 240px;background:#101018;padding:4px 6px;border-radius:2px;border-left:2px solid #4a90e2;">
+        <div style="color:#9bc;font-size:10px;font-weight:500;margin-bottom:2px;">📈 Call 角色分布 (Top ${topN})</div>
+        <div style="color:#cfcfcf;font-size:10px;line-height:1.5;">${cell(callSummary)}</div>
+      </div>
+      <div style="flex:1 1 240px;background:#101018;padding:4px 6px;border-radius:2px;border-left:2px solid #e2904a;">
+        <div style="color:#9bc;font-size:10px;font-weight:500;margin-bottom:2px;">📉 Put 角色分布 (Top ${topN})</div>
+        <div style="color:#cfcfcf;font-size:10px;line-height:1.5;">${cell(putSummary)}</div>
+      </div>
+    </div>`;
+  return `${strikeRoleListHtml}
+    ${_rolesHtml}
+    ${weightedVerdictHtml}
+    ${fundingSignalHtml}
+    ${dqHtml}
+    <table style="width:100%;border-collapse:collapse;font-size:10px;line-height:1.4;background:#0f0f18;border:1px solid #2a2a36;">
+      <thead><tr>
+        <th style="color:#aaa;text-align:left;padding:3px 5px;border-bottom:1px solid #333;font-weight:500;">角色</th>
+        <th style="color:#aaa;text-align:left;padding:3px 5px;border-bottom:1px solid #333;font-weight:500;">Call strike (性质)</th>
+        <th style="color:#aaa;text-align:left;padding:3px 5px;border-bottom:1px solid #333;font-weight:500;">Put strike (性质)</th>
+      </tr></thead>
+      <tbody>${tableRows}</tbody>
+    </table>
+    <div style="margin-top:4px;color:#888;font-size:9px;">↑ 点 ▶ 收起</div>`;
+}
+
+
+
+// 研报与策略 — v2.11.101: 只渲染四维决策（直接调主页 99j 原版 renderDecisionLayerBlock）
+// 研报与策略 — v2.11.101+: 主页完整版 (产业链 + 四维决策 + 信息源)
+// 99j 主页原版风格搬过来：先产业链、再四维决策、最后信息源
+async function loadDailyReport(endpoint) {
+  const container = document.getElementById('dailyReportContent');
+  if (!container) return;
+  try {
+    // 从 /api/decision_layer 注入四维决策
+    let intraday = {};
+    try {
+      const dlResp = await fetch('/api/decision_layer', { cache: 'no-store' });
+      const dlData = await dlResp.json();
+      if (dlData && dlData.success && dlData.decision_layer) {
+        intraday.decision_layer = dlData.decision_layer;
+        intraday._decision_layer_meta = {
+          last_refresh_at: dlData.last_refresh_at,
+          last_data_update: dlData.last_data_update,
+          futures_price: dlData.futures_price,
+          max_pain: dlData.max_pain,
+        };
+      }
+    } catch (e) {}
+
+    // 从 /api/strategy_report/daily 注入产业链 + 宏观 + 信息源
+    try {
+      const srResp = await fetch('/api/strategy_report/daily', { cache: 'no-store' });
+      const srData = await srResp.json();
+      if (srData && srData.success && srData.data) {
+        const ia = srData.data.intraday_analysis || srData.data.market_brief || {};
+        // 注入产业链 + 宏观 + 信息源字段
+        intraday.macro_table = ia.macro_table;
+        intraday.chain_operation_snapshot = ia.chain_operation_snapshot;
+        intraday.macro_interpretation = ia.macro_interpretation;
+        intraday.macro_news_items = ia.macro_news_items;
+        intraday.key_levels = ia.key_levels;
+        intraday.narrative_notes = ia.narrative_notes;
+        intraday.previous_day_comparison = (srData.data.intraday_analysis || {}).previous_day_comparison
+          || (srData.data.market_brief || {}).previous_day_comparison;
+        // session + timestamp
+        intraday._session = srData.data.market_session;
+        intraday._timestamp = srData.data.timestamp;
+      }
+    } catch (e) {}
+
+    const timeEl = document.getElementById('dailyReportTime');
+    if (timeEl) {
+      const m = intraday._decision_layer_meta || {};
+      const ts = intraday._timestamp || '';
+      const session = intraday._session ? '  ' + intraday._session : '';
+      timeEl.textContent = '  ' + ts + session;
+    }
+
+    // ========== 99j 主页原版三段渲染 ==========
+    let out = '';
+
+    // 【2 产业链】宏观与成本快照
+    out += `<div style="margin:10px 0 8px 0;color:#ffd700;font-size:12px;font-weight:bold;">📦 产业链</div>`;
+    out += renderReportTable('宏观与成本快照', ['项目','当前值','解读'], intraday.macro_table || []);
+    out += renderChainOperationSnapshot(intraday.chain_operation_snapshot);
+    const macroInter = intraday.macro_interpretation || '';
+    if (macroInter) out += renderInterpretation(macroInter);
+
+    // 【4 四维决策】
+    out += renderDecisionLayerBlock(intraday.decision_layer);
+
+    // 【6 信息源】宏观财经快讯 + 关键价位
+    out += `<div style="margin:14px 0 6px 0;color:#ffd700;font-size:12px;font-weight:bold;">📡 信息源</div>`;
+    const news = Array.isArray(intraday.macro_news_items) ? intraday.macro_news_items.slice(0, 5) : [];
+    if (news.length) {
+      out += `<div style="margin:4px 0;"><div style="color:#ffd700;font-size:11px;font-weight:bold;margin-bottom:4px;">宏观财经快讯</div><ul style="margin:0;padding-left:18px;color:#d0d0d0;font-size:11px;line-height:1.65;">${news.map(x => `<li>${cell(x)}</li>`).join('')}</ul></div>`;
+    }
+    const keyLevels = Array.isArray(intraday.key_levels) ? intraday.key_levels : [];
+    if (keyLevels.length) {
+      out += `<div style="margin:6px 0 4px 0;color:#ffd700;font-size:11px;font-weight:bold;">关键价位</div><ul style="margin:0;padding-left:18px;color:#d0d0d0;font-size:11px;line-height:1.6;">${keyLevels.map(x => `<li>${cell(x)}</li>`).join('')}</ul>`;
+    }
+
+    container.innerHTML = out;
+    _dailyReportLoaded = true;
+  } catch (e) {
+    console.error('dailyReport error:', e);
+    container.innerHTML = '<div style="color:#f44336;text-align:center;padding:20px;">研报加载失败: ' + e.message + '</div>';
+  }
+}
+
+function escHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+}
+
+function extractDecisionBlock(text) {
+  const out = { direction: '', confidence: '', positionPct: null, stopLoss: '', thetaBucket: '', layers: [], ruleHit: '' };
+  if (!text) return out;
+  // 🧭 决策（飞书综合判断规则表 v2.11.92）：观望
+  const dirMatch = text.match(/决策[（(][^）)]+[）)][：:]\s*(\S+)/);
+  if (dirMatch) out.direction = dirMatch[1];
+  // 置信度：极弱
+  const confMatch = text.match(/置信度[：:]\s*(\S+)/);
+  if (confMatch) out.confidence = confMatch[1];
+  // 仓位建议：0%
+  const posMatch = text.match(/仓位建议[：:]\s*(\d+)%/);
+  if (posMatch) out.positionPct = parseInt(posMatch[1]);
+  // 止损要求：不交易
+  const stopMatch = text.match(/止损要求[：:]\s*([\s\S]+?)(?:\n|$)/);
+  if (stopMatch) out.stopLoss = stopMatch[1].trim();
+  // θ 加权档：5≤T<10（无调整）
+  const thetaMatch = text.match(/θ\s*加权档[：:]\s*([\s\S]+?)(?:\n|$)/);
+  if (thetaMatch) out.thetaBucket = thetaMatch[1].trim();
+  // 4 层信号
+  const layerRegex = /•\s*(L\d[^：:]+)[：:]\s*([\s\S]+?)(?:\n|$)/g;
+  let lm;
+  while ((lm = layerRegex.exec(text)) !== null) {
+    out.layers.push((lm[1] + ': ' + lm[2]).trim());
+  }
+  // 规则表命中
+  const ruleMatch = text.match(/规则表命中[：:]\s*([\s\S]+?)(?:\n|$)/);
+  if (ruleMatch) out.ruleHit = ruleMatch[1].trim();
+  return out;
+}
+
+function refreshDailyReport() {
+  loadDailyReport('/api/strategy_report/refresh');
+}
+
+function exportStrategyReport() {
+  const now = new Date();
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  const type = minutes >= 15 * 60 ? 'daily' : 'realtime';
+  window.location.href = '/api/strategy_report/export?type=' + type + '&format=docx';
+}
+
 </script>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.100 (主页三块集成:日频Smile+波动锥+研报摘要;主页精简为纯K线)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.101 (研报与策略从99j主页完整搬入:产业链+四维决策+信息源;renderDecisionLayerBlock+renderL3StrikeDetail+helper原版1:1)</div>
 </body>
 </html>
