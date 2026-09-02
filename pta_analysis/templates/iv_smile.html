@@ -13,7 +13,343 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PTA期权动态监控</title>
-<script src="/static/js/echarts.min.js"></script>
+<script src="/static/js/echarts.min.js">
+
+// ===== v2.11.100 主页三块集成（从 kline_lightweight.html 抽取） =====
+let ivSmileChartDaily = null;
+let volConeChart = null;
+let _dailyReportLoaded = false;
+
+function fetchWithTimeout(url, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
+// 日频 Smile 曲线（昨收 vs 今收，与现有 smileChart 互补：分钟实时 vs 日频快照）
+async function loadDailySmileChart() {
+  try {
+    const res = await fetchWithTimeout('/api/options/chain', 12000);
+    const data = await res.json();
+    if (!data.success) {
+      const el = document.getElementById('ivSmileChartDaily');
+      if (el) el.innerHTML = '<div style="text-align:center;padding:50px;color:#888;">数据未就绪（' + (data.error || '') + '）</div>';
+      return;
+    }
+    const rows = data.data && data.data.strike_rows ? data.data.strike_rows : [];
+    const atmStrike = data.data && data.data.atm_strike ? data.data.atm_strike
+      : (data.data && data.data.futures_price ? data.data.futures_price : 0);
+    if (!rows.length) {
+      const el = document.getElementById('ivSmileChartDaily');
+      if (el) el.innerHTML = '<div style="text-align:center;padding:50px;color:#888;">暂无 strike_rows 数据</div>';
+      return;
+    }
+    updateIvSmileChartDaily(data.data, atmStrike);
+  } catch (e) {
+    console.error('dailySmileChart error:', e);
+    const el = document.getElementById('ivSmileChartDaily');
+    if (el) el.innerHTML = '<div style="text-align:center;padding:50px;color:#888;">加载失败: ' + e.message + '</div>';
+  }
+}
+
+function updateIvSmileChartDaily(data, atmStrike) {
+  const el = document.getElementById('ivSmileChartDaily');
+  if (!el) return;
+  if (!ivSmileChartDaily) ivSmileChartDaily = echarts.init(el);
+
+  const rows = (data && data.strike_rows) || [];
+  const sortedRows = [...rows].sort((a, b) => a.strike - b.strike);
+  let atmIdx = sortedRows.findIndex(r => r.strike >= atmStrike);
+  if (atmIdx < 0) atmIdx = Math.floor(sortedRows.length / 2);
+  const startIdx = Math.max(0, atmIdx - 10);
+  const endIdx = Math.min(sortedRows.length, atmIdx + 10);
+  const displayRows = sortedRows.slice(startIdx, endIdx);
+
+  const otmLeft = displayRows.filter(r => r.strike <= atmStrike).sort((a, b) => a.strike - b.strike);
+  const otmRight = displayRows.filter(r => r.strike > atmStrike).sort((a, b) => a.strike - b.strike);
+
+  const smileStrikes = [
+    ...otmLeft.map(r => r.strike.toFixed(0)),
+    ...otmRight.map(r => r.strike.toFixed(0))
+  ];
+  const smilePutIv = [
+    ...otmLeft.map(r => r.put_iv || null),
+    ...otmRight.map(r => null)
+  ];
+  const smileCallIv = [
+    ...otmLeft.map(r => null),
+    ...otmRight.map(r => r.call_iv || null)
+  ];
+  const smilePrevPutIv = [
+    ...otmLeft.map(r => r.prev_put_iv || null),
+    ...otmRight.map(r => null)
+  ];
+  const smilePrevCallIv = [
+    ...otmLeft.map(r => null),
+    ...otmRight.map(r => r.prev_call_iv || null)
+  ];
+  const hasPrevData = smilePrevPutIv.some(v => v > 0) || smilePrevCallIv.some(v => v > 0);
+
+  const labelFmt = function(p) { return p.value !== null ? p.value.toFixed(2) + '%' : ''; };
+  const series = [
+    { name: 'Put IV(今)', data: smilePutIv, color: '#4169e1', style: { width: 2.5 }, showLabel: true },
+    { name: 'Call IV(今)', data: smileCallIv, color: '#ff6347', style: { width: 2.5 }, showLabel: true }
+  ];
+  if (hasPrevData) {
+    series.push(
+      { name: 'Put IV(昨)', data: smilePrevPutIv, color: '#4169e1', style: { type: 'dashed', width: 1.5, opacity: 0.5 }, showLabel: true },
+      { name: 'Call IV(昨)', data: smilePrevCallIv, color: '#ff6347', style: { type: 'dashed', width: 1.5, opacity: 0.5 }, showLabel: true }
+    );
+  }
+
+  const allIv = [...smilePutIv, ...smileCallIv].filter(v => v > 0);
+  const minIv = allIv.length ? Math.min(...allIv) : 0;
+  const maxIv = allIv.length ? Math.max(...allIv) : 100;
+  const ivPadding = (maxIv - minIv) * 0.3;
+
+  ivSmileChartDaily.setOption({
+    tooltip: { trigger: 'axis', formatter: function(params) {
+      let r = '<b>' + params[0].axisValue + '</b><br/>';
+      params.forEach(p => {
+        if (p.value !== null && p.value !== '' && p.value !== undefined) {
+          r += '<span style="color:' + p.color + ';">●</span> ' + p.seriesName + ': ' + p.value.toFixed(2) + '%<br/>';
+        }
+      });
+      return r;
+    }},
+    legend: { data: series.map(s => s.name), textStyle: { color: '#aaa' }, top: 5 },
+    grid: { left: '5%', right: '5%', bottom: '15%', top: '15%' },
+    xAxis: {
+      type: 'category', data: smileStrikes,
+      axisLabel: { color: '#aaa', fontSize: 11, rotate: 0 },
+      axisLine: { lineStyle: { color: '#666' } },
+      name: '行权价', nameLocation: 'middle', nameGap: 30
+    },
+    yAxis: {
+      type: 'value',
+      axisLabel: { color: '#aaa', fontSize: 12, formatter: '{value}%' },
+      min: Math.max(0, Math.floor(minIv - ivPadding)),
+      max: Math.ceil(maxIv + ivPadding),
+      splitNumber: 5
+    },
+    series: series.map(s => ({
+      name: s.name, type: 'line', data: s.data, smooth: true,
+      itemStyle: { color: s.color }, lineStyle: s.style,
+      symbol: 'circle', symbolSize: 6,
+      label: { show: s.showLabel, formatter: labelFmt, fontSize: 9, color: s.color },
+      connectNulls: true
+    }))
+  });
+}
+
+// 历史波动锥
+async function loadVolConeChart() {
+  try {
+    const res = await fetchWithTimeout('/api/options/vol_cone', 10000);
+    const data = await res.json();
+    updateVolConeChart(data);
+  } catch (e) {
+    console.error('volCone error:', e);
+    const el = document.getElementById('volConeChart');
+    if (el) el.innerHTML = '<div style="text-align:center;padding:50px;color:#888;">波动锥数据暂不可用</div>';
+  }
+}
+
+function updateVolConeChart(data) {
+  const el = document.getElementById('volConeChart');
+  if (!el) return;
+  if (!volConeChart) volConeChart = echarts.init(el);
+
+  if (!data || !data.tenors || !data.tenors.length) {
+    el.innerHTML = '<div style="text-align:center;padding:50px;color:#888;">波动锥数据: ' + (data && data.note ? data.note : '加载中...') + '</div>';
+    return;
+  }
+
+  const hvCurrent = data.hv_current || 0;
+  const atmIv = data.atm_iv || 0;
+  const daysToExpiry = data.days_to_expiry || 24;
+  const tenorIndices = data.tenors.map((t, i) => ({ tenor: parseInt(t), idx: i }));
+  tenorIndices.sort((a, b) => a.tenor - b.tenor);
+  const sortedTenors = tenorIndices.map(ti => data.tenors[ti.idx]);
+  const nearestTenorLabel = sortedTenors.reduce((prev, curr) =>
+    Math.abs(parseInt(curr) - daysToExpiry) < Math.abs(parseInt(prev) - daysToExpiry) ? curr : prev
+  );
+  const sortedHvMax = tenorIndices.map(ti => data.hv_max[ti.idx]);
+  const sortedHv75 = tenorIndices.map(ti => data.hv_75pct[ti.idx]);
+  const sortedHvMed = tenorIndices.map(ti => data.hv_median[ti.idx]);
+  const sortedHv25 = tenorIndices.map(ti => data.hv_25pct[ti.idx]);
+  const sortedHvMin = tenorIndices.map(ti => data.hv_min[ti.idx]);
+
+  volConeChart.setOption({
+    tooltip: { trigger: 'axis' },
+    legend: {
+      type: 'scroll',
+      data: ['最大值', '75%', '中位数', '25%', '最小值', '当前HV', 'ATM-IV'],
+      textStyle: { color: '#aaa' }, top: 5,
+      selectedMode: 'multiple',
+      selected: {'最大值': true, '75%': true, '中位数': true, '25%': true, '最小值': true, '当前HV': false, 'ATM-IV': true}
+    },
+    grid: { left: '8%', right: '8%', bottom: '15%', top: '20%' },
+    xAxis: {
+      type: 'category', data: sortedTenors,
+      axisLabel: { color: '#aaa', fontSize: 11 },
+      axisLine: { lineStyle: { color: '#666' } },
+      name: '期限(日)', nameLocation: 'middle', nameGap: 25
+    },
+    yAxis: {
+      type: 'value',
+      axisLabel: { color: '#aaa', fontSize: 11, formatter: '{value}%' },
+      splitLine: { lineStyle: { color: '#333' } },
+      min: function(value) { return Math.floor(value.min * 0.3 / 5) * 5; },
+      max: function(value) { return Math.ceil(value.max * 1.3 / 5) * 5; }
+    },
+    series: [
+      { name: '最大值', type: 'line', data: sortedHvMax, itemStyle: { color: '#ff6b6b' }, lineStyle: { width: 1.5, type: 'dashed' }, symbol: 'none', smooth: true },
+      { name: '75%', type: 'line', data: sortedHv75, itemStyle: { color: '#ffa500' }, lineStyle: { width: 2 }, symbol: 'none', smooth: true, areaStyle: { color: 'rgba(255,165,0,0.1)' } },
+      { name: '中位数', type: 'line', data: sortedHvMed, itemStyle: { color: '#4ecdc4' }, lineStyle: { width: 2.5 }, symbol: 'none', smooth: true },
+      { name: '25%', type: 'line', data: sortedHv25, itemStyle: { color: '#45b7d1' }, lineStyle: { width: 2 }, symbol: 'none', smooth: true },
+      { name: '最小值', type: 'line', data: sortedHvMin, itemStyle: { color: '#96ceb4' }, lineStyle: { width: 1.5, type: 'dashed' }, symbol: 'none', smooth: true },
+      { name: 'ATM-IV', type: 'scatter', data: atmIv > 0 ? [[nearestTenorLabel, atmIv]] : [], itemStyle: { color: '#ffd700', borderColor: '#000', borderWidth: 1.5 }, symbolSize: 22, z: 30 },
+      { name: '当前HV', type: 'scatter', data: sortedTenors.map((t, i) => t === sortedTenors[sortedTenors.length-1] ? [t, hvCurrent] : null), itemStyle: { color: '#ff6b6b', borderColor: '#fff', borderWidth: 1.5 }, symbolSize: 20, z: 30 }
+    ]
+  });
+}
+
+// 研报与策略（摘要版 — 不搬 loadDailyReport 1700 行巨函数，仅渲染关键摘要字段）
+async function loadDailyReport(endpoint) {
+  endpoint = endpoint || '/api/strategy_report/realtime';
+  const container = document.getElementById('dailyReportContent');
+  if (!container) return;
+  try {
+    const res = await fetchWithTimeout(endpoint, endpoint.includes('/refresh') ? 120000 : 10000);
+    const r = await res.json();
+    if (!r.success) {
+      container.innerHTML = '<div style="color:#f44336;text-align:center;padding:20px;">日报生成失败: ' + (r.error || '') + '</div>';
+      return;
+    }
+    const d = r.data || {};
+    const intraday = d.intraday_analysis || d.market_brief || {};
+    const cacheMark = r.cached ? '  缓存' + (r.cache_minutes || 15) + '分钟' : '  最新';
+    const sessionMark = d.market_session ? '  ' + d.market_session : '';
+    const timeEl = document.getElementById('dailyReportTime');
+    if (timeEl) timeEl.textContent = (d.timestamp || '') + sessionMark + cacheMark;
+
+    const fc = (v, dec = 0) => v != null ? Number(v).toFixed(dec) : '--';
+    const title = escHtml(intraday.title || d.title || 'PTA 期权研报');
+    const summary = escHtml(intraday.summary || '');
+    const conclusionRaw = intraday.conclusion || '';
+    // 解析 conclusion 里的关键决策块
+    const decision = extractDecisionBlock(conclusionRaw);
+
+    let html = '<div style="font-size:13px;line-height:1.6;">';
+    // 标题
+    html += '<div style="font-size:15px;font-weight:bold;color:#ffd700;margin-bottom:10px;border-bottom:1px solid #444;padding-bottom:6px;">' + title + '</div>';
+    // 一句话摘要
+    if (summary) {
+      html += '<div style="background:#1e1e2e;padding:10px 12px;border-left:3px solid #ffd700;border-radius:3px;margin-bottom:12px;color:#e0e0e0;">' + summary + '</div>';
+    }
+    // 决策摘要
+    html += '<div style="background:#181822;border:1px solid #444;border-radius:5px;padding:10px 12px;margin-bottom:12px;">';
+    html += '<div style="font-size:12px;color:#aaa;margin-bottom:6px;">🧭 综合决策</div>';
+    if (decision.direction) {
+      html += '<div style="margin-bottom:6px;">方向: <b style="color:' + (decision.direction.includes('看多') ? '#ef5350' : decision.direction.includes('看空') ? '#26a69a' : '#aaa') + ';font-size:14px;">' + escHtml(decision.direction) + '</b>';
+      if (decision.confidence) html += ' <span style="color:#888;font-size:11px;">(' + escHtml(decision.confidence) + ')</span>';
+      html += '</div>';
+    }
+    if (decision.positionPct != null) html += '<div style="margin-bottom:6px;">仓位建议: <b style="color:#ffd700;">' + decision.positionPct + '%</b></div>';
+    if (decision.stopLoss) html += '<div style="margin-bottom:6px;font-size:11px;color:#888;">止损要求: ' + escHtml(decision.stopLoss) + '</div>';
+    if (decision.thetaBucket) html += '<div style="margin-bottom:6px;font-size:11px;color:#888;">θ 加权档: ' + escHtml(decision.thetaBucket) + '</div>';
+    if (decision.layers && decision.layers.length) {
+      html += '<div style="margin-top:8px;font-size:11px;color:#888;">4 层信号:</div>';
+      decision.layers.forEach(l => {
+        const color = l.includes('多') ? '#ef5350' : l.includes('空') ? '#26a69a' : '#aaa';
+        html += '<div style="font-size:11px;color:' + color + ';padding-left:8px;">· ' + escHtml(l) + '</div>';
+      });
+    }
+    if (decision.ruleHit) {
+      html += '<div style="margin-top:8px;font-size:10px;color:#666;">规则表: ' + escHtml(decision.ruleHit) + '</div>';
+    }
+    html += '</div>';
+
+    // 业务机理解释(完整 conclusion 文本)
+    if (conclusionRaw) {
+      const mechMatch = conclusionRaw.match(/【业务机理解释】([\s\S]*?)$/);
+      if (mechMatch) {
+        html += '<details style="margin-bottom:12px;"><summary style="cursor:pointer;color:#aaa;font-size:12px;padding:6px;background:#1e1e2e;border-radius:3px;">📖 业务机理解释（点击展开）</summary>';
+        html += '<div style="padding:10px 12px;font-size:11px;line-height:1.6;color:#cfcfcf;white-space:pre-wrap;">' + escHtml(mechMatch[1].trim()) + '</div>';
+        html += '</details>';
+      }
+    }
+
+    // 关键产业链/价格数据
+    if (d.cost) {
+      html += '<div style="background:#1e1e2e;padding:8px 12px;border-radius:3px;margin-bottom:8px;font-size:11px;color:#aaa;">';
+      html += '产业链: PTA 成本 ' + fc(d.cost.pta_cost) + ' · 外盘参考 ' + fc(d.cost.pta_external_cost) + ' · 加工费 ' + fc(d.cost.profit) + ' (' + fc(d.cost.profit_pct, 1) + '%)';
+      html += '</div>';
+    }
+
+    // 链接到完整研报
+    html += '<div style="margin-top:12px;text-align:center;font-size:11px;color:#666;">💡 完整研报（含 GEX/OI/IV 表格、决策统计）请访问 <a href="/" target="_blank" style="color:#94a3b8;">主页</a></div>';
+    html += '</div>';
+
+    container.innerHTML = html;
+    _dailyReportLoaded = true;
+  } catch (e) {
+    console.error('dailyReport error:', e);
+    container.innerHTML = '<div style="color:#f44336;text-align:center;padding:20px;">研报加载失败: ' + e.message + '</div>';
+  }
+}
+
+function escHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+}
+
+function extractDecisionBlock(text) {
+  const out = { direction: '', confidence: '', positionPct: null, stopLoss: '', thetaBucket: '', layers: [], ruleHit: '' };
+  if (!text) return out;
+  // 🧭 决策（飞书综合判断规则表 v2.11.92）：观望
+  const dirMatch = text.match(/决策[（(][^）)]+[）)][：:]\s*(\S+)/);
+  if (dirMatch) out.direction = dirMatch[1];
+  // 置信度：极弱
+  const confMatch = text.match(/置信度[：:]\s*(\S+)/);
+  if (confMatch) out.confidence = confMatch[1];
+  // 仓位建议：0%
+  const posMatch = text.match(/仓位建议[：:]\s*(\d+)%/);
+  if (posMatch) out.positionPct = parseInt(posMatch[1]);
+  // 止损要求：不交易
+  const stopMatch = text.match(/止损要求[：:]\s*([^
+]+)/);
+  if (stopMatch) out.stopLoss = stopMatch[1].trim();
+  // θ 加权档：5≤T<10（无调整）
+  const thetaMatch = text.match(/θ\s*加权档[：:]\s*([^
+]+)/);
+  if (thetaMatch) out.thetaBucket = thetaMatch[1].trim();
+  // 4 层信号
+  const layerRegex = /•\s*(L\d[^：:]+)[：:]\s*([^
+]+)/g;
+  let lm;
+  while ((lm = layerRegex.exec(text)) !== null) {
+    out.layers.push((lm[1] + ': ' + lm[2]).trim());
+  }
+  // 规则表命中
+  const ruleMatch = text.match(/规则表命中[：:]\s*([^
+]+)/);
+  if (ruleMatch) out.ruleHit = ruleMatch[1].trim();
+  return out;
+}
+
+function refreshDailyReport() {
+  loadDailyReport('/api/strategy_report/refresh');
+}
+
+function exportStrategyReport() {
+  const now = new Date();
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  const type = minutes >= 15 * 60 ? 'daily' : 'realtime';
+  window.location.href = '/api/strategy_report/export?type=' + type + '&format=docx';
+}
+
+</script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -516,6 +852,31 @@
       <tr><td colspan="13" style="text-align:center;color:#444;height:80px;">暂无数据</td></tr>
     </tbody>
   </table>
+</div>
+
+<!-- ===== v2.11.100: 主页三块集成（研报摘要 + 波动锥 + 日频 Smile） ===== -->
+<div class="chart-grid-2col">
+  <div class="card">
+    <div class="card-title">📉 日频 Smile 曲线（昨收 vs 今收）</div>
+    <div id="ivSmileChartDaily" style="width:100%;height:280px;"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">📊 历史波动率锥（Volatility Cone）</div>
+    <div id="volConeChart" style="width:100%;height:280px;"></div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:10px;">
+  <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+    <span>📋 研报与策略摘要 <span id="dailyReportTime" style="color:#888;font-size:11px;font-weight:normal;"></span></span>
+    <span style="display:flex;gap:6px;">
+      <button onclick="refreshDailyReport()" style="background:#e65100;color:#fff;border:none;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px;">手动刷新</button>
+      <button onclick="exportStrategyReport()" style="background:#2e7d32;color:#fff;border:none;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px;">导出Word</button>
+    </span>
+  </div>
+  <div id="dailyReportContent" style="padding:10px;background:#252538;border-radius:0 0 8px 8px;max-height:600px;overflow-y:auto;">
+    <div style="color:#888;text-align:center;padding:20px;">⏳ 正在加载研报...</div>
+  </div>
 </div>
 
 <div class="footer">
@@ -1904,6 +2265,14 @@ document.addEventListener('DOMContentLoaded', () => {
   initCharts();
   fetchData();
   // v2.11.64: 15s 间隔 + 页面重新可见时立即拉取一次（修复后台 tab 被节流导致缓存价停留的 bug）
+  // v2.11.100: 主页三块集成调度
+  loadDailySmileChart();
+  loadVolConeChart();
+  loadDailyReport();
+  setInterval(loadDailySmileChart, 60000);  // 1 分钟刷新一次（日频数据变化慢）
+  setInterval(loadVolConeChart, 300000);    // 5 分钟刷新一次
+  setInterval(loadDailyReport, 900000);     // 15 分钟刷新一次（与后端 cache_minutes 对齐）
+
   setInterval(fetchData, 15000);
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
@@ -1913,6 +2282,6 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 </script>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.99g (21:00 切换时同步 active_contract,根治到期日卡死老合约 bug)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.100 (主页三块集成:日频Smile+波动锥+研报摘要;主页精简为纯K线)</div>
 </body>
 </html>
