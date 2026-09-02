@@ -285,104 +285,10 @@ def init_db():
     """)
     conn.commit()
 
-# ==================== 绘图持久化 API ====================
-
-@app.route('/api/chart/drawings', methods=['GET'])
-def get_chart_drawings():
-    """获取所有已保存的绘图"""
-    conn = get_db()
-    rows = conn.execute("SELECT drawing_id, drawing_type, color, line_width, "
-                        "price, time, end_time, points, top, bottom, cycles, "
-                        "price_min, price_max FROM chart_drawings ORDER BY drawing_id").fetchall()
-    drawings = []
-    for r in rows:
-        d = {
-            'id': r['drawing_id'],
-            'type': r['drawing_type'],
-            'color': r['color'],
-            'lineWidth': r['line_width'],
-            'price': r['price'],
-            'time': r['time'],
-            'endTime': r['end_time'],
-            'points': json.loads(r['points']) if r['points'] else None,
-            'top': r['top'],
-            'bottom': r['bottom'],
-            'cycles': json.loads(r['cycles']) if r['cycles'] else ['1min','5min','15min','30min','60min','240min','1day','1week','1month'],
-            'priceMin': r['price_min'],
-            'priceMax': r['price_max'],
-        }
-        drawings.append(d)
-    return jsonify({'success': True, 'drawings': drawings})
-
-@app.route('/api/chart/drawings', methods=['POST'])
-def save_chart_drawings():
-    """批量保存绘图（整体替换）"""
-    try:
-        req_data = request.get_json() or {}
-        drawings = req_data.get('drawings', [])
-        if not isinstance(drawings, list):
-            return jsonify({'success': False, 'error': 'drawings must be an array'}), 400
-
-        conn = get_db()
-        # 事务：清空旧数据，插入新数据
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM chart_drawings")
-        for d in drawings:
-            cursor.execute(
-                "INSERT INTO chart_drawings "
-                "(drawing_id, drawing_type, color, line_width, price, time, end_time, "
-                "points, top, bottom, cycles, price_min, price_max) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    d.get('id'),
-                    d.get('type'),
-                    d.get('color'),
-                    d.get('lineWidth'),
-                    d.get('price'),
-                    d.get('time'),
-                    d.get('endTime'),
-                    json.dumps(d.get('points')) if d.get('points') else None,
-                    d.get('top'),
-                    d.get('bottom'),
-                    json.dumps(d.get('cycles')) if d.get('cycles') else None,
-                    d.get('priceMin'),
-                    d.get('priceMax'),
-                )
-            )
-        conn.commit()
-        app.logger.info(f"[绘图] 已保存 {len(drawings)} 个图形到数据库")
-        return jsonify({'success': True, 'count': len(drawings)})
-    except Exception as e:
-        app.logger.error(f"[绘图] 保存失败: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/chart/drawings/<int:drawing_id>', methods=['DELETE'])
-def delete_chart_drawing(drawing_id):
-    """删除指定绘图"""
-    try:
-        conn = get_db()
-        conn.execute("DELETE FROM chart_drawings WHERE drawing_id = ?", (drawing_id,))
-        conn.commit()
-        return jsonify({'success': True})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+# v2.11.102: 绘图持久化 API 已删除（主页 K 线已下放，绘图功能迁出）
 
 # ==================== 主页面 ====================
-
-@app.route('/')
-def index():
-    """主页面 - K线图+PTA分析（迁移自 /kline）"""
-    try:
-        with open(os.path.join(WORKSPACE, 'templates', 'kline_lightweight.html'), 'r', encoding='utf-8') as f:
-            content = f.read()
-        from flask import make_response
-        resp = make_response(content)
-        resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-        resp.headers['Pragma'] = 'no-cache'
-        resp.headers['Expires'] = '0'
-        return resp
-    except FileNotFoundError:
-        return "页面正在开发中，请稍后访问", 404
+# v2.11.102: 主页 / 路由已删除（K 线由其他软件提供），仅保留 /iv_smile + /trading + /chan/
 
 @app.route('/trading')
 def trading_page():
@@ -1966,17 +1872,7 @@ def kcb_iv_smile_page():
     except Exception as e:
         return f"Error loading page: {e}", 500
 
-@app.route('/drawing_test')
-def drawing_test_page():
-    """绘图工具已合并到主页面 /kline"""
-    from flask import redirect
-    return redirect('/kline')
-
-@app.route('/kline')
-def kline_page():
-    """K线图页面已迁移到 /，此路径保留重定向"""
-    from flask import redirect
-    return redirect('/', code=302)
+# v2.11.102: /drawing_test + /kline 路由已删除（主页下放）
 
 @app.route('/chan/')
 def chan_page():
@@ -2779,85 +2675,7 @@ def api_chan_advanced():
         return jsonify({'error': str(e), 'period': period})
 
 
-@app.route('/api/contracts/list')
-def api_contracts_list():
-    """获取所有可交易期货合约列表（按交易所/品种分组）"""
-    import akshare as ak
-    try:
-        all_contracts = {}
-        
-        # CZCE 郑商所（ PTA、甲醇、短纤等）
-        try:
-            czce_df = ak.futures_contract_info_czce()
-            for _, row in czce_df.iterrows():
-                product = str(row.get('产品名称', '')).strip()
-                code = str(row.get('合约代码', '')).strip()
-                if not code or not product:
-                    continue
-                if product not in all_contracts:
-                    all_contracts[product] = []
-                all_contracts[product].append(code)
-        except Exception as e:
-            print(f"CZCE fetch error: {e}")
-        
-        # DCE 大商所
-        try:
-            dce_df = ak.futures_contract_info_dce()
-            for _, row in dce_df.iterrows():
-                product = str(row.get('产品名称', '')).strip()
-                code = str(row.get('合约代码', '')).strip()
-                if not code or not product:
-                    continue
-                if product not in all_contracts:
-                    all_contracts[product] = []
-                all_contracts[product].append(code)
-        except Exception as e:
-            print(f"DCE fetch error: {e}")
-        
-        # SHFE 上期所
-        try:
-            shfe_df = ak.futures_contract_info_shfe()
-            for _, row in shfe_df.iterrows():
-                product = str(row.get('产品名称', '')).strip()
-                code = str(row.get('合约代码', '')).strip()
-                if not code or not product:
-                    continue
-                if product not in all_contracts:
-                    all_contracts[product] = []
-                all_contracts[product].append(code)
-        except Exception as e:
-            print(f"SHFE fetch error: {e}")
-        
-        # 构建前端需要的扁平列表
-        result = []
-        for product, codes in sorted(all_contracts.items()):
-            # 去重 + 排序（按合约代码数字部分排序）
-            seen = set()
-            unique_codes = []
-            for c in codes:
-                if c not in seen:
-                    seen.add(c)
-                    unique_codes.append(c)
-            unique_codes.sort()
-            for code in unique_codes:
-                result.append({'code': code, 'name': product})
-
-        # v2.11.99j: 在每个"精对苯二甲酸期货"分组的顶部插入 PTA 主力连续 (TA0),
-        # 否则 K 线板块默认合约 TA0 不会出现在合约下拉中,用户无法切回
-        for i, item in enumerate(result):
-            if item.get('name') == '精对苯二甲酸期货' and item.get('code') != 'TA0':
-                result.insert(i, {'code': 'TA0', 'name': '精对苯二甲酸期货'})
-                break  # 只插一次（第一个 PTA 项之前）
-        # 兜底:如果 akshare 完全没返 PTA,result 里压根没有"精对苯二甲酸期货",
-        # 仍要确保 TA0 在列表最前(让用户至少能选)
-        if not any(c.get('code') == 'TA0' for c in result):
-            result.insert(0, {'code': 'TA0', 'name': '精对苯二甲酸期货'})
-
-        return jsonify({'success': True, 'contracts': result})
-    except Exception as e:
-        import traceback; traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e), 'contracts': []})
-
+# v2.11.102: 合约列表 API 已删除（主页 K 线已下放，合约搜索功能迁出）
 
 # ==================== 波动率锥 API（集成自 indicators/volatility_api.py） ====================
 
