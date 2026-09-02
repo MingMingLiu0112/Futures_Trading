@@ -3865,9 +3865,22 @@ def generate_intraday_analysis(report: Dict) -> Dict:
     # 同步把 main_futures_price 暴露给下游（trader_report / narrative 末尾的'盘面主力参考价 XX'复用）
     main_futures_price = main_futures_display_price
     # 基差口径（v2.11.46+）：严格按"PTA现货 − 盘面主力参考价"计算，akshare 郑商所表的 near_basis 已废弃
+    # v2.11.104: 人工优先 — manual_macro_input.spot_main_overrides.near_basis 有值时,直接用人工值;否则自动算
     near_basis = None
-    if pta_spot is not None and main_futures_display_price:
+    _nb_ovr = (manual_macro or {}).get('spot_main_overrides') or {}
+    _nb_manual = _nb_ovr.get('near_basis')
+    if _nb_manual is not None and _nb_manual != '':
+        try:
+            near_basis = round(float(_nb_manual), 2)
+        except (TypeError, ValueError):
+            near_basis = None
+    if near_basis is None and pta_spot is not None and main_futures_display_price:
         near_basis = round(float(pta_spot) - float(main_futures_display_price), 2)
+    # v2.11.104: 人工来源描述（与 PX 外盘现货价 'manual:人工' 标注同款）
+    pta_spot_source = (manual_macro or {}).get('spot_main_overrides', {}).get('spot_source') or ''
+    pta_spot_as_of = (manual_macro or {}).get('spot_main_overrides', {}).get('as_of_date') or ''
+    near_basis_source = (manual_macro or {}).get('spot_main_overrides', {}).get('near_basis_source') or ''
+    near_basis_as_of = (manual_macro or {}).get('spot_main_overrides', {}).get('near_basis_as_of') or pta_spot_as_of
     px_price = px.get('spot_price') or px.get('price')
     px_asia_close = px_external.get('px_asia_close_usd')
     pta_external_cost = px_external.get('pta_external_cost') or (cost.get('pta_external_cost') if isinstance(cost, dict) else None)
@@ -3978,6 +3991,8 @@ def generate_intraday_analysis(report: Dict) -> Dict:
         ['WTI', f"{_fmt_num(wti.get('price'),2,'$')}，{_pct_desc(wti.get('change_pct'))}", '原油宏观成本'],
         ['PX现货', _fmt_num(px_price), '内盘成本端'],
         ['PX外盘现货价', f"{_fmt_num(px_asia_close,2,'$')}/吨" if px_asia_close else '--', f"{px_external.get('source','')}；汇率{_fmt_num(usd_cny,4)}" if px_asia_close else 'CFR中国/亚洲收盘价待更新'],
+        ['PTA现货', _fmt_num(pta_spot, 1), f"人工:{pta_spot_source or '生意社PTA基准价'}；{pta_spot_as_of}" if pta_spot_source or pta_spot_as_of else ('现货/成本锚' if pta_spot else '人工待补充')],
+        ['基差', _fmt_signed(near_basis), f"人工:{near_basis_source}；{near_basis_as_of}" if near_basis_source else ('PTA现货 − 盘面主力参考价；升水偏强、贴水偏弱' if near_basis is not None else '人工待补充')],
         ['PTA估算成本', _fmt_num(pta_cost), '内盘成本支撑区'],
         ['外盘PTA动态成本', _fmt_num(pta_external_cost), 'PX亚洲收盘价*0.655*1.01*1.13*USD/CNY'],
         ['PTA利润', f"{_fmt_num(profit)}，{_fmt_num(profit_pct,1)}%", '利润高则供应压力偏空'],
