@@ -3111,9 +3111,33 @@ def _render_auto_news(macro_news_items):
     return '自动快讯（去重人工摘要）：' + '；'.join(cleaned) + '。'
 
 
-def get_main_futures_price(symbol: str = 'TA609') -> Dict:
-    """读取首页K线主力合约价，必须与期权链/期权服务标的价分开。默认与首页K线当前主力TA609一致。"""
-    out = {'price': None, 'change_pct': None, 'symbol': symbol, 'source': '首页K线主力合约价'}
+def get_main_futures_price(symbol: str = None) -> Dict:
+    """读取主力合约实时价（与期权链/期权服务标的价分开）。
+    v2.11.104d: 用 TqSdk 主力合约代码 KQ.m@CZCE.TA(continuous main contract),
+    不要用具体合约代码(TA609/TA610 等)— 主力换月后具体合约可能已退市或失去主力地位,
+    取到的价格是过期合约的尾盘价,跟当前真实主力差几百点,导致基差/near_basis 错。
+
+    symbol 参数保留向后兼容: 若显式传入合约代码(用于 K线 1min 等历史数据),
+    仍走 K线 API;不传则取 TqSdk 主力合约实时价。
+    """
+    # 不传 symbol → 用 TqSdk 主力合约代码 KQ.m@CZCE.TA
+    if not symbol:
+        try:
+            from analysis.option_chain_api import get_tq_futures_price as _get_tq_price
+            price = _get_tq_price('KQ.m@CZCE.TA', timeout=4)
+            if price and price > 0:
+                return {
+                    'price': float(price),
+                    'change_pct': None,
+                    'symbol': 'KQ.m@CZCE.TA',
+                    'source': 'TqSdk主力合约KQ.m@CZCE.TA',
+                    'source_detail': 'tqsdk_main_continuous',
+                }
+        except Exception as e:
+            pass  # 回退到 K线 API
+
+    out = {'price': None, 'change_pct': None, 'symbol': symbol or 'KQ.m@CZCE.TA', 'source': 'K线接口主力合约价'}
+    # 1. 优先 1min,后 15min
     for period in ('1min', '15min'):
         try:
             # 只需要最新价/最近20根变化，限制count避免K线接口默认取1000根导致研报生成超时。
@@ -3865,16 +3889,10 @@ def generate_intraday_analysis(report: Dict) -> Dict:
     # 同步把 main_futures_price 暴露给下游（trader_report / narrative 末尾的'盘面主力参考价 XX'复用）
     main_futures_price = main_futures_display_price
     # 基差口径（v2.11.46+）：严格按"PTA现货 − 盘面主力参考价"计算，akshare 郑商所表的 near_basis 已废弃
-    # v2.11.104: 人工优先 — manual_macro_input.spot_main_overrides.near_basis 有值时,直接用人工值;否则自动算
+    # v2.11.104c: 基差全自动 = pta_spot - main_futures_price;不再走 manual_macro_input 人工路径
+    # 主力价来源:TqSdk K线实时(最权威);若 K线接口无价,main_futures_price=None → near_basis=None
     near_basis = None
-    _nb_ovr = (manual_macro or {}).get('spot_main_overrides') or {}
-    _nb_manual = _nb_ovr.get('near_basis')
-    if _nb_manual is not None and _nb_manual != '':
-        try:
-            near_basis = round(float(_nb_manual), 2)
-        except (TypeError, ValueError):
-            near_basis = None
-    if near_basis is None and pta_spot is not None and main_futures_display_price:
+    if pta_spot is not None and main_futures_display_price:
         near_basis = round(float(pta_spot) - float(main_futures_display_price), 2)
     # v2.11.104: 人工来源描述（与 PX 外盘现货价 'manual:人工' 标注同款）
     pta_spot_source = (manual_macro or {}).get('spot_main_overrides', {}).get('spot_source') or ''
@@ -3992,7 +4010,7 @@ def generate_intraday_analysis(report: Dict) -> Dict:
         ['PX现货', _fmt_num(px_price), '内盘成本端'],
         ['PX外盘现货价', f"{_fmt_num(px_asia_close,2,'$')}/吨" if px_asia_close else '--', f"{px_external.get('source','')}；汇率{_fmt_num(usd_cny,4)}" if px_asia_close else 'CFR中国/亚洲收盘价待更新'],
         ['PTA现货', _fmt_num(pta_spot, 1), f"人工:{pta_spot_source or '生意社PTA基准价'}；{pta_spot_as_of}" if pta_spot_source or pta_spot_as_of else ('现货/成本锚' if pta_spot else '人工待补充')],
-        ['基差', _fmt_signed(near_basis), f"人工:{near_basis_source}；{near_basis_as_of}" if near_basis_source else ('PTA现货 − 盘面主力参考价；升水偏强、贴水偏弱' if near_basis is not None else '人工待补充')],
+        ['基差', _fmt_signed(near_basis, 1), f'PTA现货 − TqSdk主力合约 KQ.m@CZCE.TA {main_futures_price if main_futures_price else "--"} (实时自动算)' if near_basis is not None else '人工待补充(TqSdk 主力合约价待加载)'],
         ['PTA估算成本', _fmt_num(pta_cost), '内盘成本支撑区'],
         ['外盘PTA动态成本', _fmt_num(pta_external_cost), 'PX亚洲收盘价*0.655*1.01*1.13*USD/CNY'],
         ['PTA利润', f"{_fmt_num(profit)}，{_fmt_num(profit_pct,1)}%", '利润高则供应压力偏空'],

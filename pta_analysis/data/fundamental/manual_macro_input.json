@@ -94,10 +94,7 @@
   "spot_main_overrides": {
     "spot_price": 6303.5,
     "spot_source": "生意社PTA基准价 (盘前手工整理)",
-    "as_of_date": "2026-09-02",
-    "near_basis": 165,
-    "near_basis_source": "生意社PTA现货6303.50 − 主力TA609 5896.50 (盘前手工整理)",
-    "near_basis_as_of": "2026-09-02"
+    "as_of_date": "2026-09-02"
   },
   "px_external": {
     "px_asia_close_usd": 1132.0,
