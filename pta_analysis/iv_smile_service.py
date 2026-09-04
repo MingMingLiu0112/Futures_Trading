@@ -4999,6 +4999,7 @@ def register_routes(app):
             snapshots = snap_doc.get('snapshots', {})
 
             points = []
+            open_oi = None  # 开盘 OI 基准(v2.11.107+ 加 OI 增量变化折线)
             for time_key in sorted(snapshots.keys()):
                 slot = snapshots[time_key]
                 raw = slot.get('raw', {}) or {}
@@ -5009,10 +5010,22 @@ def register_routes(app):
                 iv_val = strike_data.get(side)
                 if iv_val is None:
                     continue
+
+                # OI 增量 = 当前 OI - 开盘 OI(只对第一个非None值记录基准)
+                strike_oi_dict = slot.get('strike_oi', {}) or {}
+                oi_entry = strike_oi_dict.get(str(strike)) or strike_oi_dict.get(int(strike))
+                cur_oi = oi_entry.get(side) if isinstance(oi_entry, dict) else None
+                if open_oi is None and cur_oi is not None:
+                    open_oi = cur_oi
+                oi_chg = (cur_oi - open_oi) if (cur_oi is not None and open_oi is not None) else None
+
                 points.append({
                     'time': time_key,
                     'iv': round(float(iv_val) * 100, 4),  # 转 %, 与 T 表口径一致
                     'futures_price': slot.get('futures_price'),
+                    'oi': cur_oi,                  # 当前 OI 存量(手)
+                    'oi_chg': oi_chg,              # 相对开盘 OI 的净增减(手,可正可负)
+                    'open_oi': open_oi,            # 开盘基准 OI(整个序列同一基准)
                 })
 
             return jsonify({
@@ -5023,6 +5036,7 @@ def register_routes(app):
                 'points': points,
                 'count': len(points),
                 'interval_minutes': 15,  # 当前快照采样间隔 (诚实标注)
+                'has_oi_data': open_oi is not None,  # 是否拿到了 OI 基准(v2.11.107+)
             })
         except Exception as e:
             return jsonify({'success': False, 'error': str(e)}), 500

@@ -553,7 +553,7 @@
       </div>
       <button onclick="closeIntradayIvModal()" style="background:#444; color:#fff; border:none; padding:4px 12px; border-radius:4px; cursor:pointer; font-size:12px;">✕ 关闭</button>
     </div>
-    <div id="intradayIvChart" style="width:100%; height:380px;"></div>
+    <div id="intradayIvChart" style="width:100%; height:420px;"></div>
     <div style="margin-top:10px; font-size:11px; color:#888;">
       数据源: <code>iv_snapshots_&lt;date&gt;.json</code> 持久化快照 · 粒度: <span id="intradayIvInterval">--</span> · 鼠标悬浮看明细
     </div>
@@ -3040,14 +3040,26 @@ async function openIntradayIvModal(strike, side) {
   const colorMain = isCall ? '#00d4ff' : '#ff6b9d';
   intradayIvChartInst.setOption({
     backgroundColor: 'transparent',
-    grid: { left: 55, right: 20, top: 30, bottom: 40 },
+    grid: { left: 55, right: 60, top: 30, bottom: 40 },
     tooltip: {
       trigger: 'axis',
+      axisPointer: { type: 'cross', label: { backgroundColor: '#444' } },
       formatter: (params) => {
-        const p = params[0];
-        const fp = data.points[p.dataIndex].futures_price;
-        return `<b>${p.name}</b><br/>IV: <b>${p.value.toFixed(2)}%</b>${fp != null ? `<br/>期货价: ${fp}` : ''}`;
+        const p0 = params[0];
+        if (!p0) return '';
+        const pt = data.points[p0.dataIndex];
+        const fp = pt.futures_price;
+        // OI 系列可能在 params[1] 或 params[0]
+        const oiParam = params.find(p => p.seriesName && p.seriesName.includes('OI'));
+        const oiLine = oiParam ? `<br/>OI 增量: <b style="color:${oiParam.color};">${oiParam.value > 0 ? '+' : ''}${oiParam.value} 手</b>` : '';
+        return `<b>${p0.name}</b><br/>IV: <b style="color:${colorMain};">${p0.value.toFixed(2)}%</b>${oiLine}${fp != null ? `<br/>期货价: ${fp}` : ''}`;
       }
+    },
+    legend: {
+      data: [`${strike} ${isCall ? 'Call' : 'Put'} IV`, `${strike} ${isCall ? 'Call' : 'Put'} OI 变化`],
+      textStyle: { color: '#888', fontSize: 11 },
+      top: 0,
+      right: 10,
     },
     xAxis: {
       type: 'category',
@@ -3055,25 +3067,58 @@ async function openIntradayIvModal(strike, side) {
       axisLine: { lineStyle: { color: '#666' } },
       axisLabel: { color: '#aaa' },
     },
-    yAxis: {
-      type: 'value',
-      name: 'IV (%)',
-      nameTextStyle: { color: '#888' },
-      axisLabel: { formatter: '{value}%', color: '#aaa' },
-      axisLine: { lineStyle: { color: '#666' } },
-      splitLine: { lineStyle: { color: '#333' } },
-    },
-    series: [{
-      name: `${strike} ${isCall ? 'Call' : 'Put'} IV`,
-      type: 'line',
-      data: data.points.map(p => p.iv),
-      smooth: true,
-      symbol: 'circle',
-      symbolSize: 5,
-      lineStyle: { color: colorMain, width: 2 },
-      itemStyle: { color: colorMain },
-      areaStyle: { color: isCall ? 'rgba(0,212,255,0.12)' : 'rgba(255,107,157,0.12)' },
-    }],
+    yAxis: [
+      {
+        type: 'value',
+        name: 'IV (%)',
+        position: 'left',
+        nameTextStyle: { color: '#888' },
+        axisLabel: { formatter: '{value}%', color: '#aaa' },
+        axisLine: { lineStyle: { color: '#666' } },
+        splitLine: { lineStyle: { color: '#333' } },
+      },
+      {
+        type: 'value',
+        name: 'OI 变化(手)',
+        position: 'right',
+        nameTextStyle: { color: '#888', fontSize: 10 },
+        axisLabel: { formatter: (v) => v > 0 ? `+${v}` : `${v}`, color: '#aaa', fontSize: 10 },
+        axisLine: { lineStyle: { color: '#666' } },
+        splitLine: { show: false },  // 右轴不画 splitLine,避免和左轴双线混淆
+      }
+    ],
+    series: [
+      {
+        name: `${strike} ${isCall ? 'Call' : 'Put'} IV`,
+        type: 'line',
+        yAxisIndex: 0,
+        data: data.points.map(p => p.iv),
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 5,
+        lineStyle: { color: colorMain, width: 2 },
+        itemStyle: { color: colorMain },
+        areaStyle: { color: isCall ? 'rgba(0,212,255,0.12)' : 'rgba(255,107,157,0.12)' },
+      },
+      {
+        // v2.11.107+: OI 增量变化折线(相对开盘 OI)
+        name: `${strike} ${isCall ? 'Call' : 'Put'} OI 变化`,
+        type: 'bar',  // 用柱状图更清晰表达"增量"语义(>0 增仓, <0 减仓)
+        yAxisIndex: 1,
+        data: data.points.map(p => p.oi_chg),
+        barWidth: '60%',
+        itemStyle: {
+          color: (params) => {
+            // 红=增仓(资金流入),绿=减仓(资金流出) — 反向于"红涨绿跌"惯例?
+            // 但 OI 业务语义:增仓=看多/看空力量增强(中性),减仓=平仓(中性)
+            // 用蓝色单向色更安全,不诱导方向解读
+            return params.value >= 0 ? 'rgba(120,180,255,0.7)' : 'rgba(255,180,120,0.7)';
+          },
+          borderColor: (params) => params.value >= 0 ? '#5a9eff' : '#ff9648',
+          borderWidth: 1,
+        },
+      },
+    ],
   }, true);
 
   // 窗口 resize 时图表自适应(常见遗漏:弹窗位置/大小变化时图表不自适应)
@@ -3106,6 +3151,6 @@ document.getElementById('intradayIvModal').addEventListener('click', (e) => {
 });
 
 </script>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.106b (修复弹窗ECharts复用bug — 第2次打开不显示;close+open都dispose实例;新增窗口resize自适应)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.107 (弹窗双Y轴 — IV折线 + OI增量柱状图,左轴IV% / 右轴OI变化手数,数据源iv_snapshots_*.json;API新增oi/oi_chg/open_oi字段)</div>
 </body>
 </html>
