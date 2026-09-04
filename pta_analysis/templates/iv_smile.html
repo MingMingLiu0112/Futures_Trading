@@ -2969,8 +2969,35 @@ function exportStrategyReport() {
   window.location.href = '/api/strategy_report/export?type=' + type + '&format=docx';
 }
 
-// ===== v2.11.106+: 单合约隐波日内走势弹窗 =====
+// ===== v2.11.106b+: 单合约隐波日内走势弹窗 =====
+// 修复: ECharts 实例复用陷阱 (v2.11.106 首版 bug — 第2次打开弹窗不显示)
+// 根因: closeIntradayIvModal() 未 dispose 实例 + 下次 open 时 chartEl.innerHTML=''
+//      会移除 canvas DOM 节点,但 ECharts 实例仍引用该 orphan canvas → setOption
+//      渲染到看不见的 DOM
+// 修法: 每次 open 前 dispose 旧实例 + close 时也 dispose
 let intradayIvChartInst = null;
+
+function _disposeIntradayChart() {
+  if (intradayIvChartInst) {
+    try { intradayIvChartInst.dispose(); } catch (e) {}
+    intradayIvChartInst = null;
+  }
+}
+
+function _showIntradayEmpty(msg) {
+  _disposeIntradayChart();
+  const chartEl = document.getElementById('intradayIvChart');
+  // 用独立 div 而非 innerHTML='',避免破坏 ECharts DOM 节点
+  let emptyEl = document.getElementById('intradayIvEmpty');
+  if (!emptyEl) {
+    emptyEl = document.createElement('div');
+    emptyEl.id = 'intradayIvEmpty';
+    emptyEl.style.cssText = 'color:#888;text-align:center;padding:80px 0;';
+    chartEl.appendChild(emptyEl);
+  }
+  emptyEl.textContent = msg;
+  emptyEl.style.display = 'block';
+}
 
 async function openIntradayIvModal(strike, side) {
   const modal = document.getElementById('intradayIvModal');
@@ -2980,12 +3007,17 @@ async function openIntradayIvModal(strike, side) {
     `${strike} ${side === 'C' ? 'Call' : 'Put'} IV 日内走势`;
 
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const resp = await fetch(`/api/iv_smile/intraday_iv?strike=${strike}&side=${side}&date=${date}`);
-  const data = await resp.json();
+  let data;
+  try {
+    const resp = await fetch(`/api/iv_smile/intraday_iv?strike=${strike}&side=${side}&date=${date}`);
+    data = await resp.json();
+  } catch (e) {
+    _showIntradayEmpty('✗ 请求失败: ' + e.message);
+    return;
+  }
 
   if (!data.success || !data.points || data.points.length === 0) {
-    document.getElementById('intradayIvChart').innerHTML =
-      '<div style="color:#888;text-align:center;padding:80px 0;">暂无数据 (当日无快照或该 strike 无 IV)</div>';
+    _showIntradayEmpty('暂无数据 (当日无快照或该 strike 无 IV)');
     document.getElementById('intradayIvMeta').textContent = `· ${data.note || ''}`;
     document.getElementById('intradayIvInterval').textContent = '--';
     return;
@@ -2996,11 +3028,14 @@ async function openIntradayIvModal(strike, side) {
   document.getElementById('intradayIvInterval').textContent =
     `${data.interval_minutes} 分钟`;
 
+  // 关键修复: 每次 open 先 dispose 旧实例(无论之前是否成功)
+  _disposeIntradayChart();
+  // 隐藏 empty 占位
+  const emptyEl = document.getElementById('intradayIvEmpty');
+  if (emptyEl) emptyEl.style.display = 'none';
+
   const chartEl = document.getElementById('intradayIvChart');
-  chartEl.innerHTML = '';  // 清掉旧内容(loading/empty)
-  if (!intradayIvChartInst) {
-    intradayIvChartInst = echarts.init(chartEl, null, { renderer: 'canvas' });
-  }
+  intradayIvChartInst = echarts.init(chartEl, null, { renderer: 'canvas' });
   const isCall = side === 'C';
   const colorMain = isCall ? '#00d4ff' : '#ff6b9d';
   intradayIvChartInst.setOption({
@@ -3040,11 +3075,24 @@ async function openIntradayIvModal(strike, side) {
       areaStyle: { color: isCall ? 'rgba(0,212,255,0.12)' : 'rgba(255,107,157,0.12)' },
     }],
   }, true);
+
+  // 窗口 resize 时图表自适应(常见遗漏:弹窗位置/大小变化时图表不自适应)
+  if (!window.__intradayIvResizeBound) {
+    window.addEventListener('resize', () => {
+      if (intradayIvChartInst && document.getElementById('intradayIvModal').style.display === 'block') {
+        intradayIvChartInst.resize();
+      }
+    });
+    window.__intradayIvResizeBound = true;
+  }
+  intradayIvChartInst.resize();
 }
 
 function closeIntradayIvModal() {
   const modal = document.getElementById('intradayIvModal');
   if (modal) modal.style.display = 'none';
+  // 关键修复: 关闭时 dispose,避免实例残留指向 stale DOM
+  _disposeIntradayChart();
 }
 
 // ESC 关闭弹窗
@@ -3058,6 +3106,6 @@ document.getElementById('intradayIvModal').addEventListener('click', (e) => {
 });
 
 </script>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.106 (T表Call/Put IV单元格点击弹窗→单合约隐波日内走势折线图,数据源iv_snapshots_*.json,粒度15分钟;新增/api/iv_smile/intraday_iv端点)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.106b (修复弹窗ECharts复用bug — 第2次打开不显示;close+open都dispose实例;新增窗口resize自适应)</div>
 </body>
 </html>
