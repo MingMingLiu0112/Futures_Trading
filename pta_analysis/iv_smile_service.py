@@ -4964,6 +4964,69 @@ def register_routes(app):
             ),
         })
 
+    @app.route('/api/iv_smile/intraday_iv')
+    def iv_api_intraday_iv():
+        """
+        v2.11.106+: 单合约隐波日内走势 — T型表弹窗数据源
+        GET /api/iv_smile/intraday_iv?strike=5500&side=C&date=20260904
+        返回 [{time:"09:00", iv:0.283, futures_price:6010}, ...]
+        粒度: 15分钟 (现有快照采样间隔);最多约25点/日
+        """
+        try:
+            strike = request.args.get('strike')
+            side = request.args.get('side', 'C')  # 'C' or 'P'
+            date_str = request.args.get('date')   # YYYYMMDD,默认今日
+            if not strike:
+                return jsonify({'success': False, 'error': 'missing strike'}), 400
+            if side not in ('C', 'P'):
+                return jsonify({'success': False, 'error': 'side must be C or P'}), 400
+            if not date_str:
+                date_str = datetime.now().strftime('%Y%m%d')
+
+            snapshot_file = _get_snapshot_path(date_str)
+            if not os.path.exists(snapshot_file):
+                return jsonify({
+                    'success': True,
+                    'date': date_str,
+                    'strike': strike,
+                    'side': side,
+                    'points': [],
+                    'note': 'no_snapshot_file'
+                })
+
+            with open(snapshot_file, 'r', encoding='utf-8') as f:
+                snap_doc = json.load(f)
+            snapshots = snap_doc.get('snapshots', {})
+
+            points = []
+            for time_key in sorted(snapshots.keys()):
+                slot = snapshots[time_key]
+                raw = slot.get('raw', {}) or {}
+                # strike 在 raw 里是字符串 key (e.g. "5500")
+                strike_data = raw.get(str(strike)) or raw.get(int(strike)) if isinstance(raw, dict) else None
+                if not strike_data:
+                    continue
+                iv_val = strike_data.get(side)
+                if iv_val is None:
+                    continue
+                points.append({
+                    'time': time_key,
+                    'iv': round(float(iv_val) * 100, 4),  # 转 %, 与 T 表口径一致
+                    'futures_price': slot.get('futures_price'),
+                })
+
+            return jsonify({
+                'success': True,
+                'date': date_str,
+                'strike': strike,
+                'side': side,
+                'points': points,
+                'count': len(points),
+                'interval_minutes': 15,  # 当前快照采样间隔 (诚实标注)
+            })
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+
     @app.route('/api/iv_smile/oi')
     def iv_api_oi():
         """期权持仓量T型报价：各行权价的Call/Put持仓量 + 隐波 + 15分钟变化"""

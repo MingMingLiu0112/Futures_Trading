@@ -543,6 +543,23 @@
   </div>
 </div>
 
+<!-- ===== v2.11.106+: 单合约隐波日内走势弹窗 ===== -->
+<div id="intradayIvModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:9999;">
+  <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:#1a1a2e; border:1px solid #444; border-radius:8px; padding:18px; width:720px; max-width:90vw; box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #333;">
+      <div>
+        <span id="intradayIvTitle" style="font-size:15px; font-weight:bold; color:#e0e0e0;">隐波日内走势</span>
+        <span id="intradayIvMeta" style="margin-left:10px; font-size:11px; color:#888;"></span>
+      </div>
+      <button onclick="closeIntradayIvModal()" style="background:#444; color:#fff; border:none; padding:4px 12px; border-radius:4px; cursor:pointer; font-size:12px;">✕ 关闭</button>
+    </div>
+    <div id="intradayIvChart" style="width:100%; height:380px;"></div>
+    <div style="margin-top:10px; font-size:11px; color:#888;">
+      数据源: <code>iv_snapshots_&lt;date&gt;.json</code> 持久化快照 · 粒度: <span id="intradayIvInterval">--</span> · 鼠标悬浮看明细
+    </div>
+  </div>
+</div>
+
 <div class="footer">
   <span id="lastUpdate">--</span>
   <span style="margin-left:16px; display:inline-flex; align-items:center; gap:6px;">
@@ -1603,9 +1620,9 @@ function updateTable(alertData, curveData) {
       <td>${fmtOiChg(r.vol_call, r.vol_call_prev, '')}</td>
       <td>${fmtCurrentQty(r.vol_call)}</td>
       <td>${fmtIvChg(callIvChg, r.iv_call_level, r.iv_ref_type)}</td>
-      <td>${fmtIv(r.iv_call, 'iv-call')}</td>
+      <td class="iv-cell" data-strike="${r.strike}" data-side="C" title="点击查看 ${r.strike} Call IV 日内走势" style="cursor:pointer;">${fmtIv(r.iv_call, 'iv-call')}</td>
       <td>${star}${r.strike}</td>
-      <td>${fmtIv(r.iv_put, 'iv-put')}</td>
+      <td class="iv-cell" data-strike="${r.strike}" data-side="P" title="点击查看 ${r.strike} Put IV 日内走势" style="cursor:pointer;">${fmtIv(r.iv_put, 'iv-put')}</td>
       <td>${fmtIvChg(putIvChg, r.iv_put_level, r.iv_ref_type)}</td>
       <td>${fmtCurrentQty(r.vol_put)}</td>
       <td>${fmtOiChg(r.vol_put, r.vol_put_prev, '')}</td>
@@ -1615,6 +1632,15 @@ function updateTable(alertData, curveData) {
   }).join('');
 
   tbody.innerHTML = html;
+
+  // v2.11.106+: T表 IV 单元格点击 → 打开单合约隐波日内走势弹窗
+  tbody.querySelectorAll('td.iv-cell').forEach(td => {
+    td.addEventListener('click', (e) => {
+      const strike = td.getAttribute('data-strike');
+      const side = td.getAttribute('data-side');
+      if (strike && side) openIntradayIvModal(strike, side);
+    });
+  });
 }
 
 
@@ -2943,7 +2969,95 @@ function exportStrategyReport() {
   window.location.href = '/api/strategy_report/export?type=' + type + '&format=docx';
 }
 
+// ===== v2.11.106+: 单合约隐波日内走势弹窗 =====
+let intradayIvChartInst = null;
+
+async function openIntradayIvModal(strike, side) {
+  const modal = document.getElementById('intradayIvModal');
+  if (!modal) return;
+  modal.style.display = 'block';
+  document.getElementById('intradayIvTitle').textContent =
+    `${strike} ${side === 'C' ? 'Call' : 'Put'} IV 日内走势`;
+
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const resp = await fetch(`/api/iv_smile/intraday_iv?strike=${strike}&side=${side}&date=${date}`);
+  const data = await resp.json();
+
+  if (!data.success || !data.points || data.points.length === 0) {
+    document.getElementById('intradayIvChart').innerHTML =
+      '<div style="color:#888;text-align:center;padding:80px 0;">暂无数据 (当日无快照或该 strike 无 IV)</div>';
+    document.getElementById('intradayIvMeta').textContent = `· ${data.note || ''}`;
+    document.getElementById('intradayIvInterval').textContent = '--';
+    return;
+  }
+
+  document.getElementById('intradayIvMeta').textContent =
+    `· ${data.date} · ${data.count} 个数据点`;
+  document.getElementById('intradayIvInterval').textContent =
+    `${data.interval_minutes} 分钟`;
+
+  const chartEl = document.getElementById('intradayIvChart');
+  chartEl.innerHTML = '';  // 清掉旧内容(loading/empty)
+  if (!intradayIvChartInst) {
+    intradayIvChartInst = echarts.init(chartEl, null, { renderer: 'canvas' });
+  }
+  const isCall = side === 'C';
+  const colorMain = isCall ? '#00d4ff' : '#ff6b9d';
+  intradayIvChartInst.setOption({
+    backgroundColor: 'transparent',
+    grid: { left: 55, right: 20, top: 30, bottom: 40 },
+    tooltip: {
+      trigger: 'axis',
+      formatter: (params) => {
+        const p = params[0];
+        const fp = data.points[p.dataIndex].futures_price;
+        return `<b>${p.name}</b><br/>IV: <b>${p.value.toFixed(2)}%</b>${fp != null ? `<br/>期货价: ${fp}` : ''}`;
+      }
+    },
+    xAxis: {
+      type: 'category',
+      data: data.points.map(p => p.time),
+      axisLine: { lineStyle: { color: '#666' } },
+      axisLabel: { color: '#aaa' },
+    },
+    yAxis: {
+      type: 'value',
+      name: 'IV (%)',
+      nameTextStyle: { color: '#888' },
+      axisLabel: { formatter: '{value}%', color: '#aaa' },
+      axisLine: { lineStyle: { color: '#666' } },
+      splitLine: { lineStyle: { color: '#333' } },
+    },
+    series: [{
+      name: `${strike} ${isCall ? 'Call' : 'Put'} IV`,
+      type: 'line',
+      data: data.points.map(p => p.iv),
+      smooth: true,
+      symbol: 'circle',
+      symbolSize: 5,
+      lineStyle: { color: colorMain, width: 2 },
+      itemStyle: { color: colorMain },
+      areaStyle: { color: isCall ? 'rgba(0,212,255,0.12)' : 'rgba(255,107,157,0.12)' },
+    }],
+  }, true);
+}
+
+function closeIntradayIvModal() {
+  const modal = document.getElementById('intradayIvModal');
+  if (modal) modal.style.display = 'none';
+}
+
+// ESC 关闭弹窗
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeIntradayIvModal();
+});
+
+// 点遮罩关闭(点弹窗内容不关)
+document.getElementById('intradayIvModal').addEventListener('click', (e) => {
+  if (e.target.id === 'intradayIvModal') closeIntradayIvModal();
+});
+
 </script>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.104 (研报标题栏精简:仅时间+导出Word,删去'研报与策略完整版—板块X'标题/手动刷新按钮;macro_table新增PTA现货+基差两行,数值走manual_macro_input.spot_main_overrides人工路径)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.106 (T表Call/Put IV单元格点击弹窗→单合约隐波日内走势折线图,数据源iv_snapshots_*.json,粒度15分钟;新增/api/iv_smile/intraday_iv端点)</div>
 </body>
 </html>
