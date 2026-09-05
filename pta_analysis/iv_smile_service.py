@@ -4964,6 +4964,35 @@ def register_routes(app):
             ),
         })
 
+    @app.route('/api/iv_smile/snapshot_dates')
+    def iv_api_snapshot_dates():
+        """
+        v2.11.108+: 列出所有有 snapshot 文件的日期(YYYYMMDD),倒序返回。
+        供前端弹窗 fallback 使用 — 当当日无快照(休盘)时,自动 fallback 到最近日。
+        返回: {success: True, dates: ['20260904', '20260903', ...]}
+        """
+        try:
+            if not os.path.isdir(_SNAPSHOT_DIR):
+                return jsonify({'success': True, 'dates': []})
+            files = [
+                f for f in os.listdir(_SNAPSHOT_DIR)
+                if f.startswith('iv_snapshots_') and f.endswith('.json')
+            ]
+            # 从文件名提取日期,倒序
+            dates = []
+            for f in files:
+                # 兼容 iv_snapshots_20260904.json (主名) 和 iv_snapshots_20260904.json.bak* (备份)
+                if f.endswith('.bak') or '.bak_' in f:
+                    continue
+                # 提取 _YYYYMMDD 部分
+                base = f.replace('iv_snapshots_', '').replace('.json', '')
+                if len(base) == 8 and base.isdigit():
+                    dates.append(base)
+            dates = sorted(set(dates), reverse=True)
+            return jsonify({'success': True, 'dates': dates, 'count': len(dates)})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+
     @app.route('/api/iv_smile/intraday_iv')
     def iv_api_intraday_iv():
         """

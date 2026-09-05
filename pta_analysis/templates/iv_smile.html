@@ -2984,6 +2984,28 @@ function _disposeIntradayChart() {
   }
 }
 
+// v2.11.108+: 休盘 fallback — 从 /api/iv_smile/snapshot_dates 拿最近有数据的日期
+// 后端会扫 data/iv_snapshots/iv_snapshots_*.json 返回倒序日期数组
+// 缓存 5 分钟避免每个 strike × side 都打一次
+let _snapshotDatesCache = null;
+let _snapshotDatesCacheTs = 0;
+async function _fetchLatestSnapshotDate() {
+  const now = Date.now();
+  if (_snapshotDatesCache && (now - _snapshotDatesCacheTs) < 300000) {
+    return _snapshotDatesCache[0] || null;
+  }
+  try {
+    const resp = await fetch('/api/iv_smile/snapshot_dates');
+    const data = await resp.json();
+    if (data.success && Array.isArray(data.dates) && data.dates.length > 0) {
+      _snapshotDatesCache = data.dates;
+      _snapshotDatesCacheTs = now;
+      return data.dates[0];
+    }
+  } catch (e) {}
+  return null;
+}
+
 function _showIntradayEmpty(msg) {
   _disposeIntradayChart();
   const chartEl = document.getElementById('intradayIvChart');
@@ -3006,8 +3028,12 @@ async function openIntradayIvModal(strike, side) {
   document.getElementById('intradayIvTitle').textContent =
     `${strike} ${side === 'C' ? 'Call' : 'Put'} IV 日内走势`;
 
+  // v2.11.108+: 休盘 fallback
+  // 今天先试 → 当日无 snapshot 时(周末/节假日/夜盘间隔)→ 后端返 points=[] +
+  // note='no_snapshot_file' → 自动 fallback 到最近一个有 snapshot 的交易日
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
   let data;
+  let usingFallback = false;
   try {
     const resp = await fetch(`/api/iv_smile/intraday_iv?strike=${strike}&side=${side}&date=${date}`);
     data = await resp.json();
@@ -3017,14 +3043,34 @@ async function openIntradayIvModal(strike, side) {
   }
 
   if (!data.success || !data.points || data.points.length === 0) {
-    _showIntradayEmpty('暂无数据 (当日无快照或该 strike 无 IV)');
-    document.getElementById('intradayIvMeta').textContent = `· ${data.note || ''}`;
-    document.getElementById('intradayIvInterval').textContent = '--';
-    return;
+    // 当天无快照 → fallback 到最近一个有 snapshot 文件的日期
+    const fbDate = await _fetchLatestSnapshotDate();
+    if (fbDate && fbDate !== date) {
+      try {
+        const resp2 = await fetch(`/api/iv_smile/intraday_iv?strike=${strike}&side=${side}&date=${fbDate}`);
+        const data2 = await resp2.json();
+        if (data2.success && data2.points && data2.points.length > 0) {
+          data = data2;
+          usingFallback = true;
+        }
+      } catch (e2) {
+        // 继续走下面空数据分支
+      }
+    }
+    if (!usingFallback) {
+      _showIntradayEmpty('暂无数据 (当日无快照或该 strike 无 IV)');
+      document.getElementById('intradayIvMeta').textContent = `· ${data.note || ''}`;
+      document.getElementById('intradayIvInterval').textContent = '--';
+      return;
+    }
   }
 
-  document.getElementById('intradayIvMeta').textContent =
-    `· ${data.date} · ${data.count} 个数据点`;
+  // 标题副标题: fallback 时黄色提示,正常时灰色
+  const metaEl = document.getElementById('intradayIvMeta');
+  const fbTag = usingFallback
+    ? ` <span style="color:#ffaa33;">⚠ 休盘·最近交易日 ${data.date}</span>`
+    : '';
+  metaEl.innerHTML = `· ${data.date} · ${data.count} 个数据点${fbTag}`;
   document.getElementById('intradayIvInterval').textContent =
     `${data.interval_minutes} 分钟`;
 
@@ -3151,6 +3197,6 @@ document.getElementById('intradayIvModal').addEventListener('click', (e) => {
 });
 
 </script>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.107 (弹窗双Y轴 — IV折线 + OI增量柱状图,左轴IV% / 右轴OI变化手数,数据源iv_snapshots_*.json;API新增oi/oi_chg/open_oi字段)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.108 (弹窗休盘 fallback — 当日无快照时自动 fallback 到最近交易日显示,新增 /api/iv_smile/snapshot_dates,黄色 ⚠ 提示)</div>
 </body>
 </html>
