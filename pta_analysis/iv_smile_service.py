@@ -510,13 +510,30 @@ def _save_close_state(close_point='15:00'):
     不依赖主循环跑 _check_and_save_close_state (避免 strategy-report 死循环期间
     _copy_close_state_to_interval_snapshot 被跳过,导致 iv_snapshots_*.json 缺 15:00 槽,
     21:00 _ensure_today_close_baseline_after_21() 找不到今日 15:00 基准而不切换)。
+
+    v2.11.109+: `timestamp` 字段语义化为 close_point 对应的语义时刻（如 15:00 → 'YYYY-MM-DDT15:00:00'），
+    不再用 datetime.now() 的 wall clock。设计教训：手工补盘 (save_close_state_now) 在 22:19 触发时，
+    datetime.now() 写成 22:19:03，导致 iv_snapshots_20260907.json['15:00']['timestamp'] 也是 22:19:03，
+    21:00 _ensure_today_close_baseline_after_21() 取 snap_ts 后灌入 _close_baseline['ts']，
+    API 返回的 prev_timestamp 显示 22:19 而非 15:00，破坏 label / prev_timestamp 一致性。
+    与 _save_prev_baseline (line 459) 的 'YYYY-MM-DDT15:00:00' 格式保持一致。
     """
     _ensure_snapshot_dir()
     # 只保存可序列化的字段
     _expiry_iso = _iso_expiry(_state.get('expiry'))
+    # v2.11.109+: timestamp 语义化（按 close_point 拼 'YYYY-MM-DDT<hh>:<mm>:00'）
+    # wall clock (datetime.now().isoformat()) 仅供调试，不再写入 timestamp 字段
+    _now = datetime.now()
+    if ':' in close_point:
+        _sem_hh, _sem_mm = close_point.split(':', 1)
+    else:
+        _sem_hh, _sem_mm = '15', '00'
+    _semantic_ts = f"{_now.strftime('%Y-%m-%d')}T{int(_sem_hh):02d}:{int(_sem_mm):02d}:00"
     payload = {
         'close_point': close_point,           # '15:00' = 真正的日内收盘基准；其他值视为污染
-        'timestamp': datetime.now().isoformat(),
+        'timestamp': _semantic_ts,
+        # v2.11.109+: 新增 _written_at 字段保留 wall clock 实际写入时刻（仅供诊断）
+        '_written_at': _now.isoformat(),
         'state': {
             'active_contract': _state.get('active_contract'),
             'expiry': _expiry_iso,
