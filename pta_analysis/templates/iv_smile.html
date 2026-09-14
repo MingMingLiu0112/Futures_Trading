@@ -3197,6 +3197,6 @@ document.getElementById('intradayIvModal').addEventListener('click', (e) => {
 });
 
 </script>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.109 (close_state timestamp 语义化 — 修复手工补盘时 prev_timestamp 显示 wall clock 而非 15:00 的 bug,新增 _written_at 字段保留实际写入时刻)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.110 (scheduler env var 开关 — IV_SMILE_ALLOW_OFFHOURS_UPDATE=1 让盘后也调 compute_once,让 TqSdk mock 盘盘后 tick 实时刷新 _state,默认关闭不影响收盘行为)</div>
 </body>
 </html>
