@@ -616,14 +616,49 @@ def _copy_close_state_to_interval_snapshot(hh, mm, now):
     if interval_key in _interval_snapshots:
         return False
 
-    smooth = _state.get('smile_smooth') or _last_valid.get('smile_smooth') or {}
-    raw = _state.get('smile_raw') or _last_valid.get('smile_raw') or {}
+    # v2.11.111: 边界补槽智能数据源选择
+    # 原 bug: 进程启动时从 prev_baseline.json 恢复的 _state 可能是脏数据(旧合约残留),
+    # _state.get('smile_smooth') 优先导致把脏数据当今日 15:00 收盘基准写入。
+    # 修法: 比较 _state vs _last_valid 的 smile_smooth 档数,
+    #       _last_valid 明显更完整(>=1.5x)且 _state 不更新时,优先用 _last_valid。
+    # 阈值 1.5x: 防 _last_valid 刚恢复时档数与 _state 相近的边界情况误判。
+    state_smooth = _state.get('smile_smooth') or {}
+    last_valid_smooth = _last_valid.get('smile_smooth') or {}
+    state_smooth_n = len(state_smooth)
+    last_valid_smooth_n = len(last_valid_smooth)
+    # 优先用 _last_valid 的条件: _last_valid 有数据,且比 _state 多 >= 50% 档
+    use_last_valid = (
+        last_valid_smooth_n > 0
+        and state_smooth_n > 0
+        and last_valid_smooth_n >= state_smooth_n * 1.5
+    )
+    if use_last_valid:
+        smooth = last_valid_smooth
+        raw = _last_valid.get('smile_raw') or {}
+        source_note = f"_last_valid({last_valid_smooth_n}档>_state的{state_smooth_n}档x1.5)"
+        print(f"[iv_smile] 📌 边界补槽数据源切换: {interval_key} 用 {source_note}")
+    else:
+        smooth = state_smooth or last_valid_smooth
+        raw = _state.get('smile_raw') or _last_valid.get('smile_raw') or {}
+        if state_smooth_n == 0 and last_valid_smooth_n > 0:
+            print(f"[iv_smile] 📌 边界补槽数据源: {interval_key} 用 _last_valid({last_valid_smooth_n}档,_state空)")
+        else:
+            print(f"[iv_smile] 📌 边界补槽数据源: {interval_key} 用 _state({state_smooth_n}档)")
+
     if not smooth:
         print(f"[iv_smile] ⚠️ 收盘边界快照跳过: {interval_key} 无smile数据")
         return False
 
-    strike_oi = _state.get('strike_oi') or _last_valid.get('strike_oi') or {}
-    strike_vol = _state.get('strike_vol') or _last_valid.get('strike_vol') or {}
+    # strike_oi 同理 (旧合约残留持仓也可能在 _state 里)
+    state_oi_n = len(_state.get('strike_oi') or {})
+    last_valid_oi_n = len(_last_valid.get('strike_oi') or {})
+    if last_valid_oi_n > state_oi_n * 1.5 and last_valid_oi_n > 0:
+        strike_oi = _last_valid.get('strike_oi') or {}
+        strike_vol = _last_valid.get('strike_vol') or {}
+        print(f"[iv_smile] 📌 边界补槽 OI 数据源: {interval_key} 用 _last_valid({last_valid_oi_n}档>_state的{state_oi_n}档)")
+    else:
+        strike_oi = _state.get('strike_oi') or _last_valid.get('strike_oi') or {}
+        strike_vol = _state.get('strike_vol') or _last_valid.get('strike_vol') or {}
     close_price = _state.get('futures_price') or _last_valid.get('futures_price')
     if hh == 23 and mm == 0:
         # 夜盘收盘边界进入休盘分支后不再 compute_once，_state 里的 last 可能停在 22:59；
