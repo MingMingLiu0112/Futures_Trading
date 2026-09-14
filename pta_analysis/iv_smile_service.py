@@ -3638,9 +3638,20 @@ def start_scheduler(interval_minutes=1):
                 # 2026-07-04: trace 默认关闭（设 IV_SMILE_TRACE=1 开启）—— 之前每分钟 6 条 sleep trace 一天 1 万条打爆日志
                 if os.getenv('IV_SMILE_TRACE'):
                     print(f"[iv_smile.trace] scheduler loop iter={counter} is_trading={_is_trading_hours()}", flush=True)
-                if _is_trading_hours():
+                # v2.11.110+: IV_SMILE_ALLOW_OFFHOURS_UPDATE=1 让盘后也调 compute_once。
+                # 用途:TqSdk 模拟盘在盘后仍推 tick（mock 数据），但 scheduler 默认拒绝，
+                #      导致页面显示 9/14 15:00 收盘价而非实时 tick。
+                # 安全边界:close_state.json / prev_baseline.json 由 _check_and_save_close_state()
+                #          在收盘点 ±2 分钟才写,盘后 compute_once 不会污染。
+                #          _save_all_snapshots() 只写 iv_snapshots_YYYYMMDD.json,不污染基准。
+                _allow_offhours = os.getenv('IV_SMILE_ALLOW_OFFHOURS_UPDATE') == '1'
+                if _is_trading_hours() or _allow_offhours:
                     compute_once()
                     offhours_t_counter = 0  # 开盘重置
+                    if _allow_offhours and not _is_trading_hours():
+                        # 盘后模式标记:让操作员在日志里看到这是 env var 触发的
+                        if counter % 10 == 0:
+                            print(f"[iv_smile] 🌙 盘后 compute_once 模式 (IV_SMILE_ALLOW_OFFHOURS_UPDATE=1) S={_state.get('futures_price')} MP={_state.get('max_pain')}")
                 else:
                     # 休盘边界（11:30/15:00/23:00）不重算IV/SVI，只复制最后有效状态补齐收盘快照
                     _check_and_save_close_state()
