@@ -3708,12 +3708,17 @@ def start_scheduler(interval_minutes=1):
                 #          _save_all_snapshots() 只写 iv_snapshots_YYYYMMDD.json,不污染基准。
                 _allow_offhours = os.getenv('IV_SMILE_ALLOW_OFFHOURS_UPDATE') == '1'
                 if _is_trading_hours() or _allow_offhours:
-                    compute_once()
+                    # v2.11.112+: 盘后(IV_SMILE_ALLOW_OFFHOURS_UPDATE=1)也强制 force=True,
+                    # 让 smile_raw 也能从 28 档 → 32 档更新(天勤 query_options 已确认周末推 32 档 TA611 全档 4750-7600)。
+                    # 之前 force=False 时 should_update_smile = is_trading or force = False,
+                    # smile_raw 永远停在 close_state.json 的 28 档,前端 T 表 strike 范围无法扩展。
+                    # 盘后 IV 虚高风险已被天勤数据源统一 + expired=False 过滤(TA610 已下市)对冲。
+                    compute_once(force=True)
                     offhours_t_counter = 0  # 开盘重置
                     if _allow_offhours and not _is_trading_hours():
                         # 盘后模式标记:让操作员在日志里看到这是 env var 触发的
                         if counter % 10 == 0:
-                            print(f"[iv_smile] 🌙 盘后 compute_once 模式 (IV_SMILE_ALLOW_OFFHOURS_UPDATE=1) S={_state.get('futures_price')} MP={_state.get('max_pain')}")
+                            print(f"[iv_smile] 🌙 盘后 compute_once 模式 (IV_SMILE_ALLOW_OFFHOURS_UPDATE=1, force=True) S={_state.get('futures_price')} MP={_state.get('max_pain')}")
                 else:
                     # 休盘边界（11:30/15:00/23:00）不重算IV/SVI，只复制最后有效状态补齐收盘快照
                     _check_and_save_close_state()
