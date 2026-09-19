@@ -3197,6 +3197,6 @@ document.getElementById('intradayIvModal').addEventListener('click', (e) => {
 });
 
 </script>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.111 (边界补槽智能数据源 — 当 _last_valid 比 _state 完整 ≥1.5x 时优先用 _last_valid,防止旧合约残留(从 prev_baseline.json 恢复)污染 15:00 收盘基准)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.112b (T表全档strike数据源切天勤 — _get_option_strikes_for_contract主路径用api.query_options("CZCE.TA611", expired=False)拿32档(4750-7600,含7300-7600);akshare兜底标DEPRECATED(曾漏7300-7600);scheduler盘后force=True让smile_raw从28→32档)</div>
 </body>
 </html>
