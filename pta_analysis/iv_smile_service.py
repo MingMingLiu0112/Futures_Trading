@@ -2264,16 +2264,43 @@ _LOCAL_PTA_EXPIRY_FALLBACK = {
     'TA706': '2027-05-14',  # 2027-06 月期权名义, 实际到期 2027-05-14 (周五)
 }
 
-def _get_option_strikes_for_contract(opt_prefix):
+def _get_option_strikes_for_contract(api, opt_prefix):
     """
     获取当前期权月份真实存在的全档行权价。
     T型表/PCR/Excel需要全档；若交易所合约表获取失败，再由调用方兜底ATM±10。
+
+    v2.11.10x+: 主路径统一用天勤 api.query_options()（数据源统一原则 — 与 _option_quotes 同 api 实例），
+    天勤返回 TA611 全 32 档 (4750-7600)；akshare 历史上有漏 7300-7600 深度虚值 Call 的 bug。
+    akshare 路径保留为 DEPRECATED 兜底，防止天勤 query_options 临时抽风时 strike 范围退化。
     """
     global _OPTION_STRIKES_CACHE
     import re
-    import akshare as ak
 
+    # === 主路径：天勤 query_options（与 _option_quotes 同一 api，已登录状态）===
     try:
+        ls = api.query_options(f"CZCE.{opt_prefix}", expired=False)
+        if not ls:
+            raise ValueError(f"tqsdk query_options returned empty for {opt_prefix}")
+
+        strikes = set()
+        for sym in ls:
+            m = re.search(r'[CP](\d+)$', sym)
+            if m:
+                strikes.add(int(m.group(1)))
+
+        strikes = sorted(strikes)
+        if not strikes:
+            raise ValueError(f"no strikes parsed from tqsdk for {opt_prefix}")
+
+        _OPTION_STRIKES_CACHE[opt_prefix] = strikes
+        print(f"[iv_smile] ✅ 天勤拿 {opt_prefix} 全档 {len(strikes)} 档: {strikes[0]}~{strikes[-1]}")
+        return strikes
+    except Exception as tq_e:
+        print(f"[iv_smile] ⚠️ 天勤 query_options 失败,走 akshare 兜底: {tq_e}")
+
+    # === 兜底路径 DEPRECATED：akshare option_contract_info_ctp (v2.11.10x 起仅兜底用,曾漏 7300-7600)===
+    try:
+        import akshare as ak
         df = ak.option_contract_info_ctp()
         if df is None or df.empty:
             raise ValueError("option_contract_info_ctp returned empty")
@@ -2306,7 +2333,6 @@ def _get_option_strikes_for_contract(opt_prefix):
                 except Exception:
                     pass
 
-        # 兜底：从 TA607C6600 / TA607P6600 这类合约名提取
         if name_col in sub.columns:
             for name in sub[name_col].astype(str).tolist():
                 m = re.search(r'[CP](\d+)$', name)
@@ -2318,6 +2344,7 @@ def _get_option_strikes_for_contract(opt_prefix):
             raise ValueError(f"no strikes parsed for {opt_prefix}")
 
         _OPTION_STRIKES_CACHE[opt_prefix] = strikes
+        print(f"[iv_smile] ⚠️ DEPRECATED akshare 兜底拿 {opt_prefix} {len(strikes)} 档 (可能漏深度虚值): {strikes[0]}~{strikes[-1]}")
         return strikes
     except Exception as e:
         cached = _OPTION_STRIKES_CACHE.get(opt_prefix)
@@ -2893,7 +2920,7 @@ def tqsdk_loop():
             atm_strike = round(S / 100) * 100
 
             # T型表/PCR/Excel必须订阅当前月份真实存在的全档行权价；ATM±10只作为合约表失败兜底。
-            strikes = _get_option_strikes_for_contract(opt_prefix)
+            strikes = _get_option_strikes_for_contract(api, opt_prefix)
             if strikes:
                 print(f"[iv_smile] S={S:.0f} ATM={atm_strike} 全档订阅{opt_prefix} 行权价数:{len(strikes)} 档位:{strikes[0]}~{strikes[-1]}")
             else:
