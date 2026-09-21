@@ -3070,7 +3070,11 @@ async function openIntradayIvModal(strike, side) {
   const fbTag = usingFallback
     ? ` <span style="color:#ffaa33;">⚠ 休盘·最近交易日 ${data.date}</span>`
     : '';
-  metaEl.innerHTML = `· ${data.date} · ${data.count} 个数据点${fbTag}`;
+  // v2.11.113+: 显示空闲槽过滤数(透明化"过滤"行为, 用户知道发生了什么)
+  const idleTag = (data.idle_filtered && data.idle_filtered > 0)
+    ? ` <span style="color:#888;font-size:10px;">(${data.idle_filtered} 空闲槽已过滤)</span>`
+    : '';
+  metaEl.innerHTML = `· ${data.date} · ${data.count} 个数据点${idleTag}${fbTag}`;
   document.getElementById('intradayIvInterval').textContent =
     `${data.interval_minutes} 分钟`;
 
@@ -3197,6 +3201,6 @@ document.getElementById('intradayIvModal').addEventListener('click', (e) => {
 });
 
 </script>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.112b (T表全档strike数据源切天勤 — _get_option_strikes_for_contract主路径用api.query_options("CZCE.TA611", expired=False)拿32档(4750-7600,含7300-7600);akshare兜底标DEPRECATED(曾漏7300-7600);scheduler盘后force=True让smile_raw从28→32档)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.113 (T表弹窗过滤连续一字平线slot — 休盘时段X轴不再被36+个IV无变化的'假'点淹没;保留每段最后锚点+所有变化点;API新增filter_idle开关(默认开))</div>
 </body>
 </html>

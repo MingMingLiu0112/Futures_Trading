@@ -5152,6 +5152,34 @@ def register_routes(app):
                     'open_oi': open_oi,            # 开盘基准 OI(整个序列同一基准)
                 })
 
+            # v2.11.113+: 过滤连续一字平线 slot (休盘时段 IV 无变化, 保留每段最后一个锚点 + 所有变化点)
+            # 解决: 早盘刚开盘 / 周末 / 夜盘间隔 时弹窗 X 轴被 36+ 个一字平点淹没, 真实变化(2-3 个点)被压扁
+            # 设计: 保留每段最后锚点(段尾 IV==段头 IV 的最后 slot), 配合"最近的有变化状态"语义
+            filter_idle = request.args.get('filter_idle', '1') == '1'  # 默认开启, ?filter_idle=0 可关
+            idle_filtered = 0  # 被过滤掉的 slot 数(净减少, 让前端 UI 显示直观)
+            if filter_idle and len(points) > 1:
+                original_count = len(points)
+                kept = [points[0]]  # 段头保留
+                prev_iv = points[0]['iv']
+                for i, p in enumerate(points[1:], 1):
+                    if p['iv'] != prev_iv:
+                        # 找段尾锚点: 从 i-1 往前第一个 iv == prev_iv 的点
+                        anchor = None
+                        for j in range(i-1, 0, -1):
+                            if points[j]['iv'] == prev_iv and points[j] not in kept:
+                                anchor = points[j]
+                                break
+                        if anchor:
+                            kept.append(anchor)
+                        kept.append(p)  # 新变化点入列
+                        prev_iv = p['iv']
+                # 强制保留最后一点(无论 iv 是否变)
+                if points[-1] not in kept:
+                    kept.append(points[-1])
+                kept.sort(key=lambda x: x['time'])
+                points = kept
+                idle_filtered = original_count - len(points)
+
             return jsonify({
                 'success': True,
                 'date': date_str,
@@ -5159,6 +5187,7 @@ def register_routes(app):
                 'side': side,
                 'points': points,
                 'count': len(points),
+                'idle_filtered': idle_filtered,  # v2.11.113+: 被过滤的连续一字平线 slot 数
                 'interval_minutes': 15,  # 当前快照采样间隔 (诚实标注)
                 'has_oi_data': open_oi is not None,  # 是否拿到了 OI 基准(v2.11.107+)
             })
