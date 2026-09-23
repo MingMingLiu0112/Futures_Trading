@@ -3855,6 +3855,22 @@ def _daily_metrics_cache_key():
     return '|'.join(parts)
 
 
+def _dm_is_trading_day(dstr):
+    """日期字符串(YYYYMMDD)是否为交易日 = 周一~周五 且 非法定节假日。
+
+    注意: 不能复用 _is_trading_day() —— 它对周六 00:00 会因"周五夜盘延续"判定为
+    交易日; 日频曲线的 X 轴要的是"自然交易日", 周六/周日/节假日一律剔除。
+    年份不在 _CN_HOLIDAYS 表内时, _is_cn_holiday 保守返回 False(只靠周末过滤)。
+    """
+    try:
+        d = datetime.strptime(str(dstr), '%Y%m%d')
+    except Exception:
+        return False
+    if d.weekday() >= 5:
+        return False
+    return not _is_cn_holiday(d)
+
+
 def _build_daily_metrics_series():
     """扫描 reports + snapshots → 日频 union 序列(返回 dict; 失败返 None)"""
     import glob as _glob
@@ -3944,6 +3960,14 @@ def _build_daily_metrics_series():
     if not dates:
         return None
 
+    # ---------- C) 只保留交易日 ----------
+    # 周末/法定节假日没有行情: 混在 X 轴上只会制造"视觉断点"(如周六报告缺成交PCR),
+    # 或让曲线上出现非交易日的值。原始数据一律不动, 仅从曲线轴上剔除。
+    non_trading = [d for d in dates if not _dm_is_trading_day(d)]
+    dates = [d for d in dates if _dm_is_trading_day(d)]
+    if not dates:
+        return None
+
     out = {
         'pcr_oi': [], 'pcr_vol': [], 'skew': [], 'net_gex': [], 'gex_dir': [],
         'max_pain': [], 'slope_down': [], 'slope_up': [],
@@ -3987,8 +4011,10 @@ def _build_daily_metrics_series():
             'report_days': len(rep),
             'snapshot_days': len(snap),
             'dup_dropped': dup,
+            'non_trading_dropped': non_trading,
             'slope_engine': 'judge_state.compute_pain_slope' if js_mod is not None else 'unavailable',
-            'note': 'reports 主脊 + iv_snapshots 补齐; 重复内容报告已剔除; 缺失值留空不插值',
+            'note': 'reports 主脊 + iv_snapshots 补齐; 重复内容报告已剔除; '
+                    'X 轴仅交易日(已剔除周末/法定节假日); 缺失值留空不插值',
         },
     }
 

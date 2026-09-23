@@ -574,7 +574,7 @@
     <div id="dailyMetricChart" style="width:100%; height:420px;"></div>
     <div id="dailyMetricEmpty" style="display:none; height:420px; align-items:center; justify-content:center; color:#888; font-size:12px;"></div>
     <div style="margin-top:10px; font-size:11px; color:#888;">
-      数据源: <code>daily_close_report_&lt;date&gt;.json</code>（主）+ <code>iv_snapshots_&lt;date&gt;.json</code>（补齐） · 口径: 每日收盘槽 · 缺失日期断点不插值 · 鼠标悬浮看明细
+      数据源: <code>daily_close_report_&lt;date&gt;.json</code>（主）+ <code>iv_snapshots_&lt;date&gt;.json</code>（补齐） · X 轴仅交易日（已剔除周末/法定节假日） · 口径: 每日收盘槽 · <b>折线断点＝该交易日确无数据，不插值</b> · 鼠标悬浮看明细
     </div>
   </div>
 </div>
@@ -3479,7 +3479,7 @@ async function openDailyMetricModal(key) {
     const data = await _fetchDailyMetrics(false);
     if (_dailyMetricCur !== key || _dailyMetricChartInst !== inst) return;
     const meta = data.meta || {};
-    if (mEl) mEl.textContent = (data.start || '') + ' → ' + (data.end || '') + ' · ' + (data.count || 0) + ' 个日期（报告 ' + (meta.report_days || 0) + ' / 快照 ' + (meta.snapshot_days || 0) + '）';
+    if (mEl) mEl.textContent = (data.start || '') + ' → ' + (data.end || '') + ' · ' + (data.count || 0) + ' 个交易日（报告 ' + (meta.report_days || 0) + ' / 快照 ' + (meta.snapshot_days || 0) + '） · 已剔除非交易日 ' + ((meta.non_trading_dropped || []).length) + ' 天';
     if (!data.dates || !data.dates.length) {
       _disposeDailyMetricChart();
       _dailyMetricEmpty('暂无历史记录');
@@ -3519,6 +3519,6 @@ document.getElementById('dailyMetricModal').addEventListener('click', function (
 });
 
 </script>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.116 (指标卡日频走势弹窗: 持仓PCR / 成交PCR / 净GEX方向 / 偏度Skew / Pain斜率 5 张指标卡可点击, 弹出自框架最早记录(2026-06-04)起的日频折线; 新增后端 /api/iv_smile/daily_metrics 路由 — reports 主脊 + iv_snapshots 补齐, 剔除重复内容报告, 缺失日期断点不插值; Pain 斜率弹窗为双轴图: 左右两侧燃料值(元/档) + 不对称比 大/小; 上一版 v2.11.115 快讯源修源保留)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.117 (指标卡日频走势弹窗: X 轴改为"仅交易日" — 剔除周末 + 法定节假日(2026 端午 6/19 等), 消除非交易日造成的视觉断点: 成交PCR 断线段数 12→4; 后端新增 `_dm_is_trading_day()`(周一~五 且 非节假日, 不复用 _is_trading_day() 因后者把周六凌晨当周五夜盘), meta 新增 non_trading_dropped; 原始数据一律不动, 仅从曲线轴剔除, 缺失值仍留空不插值; 上一版 v2.11.116 五张指标卡日频弹窗保留)</div>
 </body>
 </html>
