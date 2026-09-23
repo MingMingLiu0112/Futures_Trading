@@ -1068,6 +1068,21 @@ def _strategy_report_periodic_scheduler(interval_minutes: int = 15):
             # v2.11.48+: 21:00-23:00 夜盘时段切回 intraday 模式,确保 save_intraday_snapshot 被调用、夜盘槽位能归档,
             # 否则 build_daily_comparison 永远拿不到夜盘数据, intraday_slots 只有日盘 12 份。
             # 00:00-08:59 跳过(无交易,生成也无意义)。
+            # ---- v2.11.105 A方案(b): 交易日 08:30 自动抓取宏观基本面 ----
+            # 注意: 08:30 属于 hour<9, 会被下面 "非交易时段 continue" 吞掉 → 必须在这里显式触发,
+            # 否则 A方案的"自动抓取"永远不会跑。用 globals() 做当日去重, 避免同一分钟边界空转重复抓取。
+            # 2026-09-23 用户拍板: 仅交易日执行(周末不跑), 取消人工文本宽限期 → 生效日(=max(数据日,提交日))谁新用谁(注明来源)。
+            # 同日冲突(用户当日贴昨日数据)时人工文本胜出, 见 generate_daily_report._auto_macro_is_newer。
+            if now_run.weekday() < 5 and now_run.hour == 8 and now_run.minute >= 30:
+                _am_today = now_run.strftime('%Y-%m-%d')
+                if globals().get('_auto_macro_last_run_date') != _am_today:
+                    globals()['_auto_macro_last_run_date'] = _am_today
+                    try:
+                        from scripts.generate_daily_report import refresh_auto_macro_input
+                        _am_res = refresh_auto_macro_input()
+                        print(f"[auto-macro] 交易日 08:30 自动抓取: {'已写入 auto_macro_input.json (面板按最新日期取用, 标「自动抓取·待人工核对」)' if _am_res else '无有效数据/写入失败 → 保留原数据'}")
+                    except Exception as _am_e:
+                        print(f"[auto-macro] 交易日 08:30 自动抓取异常(已忽略, 不影响主流程): {_am_e}")
             if now_run.hour < 9:
                 print(f"[strategy-report] 非交易时段 {now_run.strftime('%H:%M:%S')} 跳过")
                 # 整 15 分边界的前 30 秒会被视为“立即触发”。这里如果直接 continue，

@@ -2245,6 +2245,29 @@ function renderInterpretation(text) {
   if (!text) return '';
   return `<div style="margin:-4px 0 10px 0;color:#cfcfcf;font-size:11px;line-height:1.65;background:#101018;border-left:2px solid #444;padding:6px 8px;border-radius:3px;">${cell(text)}</div>`;
 }
+// v2.11.105: 机构观点渲染 (数据源 manual_macro_input.institutions, 后端早就有但前端未消费)
+function instDirectionColor(view) {
+  const v = String(view || '');
+  if (/偏空|看空|空头/.test(v)) return /谨慎|观望/.test(v) ? '#ffa94d' : '#ef5350';
+  if (/偏多|看多|多头/.test(v)) return /谨慎|观望/.test(v) ? '#8ce99a' : '#26a69a';
+  if (/震荡|中性|观望/.test(v)) return '#b0b0b0';
+  return '#d0d0d0';
+}
+function renderInstitutionViews(list) {
+  const items = (Array.isArray(list) ? list : []).filter(x => x && x.name);
+  if (!items.length) return '';
+  const rows = items.slice(0, 5).map(it => `<tr>
+    <td style="color:#eee;padding:5px 6px;border-bottom:1px solid #242430;white-space:nowrap;vertical-align:top;">${cell(it.name)}</td>
+    <td style="color:${instDirectionColor(it.view)};padding:5px 6px;border-bottom:1px solid #242430;white-space:nowrap;font-weight:bold;vertical-align:top;">${cell(it.view || '--')}</td>
+    <td style="color:#ccc;padding:5px 6px;border-bottom:1px solid #242430;vertical-align:top;">${cell(it.logic || '')}</td>
+  </tr>`).join('');
+  return `<div style="margin:8px 0 10px 0;">
+    <div style="color:#ffd700;font-size:11px;font-weight:bold;margin-bottom:4px;">机构观点</div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;line-height:1.5;background:#12121b;border:1px solid #2a2a36;">
+      <thead><tr><th style="color:#aaa;text-align:left;padding:5px 6px;border-bottom:1px solid #333;font-weight:500;width:72px;">机构</th><th style="color:#aaa;text-align:left;padding:5px 6px;border-bottom:1px solid #333;font-weight:500;width:66px;">方向</th><th style="color:#aaa;text-align:left;padding:5px 6px;border-bottom:1px solid #333;font-weight:500;">核心观点</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
 // v2.11.68 A 方案: 5.5 性质判定×合成信号 整块删除,内容合并到段 4 L3 展开区
 
 // ============================================================
@@ -2876,6 +2899,9 @@ async function loadDailyReport(endpoint) {
         intraday.macro_news_items = ia.macro_news_items;
         intraday.key_levels = ia.key_levels;
         intraday.narrative_notes = ia.narrative_notes;
+        // v2.11.105: 机构观点 (后端 JSON 早有, 此前前端未消费)
+        const _mmi = srData.data.manual_macro_input || {};
+        intraday.manual_institutions = _mmi.institutions || (_mmi.input && _mmi.input.institutions) || [];
         intraday.previous_day_comparison = (srData.data.intraday_analysis || {}).previous_day_comparison
           || (srData.data.market_brief || {}).previous_day_comparison;
         // session + timestamp
@@ -2911,6 +2937,8 @@ async function loadDailyReport(endpoint) {
     if (news.length) {
       out += `<div style="margin:4px 0;"><div style="color:#ffd700;font-size:11px;font-weight:bold;margin-bottom:4px;">宏观财经快讯</div><ul style="margin:0;padding-left:18px;color:#d0d0d0;font-size:11px;line-height:1.65;">${news.map(x => `<li>${cell(x)}</li>`).join('')}</ul></div>`;
     }
+    // v2.11.105: 机构观点 (紧跟快讯之后)
+    out += renderInstitutionViews(intraday.manual_institutions);
     const keyLevels = Array.isArray(intraday.key_levels) ? intraday.key_levels : [];
     if (keyLevels.length) {
       out += `<div style="margin:6px 0 4px 0;color:#ffd700;font-size:11px;font-weight:bold;">关键价位</div><ul style="margin:0;padding-left:18px;color:#d0d0d0;font-size:11px;line-height:1.6;">${keyLevels.map(x => `<li>${cell(x)}</li>`).join('')}</ul>`;
@@ -3201,6 +3229,6 @@ document.getElementById('intradayIvModal').addEventListener('click', (e) => {
 });
 
 </script>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.113 (T表弹窗过滤连续一字平线slot — 休盘时段X轴不再被36+个IV无变化的'假'点淹没;保留每段最后锚点+所有变化点;API新增filter_idle开关(默认开))</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.114 (研报面板新增"机构观点"表(机构/方向/核心观点, 方向按偏空红-谨慎偏空橙-震荡灰-偏多绿着色, 取前5条);数据源 manual_macro_input.institutions — 此前仅存 JSON 前端未渲染;macro_table/institutions 口径不变)</div>
 </body>
 </html>

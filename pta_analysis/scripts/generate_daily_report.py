@@ -29,6 +29,14 @@ OUTPUT_PATH = os.path.join(WORKSPACE, 'data', 'fundamental', 'daily_report.json'
 INTRADAY_REPORT_DIR = os.path.join(WORKSPACE, 'data', 'reports', 'intraday')
 CLOSE_REPORT_DIR = os.path.join(WORKSPACE, 'data', 'reports')
 MANUAL_MACRO_INPUT_PATH = os.path.join(WORKSPACE, 'data', 'fundamental', 'manual_macro_input.json')
+# A方案(2026-09-23 用户拍板): 人工文本优先 + 08:30 自动抓取兜底。
+# auto_macro_input.json 由 generate_daily_report.refresh_auto_macro_input() 每日 08:30 自动写入,
+# 与 manual_macro_input.json 完全分离 —— 自动抓取**永不覆盖**用户贴入的原文。
+AUTO_MACRO_INPUT_PATH = os.path.join(WORKSPACE, 'data', 'fundamental', 'auto_macro_input.json')
+AUTO_MACRO_SOURCE_TAG = '自动抓取·待人工核对'
+# 交易日 08:30 自动抓取是否接管人工文本（2026-09-23 用户拍板：取消宽限期）
+AUTO_MACRO_OVERRIDE_STALE_MANUAL = True
+
 PX_EXTERNAL_SCRAPE_PATH = os.path.join(WORKSPACE, 'data', 'fundamental', 'px_external_scrape.json')
 USD_CNY = 7.2
 
@@ -85,18 +93,377 @@ def _clean_news_text(text: str, max_len: int = 240) -> str:
     return text.strip(' ，,;；')
 
 
-def load_manual_macro_input() -> Dict:
-    """读取用户盘前/休盘后喂入的宏观基本面材料；自动抓取只作为补充。"""
-    if not os.path.exists(MANUAL_MACRO_INPUT_PATH):
+def _read_json_dict(path: str) -> Dict:
+    """安全读取 JSON 对象文件；不存在/损坏返回 {}。"""
+    if not path or not os.path.exists(path):
         return {}
     try:
-        with open(MANUAL_MACRO_INPUT_PATH, 'r', encoding='utf-8') as f:
+        with open(path, 'r', encoding='utf-8') as f:
             data = json.load(f)
-        if isinstance(data, dict):
-            return data
+        return data if isinstance(data, dict) else {}
     except Exception as e:
-        print(f'手工宏观基本面读取失败: {e}')
+        print(f'宏观基本面文件读取失败 {os.path.basename(path)}: {e}')
     return {}
+
+
+def _macro_freshness_key(data: Dict) -> tuple:
+    """宏观基本面输入的"新鲜度"排序键: (as_of_date, updated_at/generated_at)。无日期视为最旧。"""
+    data = data or {}
+    as_of = str(data.get('as_of_date') or data.get('date') or '').strip()[:10]
+    stamp = str(data.get('updated_at') or data.get('generated_at') or '').strip()
+    return (as_of, stamp)
+
+
+def _tag_auto_source(data: Dict) -> Dict:
+    """给自动抓取数据打「自动抓取·待人工核对」标签(前端 source 处可见)。"""
+    if not isinstance(data, dict):
+        return data
+    tag = str(data.get('source') or '')
+    if AUTO_MACRO_SOURCE_TAG not in tag:
+        data['source'] = f'{AUTO_MACRO_SOURCE_TAG}({data.get("generated_at") or datetime.now().strftime("%Y-%m-%d %H:%M")})'
+    snap = data.get('chain_operation_snapshot')
+    if isinstance(snap, dict) and AUTO_MACRO_SOURCE_TAG not in str(snap.get('source') or ''):
+        snap['source'] = AUTO_MACRO_SOURCE_TAG
+    ovr = data.get('spot_main_overrides')
+    if isinstance(ovr, dict) and ovr.get('spot_price') is not None \
+            and AUTO_MACRO_SOURCE_TAG not in str(ovr.get('spot_source') or ''):
+        ovr['spot_source'] = f'{AUTO_MACRO_SOURCE_TAG}:{ovr.get("spot_source") or "系统自动抓取"}'
+    return data
+
+
+def _auto_macro_has_content(auto: Dict) -> bool:
+    """自动抓取"有料"判定：宁可显示人工文本，也不用空的自动快照把面板刷白。"""
+    if not isinstance(auto, dict) or not auto:
+        return False
+    for key in ('events', 'crude', 'px', 'pta', 'inventory', 'polyester',
+                'downstream', 'macro', 'macro_geo', 'institutions', 'key_variables'):
+        val = auto.get(key)
+        if isinstance(val, list) and val:
+            return True
+    px_ext = auto.get('px_external') or {}
+    try:
+        if isinstance(px_ext, dict) and float(px_ext.get('px_asia_close_usd') or 0) > 0:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _auto_macro_is_newer(manual: Dict, auto: Dict) -> bool:
+    """自动抓取是否"比人工文本更新" —— 交易日 08:30 自动抓取接管的前置条件。
+
+    规则（2026-09-23 用户拍板，**取消 1 天宽限期**："用户当天贴的原文永远优先"）：
+    - 生效日 = max(as_of_date 数据日, updated_at 提交日)。用户上午贴的常是**昨日**收盘
+      汇总，若只比数据日，会被同日 08:30 的自动抓取顶掉 —— 故用提交日兜住手工输入；
+    - 自动抓取生效日**严格更新**才接管人工文本；同日 / 更旧 → 一律保留人工文本；
+    - 接管后由 _tag_auto_source() 打「自动抓取·待人工核对」标签注明来源。
+    """
+    def _eff_day(data: Dict):
+        days = []
+        for val in (data.get('as_of_date'), data.get('date'),
+                    data.get('updated_at'), data.get('generated_at')):
+            try:
+                day = pd.to_datetime(str(val)).date() if val else None
+            except Exception:
+                day = None
+            if day is not None:
+                days.append(day)
+        return max(days) if days else None
+
+    auto_day = _eff_day(auto or {})
+    manual_day = _eff_day(manual or {})
+    if auto_day is None:
+        return False
+    if manual_day is None:
+        return True
+    return auto_day > manual_day
+
+
+# 自动抓取"结构性拿不到"的字段（隆众/卓创/CCF 需订阅）——自动接管时用人工文本补齐并逐项注明来源，
+# 既保证"最新者胜"，又不把用户已核对的数据挤掉；自动抓到值的字段一律不动。
+AUTO_MACRO_GAPFILL_KEYS = (
+    'chain_operation_snapshot', 'institutions', 'key_variables',
+    'inventory', 'polyester', 'downstream', 'spot_main_overrides',
+)
+
+
+def _is_blank(val) -> bool:
+    """空值判定：None / 空串 / 空列表 / 空 dict 均视为空。"""
+    if val is None:
+        return True
+    if isinstance(val, str):
+        return not val.strip()
+    if isinstance(val, (list, tuple, dict, set)):
+        return len(val) == 0
+    return False
+
+
+def _chain_snapshot_has_data(snap) -> bool:
+    """产业链快照是否带真实开工率/库存（自动抓取只有 None 空壳 item）。"""
+    if not isinstance(snap, dict):
+        return False
+    for it in (snap.get('items') or []):
+        if isinstance(it, dict) and (it.get('operating_rate') is not None or it.get('inventory') is not None):
+            return True
+    return False
+
+
+def _fill_gaps_from_manual(auto: Dict, manual: Dict) -> Dict:
+    """自动抓取接管人工文本时，把它结构性拿不到的字段回退到人工文本（逐项注明来源）。
+
+    - 只补空字段，**绝不覆盖自动抓到的值**；也不修改磁盘上任何文件（仅影响本次渲染）；
+    - 补齐项在 auto['auto_macro_gapfill'] 留痕（哪些字段来自人工、来源日期）；
+    - 目的：自动抓取无 产业链开工率/库存/机构观点/PX外盘/现货覆盖 数据源，
+      若不回退，面板这些格子会空白并丢掉用户已核对的数据。
+    """
+    if not isinstance(auto, dict) or not isinstance(manual, dict):
+        return auto
+    man_day = str(manual.get('as_of_date') or '').strip()
+    fill_tag = f'人工文本({man_day})' if man_day else '人工文本'
+    filled = []
+
+    for key in AUTO_MACRO_GAPFILL_KEYS:
+        man_val = manual.get(key)
+        if _is_blank(man_val):
+            continue
+        auto_val = auto.get(key)
+        if key == 'chain_operation_snapshot':
+            if isinstance(man_val, dict) and not _chain_snapshot_has_data(auto_val):
+                snap = dict(man_val)
+                snap['source'] = f'{AUTO_MACRO_SOURCE_TAG} + {fill_tag}补充(自动路径无此数据源)'
+                auto['chain_operation_snapshot'] = snap
+                filled.append(key)
+        elif key == 'spot_main_overrides':
+            if isinstance(man_val, dict) and isinstance(auto_val, dict) \
+                    and auto_val.get('spot_price') is None and man_val.get('spot_price') is not None:
+                ovr = dict(auto_val)
+                ovr['spot_price'] = man_val.get('spot_price')
+                ovr['as_of_date'] = man_val.get('as_of_date') or ovr.get('as_of_date')
+                ovr['spot_source'] = f'{fill_tag}:{man_val.get("spot_source") or "人工录入"}'
+                auto['spot_main_overrides'] = ovr
+                filled.append(key)
+        elif _is_blank(auto_val):
+            auto[key] = man_val
+            filled.append(key)
+
+    # PX 外盘：自动路径无有效抓取值时回退人工（该字段有独立两路合并 + 独立 source 列）
+    px_auto = auto.get('px_external') or {}
+    px_man = manual.get('px_external') or {}
+
+    def _px_of(d):
+        try:
+            return float((d or {}).get('px_asia_close_usd') or 0)
+        except Exception:
+            return 0.0
+
+    if _px_of(px_auto) <= 0 and _px_of(px_man) > 0:
+        merged_px = dict(px_man)
+        merged_px['note'] = f'{fill_tag}生效(自动抓取无有效值)'
+        auto['px_external'] = merged_px
+        filled.append('px_external')
+
+    if filled:
+        auto['auto_macro_gapfill'] = {
+            'from': fill_tag,
+            'fields': filled,
+            'note': '自动抓取结构性无此数据源 → 该字段沿用人工文本，逐项 source 已注明',
+        }
+    return auto
+
+
+def load_macro_input() -> Dict:
+    """A方案：人工文本 + 交易日 08:30 自动抓取（谁新用谁，注明来源）。
+
+    - manual_macro_input.json : 用户贴入的宏观基本面原文(只由 POST /api/strategy_report/manual_macro 写入)
+    - auto_macro_input.json   : 交易日 08:30 自动抓取(由 refresh_auto_macro_input() 写入)
+
+    优先级（2026-09-23 用户拍板，取消宽限期）：生效日(= max(数据日, 提交日))严格更新者胜；
+    自动抓取接管时打「自动抓取·待人工核对」标签注明来源，同日/更旧则保留人工文本（用户原文优先）。
+    自动接管后，自动路径**结构性拿不到**的字段（产业链开工率/库存、机构观点、PX 外盘、
+    现货覆盖）由 _fill_gaps_from_manual() 回退人工文本并逐项注明来源，避免面板空白。
+    自动抓取**永不改写** manual_macro_input.json，用户原文始终在磁盘上可追溯。
+    """
+    manual = _read_json_dict(MANUAL_MACRO_INPUT_PATH)
+    auto = _read_json_dict(AUTO_MACRO_INPUT_PATH)
+    if manual and auto and AUTO_MACRO_OVERRIDE_STALE_MANUAL and _auto_macro_has_content(auto):
+        if _auto_macro_is_newer(manual, auto):
+            auto = _tag_auto_source(auto)
+            auto['superseded_manual'] = {
+                'as_of_date': manual.get('as_of_date'),
+                'source': manual.get('source'),
+                'updated_at': manual.get('updated_at'),
+                # 2026-09-23: 用户原文在此留档 —— 自动接管≠静默丢弃，快讯区仍以「留档」形式展示可追溯
+                'summary': manual.get('summary'),
+                'text': manual.get('text'),
+                'core_takeaway': manual.get('core_takeaway'),
+            }
+            # 自动抓取结构性拿不到的字段回退人工文本（逐项注明来源，避免面板空白/丢用户数据）
+            auto = _fill_gaps_from_manual(auto, manual)
+            return auto
+    if manual:
+        return manual
+    if auto:
+        return _tag_auto_source(auto)
+    return {}
+
+
+def load_manual_macro_input() -> Dict:
+    """兼容旧调用点/测试：返回当前生效的宏观基本面输入(人工优先，自动兜底)。"""
+    return load_macro_input()
+
+
+AUTO_MACRO_CHAIN_NOTE = '自动抓取无产业链开工率/库存数据源(隆众/卓创/CCF 需订阅)→ 待人工核对'
+
+
+def refresh_auto_macro_input(force: bool = False) -> Optional[Dict]:
+    """A方案(a)：08:30 自动抓取兜底 → 写 auto_macro_input.json（与 manual 同 schema）。
+
+    原则：
+    - 只写系统**真能自动拿到**的字段（宏观/地缘/产业快讯、PX 外盘抓取价、汇率）；
+    - 拿不到的（产业链开工率、库存、机构观点、正文摘要）留空 + 标注，
+      **绝不臆测、绝不编造**，面板上靠「自动抓取·待人工核对」标签提示人工补录；
+    - 任何异常都不抛出（返回 None，不覆盖已有文件），避免拖垮 15 分钟滚动研报线程；
+    - 自动抓取**永不改写** manual_macro_input.json。
+    """
+    started = datetime.now()
+    news, px_scrape, usd_cny = {}, {}, None
+    try:
+        news = get_macro_news() or {}
+    except Exception as e:
+        print(f'[auto_macro] 宏观快讯抓取失败(降级为空): {e}')
+    if not isinstance(news, dict):
+        news = {}
+    try:
+        px_scrape = _load_px_scrape() or {}
+    except Exception as e:
+        print(f'[auto_macro] PX 外盘抓取缓存读取失败: {e}')
+    if not isinstance(px_scrape, dict):
+        px_scrape = {}
+    try:
+        usd_cny = (get_usd_cny_rate() or {}).get('rate')
+    except Exception as e:
+        print(f'[auto_macro] 汇率获取失败: {e}')
+
+    def _lst(key, limit=4):
+        vals = news.get(key) or []
+        if isinstance(vals, str):
+            vals = [vals]
+        out = []
+        for x in vals:
+            t = str(x).strip()
+            if t and t not in out:
+                out.append(t)
+            if len(out) >= limit:
+                break
+        return out
+
+    geo, fed, industry, macro_items = _lst('geo', 3), _lst('fed', 3), _lst('industry', 4), _lst('macro', 3)
+    events = (geo + industry + macro_items + fed)[:6]
+
+    # PX 外盘：抓取价必须仍在 7 天新鲜度窗口内，否则视为无效（不写价，只留说明）
+    px_price, px_date, px_note = None, str(px_scrape.get('date') or '').strip(), ''
+    try:
+        _p = float(px_scrape.get('px_asia_close_usd') or 0)
+    except Exception:
+        _p = 0.0
+    if _p >= 500 and _is_recent_date(px_date, max_age_days=7):
+        px_price = _p
+        px_note = f'自动抓取({px_scrape.get("source") or "scraper"})，价格级别 {px_date}'
+    else:
+        px_note = ('自动抓取暂无有效 PX 外盘价'
+                   + (f'（最后一次成功抓取 {px_date} {_p:.0f} 美元/吨，已超 7 天新鲜度窗口）' if _p else '（外部代理不可用/数据源未命中）')
+                   + '，待人工核对')
+
+    now_str = started.strftime('%Y-%m-%d %H:%M:%S')
+    as_of = started.strftime('%Y-%m-%d')
+    try:
+        _td = get_latest_trading_date()
+        if not isinstance(_td, str):
+            _td = str(getattr(_td, 'strftime', lambda *a: '')('%Y-%m-%d') or '')
+        if len(_td) >= 10:
+            as_of = _td[:10]
+    except Exception:
+        pass
+
+    headlines = '；'.join(events)[:160]
+    core = f'自动抓取({now_str[:16]})：' + (headlines or '未取到当日宏观/产业快讯') + '；产业链开工率与库存需人工核对'
+    summary_bits = ['【自动抓取·待人工核对】本节由系统 08:30 自动抓取，未经人工核对，请以人工基本面文本为准。']
+    if industry:
+        summary_bits.append('产业快讯：' + '；'.join(industry))
+    if geo:
+        summary_bits.append('地缘：' + '；'.join(geo))
+    if macro_items:
+        summary_bits.append('宏观：' + '；'.join(macro_items))
+    if fed:
+        summary_bits.append('货币：' + '；'.join(fed))
+    summary_bits.append(f'PX外盘：{px_note}')
+    if usd_cny:
+        summary_bits.append(f'美元兑人民币中间价 {usd_cny}')
+
+    chain_items = [{
+        'name': name,
+        'operating_rate': None,
+        'operating_rate_unit': '%',
+        'inventory': None,
+        'inventory_unit': '',
+        'inventory_desc': AUTO_MACRO_CHAIN_NOTE,
+    } for name in ('PX', 'PTA', '聚酯', '织造')]
+
+    payload = {
+        'as_of_date': as_of,
+        'session': '系统自动抓取(08:30 兜底)',
+        'source': f'{AUTO_MACRO_SOURCE_TAG}({now_str})',
+        'core_takeaway': core[:200],
+        'strategy_hint': ('人工基本面文本缺失/过期，当前研报的产业链开工率、库存、机构观点为空；'
+                          '成本端(原油/PX/PTA)与四维决策仍由系统实时数据给出。请人工核对后粘贴宏观基本面原文。')[:220],
+        'summary': '\n'.join(summary_bits),
+        'macro_geo': geo,
+        'crude': macro_items,
+        'px': industry,
+        'pta': industry,
+        'inventory': [],
+        'polyester': [],
+        'downstream': [],
+        'macro': macro_items,
+        'institutions': [],
+        'key_variables': [],
+        'events': events,
+        'chain_operation_snapshot': {
+            'as_of_date': as_of,
+            'source': AUTO_MACRO_SOURCE_TAG,
+            'note': AUTO_MACRO_CHAIN_NOTE,
+            'items': chain_items,
+        },
+        'spot_main_overrides': {
+            'as_of_date': as_of,
+            'spot_price': None,
+            'spot_source': f'{AUTO_MACRO_SOURCE_TAG}:自动路径不覆盖 PTA 现货价(沿用系统实时口径)',
+            'near_basis': None,
+            'near_basis_source': '系统自动算 现货-主力(实时)',
+            'near_basis_as_of': as_of,
+        },
+        'px_external': {
+            'as_of_date': px_date or as_of,
+            'px_asia_close_usd': px_price,
+            'px_asia_source': f'{AUTO_MACRO_SOURCE_TAG}:自动抓取' if px_price else f'{AUTO_MACRO_SOURCE_TAG}:无有效抓取值',
+            'source': f'{AUTO_MACRO_SOURCE_TAG}:{px_scrape.get("source") or "scraper"}',
+            'note': px_note,
+        },
+        'updated_at': now_str,
+    }
+    payload = _tag_auto_source(payload)
+    try:
+        _dir = os.path.dirname(AUTO_MACRO_INPUT_PATH)
+        if _dir:
+            os.makedirs(_dir, exist_ok=True)
+        with open(AUTO_MACRO_INPUT_PATH, 'w', encoding='utf-8') as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        print(f'[auto_macro] 自动抓取兜底已写入 {AUTO_MACRO_INPUT_PATH} '
+              f'(快讯 {len(events)} 条, PX外盘 {px_price})')
+    except Exception as e:
+        print(f'[auto_macro] 写盘失败(不改动既有文件): {e}')
+        return None
+    return payload
 
 
 def fetch(url: str, timeout: int = 12) -> str:
@@ -1826,7 +2193,7 @@ def generate_report(report_type: str = 'intraday') -> Dict:
 
     print("[7/7] 获取宏观快讯...")
     macro_news = get_macro_news()
-    manual_macro = load_manual_macro_input()
+    manual_macro = load_macro_input()
     if manual_macro:
         report['manual_macro_input'] = manual_macro
         # 用户盘前/休盘后手工输入优先，自动快讯只作补充。
@@ -1848,7 +2215,7 @@ def generate_report(report_type: str = 'intraday') -> Dict:
     # 计算成本利润
     cost_data = {}
     # ---- 人工 spot_main_overrides（v2.11.37+）：现货价同步到 profit ----
-    _manual_macro_c = load_manual_macro_input()
+    _manual_macro_c = load_macro_input()
     _spot_ovr_c = (_manual_macro_c or {}).get('spot_main_overrides') or {}
     if _spot_ovr_c.get('spot_price') is not None and float(_spot_ovr_c.get('spot_price') or 0) > 0:
         pta = dict(pta or {})
@@ -2314,7 +2681,7 @@ def generate_macro_analysis(crude, px, pta, rates, inventory, macro_news, cost_d
     pta_spot = pta.get('spot_price')
 
     # ---- 人工 spot_main_overrides（v2.11.37+）：仅覆盖 PTA 现货价；主力价/符号/涨跌幅/基差都交给K线 ----
-    _manual_macro_m = load_manual_macro_input()
+    _manual_macro_m = load_macro_input()
     _spot_overrides = (_manual_macro_m or {}).get('spot_main_overrides') or {}
     if _spot_overrides.get('spot_price') is not None and float(_spot_overrides.get('spot_price') or 0) > 0:
         pta_spot = float(_spot_overrides['spot_price'])
@@ -2487,7 +2854,7 @@ def generate_macro_analysis(crude, px, pta, rates, inventory, macro_news, cost_d
     industry_items = list(macro_news.get('industry', [])[:4])
 
     # 人工宏观基本面：把核心矛盾 / 机构观点 / 关键变量 / 事件驱动 补到对应通道
-    manual_macro = load_manual_macro_input()
+    manual_macro = load_macro_input()
     if manual_macro:
         manual_core = _clean_news_text(manual_macro.get('core_takeaway') or manual_macro.get('summary') or '', 280)
         if manual_core:
@@ -3104,7 +3471,9 @@ def _table(headers, rows) -> str:
 
 def _render_auto_news(macro_news_items):
     """渲染宏观快讯区：去重人工摘要 + 清洗每条尾标点，避免与句尾 `。` 拼出 `。。`"""
-    auto_items = [m for m in (macro_news_items or [])[:6] if '【人工宏观基本面】' not in m]
+    # 2026-09-23: 同时排除【人工宏观基本面】(人工优先时) 与【人工宏观基本面·留档…】(自动接管留档) 两条人工文本，
+    # 该行只列"自动快讯"，避免把人工文本混进"自动快讯（去重人工摘要）"里造成口径混乱。
+    auto_items = [m for m in (macro_news_items or [])[:6] if '【人工宏观基本面' not in m]
     if not auto_items:
         return '宏观快讯：暂无独立自动快讯，人工基本面已在上方展示。'
     cleaned = [re.sub(r'[。；\s]+$', '', x)[:90] for x in auto_items]
@@ -3940,9 +4309,26 @@ def generate_intraday_analysis(report: Dict) -> Dict:
 
     macro_news_items = []
     if manual_macro:
+        # 2026-09-23: 当前生效输入的"真实来源"决定标签 —— 自动接管时不能把自动文本标成【人工宏观基本面】
+        _src_txt = str(manual_macro.get('source') or '')
+        _input_is_auto = AUTO_MACRO_SOURCE_TAG in _src_txt
         manual_summary = _clean_news_text(manual_macro.get('summary') or manual_macro.get('text') or manual_macro.get('comment') or '', 360)
         if manual_summary:
-            macro_news_items.append('【人工宏观基本面】' + manual_summary)
+            # 去掉文本自带的来源前缀（自动抓取的 summary 常自带【自动抓取·待人工核对】），避免出现重复方括号标签
+            _clean_sum = re.sub(r'^【[^】]{0,40}】\s*', '', manual_summary).strip()
+            if _input_is_auto:
+                macro_news_items.append(f'【{AUTO_MACRO_SOURCE_TAG}】' + _clean_sum)
+            else:
+                macro_news_items.append('【人工宏观基本面】' + _clean_sum)
+        # 自动接管时，用户贴入的原文以「留档」形式保留在快讯区（可追溯，不被静默丢弃）
+        _sup = manual_macro.get('superseded_manual') if _input_is_auto else None
+        if isinstance(_sup, dict):
+            _sup_text = _clean_news_text(_sup.get('summary') or _sup.get('text') or _sup.get('core_takeaway') or '', 360)
+            if _sup_text:
+                _sup_day = str(_sup.get('as_of_date') or '').strip()
+                macro_news_items.append(
+                    f'【人工宏观基本面·留档{_sup_day}｜已被上方自动抓取更新】' + _sup_text
+                )
         for key in ['crude', 'px', 'pta', 'cost', 'macro', 'events']:
             val = manual_macro.get(key)
             vals = val if isinstance(val, list) else ([val] if isinstance(val, str) else [])
@@ -4052,7 +4438,8 @@ def generate_intraday_analysis(report: Dict) -> Dict:
     support_zone = _fmt_num(max_put) if max_put else '6200'
     gex_flip_text = _fmt_num(gex_flip)
     max_pain_text = _fmt_num(max_pain)
-    macro_core = macro_news_items[0].replace('【人工宏观基本面】', '') if macro_news_items else '基本面日内变化不大，重点看原油/PX事件驱动与期权结构触发。'
+    # 2026-09-23: 去掉任意来源前缀标记【…】(人工宏观基本面 / 自动抓取·待人工核对 / 人工宏观基本面·留档…)
+    macro_core = re.sub(r'^【[^】]{0,40}】', '', macro_news_items[0]).strip() if macro_news_items else '基本面日内变化不大，重点看原油/PX事件驱动与期权结构触发。'
     # 若有更鲜明的核心矛盾（DeepSeek 综合），优先用其生成单句方向
     try:
         _mm = manual_macro or {}
