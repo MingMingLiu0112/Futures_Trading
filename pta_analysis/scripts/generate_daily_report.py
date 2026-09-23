@@ -14,6 +14,7 @@ PTA市场日报生成器 v2.1
 import os, sys, json, re, warnings, requests
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List
+from concurrent.futures import ThreadPoolExecutor
 
 # 添加项目路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -1105,36 +1106,130 @@ def get_industry_rates() -> Dict:
     }
 
 
+# ===== 快讯源相关性过滤 (v2.11.115) =====
+# 修因(2026-09-23 用户报障)：旧 ind_kws 含 '期货'/'石化' 泛词 → SHMET 金属网(1#电解铜/沪镍)
+# 快讯被误判为「PTA 产业快讯」→ auto_macro_input.json 正文变成电解铜，与 PTA 产业链毫无关系。
+# 修法(工作流层，不动算法)：① 产业链词收紧为 PTA 链专属词；② 命中金属/黑色系词汇 >= 链词汇的
+# 条目一律丢弃；③ 增补 东方财富全球财经快讯(200条/次, 覆盖面最大) 作主源；④ 每个 akshare 源
+# 加 8s 硬超时，防单个源 hang 拖死研报线程。
+PTA_CHAIN_KWS = [
+    'PTA', 'PX', '对二甲苯', '石脑油', '聚酯', '涤纶', '长丝', 'POY', 'FDY', 'DTY',
+    '短纤', '瓶片', 'PET', '织造', '加弹', '印染', '乙二醇', 'MEG', '芳烃', '化纤',
+    '涤丝', '原油', '布伦特', 'WTI', 'PX-N', '郑商所', '加工费', '基差', '聚酯负荷',
+]
+OFFTOPIC_KWS = [
+    '铜', '镍', '铝', '锌', '铅', '锡', '不锈钢', '黄金', '白银', '贵金属', '锂', '钴',
+    '稀土', '铁矿石', '螺纹', '热卷', '焦炭', '焦煤', '沪铜', '沪镍', '沪铝', '沪锌',
+]
+
+
+def _chain_hit_count(text: str) -> int:
+    tl = str(text or '').lower()
+    return sum(1 for kw in PTA_CHAIN_KWS if kw.lower() in tl)
+
+
+def _offtopic_hit_count(text: str) -> int:
+    t = str(text or '')
+    return sum(1 for kw in OFFTOPIC_KWS if kw in t)
+
+
+def _news_is_pta_relevant(text: str) -> bool:
+    """产业链快讯判定：至少 1 个 PTA 链关键词，且链词命中数 >= 金属/黑色系词命中数。"""
+    c, m = _chain_hit_count(text), _offtopic_hit_count(text)
+    return c >= 1 and c >= m
+
+
+_NEWS_TIMEOUT_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix='news-timeout')
+
+
+def _ak_news_call(fn, seconds: int = 8):
+    """akshare 快讯接口硬超时（跨线程 future.result 等待；超时/异常返回 None，绝不抛出）。"""
+    try:
+        return _NEWS_TIMEOUT_EXECUTOR.submit(fn).result(timeout=seconds)
+    except Exception as e:
+        print(f'[macro_news] 数据源失败/超时({seconds}s): {type(e).__name__}: {e}')
+        return None
+
+
 def get_macro_news() -> Dict:
-    """获取宏观及产业快讯
-    来源：凤凰财经 + SHMET金属网 + 百度财经
+    """获取宏观及产业快讯（v2.11.115 修源：只留 PTA 产业链相关，金属网铜镍杂讯一律剔除）
+
+    来源优先级：
+      1) 东方财富全球财经快讯 stock_info_global_em（200 条/次，覆盖最全）
+      2) SHMET 金属网 futures_news_shmet（保留源但严格过滤，仅收链内条目）
+      3) 新浪财经全球快讯 stock_info_global_sina
+      4) 同花顺全球快讯 stock_info_global_ths
+      5) 凤凰财经首页标题（兜底）
+    ⚠️ 已剔除 百度财经 news_economic_baidu（1.18.51 起报 Missing BAIDUID cookies，恒失败）。
+    所有 akshare 调用带 8s 硬超时；单源失败/超时仅跳过，不影响其余来源。
     """
     news = {'geo': [], 'fed': [], 'industry': [], 'macro': []}
+    geo_kws = ['中东', '霍尔木兹', '伊朗', '以色列', '俄乌', '红海', '胡塞', '地缘',
+               '制裁', '沙特', '欧佩克', 'OPEC']
+    fed_kws = ['美联储', '降息', '加息', '鲍威尔', '利率', 'CPI', 'PPI', '美元指数']
+    macro_kws = ['宏观', '经济', 'GDP', '通胀', '出口', '进口', '制造业', 'PMI']
 
-    # ---- SHMET金属网快讯 ----
+    def _push(text, max_len: int = 240):
+        """分类入桶：地缘 > 货币 > 产业链(必须链相关) > 宏观；金属/黑色系杂讯直接丢弃。"""
+        t = _clean_news_text(text, max_len)
+        if not t:
+            return
+        if _offtopic_hit_count(t) > _chain_hit_count(t):
+            return
+        _key = re.sub(r'[^0-9A-Za-z\u4e00-\u9fff]', '', t)[:24]
+        if _key in _seen_any:
+            return
+        tl = t.lower()
+        if any(kw.lower() in tl for kw in geo_kws) and len(news['geo']) < 3:
+            news['geo'].append(t)
+        elif any(kw in t for kw in fed_kws) and len(news['fed']) < 3:
+            news['fed'].append(t)
+        elif _news_is_pta_relevant(t):
+            if len(news['industry']) < 4:
+                news['industry'].append(t)
+        elif any(kw in t for kw in macro_kws) and len(news['macro']) < 3:
+            news['macro'].append(t)
+        else:
+            return
+        _seen_any.add(_key)
+
+    _seen_any = set()
+
+    # ---- 1) 东方财富全球财经快讯（主源，200 条/次）----
     try:
-        df_shmet = ak.futures_news_shmet(symbol='全部')
+        df_em = _ak_news_call(lambda: ak.stock_info_global_em(), 8)
+        if df_em is not None and not df_em.empty:
+            for _, row in df_em.head(200).iterrows():
+                _push(f"{row.get('标题', '') or ''} {row.get('摘要', '') or ''}".strip())
+    except Exception as e:
+        print(f"东财全球快讯错误: {e}")
+
+    # ---- 2) SHMET 金属网快讯（保留源，严格过滤）----
+    try:
+        df_shmet = _ak_news_call(lambda: ak.futures_news_shmet(symbol='全部'), 8)
         if df_shmet is not None and not df_shmet.empty:
-            for _, row in df_shmet.head(10).iterrows():
-                content = str(row.get('内容', ''))
-                if not content or len(content) < 10:
-                    continue
-                # 产业快讯：PTA/PX/聚酯/织机/原油/MEG/乙二醇相关
-                ind_kws = ['PTA', 'PX', '聚酯', '涤纶', 'MEG', '乙二醇', '苯乙烯', '原油', '期货', '石化', 'pta']
-                geo_kws = ['中东', '霍尔木兹', '伊朗', '以色列', '俄乌', '红海', '胡塞', '地缘', '制裁']
-                fed_kws = ['美联储', '降息', '加息', '鲍威尔', '利率', 'CPI', 'PPI', '美元']
-                macro_kws = ['宏观', '经济', 'GDP', '通胀', '出口', '进口', '制造业', 'PMI']
-                
-                if any(kw.lower() in content.lower() for kw in geo_kws) and len(news['geo']) < 2:
-                    news['geo'].append(_clean_news_text(content))
-                elif any(kw in content for kw in fed_kws) and len(news['fed']) < 2:
-                    news['fed'].append(_clean_news_text(content))
-                elif any(kw.lower() in content.lower() for kw in ind_kws) and len(news['industry']) < 4:
-                    news['industry'].append(_clean_news_text(content))
-                elif any(kw in content for kw in macro_kws) and len(news['macro']) < 2:
-                    news['macro'].append(_clean_news_text(content))
+            for _, row in df_shmet.head(30).iterrows():
+                _push(str(row.get('内容', '')))
     except Exception as e:
         print(f"SHMET快讯错误: {e}")
+
+    # ---- 3) 新浪财经全球快讯 ----
+    try:
+        df_sina = _ak_news_call(lambda: ak.stock_info_global_sina(), 8)
+        if df_sina is not None and not df_sina.empty:
+            for _, row in df_sina.head(30).iterrows():
+                _push(str(row.get('内容', '')))
+    except Exception as e:
+        print(f"新浪全球快讯错误: {e}")
+
+    # ---- 4) 同花顺全球快讯 ----
+    try:
+        df_ths = _ak_news_call(lambda: ak.stock_info_global_ths(), 8)
+        if df_ths is not None and not df_ths.empty:
+            for _, row in df_ths.head(30).iterrows():
+                _push(f"{row.get('标题', '') or ''} {row.get('内容', '') or ''}".strip())
+    except Exception as e:
+        print(f"同花顺快讯错误: {e}")
 
     # ---- 凤凰财经宏观快讯 ----
     try:
@@ -1144,57 +1239,20 @@ def get_macro_news() -> Dict:
             html_clean = re.sub(r'<style[^>]*>.*?</style>', '', html_clean, flags=re.DOTALL)
             links = re.findall(r'<a[^>]+href="(https?://[^\"]{10,})"[^>]*>(.*?)</a>', html_clean, flags=re.DOTALL)
 
-            geo_kws = ['地缘', '中东', '俄乌', '红海', '以色列', '伊朗', '霍尔木兹', '胡塞', '制裁']
-            fed_kws = ['美联储', '降息', '加息', '鲍威尔', '利率', 'CPI', 'PPI']
-            ind_kws = ['PTA', 'PX', '聚酯', '织机', '原油', '期货', '石化']
-
             seen = set()
             for href, title in links:
                 title_text = re.sub(r'<[^>]+>', '', title).strip()
                 if not title_text or len(title_text) < 5 or title_text in seen:
                     continue
-
-                for kw in geo_kws:
-                    if kw in title_text and len(news['geo']) < 3:
-                        news['geo'].append(title_text[:80])
-                        seen.add(title_text)
-                        break
-                for kw in fed_kws:
-                    if kw in title_text and len(news['fed']) < 3:
-                        news['fed'].append(title_text[:80])
-                        seen.add(title_text)
-                        break
-                for kw in ind_kws:
-                    if kw in title_text and len(news['industry']) < 6:
-                        news['industry'].append(title_text[:80])
-                        seen.add(title_text)
-                        break
+                # v2.11.115: 统一走 _push 分类+相关性过滤（旧版 ind_kws 含'期货/石化'泛词会收进杂讯）
+                before = sum(len(v) for v in news.values())
+                _push(title_text, 80)
+                if sum(len(v) for v in news.values()) > before:
+                    seen.add(title_text)
     except Exception as e:
         print(f"凤凰财经快讯错误: {e}")
 
-    # ---- 百度财经宏观新闻 ----
-    try:
-        df_baidu = ak.news_economic_baidu()
-        if df_baidu is not None and not df_baidu.empty:
-            for _, row in df_baidu.head(15).iterrows():
-                title = str(row.get('标题', ''))
-                if not title or len(title) < 5:
-                    continue
-                geo_kws = ['中东', '伊朗', '以色列', '霍尔木兹', '俄乌', '地缘', '红海', '制裁']
-                macro_kws = ['降息', '加息', '美联储', 'CPI', 'PPI', '经济', 'GDP', '通胀']
-                ind_kws = ['PTA', 'PX', '聚酯', '原油', '石化', '化工']
-                
-                cleaned_title = _clean_news_text(title, 160)
-                if not cleaned_title:
-                    continue
-                if any(kw in title for kw in geo_kws) and len(news['geo']) < 4:
-                    news['geo'].append(cleaned_title)
-                elif any(kw in title for kw in macro_kws) and len(news['macro']) < 3:
-                    news['macro'].append(cleaned_title)
-                elif any(kw in title for kw in ind_kws) and len(news['industry']) < 6:
-                    news['industry'].append(cleaned_title)
-    except Exception as e:
-        print(f"百度财经新闻错误: {e}")
+    # ---- 兜底说明：百度财经已废弃（akshare 1.18.51 起 news_economic_baidu 报 Missing BAIDUID cookies）----
 
     # 统一清洗去重，去掉半截句、标题噪音和空值。
     for key in news:

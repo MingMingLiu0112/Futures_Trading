@@ -3229,6 +3229,6 @@ document.getElementById('intradayIvModal').addEventListener('click', (e) => {
 });
 
 </script>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.114 (研报面板新增"机构观点"表(机构/方向/核心观点, 方向按偏空红-谨慎偏空橙-震荡灰-偏多绿着色, 取前5条);数据源 manual_macro_input.institutions — 此前仅存 JSON 前端未渲染;macro_table/institutions 口径不变)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.115 (宏观快讯源修源: generate_daily_report.get_macro_news 主源由 SHMET 金属网切至东方财富全球快讯, 新增 PTA_CHAIN_KWS/OFFTOPIC_KWS 相关性过滤 + 去重, 铜镍铝等黑色/贵金属杂讯一律剔除, PX 外盘/产业链开工率等自动源不可得字段仍走人工 fallback — 仅后端快讯抓取, 页面口径与 macro_table 结构不变; 上一版 v2.11.114 机构观点表保留)</div>
 </body>
 </html>
