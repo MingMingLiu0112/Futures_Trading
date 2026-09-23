@@ -3757,6 +3757,258 @@ def start_scheduler(interval_minutes=1):
     return t
 
 
+# ===================== v2.11.116: 日频指标序列（指标卡弹窗折线图数据源） =====================
+# 需求: /iv_smile 页 5 个指标卡(持仓PCR / 成交PCR / 净GEX方向 / 偏斜度Skew / Pain斜率)
+#       点击弹窗展示"自框架最早记录起"的日频折线走势。
+# 数据源(实测):
+#   A) data/reports/daily_close_report_YYYYMMDD.json  —— 主脊
+#      gex.summary{pcr,max_pain,net_gex,gex_direction,futures_price} / gex.pain_curve /
+#      iv_curve.svi_params.skew        → 覆盖 20260609 起(56 份, 密集)
+#   B) data/iv_snapshots/iv_snapshots_YYYYMMDD.json   —— 补齐报告缺失日
+#      收盘槽的 strike_oi / strike_vol / svi_params.skew / max_pain / futures_price
+#      → 覆盖 20260604 起(50 份)
+#   实测 union = 20260604 .. 至今(n=62, 已剔除 11 个"内容完全复制前一日"的重复报告)
+# 口径:
+#   - 每日取"收盘槽": 15:00(含 strike_oi)优先 → 否则 <=15:15 最近含 strike_oi+strike_vol 的槽
+#     → 否则 <=15:15 含 strike_oi 的槽; 无槽则跳过该日
+#   - Pain 斜率: 复用 scripts/judge_state.py:compute_pain_slope (与决策层 L3 / 前端 computeSlope
+#     同源, 严禁另写一套算法); 左侧燃料取 abs(slope_down) —— 与前端 downResist=Math.abs(leftSlope) 对齐
+#   - 任何字段缺失一律 None(前端断点), 绝不编造/插值
+_REPORTS_DIR = os.path.join(WORKSPACE, 'data', 'reports')
+_DAILY_METRICS_MIN_DATE = '20260501'
+_DAILY_METRICS_TTL = 600.0          # 秒; 重扫 reports 约 2.4s, 命中缓存直接返回
+_DAILY_METRICS_CACHE = {'key': None, 'ts': 0.0, 'payload': None}
+
+
+def _dm_snum(v):
+    """安全转 float; 失败/NaN/inf 一律 None (不编造数据)"""
+    try:
+        if v is None:
+            return None
+        f = float(v)
+        if f != f or f in (float('inf'), float('-inf')):
+            return None
+        return f
+    except Exception:
+        return None
+
+
+def _dm_pick_close_slot(sn):
+    """挑每日收盘槽(与 /tmp 校验脚本同逻辑, 见文件头口径说明)"""
+    if '15:00' in sn and isinstance(sn.get('15:00'), dict) and sn['15:00'].get('strike_oi'):
+        return '15:00'
+    want = [k for k in sn if isinstance(sn[k], dict) and k <= '15:15']
+    wv = [k for k in want if sn[k].get('strike_oi') and sn[k].get('strike_vol')]
+    if wv:
+        return max(wv)
+    wo = [k for k in want if sn[k].get('strike_oi')]
+    return max(wo) if wo else None
+
+
+def _dm_strike_num(d):
+    """strike 键是字符串 → float; 如 {'4750': {'C':0,'P':56}} → {4750.0: {...}}"""
+    out = {}
+    for k, v in (d or {}).items():
+        try:
+            out[float(k)] = v
+        except Exception:
+            pass
+    return out
+
+
+def _dm_load_judge_state():
+    """加载 scripts/judge_state.py(importlib 模式, 与 scripts/decision_layer_service.py:58 一致)"""
+    try:
+        import importlib.util
+        jp = os.path.join(WORKSPACE, 'scripts', 'judge_state.py')
+        if not os.path.exists(jp):
+            return None
+        spec = importlib.util.spec_from_file_location('judge_state', jp)
+        if spec is None or spec.loader is None:
+            return None
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+
+def _daily_metrics_cache_key():
+    """缓存键 = (报告:文件数:最新mtime | 快照:文件数:最新mtime)"""
+    parts = []
+    for d, prefix in ((_REPORTS_DIR, 'daily_close_report_'), (_SNAPSHOT_DIR, 'iv_snapshots_')):
+        cnt, mx = 0, 0.0
+        try:
+            for f in os.listdir(d):
+                if not (f.startswith(prefix) and f.endswith('.json')) or '.bak' in f:
+                    continue
+                cnt += 1
+                try:
+                    m = os.path.getmtime(os.path.join(d, f))
+                    if m > mx:
+                        mx = m
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        parts.append('%d:%.0f' % (cnt, mx))
+    return '|'.join(parts)
+
+
+def _build_daily_metrics_series():
+    """扫描 reports + snapshots → 日频 union 序列(返回 dict; 失败返 None)"""
+    import glob as _glob
+    js_mod = _dm_load_judge_state()
+    if js_mod is None or not hasattr(js_mod, 'compute_pain_slope'):
+        # 算法同源不可得 → 不编造, 明确报错(斜率序列留空)
+        pass
+
+    # ---------- A) snapshots(补早期 + 补报告缺失日的 pcr_vol/skew) ----------
+    snap = {}
+    for f in sorted(_glob.glob(os.path.join(_SNAPSHOT_DIR, 'iv_snapshots_*.json'))):
+        if '.bak' in os.path.basename(f):
+            continue
+        d = os.path.basename(f).replace('iv_snapshots_', '').replace('.json', '')
+        if not d.isdigit() or d < _DAILY_METRICS_MIN_DATE:
+            continue
+        try:
+            with open(f) as fh:
+                sn = (json.load(fh).get('snapshots') or {})
+        except Exception:
+            continue
+        s = _dm_pick_close_slot(sn)
+        if not s:
+            continue
+        slot = sn[s] or {}
+        oi = _dm_strike_num(slot.get('strike_oi'))
+        vo = _dm_strike_num(slot.get('strike_vol'))
+        oc = sum(_dm_snum(v.get('C')) or 0 for v in oi.values())
+        op = sum(_dm_snum(v.get('P')) or 0 for v in oi.values())
+        vc = sum(_dm_snum(v.get('C')) or 0 for v in vo.values())
+        vp = sum(_dm_snum(v.get('P')) or 0 for v in vo.values())
+        snap[d] = {
+            'slot': s,
+            'pcr_oi': round(op / oc, 4) if oc else None,
+            'pcr_vol': round(vp / vc, 4) if vc else None,
+            'skew': _dm_snum((slot.get('svi_params') or {}).get('skew')),
+            'F': _dm_snum(slot.get('futures_price')),
+            'mp': _dm_snum(slot.get('max_pain')),
+        }
+
+    # ---------- B) reports(主脊) ----------
+    rep, dup = {}, []
+    prev_sig = None
+    for f in sorted(_glob.glob(os.path.join(_REPORTS_DIR, 'daily_close_report_*.json'))):
+        if '.bak' in os.path.basename(f):
+            continue
+        d = os.path.basename(f).replace('daily_close_report_', '').replace('.json', '')
+        if not d.isdigit() or d < _DAILY_METRICS_MIN_DATE:
+            continue
+        try:
+            with open(f) as fh:
+                r = json.load(fh)
+        except Exception:
+            continue
+        gx = ((r.get('gex') or {}).get('summary') or {})
+        svi = ((r.get('iv_curve') or {}).get('svi_params') or {})
+        pc = ((r.get('gex') or {}).get('pain_curve') or [])
+        if not gx or not pc:
+            continue
+        mp = _dm_snum(gx.get('max_pain'))
+        fs = {}
+        if js_mod is not None and hasattr(js_mod, 'compute_pain_slope') and mp:
+            try:
+                fs = js_mod.compute_pain_slope(pc, mp) or {}
+            except Exception:
+                fs = {}
+        # 内容与前一日完全相同(报告重跑/未刷新) → 剔除, 避免折线出现"一字平段"
+        sig = json.dumps([pc, gx.get('gex_direction'), gx.get('pcr'), svi.get('skew')],
+                         sort_keys=True, default=str)
+        is_dup = (sig == prev_sig)
+        prev_sig = sig
+        if is_dup:
+            dup.append(d)
+            continue
+        rep[d] = {
+            'pcr_oi': _dm_snum(gx.get('pcr')),
+            'gex_dir': gx.get('gex_direction'),
+            'net_gex': _dm_snum(gx.get('net_gex')),
+            'skew': _dm_snum(svi.get('skew')),
+            'F': _dm_snum(gx.get('futures_price')),
+            'mp': mp,
+            'slope_down': _dm_snum(fs.get('slope_down')),
+            'slope_up': _dm_snum(fs.get('slope_up')),
+        }
+
+    dates = sorted(set(rep) | set(snap))
+    if not dates:
+        return None
+
+    out = {
+        'pcr_oi': [], 'pcr_vol': [], 'skew': [], 'net_gex': [], 'gex_dir': [],
+        'max_pain': [], 'slope_down': [], 'slope_up': [],
+        'fuel_down': [], 'fuel_up': [], 'slope_ratio': [],
+    }
+    src = []
+    for d in dates:
+        R, S = rep.get(d, {}), snap.get(d, {})
+        po = R.get('pcr_oi') if R.get('pcr_oi') is not None else S.get('pcr_oi')
+        pv = S.get('pcr_vol')          # 成交PCR 仅快照可得(reports 无 vol 分档)
+        sk = R.get('skew') if R.get('skew') is not None else S.get('skew')
+        dn, up = R.get('slope_down'), R.get('slope_up')
+        fd = abs(dn) if dn is not None else None          # 左侧燃料 = |slope_down| (对齐前端 downResist)
+        fu = up if up is not None else None
+        ratio = None
+        if fd is not None and fu is not None and min(fd, fu) > 0:
+            ratio = round(max(fd, fu) / min(fd, fu), 4)
+        out['pcr_oi'].append(po)
+        out['pcr_vol'].append(pv)
+        out['skew'].append(sk)
+        out['net_gex'].append(R.get('net_gex'))
+        out['gex_dir'].append(R.get('gex_dir'))
+        out['max_pain'].append(R.get('mp') if R.get('mp') is not None else S.get('mp'))
+        out['slope_down'].append(dn)
+        out['slope_up'].append(up)
+        out['fuel_down'].append(fd)
+        out['fuel_up'].append(fu)
+        out['slope_ratio'].append(ratio)
+        src.append(('R' if d in rep else '') + ('S' if d in snap else ''))
+
+    return {
+        'success': True,
+        'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'start': dates[0],
+        'end': dates[-1],
+        'count': len(dates),
+        'dates': dates,
+        'series': out,
+        'src': src,
+        'meta': {
+            'report_days': len(rep),
+            'snapshot_days': len(snap),
+            'dup_dropped': dup,
+            'slope_engine': 'judge_state.compute_pain_slope' if js_mod is not None else 'unavailable',
+            'note': 'reports 主脊 + iv_snapshots 补齐; 重复内容报告已剔除; 缺失值留空不插值',
+        },
+    }
+
+
+def _get_daily_metrics(force=False):
+    """带 TTL 缓存的日频序列取数(重扫 reports 约 2.4s)"""
+    c = _DAILY_METRICS_CACHE
+    try:
+        key = _daily_metrics_cache_key()
+    except Exception:
+        key = None
+    now = time.time()
+    if (not force) and c['payload'] is not None and c['key'] == key \
+            and (now - c['ts']) < _DAILY_METRICS_TTL:
+        return c['payload']
+    payload = _build_daily_metrics_series()
+    c['key'], c['ts'], c['payload'] = key, now, payload
+    return payload
+
+
 # ===================== Flask API（可被主服务复用） =====================
 
 def register_routes(app):
@@ -5085,6 +5337,25 @@ def register_routes(app):
                     dates.append(base)
             dates = sorted(set(dates), reverse=True)
             return jsonify({'success': True, 'dates': dates, 'count': len(dates)})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+
+    @app.route('/api/iv_smile/daily_metrics')
+    def iv_api_daily_metrics():
+        """
+        v2.11.116: 日频指标序列 — 指标卡弹窗折线图数据源
+        GET /api/iv_smile/daily_metrics[?force=1]
+        返回自框架最早记录(实测 20260604)起的日频序列:
+          持仓PCR(pcr_oi) / 成交PCR(pcr_vol) / 净GEX(net_gex,gex_dir) /
+          偏斜度Skew(skew) / Pain斜率(slope_down,slope_up,fuel_down,fuel_up,slope_ratio)
+        口径: reports 主脊 + iv_snapshots 补齐; 斜率复用 judge_state(与决策层同源); 缺值留空不插值
+        """
+        try:
+            force = (request.args.get('force') == '1')
+            payload = _get_daily_metrics(force=force)
+            if not payload:
+                return jsonify({'success': False, 'error': '日频序列构建失败(无可用 reports/snapshots)'}), 500
+            return jsonify(payload)
         except Exception as e:
             return jsonify({'success': False, 'error': str(e)}), 500
 

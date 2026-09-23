@@ -387,8 +387,8 @@
     <div class="metric-value" id="mAtmIv" style="color:#ffaa00;">--</div>
     <div class="metric-sub" id="mAtmDiffSub">--</div>
   </div>
-  <div class="metric-box">
-    <div class="metric-name">偏斜度 Skew</div>
+  <div class="metric-box" onclick="openDailyMetricModal('skew')" title="点击查看日频走势（自框架最早记录起）" style="cursor:pointer;">
+    <div class="metric-name">偏斜度 Skew <span style="font-size:9px; color:#666;">📈</span></div>
     <div class="metric-value" id="mSkewParam" style="color:#ff6b9d;">--</div>
     <div class="metric-sub" id="mSkewSub">dσ/dk at ATM</div>
   </div>
@@ -428,18 +428,18 @@
 
 <!-- ===== GEX 指标栏（1行6列）===== -->
 <div class="gex-metric-grid">
-  <div class="metric-box">
-    <div class="metric-name">持仓PCR</div>
+  <div class="metric-box" onclick="openDailyMetricModal('pcr_oi')" title="点击查看日频走势（自框架最早记录起）" style="cursor:pointer;">
+    <div class="metric-name">持仓PCR <span style="font-size:9px; color:#666;">📈</span></div>
     <div class="metric-value" id="mPcr" style="color:#ff6b9d;">--</div>
     <div class="metric-sub" id="mPcrSub">Put/Call持仓比</div>
   </div>
-  <div class="metric-box">
-    <div class="metric-name">成交PCR</div>
+  <div class="metric-box" onclick="openDailyMetricModal('pcr_vol')" title="点击查看日频走势（自框架最早记录起）" style="cursor:pointer;">
+    <div class="metric-name">成交PCR <span style="font-size:9px; color:#666;">📈</span></div>
     <div class="metric-value" id="mVolPcr" style="color:#ffaa00;">--</div>
     <div class="metric-sub" id="mVolPcrSub">Put成交 / Call成交</div>
   </div>
-  <div class="metric-box">
-    <div class="metric-name">净 GEX 方向</div>
+  <div class="metric-box" onclick="openDailyMetricModal('net_gex')" title="点击查看日频走势（自框架最早记录起）" style="cursor:pointer;">
+    <div class="metric-name">净 GEX 方向 <span style="font-size:9px; color:#666;">📈</span></div>
     <div class="metric-value" id="mGexDir" style="color:#00ff88;">--</div>
     <div class="metric-sub" id="mGexDirSub">做市商 Gamma 敞口</div>
   </div>
@@ -448,8 +448,8 @@
     <div class="metric-value" id="mGexFlip" style="color:#ffaa00;">--</div>
     <div class="metric-sub" id="mGexFlipSub">正负 Gamma 切换价</div>
   </div>
-  <div class="metric-box">
-    <div class="metric-name">Pain 斜率</div>
+  <div class="metric-box" onclick="openDailyMetricModal('pain_slope')" title="点击查看日频走势（自框架最早记录起）" style="cursor:pointer;">
+    <div class="metric-name">Pain 斜率 <span style="font-size:9px; color:#666;">📈</span></div>
     <div class="metric-value" id="mPainSlope" style="font-size:12px; font-weight:500;">--</div>
     <div class="metric-sub" id="mPainSlopeSub">形态×位置 · P 距 MP</div>
   </div>
@@ -556,6 +556,25 @@
     <div id="intradayIvChart" style="width:100%; height:420px;"></div>
     <div style="margin-top:10px; font-size:11px; color:#888;">
       数据源: <code>iv_snapshots_&lt;date&gt;.json</code> 持久化快照 · 粒度: <span id="intradayIvInterval">--</span> · 鼠标悬浮看明细
+    </div>
+  </div>
+</div>
+
+<!-- ===== v2.11.116: 指标卡日频走势弹窗（自框架最早记录起）===== -->
+<div id="dailyMetricModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:9999;">
+  <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:#1a1a2e; border:1px solid #444; border-radius:8px; padding:18px; width:900px; max-width:94vw; box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #333;">
+      <div>
+        <span id="dailyMetricTitle" style="font-size:15px; font-weight:bold; color:#e0e0e0;">指标日频走势</span>
+        <span id="dailyMetricMeta" style="margin-left:10px; font-size:11px; color:#888;"></span>
+      </div>
+      <button onclick="closeDailyMetricModal()" style="background:#444; color:#fff; border:none; padding:4px 12px; border-radius:4px; cursor:pointer; font-size:12px;">✕ 关闭</button>
+    </div>
+    <div id="dailyMetricHint" style="font-size:11px; color:#888; margin-bottom:8px;"></div>
+    <div id="dailyMetricChart" style="width:100%; height:420px;"></div>
+    <div id="dailyMetricEmpty" style="display:none; height:420px; align-items:center; justify-content:center; color:#888; font-size:12px;"></div>
+    <div style="margin-top:10px; font-size:11px; color:#888;">
+      数据源: <code>daily_close_report_&lt;date&gt;.json</code>（主）+ <code>iv_snapshots_&lt;date&gt;.json</code>（补齐） · 口径: 每日收盘槽 · 缺失日期断点不插值 · 鼠标悬浮看明细
     </div>
   </div>
 </div>
@@ -3228,7 +3247,278 @@ document.getElementById('intradayIvModal').addEventListener('click', (e) => {
   if (e.target.id === 'intradayIvModal') closeIntradayIvModal();
 });
 
+/* ===== v2.11.116: 指标卡日频走势弹窗（自框架最早记录起）===== */
+let _dailyMetricChartInst = null;
+let _dailyMetricCache = { ts: 0, data: null };
+let _dailyMetricCur = null;
+
+const DAILY_METRIC_DEFS = {
+  pcr_oi: {
+    title: '持仓 PCR · 日频走势',
+    hint: 'Put 持仓 / Call 持仓（全档 OI 合计，日收盘槽）· 大于 1 = Put 主导 / 小于 1 = Call 主导',
+    yname: 'PCR',
+    lines: [{ key: 'pcr_oi', name: '持仓PCR', color: '#ff6b9d' }],
+    guides: [{ y: 1.0, text: '1.0 均衡', color: '#666', dash: false }]
+  },
+  pcr_vol: {
+    title: '成交 PCR · 日频走势',
+    hint: 'Put 成交 / Call 成交（日收盘槽）· 与持仓 PCR 交叉验证资金意图方向',
+    yname: 'PCR',
+    lines: [{ key: 'pcr_vol', name: '成交PCR', color: '#ffaa00' }],
+    guides: [{ y: 1.0, text: '1.0 均衡', color: '#666', dash: false }]
+  },
+  net_gex: {
+    title: '净 GEX 方向 · 日频走势',
+    hint: '做市商净 Gamma 敞口 · 大于 0 = 正 Gamma（波动收敛）/ 小于 0 = 负 Gamma（波动放大）',
+    yname: '净GEX',
+    lines: [
+      { key: 'net_gex', name: '净GEX 正值（正Gamma）', color: '#ff6b9d', posOnly: true },
+      { key: 'net_gex', name: '净GEX 负值（负Gamma）', color: '#00d4ff', negOnly: true }
+    ],
+    guides: [{ y: 0, text: '0 分界', color: '#666', dash: false }]
+  },
+  skew: {
+    title: '偏斜度 Skew · 日频走势',
+    hint: 'SVI 在 ATM 处的 dσ/dk · 小于 -0.05 = Put 偏斜（左倾）/ 大于 0.05 = Call 偏斜（右倾）',
+    yname: 'dσ/dk',
+    lines: [{ key: 'skew', name: 'Skew', color: '#ff6b9d' }],
+    guides: [
+      { y: 0, text: '0', color: '#666', dash: false },
+      { y: 0.05, text: '0.05 Call偏斜', color: '#ff6b9d', dash: true },
+      { y: -0.05, text: '-0.05 Put偏斜', color: '#00d4ff', dash: true }
+    ]
+  },
+  pain_slope: {
+    title: 'Pain 斜率 · 日频走势（双侧燃料 + 不对称比）',
+    hint: '左侧 = Put 端阻力（slope_down 绝对值）/ 右侧 = Call 端阻力（slope_up），窗口 ±5 档；不对称比 = 大/小（1.2 略不对称 / 1.5 一边主导 / 2.5 强不对称）',
+    yname: '斜率(元/档)',
+    y2name: '不对称比',
+    lines: [
+      { key: 'fuel_down', name: '左侧燃料（Put端阻力）', color: '#00d4ff' },
+      { key: 'fuel_up', name: '右侧燃料（Call端阻力）', color: '#ff6b9d' },
+      { key: 'slope_ratio', name: '不对称比 大/小', color: '#ffaa00', y2: true }
+    ],
+    guides: [{ y: 1.5, text: '1.5 一边主导', color: '#888', dash: true, axis: 1 }]
+  }
+};
+
+function _disposeDailyMetricChart() {
+  if (_dailyMetricChartInst) {
+    try { _dailyMetricChartInst.dispose(); } catch (e) {}
+    _dailyMetricChartInst = null;
+  }
+}
+function _dailyMetricEmpty(msg) {
+  const c = document.getElementById('dailyMetricChart');
+  const em = document.getElementById('dailyMetricEmpty');
+  if (c) c.style.display = 'none';
+  if (em) { em.style.display = 'flex'; em.textContent = msg || '暂无数据'; }
+}
+function _dailyMetricReady() {
+  const c = document.getElementById('dailyMetricChart');
+  const em = document.getElementById('dailyMetricEmpty');
+  if (em) em.style.display = 'none';
+  if (c) c.style.display = 'block';
+  return c;
+}
+async function _fetchDailyMetrics(force) {
+  const now = Date.now();
+  if (!force && _dailyMetricCache.data && (now - _dailyMetricCache.ts) < 300000) return _dailyMetricCache.data;
+  const r = await fetch('/api/iv_smile/daily_metrics' + (force ? '?force=1' : ''), { cache: 'no-store' });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const j = await r.json();
+  if (!j || j.success === false) throw new Error((j && j.error) ? j.error : 'API 返回失败');
+  _dailyMetricCache = { ts: now, data: j };
+  return j;
+}
+function _dmShortDate(v) { return (v && v.length === 8) ? (v.slice(4, 6) + '-' + v.slice(6, 8)) : (v || ''); }
+function _dmRatioBand(r) {
+  if (r === null || r === undefined) return '—';
+  if (r >= 2.5) return '强不对称';
+  if (r >= 1.5) return '一边主导';
+  if (r >= 1.2) return '略不对称';
+  return '对称';
+}
+function _buildDailyMetricOption(def, data) {
+  const dates = data.dates || [];
+  const S = data.series || {};
+  const series = def.lines.map(function (ln) {
+    const raw = S[ln.key] || [];
+    const vals = dates.map(function (d, i) {
+      let v = (raw[i] === undefined) ? null : raw[i];
+      if (v !== null && ln.posOnly) v = (v > 0) ? v : null;
+      if (v !== null && ln.negOnly) v = (v < 0) ? v : null;
+      return v;
+    });
+    return {
+      name: ln.name,
+      type: 'line',
+      yAxisIndex: ln.y2 ? 1 : 0,
+      _axisIdx: ln.y2 ? 1 : 0,
+      data: vals,
+      connectNulls: false,
+      symbol: 'circle',
+      symbolSize: 5,
+      lineStyle: { width: 1.6, color: ln.color },
+      itemStyle: { color: ln.color },
+      emphasis: { focus: 'series' }
+    };
+  });
+  // 引导线按 y 轴归属挂到该轴的第一条曲线上
+  const guidesByAxis = {};
+  (def.guides || []).forEach(function (g) {
+    const ax = g.axis || 0;
+    if (!guidesByAxis[ax]) guidesByAxis[ax] = [];
+    guidesByAxis[ax].push({
+      yAxis: g.y,
+      label: { formatter: g.text, position: 'insideEndTop', color: g.color || '#888', fontSize: 10 },
+      lineStyle: { color: g.color || '#888', type: g.dash ? 'dashed' : 'solid', width: 1 }
+    });
+  });
+  const axOwner = {};
+  series.forEach(function (s) { if (axOwner[s._axisIdx] === undefined) axOwner[s._axisIdx] = s; });
+  Object.keys(guidesByAxis).forEach(function (k) {
+    const owner = axOwner[k];
+    if (owner) owner.markLine = { symbol: 'none', silent: true, data: guidesByAxis[k] };
+  });
+
+  const yAxis = [{
+    type: 'value',
+    name: def.yname || '',
+    nameTextStyle: { color: '#aaa', fontSize: 10 },
+    axisLabel: { color: '#aaa', fontSize: 10 },
+    splitLine: { lineStyle: { color: '#2a2a3a' } }
+  }];
+  if (def.y2name) {
+    yAxis.push({
+      type: 'value',
+      name: def.y2name,
+      nameTextStyle: { color: '#aaa', fontSize: 10 },
+      axisLabel: { color: '#aaa', fontSize: 10 },
+      splitLine: { show: false }
+    });
+  }
+
+  const opt = {
+    backgroundColor: 'transparent',
+    animation: false,
+    legend: { top: 2, textStyle: { color: '#aaa', fontSize: 10 }, itemWidth: 14, itemHeight: 8 },
+    grid: { left: 68, right: def.y2name ? 68 : 30, top: 44, bottom: 58 },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: 'rgba(20,20,32,0.95)',
+      borderColor: '#444',
+      textStyle: { color: '#ddd', fontSize: 11 },
+      formatter: function (ps) {
+        if (!ps || !ps.length) return '';
+        const i = ps[0].dataIndex;
+        const d = dates[i] || '';
+        const ds = (d.length === 8) ? (d.slice(0, 4) + '-' + d.slice(4, 6) + '-' + d.slice(6, 8)) : d;
+        const sc = (data.src && data.src[i]) || '';
+        let h = '<span style="color:#fff">' + ds + '</span>' + (sc ? '  <span style="color:#666">来源 ' + sc + '</span>' : '');
+        ps.forEach(function (p) {
+          const _ln = (def.lines || []).filter(function (l) { return l.name === p.seriesName; })[0];
+          if (_ln && (_ln.posOnly || _ln.negOnly) && (p.value === null || p.value === undefined)) return;
+          const v = (p.value === null || p.value === undefined) ? '—' : p.value;
+          h += '<br/><span style="color:' + p.color + '">●</span> ' + p.seriesName + ': <span style="color:#fff">' + v + '</span>';
+        });
+        if (def._key === 'net_gex') {
+          const gd = (S.gex_dir || [])[i];
+          h += '<br/><span style="color:#888">方向: ' + (gd === 'positive' ? '正 Gamma' : (gd === 'negative' ? '负 Gamma' : '—')) + '</span>';
+        }
+        if (def._key === 'pain_slope') {
+          h += '<br/><span style="color:#888">形态档位: ' + _dmRatioBand((S.slope_ratio || [])[i]) + '</span>';
+        }
+        return h;
+      }
+    },
+    xAxis: {
+      type: 'category',
+      data: dates,
+      axisLabel: { color: '#aaa', fontSize: 10, rotate: 45, formatter: function (v) { return _dmShortDate(v); } },
+      axisLine: { lineStyle: { color: '#444' } },
+      axisTick: { show: false }
+    },
+    yAxis: yAxis,
+    series: series
+  };
+  if (def.visual) {
+    opt.visualMap = {
+      show: false, type: 'piecewise', seriesIndex: 0, dimension: 1,
+      pieces: [{ lt: 0, color: '#00d4ff' }, { gte: 0, color: '#ff6b9d' }]
+    };
+  }
+  return opt;
+}
+
+async function openDailyMetricModal(key) {
+  const def = DAILY_METRIC_DEFS[key];
+  if (!def) return;
+  def._key = key;
+  _dailyMetricCur = key;
+  const modal = document.getElementById('dailyMetricModal');
+  if (!modal) return;
+  modal.style.display = 'block';
+  const tEl = document.getElementById('dailyMetricTitle');
+  const hEl = document.getElementById('dailyMetricHint');
+  const mEl = document.getElementById('dailyMetricMeta');
+  if (tEl) tEl.textContent = def.title;
+  if (hEl) hEl.textContent = def.hint || '';
+  if (mEl) mEl.textContent = '加载中…';
+  _disposeDailyMetricChart();
+  const c = _dailyMetricReady();
+  let inst = null;
+  try {
+    inst = echarts.init(c);
+    _dailyMetricChartInst = inst;
+  } catch (e) {
+    _dailyMetricEmpty('图表初始化失败');
+    return;
+  }
+  try {
+    const data = await _fetchDailyMetrics(false);
+    if (_dailyMetricCur !== key || _dailyMetricChartInst !== inst) return;
+    const meta = data.meta || {};
+    if (mEl) mEl.textContent = (data.start || '') + ' → ' + (data.end || '') + ' · ' + (data.count || 0) + ' 个日期（报告 ' + (meta.report_days || 0) + ' / 快照 ' + (meta.snapshot_days || 0) + '）';
+    if (!data.dates || !data.dates.length) {
+      _disposeDailyMetricChart();
+      _dailyMetricEmpty('暂无历史记录');
+      return;
+    }
+    if (inst && !inst.isDisposed()) {
+      inst.setOption(_buildDailyMetricOption(def, data), true);
+      inst.resize();
+    }
+  } catch (err) {
+    if (_dailyMetricCur !== key) return;
+    _disposeDailyMetricChart();
+    if (mEl) mEl.textContent = '';
+    _dailyMetricEmpty('加载失败: ' + ((err && err.message) ? err.message : err));
+  }
+}
+function closeDailyMetricModal() {
+  const modal = document.getElementById('dailyMetricModal');
+  if (modal) modal.style.display = 'none';
+  _dailyMetricCur = null;
+  _disposeDailyMetricChart();
+}
+
+window.addEventListener('resize', function () {
+  const m = document.getElementById('dailyMetricModal');
+  if (m && m.style.display === 'block' && _dailyMetricChartInst && !_dailyMetricChartInst.isDisposed()) {
+    _dailyMetricChartInst.resize();
+  }
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Escape') return;
+  const m = document.getElementById('dailyMetricModal');
+  if (m && m.style.display === 'block') closeDailyMetricModal();
+});
+document.getElementById('dailyMetricModal').addEventListener('click', function (e) {
+  if (e.target.id === 'dailyMetricModal') closeDailyMetricModal();
+});
+
 </script>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.115 (宏观快讯源修源: generate_daily_report.get_macro_news 主源由 SHMET 金属网切至东方财富全球快讯, 新增 PTA_CHAIN_KWS/OFFTOPIC_KWS 相关性过滤 + 去重, 铜镍铝等黑色/贵金属杂讯一律剔除, PX 外盘/产业链开工率等自动源不可得字段仍走人工 fallback — 仅后端快讯抓取, 页面口径与 macro_table 结构不变; 上一版 v2.11.114 机构观点表保留)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.116 (指标卡日频走势弹窗: 持仓PCR / 成交PCR / 净GEX方向 / 偏度Skew / Pain斜率 5 张指标卡可点击, 弹出自框架最早记录(2026-06-04)起的日频折线; 新增后端 /api/iv_smile/daily_metrics 路由 — reports 主脊 + iv_snapshots 补齐, 剔除重复内容报告, 缺失日期断点不插值; Pain 斜率弹窗为双轴图: 左右两侧燃料值(元/档) + 不对称比 大/小; 上一版 v2.11.115 快讯源修源保留)</div>
 </body>
 </html>
