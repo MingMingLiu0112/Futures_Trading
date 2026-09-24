@@ -5744,6 +5744,8 @@ def register_routes(app):
             oi_strikes = sorted(set(float(k) for k in oi_dict.keys()))
             # 1. GEX
             gex_list = []
+            # v2.11.118: 并存口径 flip_zero(总量过零) 重解所需每档输入 (K, c_oi, p_oi, sigma)
+            _gex_inputs = []
             for K in oi_strikes:
                 oi_data = _get(oi_dict, K, {'C': 0, 'P': 0})
                 c_oi = oi_data.get('C', 0) or 0
@@ -5768,6 +5770,7 @@ def register_routes(app):
                 net_gex = call_gex + put_gex
                 gex_list.append({'strike': int(K), 'call_gex': round(call_gex, 0),
                                  'put_gex': round(put_gex, 0), 'net_gex': round(net_gex, 0)})
+                _gex_inputs.append((K, c_oi, p_oi, sigma))
             # 2. Pain Curve（同样使用GEX 21档口径）
             oi_map = {K: _get(oi_dict, K, {'C': 0, 'P': 0}) for K in oi_strikes}
             sorted_ks = sorted(oi_map.keys())
@@ -5803,6 +5806,48 @@ def register_routes(app):
                     ratio = abs(pn) / (abs(pn) + abs(cn)) if (abs(pn) + abs(cn)) > 0 else 0.5
                     gex_flip = round((k1 + ratio * (k2 - k1)) / 2) * 2
                     break
+            # === v2.11.118: 并存口径字段 (仅展示/备查, 不改上面 gex_flip 算法) ===
+            # 口径 B "最大振幅交越": 所有正负穿越中振幅 |pn|+|cn| 最大的一处
+            #   (首个穿越 = gex_flip, 只是其中一处; 振幅最大处业务含义更"真")
+            flip_maxamp = None
+            if len(nonzero) > 1:
+                _best_amp, _best_x = None, None
+                for i in range(1, len(nonzero)):
+                    pn = nonzero[i - 1]['net_gex']; cn = nonzero[i]['net_gex']
+                    if pn * cn < 0:
+                        amp = abs(pn) + abs(cn)
+                        if _best_amp is None or amp > _best_amp:
+                            _k1, _k2 = nonzero[i-1]['strike'], nonzero[i]['strike']
+                            _ratio = abs(pn) / amp if amp > 0 else 0.5
+                            _best_amp, _best_x = amp, _k1 + _ratio * (_k2 - _k1)
+                if _best_x is not None:
+                    flip_maxamp = round(_best_x, 1)
+            # 口径 C "总量过零" G(S)=0: 真重解 —— 把现价 F 换成假想价位 S,
+            #   每档 gamma 按 Γ(K,S) 重算, G(S)=Σ (c_oi−p_oi)·Γ(K,S)·S²·0.01·5,
+            #   在 [最低档, 最高档] 以 10 点为步长扫零, 取最靠近现价 F 的过零点。
+            #   注: 这不是逐档 net_gex 的累加(累加全程不穿零), 而是"若现价移至 S 时"的敞口归零点。
+            flip_zero = None
+            if _gex_inputs and F and F > 0 and sqrtT > 0:
+                try:
+                    _Karr = np.array([x[0] for x in _gex_inputs], dtype=float)
+                    _Darr = np.array([float(x[1]) - float(x[2]) for x in _gex_inputs], dtype=float)
+                    _Sarr = np.array([x[3] for x in _gex_inputs], dtype=float)
+                    _grid = np.arange(min(_Karr), max(_Karr) + 10.0, 10.0)
+                    with np.errstate(divide='ignore', invalid='ignore'):
+                        _d1s = (np.log(_grid[None, :] / _Karr[:, None]) + 0.5 * _Sarr[:, None] ** 2 * T) \
+                               / (_Sarr[:, None] * sqrtT)
+                        _gam = np.exp(-r * T) * sp_norm.pdf(_d1s) / (_grid[None, :] * _Sarr[:, None] * sqrtT)
+                        _G = (_Darr[:, None] * _gam * _grid[None, :] ** 2 * 0.01 * 5).sum(axis=0)
+                    _cross = []
+                    for _i in range(1, len(_grid)):
+                        _v1, _v2 = float(_G[_i-1]), float(_G[_i])
+                        if _v1 * _v2 < 0:
+                            _rt = abs(_v1) / (abs(_v1) + abs(_v2)) if (abs(_v1) + abs(_v2)) > 0 else 0.5
+                            _cross.append(float(_grid[_i-1]) + _rt * (float(_grid[_i]) - float(_grid[_i-1])))
+                    if _cross:
+                        flip_zero = round(min(_cross, key=lambda x: abs(x - F)), 1)
+                except Exception:
+                    flip_zero = None
             # days_left 用日历天（自然日），更直观
             if expiry:
                 if hasattr(expiry, 'hour'):
@@ -5851,6 +5896,9 @@ def register_routes(app):
                 'net_gex': round(net_gex_total, 0),
                 'gex_direction': 'positive' if net_gex_total > 0 else 'negative',
                 'gex_flip': gex_flip,
+                # === v2.11.118: 并存口径 (仅展示, 不动 gex_flip) ===
+                'flip_maxamp': flip_maxamp,   # 最大振幅交越口径
+                'flip_zero': flip_zero,       # 总量过零 G(S)=0 口径 (真重解)
                 'T': round(T, 6) if T else None, 'days_left': days_left,
                 'expiry': _iso_expiry(expiry),
                 'total_call_oi': int(tc), 'total_put_oi': int(tp),
