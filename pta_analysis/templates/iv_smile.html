@@ -61,6 +61,7 @@
   .metric-name { font-size: 10px; color: #666; margin-bottom: 4px; }
   .metric-value { font-size: 16px; font-weight: 600; }
   .metric-sub { font-size: 10px; color: #444; margin-top: 2px; }
+  .metric-sub2 { font-size: 9px; color: #3c3c3c; margin-top: 1px; line-height: 1.3; }
 
   /* ===== 图表卡片 ===== */
   .card {
@@ -444,9 +445,10 @@
     <div class="metric-sub" id="mGexDirSub">做市商 Gamma 敞口</div>
   </div>
   <div class="metric-box">
-    <div class="metric-name">GEX 翻转点</div>
+    <div class="metric-name">GEX 翻转点 <span style="font-size:9px; color:#666;">总量过零</span></div>
     <div class="metric-value" id="mGexFlip" style="color:#ffaa00;">--</div>
-    <div class="metric-sub" id="mGexFlipSub">正负 Gamma 切换价</div>
+    <div class="metric-sub" id="mGexFlipSub">零 Gamma 价（全档加权）</div>
+    <div class="metric-sub2" id="mGexFlipSub2"></div>
   </div>
   <div class="metric-box" onclick="openDailyMetricModal('pain_slope')" title="点击查看日频走势（自框架最早记录起）" style="cursor:pointer;">
     <div class="metric-name">Pain 斜率 <span style="font-size:9px; color:#666;">📈</span></div>
@@ -1225,16 +1227,29 @@ function updateGexCharts(gexData, alertData) {
       isPos ? '正Gamma → 抑制波动' : '负Gamma → 放大波动';
   }
 
-  // GEX翻转点
+  // GEX翻转点（v2.11.119: 主值改为「总量过零」口径 = G(S)=Σ(c_oi−p_oi)·Γ(K,S)·S²·0.01·5 的零点，
+  // 唯一理论定义口径、全档聚合、不依赖扫描顺序；另两口径降为副显示小字，仅供对照。
+  // ⚠️ 判定链路（L1/L2 穿越判定、gex_flip_migration、judge_state/决策层）仍读 summary.gex_flip，本次未动。）
   const flipEl = document.getElementById('mGexFlip');
-  if (summary.gex_flip != null) {
-    flipEl.textContent = summary.gex_flip;
-    const diff = summary.futures_price ? summary.gex_flip - summary.futures_price : 0;
+  const flipSub2El = document.getElementById('mGexFlipSub2');
+  const flipMain = (summary.flip_zero != null) ? summary.flip_zero : summary.gex_flip;
+  if (flipMain != null) {
+    flipEl.textContent = (Math.round(flipMain * 10) / 10);
+    const diff = summary.futures_price ? flipMain - summary.futures_price : 0;
     document.getElementById('mGexFlipSub').textContent =
-      diff > 0 ? `高于现价 ${Math.abs(diff)} 点` : diff < 0 ? `低于现价 ${Math.abs(diff)} 点` : '与现价重合';
+      diff > 0 ? `高于现价 ${Math.abs(diff).toFixed(0)} 点` : diff < 0 ? `低于现价 ${Math.abs(diff).toFixed(0)} 点` : '与现价重合';
   } else {
     flipEl.textContent = '无';
     document.getElementById('mGexFlipSub').textContent = '全为正或全为负';
+  }
+  // 副显示：另两口径 + 前次同口径（小字，仅供对照，不影响上方主值）
+  if (flipSub2El) {
+    const parts = [];
+    if (summary.gex_flip != null) parts.push(`首个穿越 ${Math.round(summary.gex_flip)}`);
+    if (summary.flip_maxamp != null) parts.push(`振幅峰 ${Math.round(summary.flip_maxamp)}`);
+    const pz = prevSummary.flip_zero;
+    const tail = (pz != null) ? ` ｜ 前次 ${Math.round(pz)}` : '';
+    flipSub2El.textContent = parts.length ? '主值口径=总量过零 · 另两口径: ' + parts.join(' · ') + tail : '';
   }
 
   // 距到期
@@ -3519,6 +3534,6 @@ document.getElementById('dailyMetricModal').addEventListener('click', function (
 });
 
 </script>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.117 (指标卡日频走势弹窗: X 轴改为"仅交易日" — 剔除周末 + 法定节假日(2026 端午 6/19 等), 消除非交易日造成的视觉断点: 成交PCR 断线段数 12→4; 后端新增 `_dm_is_trading_day()`(周一~五 且 非节假日, 不复用 _is_trading_day() 因后者把周六凌晨当周五夜盘), meta 新增 non_trading_dropped; 原始数据一律不动, 仅从曲线轴剔除, 缺失值仍留空不插值; 上一版 v2.11.116 五张指标卡日频弹窗保留)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.119 (GEX 翻转点主显示口径切换: 主值改为「总量过零」= G(S)=Σ(c_oi−p_oi)·Γ(K,S)·S²·0.01·5 的零点(唯一理论定义口径/全档聚合/不依赖扫描顺序), 另两口径「首个穿越」「振幅峰」降为副显示小字 + 前次同口径对照; 卡片标题/副标题注明口径。⚠️ 判定链路(L1/L2 穿越判定 / gex_flip_migration / judge_state 决策层)仍读 gex_flip, 本次零改动 — 两口径在约 18% 交易日会落在现价异侧, 面板主数字与决策层叙述可能方向相反, 以副显示「首个穿越」为准对照。上一版 v2.11.117 指标卡日频弹窗仅交易日保留)</div>
 </body>
 </html>
