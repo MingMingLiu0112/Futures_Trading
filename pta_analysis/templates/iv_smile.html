@@ -383,8 +383,8 @@
 
 <!-- ===== 指标栏（1行6列）===== -->
 <div class="metric-grid">
-  <div class="metric-box">
-    <div class="metric-name">ATM 隐波</div>
+  <div class="metric-box" onclick="openDailyMetricModal('atm_iv')" title="点击查看日频走势（自框架最早记录起）" style="cursor:pointer;">
+    <div class="metric-name">ATM 隐波 <span style="font-size:9px; color:#666;">📈</span></div>
     <div class="metric-value" id="mAtmIv" style="color:#ffaa00;">--</div>
     <div class="metric-sub" id="mAtmDiffSub">--</div>
   </div>
@@ -3268,6 +3268,13 @@ let _dailyMetricCache = { ts: 0, data: null };
 let _dailyMetricCur = null;
 
 const DAILY_METRIC_DEFS = {
+  atm_iv: {
+    title: 'ATM 隐波 · 日频走势',
+    hint: 'SVI 拟合曲线在 ATM 处的隐波（15:00 收盘槽，单位 %）· 与页面「ATM 隐波」卡同口径 · 反映整体波动率水位',
+    yname: 'ATM隐波 %',
+    lines: [{ key: 'atm_iv', name: 'ATM隐波', color: '#ffaa00' }],
+    guides: []
+  },
   pcr_oi: {
     title: '持仓 PCR · 日频走势',
     hint: 'Put 持仓 / Call 持仓（全档 OI 合计，日收盘槽）· 大于 1 = Put 主导 / 小于 1 = Call 主导',
@@ -3444,6 +3451,16 @@ function _buildDailyMetricOption(def, data) {
         if (def._key === 'pain_slope') {
           h += '<br/><span style="color:#888">形态档位: ' + _dmRatioBand((S.slope_ratio || [])[i]) + '</span>';
         }
+        if (def._key === 'atm_iv') {
+          const arr = (S.atm_iv || []);
+          const cur = arr[i], prev = (i > 0) ? arr[i - 1] : null;
+          if (cur != null && prev != null) {
+            const dd = cur - prev;
+            h += '<br/><span style="color:#888">较前一日: ' + (dd >= 0 ? '+' : '') + dd.toFixed(2) + 'pp</span>';
+          }
+          const st = (S.atm_strike || [])[i];
+          h += '<br/><span style="color:#888">当日 ATM: ' + (st == null ? '—' : st) + '</span>';
+        }
         return h;
       }
     },
@@ -3534,6 +3551,6 @@ document.getElementById('dailyMetricModal').addEventListener('click', function (
 });
 
 </script>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.119 (GEX 翻转点主显示口径切换: 主值改为「总量过零」= G(S)=Σ(c_oi−p_oi)·Γ(K,S)·S²·0.01·5 的零点(唯一理论定义口径/全档聚合/不依赖扫描顺序), 另两口径「首个穿越」「振幅峰」降为副显示小字 + 前次同口径对照; 卡片标题/副标题注明口径。⚠️ 判定链路(L1/L2 穿越判定 / gex_flip_migration / judge_state 决策层)仍读 gex_flip, 本次零改动 — 两口径在约 18% 交易日会落在现价异侧, 面板主数字与决策层叙述可能方向相反, 以副显示「首个穿越」为准对照。上一版 v2.11.117 指标卡日频弹窗仅交易日保留)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.120 (ATM 隐波指标卡接入「日频折线图弹窗」: 点击卡片打开 ATM 隐波 · 日频走势, 数据取 SVI atm_vol 的 15:00 收盘槽并转成 % 口径(与卡片数字同源), reports 主脊 + iv_snapshots 补齐, 缺失日留空不插值, X 轴仅交易日; tooltip 附「较前一日 ±pp」与「当日 ATM 行权价」。⚠️ 最早日受 reports 起始限制, 更早交易日仅快照补。上一版 v2.11.119 GEX 翻转点主显示改「总量过零」口径 — 判定链路(L1/L2 / gex_flip_migration / judge_state)仍读 gex_flip, 两口径约 18% 交易日落在现价异侧)</div>
 </body>
 </html>

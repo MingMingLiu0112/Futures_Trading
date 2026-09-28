@@ -3793,6 +3793,29 @@ def _dm_snum(v):
         return None
 
 
+def _dm_iv_pct(v):
+    """SVI atm_vol(小数, 如 0.5328) → 百分比(如 53.28); 无效/非正一律 None。"""
+    f = _dm_snum(v)
+    if f is None or f <= 0:
+        return None
+    return round(f * 100.0, 2)
+
+
+def _dm_iv_pct_or(v_svi, v_pct):
+    """ATM 隐波(%): 优先 SVI atm_vol(小数→%), 退回"已是百分数"的字段, 都无则 None。
+
+    v2.11.120: 页面「ATM 隐波」卡读的就是 SVI atm_vol(小数×100), 日频曲线必须同口径,
+    否则会出现"卡片 53.28% / 曲线 53.3%"这种看起来对不上的假差异。
+    """
+    p = _dm_iv_pct(v_svi)
+    if p is not None:
+        return p
+    f = _dm_snum(v_pct)
+    if f is None or f <= 0:
+        return None
+    return round(f, 2)
+
+
 def _dm_pick_close_slot(sn):
     """挑每日收盘槽(与 /tmp 校验脚本同逻辑, 见文件头口径说明)"""
     if '15:00' in sn and isinstance(sn.get('15:00'), dict) and sn['15:00'].get('strike_oi'):
@@ -3907,6 +3930,9 @@ def _build_daily_metrics_series():
             'pcr_oi': round(op / oc, 4) if oc else None,
             'pcr_vol': round(vp / vc, 4) if vc else None,
             'skew': _dm_snum((slot.get('svi_params') or {}).get('skew')),
+            # v2.11.120: ATM 隐波 —— 与页面「ATM 隐波」卡同口径(SVI atm_vol), 转成 %(页面显示口径)
+            'atm_iv': _dm_iv_pct((slot.get('svi_params') or {}).get('atm_vol')),
+            'atm_strike': _dm_snum(slot.get('atm_strike')),
             'F': _dm_snum(slot.get('futures_price')),
             'mp': _dm_snum(slot.get('max_pain')),
         }
@@ -3928,6 +3954,7 @@ def _build_daily_metrics_series():
         gx = ((r.get('gex') or {}).get('summary') or {})
         svi = ((r.get('iv_curve') or {}).get('svi_params') or {})
         pc = ((r.get('gex') or {}).get('pain_curve') or [])
+        ia = ((r.get('section1') or {}).get('iv_analysis') or {})
         if not gx or not pc:
             continue
         mp = _dm_snum(gx.get('max_pain'))
@@ -3950,6 +3977,9 @@ def _build_daily_metrics_series():
             'gex_dir': gx.get('gex_direction'),
             'net_gex': _dm_snum(gx.get('net_gex')),
             'skew': _dm_snum(svi.get('skew')),
+            # v2.11.120: ATM 隐波(%): 优先 SVI atm_vol(与页面卡同口径), 退回报告 iv_analysis.atm_vol(本身即 %)
+            'atm_iv': _dm_iv_pct_or(svi.get('atm_vol'), ia.get('atm_vol')),
+            'atm_strike': _dm_snum((r.get('iv_curve') or {}).get('atm_strike')),
             'F': _dm_snum(gx.get('futures_price')),
             'mp': mp,
             'slope_down': _dm_snum(fs.get('slope_down')),
@@ -3969,6 +3999,7 @@ def _build_daily_metrics_series():
         return None
 
     out = {
+        'atm_iv': [], 'atm_strike': [],
         'pcr_oi': [], 'pcr_vol': [], 'skew': [], 'net_gex': [], 'gex_dir': [],
         'max_pain': [], 'slope_down': [], 'slope_up': [],
         'fuel_down': [], 'fuel_up': [], 'slope_ratio': [],
@@ -3979,6 +4010,8 @@ def _build_daily_metrics_series():
         po = R.get('pcr_oi') if R.get('pcr_oi') is not None else S.get('pcr_oi')
         pv = S.get('pcr_vol')          # 成交PCR 仅快照可得(reports 无 vol 分档)
         sk = R.get('skew') if R.get('skew') is not None else S.get('skew')
+        av = R.get('atm_iv') if R.get('atm_iv') is not None else S.get('atm_iv')
+        ast = R.get('atm_strike') if R.get('atm_strike') is not None else S.get('atm_strike')
         dn, up = R.get('slope_down'), R.get('slope_up')
         fd = abs(dn) if dn is not None else None          # 左侧燃料 = |slope_down| (对齐前端 downResist)
         fu = up if up is not None else None
@@ -3988,6 +4021,8 @@ def _build_daily_metrics_series():
         out['pcr_oi'].append(po)
         out['pcr_vol'].append(pv)
         out['skew'].append(sk)
+        out['atm_iv'].append(av)
+        out['atm_strike'].append(ast)
         out['net_gex'].append(R.get('net_gex'))
         out['gex_dir'].append(R.get('gex_dir'))
         out['max_pain'].append(R.get('mp') if R.get('mp') is not None else S.get('mp'))
@@ -4014,7 +4049,8 @@ def _build_daily_metrics_series():
             'non_trading_dropped': non_trading,
             'slope_engine': 'judge_state.compute_pain_slope' if js_mod is not None else 'unavailable',
             'note': 'reports 主脊 + iv_snapshots 补齐; 重复内容报告已剔除; '
-                    'X 轴仅交易日(已剔除周末/法定节假日); 缺失值留空不插值',
+                    'X 轴仅交易日(已剔除周末/法定节假日); 缺失值留空不插值; '
+                    'ATM隐波 = SVI atm_vol(15:00 收盘槽, %口径, 与页面卡片同源)',
         },
     }
 
