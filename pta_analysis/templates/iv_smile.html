@@ -3551,6 +3551,6 @@ document.getElementById('dailyMetricModal').addEventListener('click', function (
 });
 
 </script>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.121 (前次基准口径修订: 交易日 21:00 后无条件切换到当日 15:00 基准 — 不再要求"当天有夜盘", 修复国庆前夜(9/30)无夜盘时基准卡在 9/24 的问题; 并修复 60s 刷新切换函数漏声明 global _prev_day_baseline 导致内存中基准永不推进的 bug。上一版 v2.11.120 ATM 隐波指标卡接入「日频折线图弹窗」)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.122 (前次基准口径回退到原逻辑: 仅当"当天有 PTA 夜盘"时 21:00 才切到当日 15:00 — 节前无夜盘日(9/30)不切, 整个假期显示 9/29, 节后首日 10/8 早盘 9:00 才切到 9/30。另修正 _CN_HOLIDAYS[2026] 把 10/8 误标休市(实为交易日)致"节后首日"分支永不触发, 并补 劳动节 5/4-5/5。保留 v2.11.121 的 60s 刷新切换漏声明 global 修复)</div>
 </body>
 </html>
