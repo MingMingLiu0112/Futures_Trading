@@ -3551,6 +3551,6 @@ document.getElementById('dailyMetricModal').addEventListener('click', function (
 });
 
 </script>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.123 (指标卡日频走势弹窗「只读层日历标定」: 按各日报告自身 expiry 重算 T, k=√(T存/T正), 只修 atm_iv/skew(∝1/√T), 修正历史报告因 _CN_HOLIDAYS 把 10/8 误标休市致 T 偏小、隐波被高估(9/14~9/30 全线回正, 如 9/30 58.03→49.45)。仅认"整天丢失"型(缺整数个交易日)并按 0.5~2.0 兜底; 报告源与快照源一并覆盖; pcr_oi/pcr_vol/max_pain/slope/net_gex 口径不变; 原始 JSON 一律不动。保留 v2.11.122 前次基准口径回退 + _CN_HOLIDAYS 修正)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.124 (前次基准口径更正: 交易日 21:00 后即切换「今日15:00」, 不再要求当天有夜盘 → 节假日前无夜盘的交易日(如 9/30 国庆前夜)当天 21:00 即切换, 故整个国庆假期显示的前次基准=节前最后交易日 9/30(此前 v2.11.122 回退原逻辑时显示再前一交易日 9/29)。保留 v2.11.123 指标卡日频走势「只读层日历标定」+ _CN_HOLIDAYS(10/8 已开市)修正)</div>
 </body>
 </html>

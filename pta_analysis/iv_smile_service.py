@@ -1472,7 +1472,7 @@ def _cb_should_apply(cb_date, now_dt):
     切换原则（v2.11.38+）：
     - 今日 15:00 已过 → 今日 cb（即 today）生效
     - 节后首个交易日 9:00 早盘开盘后 → 切到节前最后交易日
-    - 有夜盘的交易日 21:00 夜盘开盘后 → 切到今日 cb（即 today）
+    - 交易日 21:00 后 → 切到今日 cb（即 today）；不要求当天有夜盘（v2.11.124）
     - 其他时段 → 用上一交易日（即 _find_last_trading_day_before(today)）
 
     cb_date 与上述"应生效的基准日期"匹配 → True，否则 False。
@@ -1494,12 +1494,13 @@ def _cb_should_apply(cb_date, now_dt):
 def _get_expected_baseline_date(now_dt):
     """根据当前时刻，返回"应当生效的前次基准"的 date。
 
-    切换原则（v2.11.50+ 用户明确规则）：
-    - 有夜盘的交易日 21:00 夜盘开盘后 → 切到今日 15:00（即 today）
+    切换原则（v2.11.124 用户口径，2026-10-02 拍板）：
+    - 交易日 21:00 后 → 切到今日 15:00（即 today）。**不要求当天有夜盘**：节假日前无夜盘的
+      交易日（如 9/30 国庆前夜）同样在当天 21:00 切换，使整个假期显示的前次基准 = 节前最后交易日。
     - 节后首个交易日 9:00 早盘开盘后 → 切到节前最后交易日（即 _find_last_trading_day_before(today)）
     - 其他时段 → 用"上一交易日 15:00"：
       * 今日是交易日（且不是节后首日）：今日 cb 在 21:00 才生效 → 用今日 cb 之前的"上一交易日"
-      * 节假日/周末：节前最后交易日的 cb 还没生效（要等节后首日 9:00）→ 用"节前最后交易日 的上一交易日"
+      * 节假日/周末：节前最后交易日的 cb 已在节前当天 21:00 生效 → 前次基准 = 上一交易日（如 10/2 → 9/30）
 
     即"前次基准" = 离当前最近的、已经生效的"前一次切换事件"指向的日期。
     """
@@ -1510,8 +1511,11 @@ def _get_expected_baseline_date(now_dt):
 
     today = now.date()
 
-    # 1) 有夜盘的交易日 21:00 夜盘开盘后 → 切到今日 15:00（优先级最高，覆盖节后首日的 9:00 分支）
-    if _is_trading_day(today) and _has_pta_night_session(today) and now.hour >= 21:
+    # 1) 交易日 21:00 后 → 切到今日 15:00（优先级最高，覆盖节后首日的 9:00 分支）
+    # [v2.11.124] 用户口径 (2026-10-02 拍板)：不再要求"当天有夜盘"。
+    # 节假日前无夜盘的交易日（如 9/30 国庆前夜，次日 10/1 休市 → _has_pta_night_session=False）
+    # 同样必须在当天 21:00 把前次基准切到当天 15:00；否则整个假期会停在再前一个交易日(9/29)。
+    if _is_trading_day(today) and now.hour >= 21:
         return today
 
     # 2) 节后首个交易日 9:00 早盘开盘后 → 切到节前最后交易日（即上一交易日）
@@ -1525,11 +1529,9 @@ def _get_expected_baseline_date(now_dt):
         # 今日是交易日（且不是节后首日），今日 cb 在 21:00 才生效 → 用上一交易日
         return _find_last_trading_day_before(today)
     else:
-        # 节假日/周末：节前最后交易日的 cb 还没生效（要等节后首日 9:00）→ 再往前一个交易日
-        last_td = _find_last_trading_day_before(today)
-        if last_td:
-            return _find_last_trading_day_before(last_td)
-        return None
+        # 节假日/周末：节前最后交易日的 cb 已在节前当天 21:00 生效（见规则 1，v2.11.124 起
+        # 不再要求"当天有夜盘"）→ 前次基准就是"上一交易日"（如 10/2 假期 → 9/30）。
+        return _find_last_trading_day_before(today)
 
 
 def _is_trading_hours():
@@ -4415,7 +4417,7 @@ def register_routes(app):
                         # v2.11.38+ 切换原则：
                         # - 今日 15:00 已过 → 用今日 cb（即 today）
                         # - 节后首个交易日 9:00 早盘开盘后 → 切到节前最后交易日
-                        # - 有夜盘的交易日 21:00 后 → 用今日 cb
+                        # - 交易日 21:00 后 → 用今日 cb（不要求当天有夜盘，v2.11.124）
                         # - 其他时段 → 用上一交易日
                         # cb_date == _get_expected_baseline_date(now) 即为有效
                         cb_eligible = _cb_should_apply(cb_date, now_dt)
