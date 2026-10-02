@@ -695,6 +695,12 @@ def _check_and_save_close_state():
     收盘边界快照；不重新计算 IV/SVI。
     """
     now = datetime.now()
+    # ② v2.11.125: 非交易日(周末/法定节假日)一律不写收盘状态。
+    # 之前休市日也会走到 15:00 / 23:00 分支, 把"休市日最后有效状态"写进
+    # close_state.json / eod_state.json + 区间快照, 冒充当日收盘,
+    # 污染前次基准与次日冷启动恢复。(实测 10/1 写了 eod_state、10/2 写了 close_state)
+    if not _is_trading_day(now):
+        return
     for hh, mm in _PTA_CLOSE_TIMES:
         slot_key = f"{now.strftime('%Y%m%d')}_{hh:02d}{mm:02d}"
         if slot_key in _close_state_saved_slots:
@@ -3980,6 +3986,34 @@ def _dm_report_kmap():
     return kmap
 
 
+# ---- ① v2.11.125 前次基准侧 T 口径标定(只读层) ----
+_prev_k_cache = {}          # dstr(str) -> (time, k)
+_PREV_K_TTL = 300.0         # k 表 5 分钟缓存, 避免每请求重扫 reports 目录
+
+
+def _prev_side_calib_k(ts_str):
+    """①: 返回"前次基准自身日期"对应的 T 标定系数 k(缺省 1.0)。
+
+    只用于读取层: 把前次基准侧的 IV 读数乘 k, 使 前次/当前 两侧口径一致
+    (前次侧 IV 若因当日错误交易日历被少算 T 而系统性偏高, 这里乘回)。
+    不改磁盘 JSON、不改基准选择/口径语义。k 来源 = 同日收盘报告(见 _dm_report_kmap)。
+    """
+    try:
+        d = _parse_cb_ts(ts_str)
+        if d is None:
+            return 1.0
+        dstr = d.strftime('%Y%m%d')
+        ent = _prev_k_cache.get(dstr)
+        now_t = time.time()
+        if ent and (now_t - ent[0]) < _PREV_K_TTL:
+            return ent[1]
+        k = _dm_report_kmap().get(dstr, 1.0) or 1.0
+        _prev_k_cache[dstr] = (now_t, k)
+        return k
+    except Exception:
+        return 1.0
+
+
 def _build_daily_metrics_series():
     """扫描 reports + snapshots → 日频 union 序列(返回 dict; 失败返 None)"""
     import glob as _glob
@@ -4436,6 +4470,16 @@ def register_routes(app):
                     # 仅首次打印，避免刷屏（通过prev_key是否已设来控制）
             prev_key = '15:00收盘' if prev_smooth else None
 
+            # ① v2.11.125(只读层): 前次基准侧的 T 口径标定系数 k。
+            # 前次基准侧 IV 由"当日 T"反算; 若该日报告 T 被错误日历少算, IV 会系统性偏高。
+            # 取前次基准自身日期的 k(_dm_report_kmap) 乘回, 使 前次/当前 两侧口径一致。
+            # 缺 k 时为 1.0(无副作用); 不修改磁盘 JSON, 不改基准选择/口径语义。
+            if cb_eligible and close_baseline:
+                _prev_src_ts = close_baseline.get('ts') or close_baseline.get('timestamp') or ''
+            else:
+                _prev_src_ts = (_prev_day_baseline or {}).get('timestamp', '')
+            prev_k = _prev_side_calib_k(_prev_src_ts)
+
             # ---- 前次基准smooth直接使用快照原始值 ----
             # 快照里的smooth是当时BS反算+SVI拟合的结果,直接反映当时市场IV水平。
             # 不要用SVI参数重算——因为快照的raw IV和smooth都是用当时的T反算的,
@@ -4476,8 +4520,8 @@ def register_routes(app):
                 # 前次曲线（15:00收盘基准）
                 k_str = str(k)
                 if prev_smooth and k_str in prev_smooth:
-                    entry['smooth_prev'] = prev_smooth[k_str]
-                    entry['prev_avg'] = prev_smooth[k_str]
+                    entry['smooth_prev'] = prev_smooth[k_str] * prev_k
+                    entry['prev_avg'] = prev_smooth[k_str] * prev_k
                 # 线性插值兜底：当前K在前次基准中没值时，用左右邻近K线性插值
                 # 解决"前次基准曲线因K范围不匹配而断开"的问题
                 elif prev_smooth and k is not None:
@@ -4499,20 +4543,21 @@ def register_routes(app):
                         v_right = prev_smooth.get(str(right))
                         if v_left is not None and v_right is not None:
                             v_interp = v_left + (v_right - v_left) * (k_int - left) / (right - left)
-                            entry['smooth_prev'] = float(v_interp)
-                            entry['prev_avg'] = float(v_interp)
+                            entry['smooth_prev'] = float(v_interp) * prev_k
+                            entry['prev_avg'] = float(v_interp) * prev_k
                     # 超出 prev_smooth 首/末端的档：不填 prev_smooth_prev，让前次曲线在那些
                     # 区域自然断开（ECharts scatter 模式下会显示 gap）
                 # 前次原始 Call/Put IV
                 if prev_raw and k_str in prev_raw:
                     pv = prev_raw[k_str]
                     if isinstance(pv, dict):
-                        entry['raw_C_prev'] = pv.get('C')
-                        entry['raw_P_prev'] = pv.get('P')
+                        _c = pv.get('C'); _p = pv.get('P')
+                        entry['raw_C_prev'] = (_c * prev_k) if isinstance(_c, (int, float)) else _c
+                        entry['raw_P_prev'] = (_p * prev_k) if isinstance(_p, (int, float)) else _p
                     elif isinstance(pv, (int, float)):
                         # 快照中 raw 可能已是平均值（float），无C/P区分
-                        entry['raw_C_prev'] = pv
-                        entry['raw_P_prev'] = pv
+                        entry['raw_C_prev'] = pv * prev_k
+                        entry['raw_P_prev'] = pv * prev_k
                 # 隐波变化（带符号）：当前smooth - 15:00收盘smooth
                 # 不能取 abs，否则降波也会被显示成“剧升”。
                 if 'smooth' in entry and 'smooth_prev' in entry:
@@ -5101,6 +5146,9 @@ def register_routes(app):
                 b_vol = _prev_day_baseline.get('strike_vol', {})
             has_baseline = bool(b_smooth)
 
+        # ① v2.11.125(只读层): 前次基准侧 T 口径标定系数 k（同 /curve）
+        prev_k = _prev_side_calib_k(close_ts)
+
         # 用ATM隐波判断波动环境（比全档位均值更准确）
         atm = _state.get('atm_strike')
         atm_iv = smile_smooth.get(atm) or smile_smooth.get(str(atm)) if atm else None
@@ -5190,6 +5238,14 @@ def register_routes(app):
                 iv_c_b = None
                 iv_p_b = None
             b_sm = b_smooth.get(strike) or b_smooth.get(int(strike)) or 0
+            # ① v2.11.125: 前次侧 IV × k, 使 T 表"前次值/变化量"与当前口径一致
+            if prev_k != 1.0:
+                if iv_c_b is not None:
+                    iv_c_b = iv_c_b * prev_k
+                if iv_p_b is not None:
+                    iv_p_b = iv_p_b * prev_k
+                if b_sm:
+                    b_sm = b_sm * prev_k
 
             # IV变化：close基准 + 报警后同向极值watermark反转。
             # T表颜色仍按close基准；弹窗IV报警必须与同侧OI变化联动。

@@ -3551,6 +3551,6 @@ document.getElementById('dailyMetricModal').addEventListener('click', function (
 });
 
 </script>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.123 (指标卡日频走势弹窗「只读层日历标定」: 按各日报告自身 expiry 重算 T, k=√(T存/T正), 只修 atm_iv/skew(∝1/√T), 修正历史报告因 _CN_HOLIDAYS 把 10/8 误标休市致 T 偏小、隐波被高估(9/14~9/30 全线回正, 如 9/30 58.03→49.45)。仅认"整天丢失"型(缺整数个交易日)并按 0.5~2.0 兜底; 报告源与快照源一并覆盖; pcr_oi/pcr_vol/max_pain/slope/net_gex 口径不变; 原始 JSON 一律不动。保留 v2.11.122 前次基准口径回退 + _CN_HOLIDAYS 修正)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.125 (① 前次基准侧读层 T 标定: 前次基准 IV × 该日收盘报告自身 k(9/29 k=0.88603), 使 前次/当前 两侧 T 口径一致, 差值恢复真实; 仅读层, 磁盘 JSON 不动, 无 k 时为 1.0; 覆盖 /curve 的 smooth_prev/prev_avg/raw_C_prev/raw_P_prev 与 T 表前次 IV。② 非交易日禁写: 休市日不再写 close_state.json/eod_state.json/区间快照、不再生成且不落盘 daily_close_report_YYYYMMDD.json, 堵住 10/1、10/2 节假日脏写盘。保留 v2.11.123 只读层日历标定)</div>
 </body>
 </html>

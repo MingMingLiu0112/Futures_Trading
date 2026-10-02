@@ -657,6 +657,11 @@ def _maybe_write_close_report(report):
     now = dt_datetime.now()
     if now.hour < 15:
         return None
+    # ② v2.11.125: 非交易日(周末/法定节假日)禁止落盘 daily_close_report_YYYYMMDD.json。
+    # 之前 10/1、10/2 休市日仍各写了一份"当日收盘报告", 用的是节假日冻结的 T 表数据,
+    # 既污染 report 缓存, 又让 _today_close_report_ready 在休市日误判"今日已就绪"。
+    if not iv_smile_service._is_trading_day(now):
+        return None
     os.makedirs(STRATEGY_CLOSE_REPORT_DIR, exist_ok=True)
     path = _daily_close_report_path(now.strftime('%Y%m%d'))
     need_rebuild = True
@@ -1007,6 +1012,9 @@ def _trigger_strategy_report_background_refresh():
                 now_h = now_dt.hour
                 in_night_session = 21 <= now_h < 23
                 is_after_close = (now_h >= 15) and not in_night_session
+                # ② v2.11.125: 非交易日不生成当日研报(休市日无新数据, 生成只会产出被污染的报告)
+                if not iv_smile_service._is_trading_day(now_dt):
+                    return
                 if is_after_close and _today_close_report_ready(now_dt):
                     return
                 report = _generate_strategy_report(force_close=is_after_close)
@@ -1092,6 +1100,10 @@ def _strategy_report_periodic_scheduler(interval_minutes: int = 15):
             # 夜盘 21:00-23:00 强制 intraday 模式(即便 hour>=15)
             in_night_session = 21 <= now_run.hour < 23
             is_after_close = (now_run.hour >= 15) and not in_night_session
+            # ② v2.11.125: 非交易日不生成当日研报（同上）
+            if not iv_smile_service._is_trading_day(now_run):
+                time.sleep(60)
+                continue
             if is_after_close:
                 close_path = _today_close_report_ready(now_run)
                 if close_path:
