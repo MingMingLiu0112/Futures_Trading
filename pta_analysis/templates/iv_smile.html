@@ -3551,6 +3551,6 @@ document.getElementById('dailyMetricModal').addEventListener('click', function (
 });
 
 </script>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.120 (ATM 隐波指标卡接入「日频折线图弹窗」: 点击卡片打开 ATM 隐波 · 日频走势, 数据取 SVI atm_vol 的 15:00 收盘槽并转成 % 口径(与卡片数字同源), reports 主脊 + iv_snapshots 补齐, 缺失日留空不插值, X 轴仅交易日; tooltip 附「较前一日 ±pp」与「当日 ATM 行权价」。⚠️ 最早日受 reports 起始限制, 更早交易日仅快照补。上一版 v2.11.119 GEX 翻转点主显示改「总量过零」口径 — 判定链路(L1/L2 / gex_flip_migration / judge_state)仍读 gex_flip, 两口径约 18% 交易日落在现价异侧)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.121 (前次基准口径修订: 交易日 21:00 后无条件切换到当日 15:00 基准 — 不再要求"当天有夜盘", 修复国庆前夜(9/30)无夜盘时基准卡在 9/24 的问题; 并修复 60s 刷新切换函数漏声明 global _prev_day_baseline 导致内存中基准永不推进的 bug。上一版 v2.11.120 ATM 隐波指标卡接入「日频折线图弹窗」)</div>
 </body>
 </html>
