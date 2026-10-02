@@ -3902,6 +3902,84 @@ def _dm_is_trading_day(dstr):
     return not _is_cn_holiday(d)
 
 
+def _dm_T_calib_factor(ic, dstr):
+    """v2.11.123: 历史 T 口径自愈因子 k = √(T存/T正), 只读修正 atm_iv / skew。
+
+    背景: 报告落盘时若用了错误的交易日历(例: 2026 国庆把 10-08 误判为休市),
+    该日 T 会被少算 → IV 被系统性抬高(atm_iv / skew ∝ 1/√T)。
+    这里用**该日报告自身的 expiry** 重算 T, 得到因子乘回曲线;
+    磁盘 JSON 一律不动, 未来日历若再出错也能自愈(读取时归一)。
+
+    保护(任一不满足即返回 1.0 = 不修正):
+      - T 缺失/非正; expiry 缺失/无法解析
+      - expiry 早于报告日(字段污染, 例: 20260807 报告里挂着 2026-07-13)
+      - 重算 T 非正; k 越界(0.5~2.0 之外, 非"日历滑移"量级)
+      - k 与 1 的差 < 0.0005(视为无差异)
+    """
+    try:
+        t_stored = ic.get('T')
+        if not isinstance(t_stored, (int, float)) or t_stored <= 0:
+            return 1.0
+        exp = ic.get('expiry')
+        if isinstance(exp, str):
+            exp = _parse_iso_dt(exp)
+        if isinstance(exp, date) and not isinstance(exp, datetime):
+            exp = datetime.combine(exp, datetime.min.time())
+        if not isinstance(exp, datetime):
+            return 1.0
+        if exp.hour == 0 and exp.minute == 0 and exp.second == 0:
+            exp = exp.replace(hour=15, minute=0)      # 无时分秒 → 按 15:00 收盘口径
+        rep_dt = datetime.strptime(dstr, '%Y%m%d').replace(hour=15, minute=0)
+        if exp.date() < rep_dt.date():                # expiry 早于报告日 → 字段污染
+            return 1.0
+        t_corr = _calc_T_trading_days(exp, now=rep_dt)
+        if not isinstance(t_corr, (int, float)) or t_corr <= 0:
+            return 1.0
+        k = (t_stored / t_corr) ** 0.5
+        if not (0.5 <= k <= 2.0):
+            return 1.0
+        # 只修"整天丢失"型日历错(缺 N 个完整交易日):
+        #   例 2026 国庆把 10-08 当休市 → 该日 345 分钟被整体漏算 → miss/345 == 1.000
+        # 而报告生成时点与 15:00 的分钟级偏差(63/45/90 分钟)→ 非整天, 不修(避免误伤)
+        miss = (t_corr - t_stored) * _TRADING_DAYS_PER_YEAR * _PTA_TRADING_MINUTES_PER_DAY
+        whole = miss / float(_PTA_TRADING_MINUTES_PER_DAY)
+        if whole < 0.98 or abs(whole - round(whole)) > 0.02:
+            return 1.0
+        return k
+    except Exception:
+        return 1.0
+
+
+def _dm_report_kmap():
+    """预扫全部报告 → {date: k} 日历标定因子表(只含 k != 1.0 的日期)。
+
+    用途: 快照源(9/12~9/30 有一批日子的报告被判重复丢弃, 序列回退到快照)没有
+    expiry/T 字段, 无法就地重算 T —— 借用"同一天的收盘报告"的标定因子即可。
+    整个过程只读, 不改任何原始 JSON。
+    """
+    kmap = {}
+    try:
+        import glob as _glob
+    except Exception:
+        return kmap
+    for f in sorted(_glob.glob(os.path.join(_REPORTS_DIR, 'daily_close_report_*.json'))):
+        if '.bak' in os.path.basename(f):
+            continue
+        d = os.path.basename(f).replace('daily_close_report_', '').replace('.json', '')
+        if not d.isdigit() or d < _DAILY_METRICS_MIN_DATE:
+            continue
+        try:
+            with open(f, 'r', encoding='utf-8') as fh:
+                r = json.load(fh)
+        except Exception:
+            continue
+        ic = (r.get('iv_curve') or {}) if isinstance(r, dict) else {}
+        k = _dm_T_calib_factor(ic, d)
+        if k != 1.0:
+            kmap[d] = k
+    return kmap
+
+
 def _build_daily_metrics_series():
     """扫描 reports + snapshots → 日频 union 序列(返回 dict; 失败返 None)"""
     import glob as _glob
@@ -3909,6 +3987,10 @@ def _build_daily_metrics_series():
     if js_mod is None or not hasattr(js_mod, 'compute_pain_slope'):
         # 算法同源不可得 → 不编造, 明确报错(斜率序列留空)
         pass
+
+    # v2.11.123: 日历标定因子表(只含 k!=1 的日期) —— 修历史报告里被错误日历
+    # 低估的 T(T 偏小 → IV 被高估)。只读, 不改任何原始 JSON。
+    kmap = _dm_report_kmap()
 
     # ---------- A) snapshots(补早期 + 补报告缺失日的 pcr_vol/skew) ----------
     snap = {}
@@ -3933,13 +4015,21 @@ def _build_daily_metrics_series():
         op = sum(_dm_snum(v.get('P')) or 0 for v in oi.values())
         vc = sum(_dm_snum(v.get('C')) or 0 for v in vo.values())
         vp = sum(_dm_snum(v.get('P')) or 0 for v in vo.values())
+        _k = kmap.get(d, 1.0)
+        _skew = _dm_snum((slot.get('svi_params') or {}).get('skew'))
+        _atm = _dm_iv_pct((slot.get('svi_params') or {}).get('atm_vol'))
+        if _k != 1.0:
+            if _skew is not None:
+                _skew = round(_skew * _k, 4)
+            if _atm is not None:
+                _atm = round(_atm * _k, 2)
         snap[d] = {
             'slot': s,
             'pcr_oi': round(op / oc, 4) if oc else None,
             'pcr_vol': round(vp / vc, 4) if vc else None,
-            'skew': _dm_snum((slot.get('svi_params') or {}).get('skew')),
+            'skew': _skew,
             # v2.11.120: ATM 隐波 —— 与页面「ATM 隐波」卡同口径(SVI atm_vol), 转成 %(页面显示口径)
-            'atm_iv': _dm_iv_pct((slot.get('svi_params') or {}).get('atm_vol')),
+            'atm_iv': _atm,
             'atm_strike': _dm_snum(slot.get('atm_strike')),
             'F': _dm_snum(slot.get('futures_price')),
             'mp': _dm_snum(slot.get('max_pain')),
@@ -3960,7 +4050,8 @@ def _build_daily_metrics_series():
         except Exception:
             continue
         gx = ((r.get('gex') or {}).get('summary') or {})
-        svi = ((r.get('iv_curve') or {}).get('svi_params') or {})
+        ic = (r.get('iv_curve') or {})
+        svi = (ic.get('svi_params') or {})
         pc = ((r.get('gex') or {}).get('pain_curve') or [])
         ia = ((r.get('section1') or {}).get('iv_analysis') or {})
         if not gx or not pc:
@@ -3980,13 +4071,24 @@ def _build_daily_metrics_series():
         if is_dup:
             dup.append(d)
             continue
+        # v2.11.123 (Option A): 历史 T 口径自愈 —— 只读修正 atm_iv / skew(∝ 1/√T)。
+        # 用该日报告自身 expiry 重算 T 得 k=√(T存/T正); k=1.0 表示无需修正。
+        # 磁盘 JSON 不动; pcr_oi/pcr_vol/max_pain/pain_slope/net_gex 与 IV 无关, 不修正。
+        _k = kmap.get(d, 1.0)
+        _skew = _dm_snum(svi.get('skew'))
+        _atm_iv = _dm_iv_pct_or(svi.get('atm_vol'), ia.get('atm_vol'))
+        if _k != 1.0:
+            if _skew is not None:
+                _skew = round(_skew * _k, 4)
+            if _atm_iv is not None:
+                _atm_iv = round(_atm_iv * _k, 2)
         rep[d] = {
             'pcr_oi': _dm_snum(gx.get('pcr')),
             'gex_dir': gx.get('gex_direction'),
             'net_gex': _dm_snum(gx.get('net_gex')),
-            'skew': _dm_snum(svi.get('skew')),
+            'skew': _skew,
             # v2.11.120: ATM 隐波(%): 优先 SVI atm_vol(与页面卡同口径), 退回报告 iv_analysis.atm_vol(本身即 %)
-            'atm_iv': _dm_iv_pct_or(svi.get('atm_vol'), ia.get('atm_vol')),
+            'atm_iv': _atm_iv,
             'atm_strike': _dm_snum((r.get('iv_curve') or {}).get('atm_strike')),
             'F': _dm_snum(gx.get('futures_price')),
             'mp': mp,

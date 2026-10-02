@@ -3551,6 +3551,6 @@ document.getElementById('dailyMetricModal').addEventListener('click', function (
 });
 
 </script>
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.122 (前次基准口径回退到原逻辑: 仅当"当天有 PTA 夜盘"时 21:00 才切到当日 15:00 — 节前无夜盘日(9/30)不切, 整个假期显示 9/29, 节后首日 10/8 早盘 9:00 才切到 9/30。另修正 _CN_HOLIDAYS[2026] 把 10/8 误标休市(实为交易日)致"节后首日"分支永不触发, 并补 劳动节 5/4-5/5。保留 v2.11.121 的 60s 刷新切换漏声明 global 修复)</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.123 (指标卡日频走势弹窗「只读层日历标定」: 按各日报告自身 expiry 重算 T, k=√(T存/T正), 只修 atm_iv/skew(∝1/√T), 修正历史报告因 _CN_HOLIDAYS 把 10/8 误标休市致 T 偏小、隐波被高估(9/14~9/30 全线回正, 如 9/30 58.03→49.45)。仅认"整天丢失"型(缺整数个交易日)并按 0.5~2.0 兜底; 报告源与快照源一并覆盖; pcr_oi/pcr_vol/max_pain/slope/net_gex 口径不变; 原始 JSON 一律不动。保留 v2.11.122 前次基准口径回退 + _CN_HOLIDAYS 修正)</div>
 </body>
 </html>
