@@ -1528,6 +1528,16 @@ def _get_expected_baseline_date(now_dt):
 
     # 3) 默认
     if _is_trading_day(today):
+        # v2.11.126 修复: 节后首个交易日 9:00 之前，节前最后交易日的 cb 还没生效
+        # （按业务规则要等 9:00 早盘才切）。此时必须沿用假期期间的基准
+        # （= 节前最后交易日的再上一交易日），否则默认分支会在 00:00 就提前切到节前最后交易日。
+        # 注意：_is_post_holiday_first_trading_day 只在 gap 内含法定节假日时为 True，
+        # 普通周末后的周一不算节后首日，不受影响。
+        if _is_post_holiday_first_trading_day(today) and now.hour < 9:
+            last_td = _find_last_trading_day_before(today)
+            if last_td:
+                return _find_last_trading_day_before(last_td)
+            return None
         # 今日是交易日（且不是节后首日），今日 cb 在 21:00 才生效 → 用上一交易日
         return _find_last_trading_day_before(today)
     else:
