@@ -2302,10 +2302,110 @@ function renderInstitutionViews(list) {
       <tbody>${rows}</tbody>
     </table></div>`;
 }
+// v2.11.127: 痛点结构研判（斜率口径）—— 一行结论 + 可折叠展开明细
+// 数据源: 研报 section1.pain_structure / intraday_analysis.pain_structure
+// 注: 与既有 nature_synthesis.shape(OI 比值口径) 不同, 此为 Pain 斜率口径
+// v2.11.127b: 由独立【4b】段改为并入四维决策作为 L5（辅助研判, 不计分）
+function _painStructureParts(ps) {
+  const c = ps.curve || {}, sl = ps.slope || {}, om = ps.oi_migration || {};
+  const shapeCn = { leftSteep: '左陡右缓', rightSteep: '右陡左缓', bothSteep: '双边陡峭', sym: '基本对称' };
+  const posCn = { aboveMP: '价在MP上', belowMP: '价在MP下', atMP: '价贴MP' };
+  const shapeTxt = shapeCn[sl.shape] || sl.shape || '--';
+  const posTxt = posCn[sl.position] || sl.position || '--';
+  const regimeTxt = sl.regime || '--';
+  const ratioTxt = (sl.ratio != null && !isNaN(Number(sl.ratio))) ? Number(sl.ratio).toFixed(2) : '--';
+  const num = (v, d) => (v == null || isNaN(Number(v))) ? '--' : Number(v).toFixed(d == null ? 0 : d);
+  let headline = `${shapeTxt} · ${posTxt}`;
+  if (sl.regime) headline += ` · 斜率比 ${ratioTxt}（${regimeTxt}）`;
+  if (c.max_pain != null) headline += ` · MP ${num(c.max_pain)}（${c.mp_migration || '—'}）`;
+  return { c, sl, om, shapeTxt, posTxt, regimeTxt, ratioTxt, num, headline };
+}
+
+// 明细体（曲线几何 / 斜率 / 9 象限 / 持仓迁移 / 对冲机理）
+function _painStructureDetail(ps) {
+  const P = _painStructureParts(ps);
+  const { c, sl, om, shapeTxt, posTxt, regimeTxt, ratioTxt, num } = P;
+  const wallRows = (arr) => (Array.isArray(arr) ? arr : []).map(w => {
+    const d = (w.oi_delta_day != null) ? w.oi_delta_day : (w.delta != null ? w.delta : null);
+    const dtxt = (d == null) ? '--' : ((d > 0 ? '↑ +' : (d < 0 ? '↓ ' : '')) + Math.abs(d).toLocaleString());
+    const dcolor = (d == null) ? '#888' : (d > 0 ? '#ef5350' : (d < 0 ? '#26a69a' : '#aaa'));
+    return `<tr>
+      <td style="color:#eee;padding:3px 6px;border-bottom:1px solid #242430;">${num(w.strike)}</td>
+      <td style="color:#ccc;padding:3px 6px;border-bottom:1px solid #242430;">${w.oi != null ? Number(w.oi).toLocaleString() : '--'}</td>
+      <td style="color:${dcolor};padding:3px 6px;border-bottom:1px solid #242430;">${dtxt}</td>
+    </tr>`;
+  }).join('');
+  const wallTable = (title, arr) => {
+    if (!Array.isArray(arr) || !arr.length) return '';
+    return `<div style="flex:1 1 200px;min-width:200px;">
+      <div style="color:#ffd700;font-size:11px;font-weight:bold;margin-bottom:3px;">${title}</div>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;background:#12121b;border:1px solid #2a2a36;">
+        <thead><tr><th style="color:#aaa;text-align:left;padding:3px 6px;border-bottom:1px solid #333;font-weight:500;">档位</th><th style="color:#aaa;text-align:left;padding:3px 6px;border-bottom:1px solid #333;font-weight:500;">持仓</th><th style="color:#aaa;text-align:left;padding:3px 6px;border-bottom:1px solid #333;font-weight:500;">较前日</th></tr></thead>
+        <tbody>${wallRows(arr)}</tbody></table></div>`;
+  };
+  const riskHtml = (Array.isArray(ps.risk_points) && ps.risk_points.length)
+    ? `<div style="margin-top:6px;"><div style="color:#ffd700;font-size:11px;font-weight:bold;margin-bottom:3px;">风险点</div>
+       <ul style="margin:0;padding-left:18px;color:#d0d0d0;font-size:11px;line-height:1.6;">${ps.risk_points.map(x => `<li>${escHtml(x)}</li>`).join('')}</ul></div>`
+    : '';
+  const flatTxt = c.flatness
+    ? `${c.flatness.is_flat_bottom ? '平底(弱判定)' : '单点谷'} · 次低差 ${c.flatness.diff_pct != null ? c.flatness.diff_pct : '--'}%${c.second_low && c.second_low.strike != null ? ' @' + num(c.second_low.strike) : ''}`
+    : '--';
+  return `<div style="margin-top:6px;">
+        <div style="color:#ccc;font-size:11px;line-height:1.75;">
+          <div>· 曲线几何: MP <b style="color:#eee;">${num(c.max_pain)}</b>（前日 ${num(c.max_pain_prev)}，${escHtml(c.mp_migration || '—')}）</div>
+          <div>· MP 谷形: ${escHtml(flatTxt)}</div>
+          <div>· 斜率: 左(down) ${sl.down != null ? Number(sl.down).toLocaleString() : '--'} / 右(up) ${sl.up != null ? Number(sl.up).toLocaleString() : '--'} / 比值 <b style="color:#eee;">${ratioTxt}</b>（${escHtml(regimeTxt)}，dyn_th ${sl.dyn_th != null ? sl.dyn_th : '--'}）</div>
+          <div>· 形态×位置: <b style="color:#eee;">${escHtml(shapeTxt)}</b> × ${escHtml(posTxt)} · GEX ${escHtml(sl.gex_dir || '--')} · 价${escHtml(sl.p_vs_flip || '--')}翻转点</div>
+          <div>· 9 象限语义: ${escHtml(sl.quadrant || '--')}</div>
+          <div>· 对冲机理: ${escHtml(ps.hedge_mechanism || '--')}</div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;">
+          ${wallTable('下方 Put 墙 Top5', om.put_wall)}
+          ${wallTable('上方 Call 墙 Top5', om.call_wall)}
+        </div>
+        <div style="color:#ccc;font-size:11px;margin-top:6px;">· 持仓比 PCR: <b style="color:#eee;">${om.pcr != null ? Number(om.pcr).toFixed(3) : '--'}</b>（前日 ${om.pcr_prev != null ? Number(om.pcr_prev).toFixed(3) : '--'}，Δ ${om.pcr_delta != null ? (om.pcr_delta > 0 ? '+' : '') + Number(om.pcr_delta).toFixed(3) : '--'}） · ${escHtml(om.migration_dir || '')}</div>
+        ${riskHtml}
+  </div>`;
+}
+
+// 独立段渲染（保留供其他引用；/iv_smile 研报面板已改用 L5 层）
+function renderPainStructureBlock(ps) {
+  if (!ps || typeof ps !== 'object') return '';
+  const P = _painStructureParts(ps);
+  return `<div style="margin:10px 0 12px 0;border:1px solid #3a3a4d;border-radius:6px;background:#191922;padding:8px 10px;">
+    <div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:4px;">🎯 痛点结构研判 <span style="color:#777;font-size:10px;font-weight:400;">（斜率口径 v2.11.127）</span></div>
+    <div style="color:#e0e0e0;font-size:12px;line-height:1.6;">${escHtml(P.headline)}</div>
+    <div style="color:#9fb4c9;font-size:11px;line-height:1.55;margin-top:2px;">${escHtml(ps.verdict || '')}</div>
+    <details style="margin-top:6px;">
+      <summary style="cursor:pointer;color:#8fb3d9;font-size:11px;">展开明细（曲线几何 / 斜率 / 9 象限 / 持仓迁移 / 对冲机理）</summary>
+      ${_painStructureDetail(ps)}
+    </details>
+  </div>`;
+}
+
+// v2.11.127b: L5 层 —— 嵌入四维决策容器内（辅助研判，不计分）
+function renderPainStructureLayer(ps) {
+  if (!ps || typeof ps !== 'object') return '';
+  const P = _painStructureParts(ps);
+  const id = 'painStructL5';
+  const label = '展开 L5 明细（曲线几何 / 斜率 / 9 象限 / 持仓迁移 / 对冲机理）';
+  return `<div style="display:flex;align-items:flex-start;gap:8px;padding:5px 0;border-bottom:1px dashed #2a2a36;">
+      <div style="color:#888;font-size:10px;min-width:24px;font-weight:bold;">L5</div>
+      <div style="flex:1;color:#cfcfcf;font-size:11px;line-height:1.55;">
+        <span style="color:#ffd700;font-weight:bold;">PAIN 结构（斜率口径）</span>
+        <span style="color:#666;font-size:10px;">（辅助研判 · 不计分）</span>
+        <div style="color:#e0e0e0;font-size:11px;margin-top:2px;">${escHtml(P.headline)}</div>
+        <div style="color:#9fb4c9;font-size:10px;margin-top:2px;">${escHtml(ps.verdict || '')}</div>
+        <div id="${id}-btn" style="color:#4fc3f7;font-size:10px;cursor:pointer;line-height:1.6;user-select:none;margin-top:3px;"
+             onclick="var b=document.getElementById('${id}'),t=document.getElementById('${id}-btn');if(b.style.display==='none'){b.style.display='block';t.textContent='▼ 收起 L5 明细';}else{b.style.display='none';t.textContent='▶ ${label}';}">▶ ${label}</div>
+        <div id="${id}" style="display:none;">${_painStructureDetail(ps)}</div>
+      </div>
+    </div>`;
+}
 // v2.11.68 A 方案: 5.5 性质判定×合成信号 整块删除,内容合并到段 4 L3 展开区
 
 // ============================================================
-function renderDecisionLayerBlock(d) {
+function renderDecisionLayerBlock(d, painStructure) {
   // v2.11.101: 原 99j 主页 cell/escText 在 renderIntradayAnalysis 闭包内；搬到顶层后自己定义
   const cell = (v) => (v == null || v === '' ? '--' : v);
   const escText = (s) => String(s == null ? '' : s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
@@ -2609,6 +2709,10 @@ function renderDecisionLayerBlock(d) {
     </div>`;
   }
   // [v2.11.95f: L3 展开块已移到 layerRow(3) 后 - 见 renderDecisionLayerBlock 中对应位置]
+  // v2.11.127b: L5 —— 痛点结构研判（斜率口径, 辅助研判不计分）
+  if (painStructure && typeof painStructure === 'object') {
+    html += renderPainStructureLayer(painStructure);
+  }
   // 逻辑链（各层一句话串联）
   if (fin.logic_chain) {
     html += `<div style="margin:8px 0 0 0;color:#aaa;font-size:10px;line-height:1.6;background:#0e0e16;padding:6px 8px;border-radius:3px;">
@@ -2920,9 +3024,11 @@ async function loadDailyReport(endpoint) {
       }
     } catch (e) {}
 
-    // 从 /api/strategy_report/daily 注入产业链 + 宏观 + 信息源
+    // 从 /api/strategy_report/{realtime,daily} 注入产业链 + 宏观 + 信息源
+    // v2.11.127b: 默认走 /realtime（严格超集: 含 pain_structure; 亦含 previous_day_comparison）
     try {
-      const srResp = await fetch('/api/strategy_report/daily', { cache: 'no-store' });
+      const srEp = endpoint || '/api/strategy_report/realtime';
+      const srResp = await fetch(srEp, { cache: 'no-store' });
       const srData = await srResp.json();
       if (srData && srData.success && srData.data) {
         const ia = srData.data.intraday_analysis || srData.data.market_brief || {};
@@ -2933,6 +3039,9 @@ async function loadDailyReport(endpoint) {
         intraday.macro_news_items = ia.macro_news_items;
         intraday.key_levels = ia.key_levels;
         intraday.narrative_notes = ia.narrative_notes;
+        // v2.11.127: 痛点结构研判（斜率口径）—— 随 15 分钟研报刷新
+        intraday.pain_structure = ia.pain_structure
+          || (srData.data.section1 && srData.data.section1.pain_structure);
         // v2.11.105: 机构观点 (后端 JSON 早有, 此前前端未消费)
         const _mmi = srData.data.manual_macro_input || {};
         intraday.manual_institutions = _mmi.institutions || (_mmi.input && _mmi.input.institutions) || [];
@@ -2962,8 +3071,8 @@ async function loadDailyReport(endpoint) {
     const macroInter = intraday.macro_interpretation || '';
     if (macroInter) out += renderInterpretation(macroInter);
 
-    // 【4 四维决策】
-    out += renderDecisionLayerBlock(intraday.decision_layer);
+    // 【4 四维决策】(v2.11.127b: 痛点结构研判·斜率口径 已并入为 L5)
+    out += renderDecisionLayerBlock(intraday.decision_layer, intraday.pain_structure);
 
     // 【6 信息源】宏观财经快讯 + 关键价位
     out += `<div style="margin:14px 0 6px 0;color:#ffd700;font-size:12px;font-weight:bold;">📡 信息源</div>`;
@@ -3551,11 +3660,12 @@ document.getElementById('dailyMetricModal').addEventListener('click', function (
 });
 
 </script>
-<!-- v2.11.126 变更记录（仅内部留存，不显示在页面）：
-     ▸ 前次基准 9:00 切换闸门修复: _get_expected_baseline_date() 在节后首交易日 9:00 前沿用假期基准(9/29), 9:00 起才切到节前最后交易日(9/30), 修掉 00:00 午夜提前切换。
+<!-- 变更记录（仅内部留存，不显示在页面）：
+     ▸ v2.11.127: 研报新增「痛点结构研判」维度(斜率口径) —— 合并 Max Pain 迁移/平底检测 + Pain 斜率(形态×位置×GEX方向) + 持仓分布变化(下方 Put 墙 / 上方 Call 墙 Top5 + PCR 变化) 为 section1.pain_structure, 前端在决策层下方以「🎯 痛点结构研判」可折叠块渲染; 纯新增字段, 不改动任何既有算法输出。
+     ▸ v2.11.126: 前次基准 9:00 切换闸门修复: _get_expected_baseline_date() 在节后首交易日 9:00 前沿用假期基准(9/29), 9:00 起才切到节前最后交易日(9/30), 修掉 00:00 午夜提前切换。
      ▸ 前端版本脚注只保留版本号, changelog 移入本注释。
      ▸ v2.11.125: ① 前次基准侧读层 T 标定(前次基准 IV × 该日收盘报告自身 k, 仅读层, 磁盘 JSON 不动) ② 非交易日禁写(休市日不写 close_state.json/eod_state.json/区间快照, 不落盘 daily_close_report)。
      ▸ v2.11.123: 只读层日历标定。 -->
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.126</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.127</div>
 </body>
 </html>

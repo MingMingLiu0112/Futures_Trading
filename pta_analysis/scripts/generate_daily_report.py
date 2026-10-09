@@ -2216,6 +2216,181 @@ def _market_session(now: Optional[datetime] = None) -> str:
     return '非交易时段'
 
 
+# v2.11.127: 痛点结构研判（斜率口径）新维度 —— 纯新增字段, 不改动任何既有算法输出
+def build_pain_structure_analysis(report: Dict) -> Dict:
+    """构建『痛点结构研判』段数据。
+
+    复用既有产出（不重算任何算法）:
+      - report['gex']: pain_curve / oi_dist / summary
+      - data/fundamental/decision_layer_cache.json → layer1: shape/position/p_vs_flip/
+        gex_dir/matrix_meaning/slope_*_now/dyn_threshold/both_steep/max_pain/gex_flip
+      - 前一交易日 close report 的 gex.oi_dist → OI 迁移对比
+
+    产出: section1.pain_structure (同一份写入 intraday_analysis.pain_structure)
+      curve{max_pain, max_pain_prev, mp_migration, flatness, second_low}
+      slope{down, up, ratio, regime, dyn_th, shape, position, p_vs_flip, gex_dir, both_steep, quadrant}
+      oi_migration{put_wall[], call_wall[], pcr, pcr_prev, pcr_delta, migration_dir}
+      hedge_mechanism, verdict, risk_points[]
+    """
+    out: Dict = {
+        'version': 'v2.11.127',
+        'source': '斜率口径 (pain curve geometry + decision_layer L1)',
+        'curve': {}, 'slope': {}, 'oi_migration': {},
+        'hedge_mechanism': '', 'verdict': '', 'risk_points': [],
+    }
+
+    # ---------- 读 L1 决策层缓存 (shape/position/matrix/slope) ----------
+    l1: Dict = {}
+    try:
+        _scripts_dir = os.path.dirname(os.path.abspath(__file__))
+        _dl_cache_path = os.path.join(_scripts_dir, '..', 'data', 'fundamental', 'decision_layer_cache.json')
+        if os.path.exists(_dl_cache_path):
+            with open(_dl_cache_path, 'r', encoding='utf-8') as _f:
+                l1 = ((json.load(_f).get('decision_layer') or {}).get('layer1') or {})
+    except Exception as _e:
+        print(f"[pain_structure] 读 L1 缓存失败: {_e}")
+
+    gex = (report or {}).get('gex') or {}
+    sm = dict(gex.get('summary') or {})
+    pain_curve = list(gex.get('pain_curve') or [])
+    oi_dist = list(gex.get('oi_dist') or [])
+
+    # ---------- L1 曲线几何: MP + 平底检测 ----------
+    mp = l1.get('max_pain') or sm.get('max_pain')
+    mp_prev = (l1.get('prev_summary') or {}).get('max_pain')
+    flatness = None
+    second_low = None
+    try:
+        _pc = sorted(
+            [{'strike': float(p.get('strike')), 'pain': float(p.get('pain'))}
+             for p in pain_curve if p.get('strike') is not None and p.get('pain') is not None],
+            key=lambda x: x['pain'])
+        if _pc:
+            _low = _pc[0]
+            if mp is None:
+                mp = _low['strike']
+            if len(_pc) > 1:
+                _sec = _pc[1]
+                _diff_pct = round(abs(_sec['pain'] - _low['pain']) / (abs(_low['pain']) or 1.0) * 100, 3)
+                flatness = {'diff_pct': _diff_pct, 'is_flat_bottom': _diff_pct < 1.0}
+                second_low = {'strike': _sec['strike'], 'pain': _sec['pain'], 'diff_pct': _diff_pct}
+    except Exception as _e:
+        print(f"[pain_structure] 平底检测失败: {_e}")
+
+    _mp_migration = ''
+    if mp is not None and mp_prev is not None:
+        _d = float(mp) - float(mp_prev)
+        if _d > 0:
+            _mp_migration = f'上移(Δ{_d:+.0f})'
+        elif _d < 0:
+            _mp_migration = f'下移(Δ{_d:+.0f})'
+        else:
+            _mp_migration = '持平'
+
+    out['curve'] = {
+        'max_pain': mp, 'max_pain_prev': mp_prev, 'mp_migration': _mp_migration,
+        'flatness': flatness, 'second_low': second_low,
+    }
+
+    # ---------- L2 斜率 + L3 形态×位置 (直接取 L1, 不重算) ----------
+    out['slope'] = {
+        'down': l1.get('slope_down_now'), 'up': l1.get('slope_up_now'),
+        'ratio': l1.get('slope_ratio_now'), 'regime': l1.get('slope_regime_now'),
+        'dyn_th': l1.get('dyn_threshold'),
+        'shape': l1.get('shape'), 'position': l1.get('position'),
+        'p_vs_flip': l1.get('p_vs_flip'), 'gex_dir': l1.get('gex_dir'),
+        'both_steep': l1.get('both_steep'),
+        'quadrant': l1.get('matrix_meaning') or '',
+    }
+
+    # ---------- L4 持仓迁移: put/call 墙 top5 + 前日对比 + PCR ----------
+    def _top_walls(rows, key, n=5):
+        r = [x for x in rows if x.get(key) not in (None, 0)]
+        r.sort(key=lambda x: float(x.get(key) or 0), reverse=True)
+        return [{'strike': float(x.get('strike')), 'oi': int(float(x.get(key) or 0))} for x in r[:n]]
+
+    put_wall = _top_walls(oi_dist, 'put_oi')
+    call_wall = _top_walls(oi_dist, 'call_oi')
+
+    _prev_oi = {}
+    try:
+        _prev = load_previous_trading_day_close_report()
+        for x in ((_prev or {}).get('gex') or {}).get('oi_dist') or []:
+            if x.get('strike') is not None:
+                _prev_oi[float(x.get('strike'))] = x
+    except Exception as _e:
+        print(f"[pain_structure] 读前日简报失败: {_e}")
+
+    def _attach_delta(walls, key):
+        for w in walls:
+            pv = (_prev_oi.get(w['strike']) or {}).get(key)
+            w['oi_prev'] = int(float(pv)) if pv is not None else None
+            w['oi_delta_day'] = (w['oi'] - w['oi_prev']) if w['oi_prev'] is not None else None
+
+    _attach_delta(put_wall, 'put_oi')
+    _attach_delta(call_wall, 'call_oi')
+
+    pcr = sm.get('pcr') if sm.get('pcr') is not None else l1.get('pos_pcr')
+    pcr_prev = (l1.get('prev_summary') or {}).get('pcr')
+    pcr_delta = round(float(pcr) - float(pcr_prev), 3) if (pcr is not None and pcr_prev is not None) else None
+
+    out['oi_migration'] = {
+        'put_wall': put_wall, 'call_wall': call_wall,
+        'pcr': pcr, 'pcr_prev': pcr_prev, 'pcr_delta': pcr_delta,
+        'migration_dir': '',
+    }
+
+    # ---------- L5 对冲机理 + 结论 + 风险点 ----------
+    _shape = l1.get('shape') or 'unknown'
+    _pos = l1.get('position') or 'unknown'
+    _pflip = l1.get('p_vs_flip') or 'unknown'
+    _gexd = l1.get('gex_dir') or 'unknown'
+    _matrix = l1.get('matrix_meaning') or ''
+
+    _accel = []
+    if _shape in ('leftSteep', 'bothSteep'):
+        _accel.append('下方 Put 堆（左陡）→ 跌破 MP 后卖盘自强化（下跌加速器）')
+    if _shape in ('rightSteep', 'bothSteep'):
+        _accel.append('上方 Call 堆（右陡）→ 突破 MP 后买盘自强化（上涨加速器）')
+    _gex_txt = {'negative': '负 GEX 放大波动（加速）', 'positive': '正 GEX 抑制波动（钉住）'}.get(_gexd, f'GEX {_gexd}')
+    out['hedge_mechanism'] = '；'.join(_accel + [_gex_txt]) if (_accel or _gexd != 'unknown') else ''
+
+    _verdict = f"{_shape} × {_pos} × GEX {_gexd} × 价{_pflip}翻转点"
+    if _matrix:
+        _verdict += f" → {_matrix}"
+    out['verdict'] = _verdict
+
+    _risks = []
+    _dr = l1.get('summary') or {}
+    _t_days = _dr.get('T_days_remaining') or _dr.get('days_left')
+    if _pos == 'aboveMP' and _shape == 'leftSteep':
+        _risks.append('多头陷阱·左暴露：价格在 MP 上方但下方 Put 墙厚，跌破即自强化下杀')
+    if _pos == 'belowMP' and _shape == 'rightSteep':
+        _risks.append('空头末期·右燃料待燃：价格在 MP 下方但上方 Call 墙厚，突破即自强化上冲')
+    if _gexd == 'negative':
+        _risks.append('负 GEX：做市商追涨杀跌，双向波动放大，无压制缓冲')
+    if l1.get('both_steep'):
+        _risks.append('双边陡峭：上下均有厚墙，突破任一侧都会加速，方向选择成本高')
+    if flatness and flatness.get('is_flat_bottom') and second_low:
+        _risks.append(f"MP 平底（次低仅差 {flatness['diff_pct']}%）：MP 在 {second_low['strike']:.0f} 附近抖动，argmin 噪声，非趋势信号")
+    if _t_days is not None:
+        try:
+            if float(_t_days) <= 7:
+                _risks.append(f'临近到期（T={_t_days}天）：theta 加速 + ATM gamma 放大，卖方风险集中')
+        except Exception:
+            pass
+    out['risk_points'] = _risks
+
+    _md = []
+    if _mp_migration:
+        _md.append(f"MP {_mp_migration}")
+    if pcr_delta is not None:
+        _md.append(f"PCR {pcr_delta:+.3f}")
+    out['oi_migration']['migration_dir'] = '；'.join(_md)
+
+    return out
+
+
 def generate_report(report_type: str = 'intraday') -> Dict:
     """生成完整日报数据。report_type=intraday用于15分钟滚动研报。"""
     now = datetime.now()
@@ -2340,6 +2515,16 @@ def generate_report(report_type: str = 'intraday') -> Dict:
     report['intraday_analysis'] = intraday_analysis
     report['market_brief'] = intraday_analysis
     report['narrative_report'] = intraday_analysis.get('narrative')
+
+    # v2.11.127: 痛点结构研判（斜率口径）—— 纯新增维度, 随 15min 刷新骑乘
+    try:
+        _pain_structure = build_pain_structure_analysis(report)
+        if isinstance(report.get('section1'), dict):
+            report['section1']['pain_structure'] = _pain_structure
+        report['intraday_analysis']['pain_structure'] = _pain_structure
+        report['market_brief'] = report['intraday_analysis']
+    except Exception as _ps_e:
+        print(f"[pain_structure] 构建失败: {_ps_e}")
 
     return report
 
