@@ -2231,12 +2231,17 @@ def build_pain_structure_analysis(report: Dict) -> Dict:
       slope{down, up, ratio, regime, dyn_th, shape, position, p_vs_flip, gex_dir, both_steep, quadrant}
       oi_migration{put_wall[], call_wall[], pcr, pcr_prev, pcr_delta, migration_dir}
       hedge_mechanism, verdict, risk_points[]
+      --- v2.11.127c (C1 纯新增) ---
+      slope_change{prev_date, now{}, prev{}, ratio_delta, regime_changed, one_side_trend{}, note}
+      oi_attribution{prev_date, n_matched, rows[], put/call_top_add/cut[], mp_attribution}
+      cross_check{skew{}, pcr{}, signals[], verdict, note}
     """
     out: Dict = {
-        'version': 'v2.11.127',
+        'version': 'v2.11.127c',
         'source': '斜率口径 (pain curve geometry + decision_layer L1)',
         'curve': {}, 'slope': {}, 'oi_migration': {},
         'hedge_mechanism': '', 'verdict': '', 'risk_points': [],
+        'slope_change': {}, 'oi_attribution': {}, 'cross_check': {},
     }
 
     # ---------- 读 L1 决策层缓存 (shape/position/matrix/slope) ----------
@@ -2313,8 +2318,10 @@ def build_pain_structure_analysis(report: Dict) -> Dict:
     call_wall = _top_walls(oi_dist, 'call_oi')
 
     _prev_oi = {}
+    _prev_report = None
     try:
         _prev = load_previous_trading_day_close_report()
+        _prev_report = _prev
         for x in ((_prev or {}).get('gex') or {}).get('oi_dist') or []:
             if x.get('strike') is not None:
                 _prev_oi[float(x.get('strike'))] = x
@@ -2339,6 +2346,167 @@ def build_pain_structure_analysis(report: Dict) -> Dict:
         'pcr': pcr, 'pcr_prev': pcr_prev, 'pcr_delta': pcr_delta,
         'migration_dir': '',
     }
+
+    # ---------- C1(v2.11.127c): 斜率较前日变化量 (前一交易日收盘口径) ----------
+    # now = 决策层 L1 实时口径; prev = 前一交易日收盘 pain_curve 经 production
+    # compute_pain_slope 计算 (dyn_th 用前日自身 IV/T/OI)。纯新增, 不改既有算法。
+    _shape = l1.get('shape') or 'unknown'
+    _slope_change: Dict = {'prev_date': None, 'now': {}, 'prev': {}, 'ratio_delta': None,
+                           'regime_changed': None, 'one_side_trend': {}, 'note': ''}
+    try:
+        if _prev_report:
+            _prev_date = _prev_report.get('date') or (_prev_report.get('timestamp') or '')[:10]
+            _slope_change['prev_date'] = _prev_date
+            _pgex = _prev_report.get('gex') or {}
+            _prev_pc = list(_pgex.get('pain_curve') or [])
+            _prev_sm = dict(_pgex.get('summary') or {})
+            _prev_mp = _prev_sm.get('max_pain')
+            if _prev_mp is None and _prev_pc:
+                _prev_mp = min(_prev_pc, key=lambda x: x.get('pain', 0)).get('strike')
+            from judge_state import compute_pain_slope, compute_dynamic_threshold
+            _prev_dyn = compute_dynamic_threshold(
+                iv_percentile=_prev_sm.get('iv_percentile'),
+                T_days_remaining=_prev_sm.get('T_days_remaining'),
+                oi_total_now=_prev_sm.get('oi_total_now'),
+            ).get('dyn_threshold')
+            _prev_slope = compute_pain_slope(_prev_pc, _prev_mp, dyn_th=_prev_dyn) if _prev_pc else {}
+            _slope_change['prev'] = {
+                'mp': _prev_mp, 'dyn_th': _prev_dyn,
+                'down': _prev_slope.get('slope_down'), 'up': _prev_slope.get('slope_up'),
+                'ratio': _prev_slope.get('slope_ratio'), 'regime': _prev_slope.get('slope_regime'),
+            }
+            _slope_change['now'] = {
+                'mp': mp, 'dyn_th': l1.get('dyn_threshold'),
+                'down': l1.get('slope_down_now'), 'up': l1.get('slope_up_now'),
+                'ratio': l1.get('slope_ratio_now'), 'regime': l1.get('slope_regime_now'),
+            }
+            _rn, _rp = l1.get('slope_ratio_now'), _prev_slope.get('slope_ratio')
+            if _rn is not None and _rp is not None:
+                _slope_change['ratio_delta'] = round(float(_rn) - float(_rp), 3)
+            _slope_change['regime_changed'] = (l1.get('slope_regime_now') != _prev_slope.get('slope_regime'))
+            for _k, _nk, _pk in (('down', 'slope_down_now', 'slope_down'), ('up', 'slope_up_now', 'slope_up')):
+                _nv, _pv = l1.get(_nk), _prev_slope.get(_pk)
+                _trend = '—'
+                if _nv is not None and _pv is not None:
+                    _a, _b = abs(float(_nv)), abs(float(_pv))
+                    if _b > 0:
+                        _r = (_a - _b) / _b
+                        _trend = '变陡' if _r > 0.05 else ('变缓' if _r < -0.05 else '持平')
+                    else:
+                        _trend = '变陡' if _a > 0 else '持平'
+                _slope_change['one_side_trend'][_k] = {
+                    'now': _nv, 'prev': _pv,
+                    'delta': (round(float(_nv) - float(_pv), 2) if (_nv is not None and _pv is not None) else None),
+                    'trend': _trend,
+                }
+            _slope_change['note'] = ('now=决策层L1(实时口径)；prev=前一交易日收盘 pain_curve 经 production '
+                                     'compute_pain_slope 计算(含前日自身 dyn_th)')
+    except Exception as _e:
+        print(f"[pain_structure] 斜率较前日计算失败: {_e}")
+    out['slope_change'] = _slope_change
+
+    # ---------- C1(v2.11.127c): 每档 OI 归因表 (较前日, 仅匹配档) ----------
+    _oi_attr: Dict = {'prev_date': None, 'n_matched': 0, 'rows': [],
+                      'put_top_add': [], 'put_top_cut': [], 'call_top_add': [], 'call_top_cut': [],
+                      'mp_attribution': ''}
+    try:
+        _rows = []
+        for _cur in oi_dist:
+            _st = _cur.get('strike')
+            if _st is None:
+                continue
+            _st = float(_st)
+            _pv = _prev_oi.get(_st)
+            if _pv is None:
+                continue
+            _pn = int(float(_cur.get('put_oi') or 0)); _pp = int(float(_pv.get('put_oi') or 0))
+            _cn = int(float(_cur.get('call_oi') or 0)); _cp = int(float(_pv.get('call_oi') or 0))
+            _rows.append({'strike': _st,
+                          'put_now': _pn, 'put_prev': _pp, 'put_delta': _pn - _pp,
+                          'call_now': _cn, 'call_prev': _cp, 'call_delta': _cn - _cp})
+        _rows.sort(key=lambda r: r['strike'])
+        _oi_attr['prev_date'] = _slope_change.get('prev_date')
+        _oi_attr['n_matched'] = len(_rows)
+        _oi_attr['rows'] = _rows
+
+        def _rank(rows, key, top=True, n=5):
+            r = [x for x in rows if x.get(key) is not None and (x[key] > 0 if top else x[key] < 0)]
+            r.sort(key=lambda x: x[key], reverse=top)
+            return [{'strike': x['strike'], 'delta': x[key]} for x in r[:n]]
+
+        _oi_attr['put_top_add'] = _rank(_rows, 'put_delta', True)
+        _oi_attr['put_top_cut'] = _rank(_rows, 'put_delta', False)
+        _oi_attr['call_top_add'] = _rank(_rows, 'call_delta', True)
+        _oi_attr['call_top_cut'] = _rank(_rows, 'call_delta', False)
+
+        def _fmt(lst):
+            return '/'.join(f"{int(x['strike'])}{x['delta']:+d}" for x in lst)
+        _segs = []
+        if _oi_attr['put_top_add']:
+            _segs.append(f"Put 加仓 {_fmt(_oi_attr['put_top_add'][:2])}")
+        if _oi_attr['put_top_cut']:
+            _segs.append(f"Put 减仓 {_fmt(_oi_attr['put_top_cut'][:2])}")
+        if _oi_attr['call_top_add']:
+            _segs.append(f"Call 加仓 {_fmt(_oi_attr['call_top_add'][:2])}")
+        if _oi_attr['call_top_cut']:
+            _segs.append(f"Call 减仓 {_fmt(_oi_attr['call_top_cut'][:2])}")
+        _oi_attr['mp_attribution'] = ('；'.join(_segs) + (f" → MP {_mp_migration}" if _mp_migration else '')) if _segs else ''
+    except Exception as _e:
+        print(f"[pain_structure] 每档归因表计算失败: {_e}")
+    out['oi_attribution'] = _oi_attr
+
+    # ---------- C1(v2.11.127c): 三方印证 (斜率 × Skew × PCR) ----------
+    _cc: Dict = {'skew': {}, 'pcr': {}, 'signals': [], 'verdict': '', 'note': ''}
+    try:
+        _s1 = (report or {}).get('section1') or {}
+        _iva = _s1.get('iv_analysis') or {}
+        _skew = _iva.get('skew'); _skew_lv = _iva.get('skew_level'); _skew_desc = _iva.get('skew_desc')
+        _cc['skew'] = {'value': _skew, 'level': _skew_lv, 'desc': _skew_desc}
+        _cc['pcr'] = {'value': pcr, 'prev': pcr_prev, 'delta': pcr_delta}
+        # 斜率 lean (左陡=下方Put墙重=偏空; 右陡=偏多; 双边/对称=中性)
+        _lean_slope = {'leftSteep': 'bearish', 'rightSteep': 'bullish'}.get(_shape, 'neutral')
+        # Skew lean (SVI@ATM dσ/dk: ≤−0.08 左偏=看跌; ≥0.08 右偏=看多)
+        _lean_skew = 'neutral'
+        if _skew is not None:
+            try:
+                _sv = float(_skew)
+                if _sv <= -0.08:
+                    _lean_skew = 'bearish'
+                elif _sv >= 0.08:
+                    _lean_skew = 'bullish'
+            except Exception:
+                pass
+        # PCR lean (持仓PCR: ≥1.2 偏空; ≤0.8 偏多)
+        _lean_pcr = 'neutral'
+        if pcr is not None:
+            try:
+                _pvv = float(pcr)
+                if _pvv >= 1.2:
+                    _lean_pcr = 'bearish'
+                elif _pvv <= 0.8:
+                    _lean_pcr = 'bullish'
+            except Exception:
+                pass
+        _L = {'bearish': '空', 'bullish': '多', 'neutral': '中'}
+        _cc['signals'] = [
+            {'dim': '斜率', 'value': f"{_shape}(比值{_slope_change['now'].get('ratio')})", 'lean': _L[_lean_slope]},
+            {'dim': 'Skew', 'value': f"{_skew}({_skew_lv})", 'lean': _L[_lean_skew]},
+            {'dim': 'PCR(持仓)', 'value': (f"{pcr}({pcr_delta:+.3f})" if pcr_delta is not None else f"{pcr}"), 'lean': _L[_lean_pcr]},
+        ]
+        _non = [_lean_slope, _lean_skew, _lean_pcr]
+        _b = _non.count('bearish'); _u = _non.count('bullish')
+        if _b >= 2 and _u == 0:
+            _cc['verdict'] = f'三方共振偏空（空{_b}/多{_u}/中{3 - _b - _u}）'
+        elif _u >= 2 and _b == 0:
+            _cc['verdict'] = f'三方共振偏多（空{_b}/多{_u}/中{3 - _b - _u}）'
+        elif _b >= 1 and _u >= 1:
+            _cc['verdict'] = f'背离（空{_b}/多{_u}，方向不确认）'
+        else:
+            _cc['verdict'] = f'中性（空{_b}/多{_u}/中{3 - _b - _u}）'
+        _cc['note'] = 'Skew=SVI@ATM dσ/dk（左偏=下方IV贵=看跌）；PCR=持仓PCR(put/call)；阈值 Skew≤−0.08左偏 / PCR≥1.2偏空'
+    except Exception as _e:
+        print(f"[pain_structure] 三方印证计算失败: {_e}")
+    out['cross_check'] = _cc
 
     # ---------- L5 对冲机理 + 结论 + 风险点 ----------
     _shape = l1.get('shape') or 'unknown'

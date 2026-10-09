@@ -2318,6 +2318,8 @@ function _painStructureParts(ps) {
   let headline = `${shapeTxt} · ${posTxt}`;
   if (sl.regime) headline += ` · 斜率比 ${ratioTxt}（${regimeTxt}）`;
   if (c.max_pain != null) headline += ` · MP ${num(c.max_pain)}（${c.mp_migration || '—'}）`;
+  const _cc = ps.cross_check || {};
+  if (_cc.verdict) headline += ` · 印证 ${_cc.verdict}`;
   return { c, sl, om, shapeTxt, posTxt, regimeTxt, ratioTxt, num, headline };
 }
 
@@ -2350,6 +2352,74 @@ function _painStructureDetail(ps) {
   const flatTxt = c.flatness
     ? `${c.flatness.is_flat_bottom ? '平底(弱判定)' : '单点谷'} · 次低差 ${c.flatness.diff_pct != null ? c.flatness.diff_pct : '--'}%${c.second_low && c.second_low.strike != null ? ' @' + num(c.second_low.strike) : ''}`
     : '--';
+  // ---- C1 (v2.11.127c): 斜率较前日变化量 ----
+  const sc = ps.slope_change || {};
+  const oa = ps.oi_attribution || {};
+  const cc = ps.cross_check || {};
+  const sgn = (v, d) => (v == null || isNaN(Number(v))) ? '--' : ((Number(v) > 0 ? '+' : '') + Number(v).toFixed(d == null ? 3 : d));
+  const trendColor = (t) => t === '变陡' ? '#ef5350' : (t === '变缓' ? '#26a69a' : '#aaa');
+  let slopeChangeHtml = '';
+  if (sc.now && sc.prev && sc.prev.ratio != null) {
+    const dn = (sc.one_side_trend || {}).down || {};
+    const up = (sc.one_side_trend || {}).up || {};
+    slopeChangeHtml = `<div style="margin-top:6px;">
+      <div style="color:#ffd700;font-size:11px;font-weight:bold;margin-bottom:3px;">斜率较前日（对标 ${escHtml(sc.prev_date || '—')} 收盘口径）</div>
+      <div style="color:#ccc;font-size:11px;line-height:1.7;">
+        <div>· 比值: 前日 <b style="color:#eee;">${num(sc.prev.ratio, 2)}</b>（${escHtml(sc.prev.regime || '--')}） → 现值 <b style="color:#eee;">${num(sc.now.ratio, 2)}</b>（${escHtml(sc.now.regime || '--')}） · Δ <b style="color:${(sc.ratio_delta > 0 ? '#ef5350' : '#26a69a')};">${sgn(sc.ratio_delta, 3)}</b>${sc.regime_changed ? ' · <span style="color:#ffa726;">形态切换</span>' : ''}</div>
+        <div>· 下方(down): ${dn.prev != null ? Number(dn.prev).toLocaleString() : '--'} → ${dn.now != null ? Number(dn.now).toLocaleString() : '--'} <b style="color:${trendColor(dn.trend)};">${dn.trend || '--'}</b></div>
+        <div>· 上方(up): ${up.prev != null ? Number(up.prev).toLocaleString() : '--'} → ${up.now != null ? Number(up.now).toLocaleString() : '--'} <b style="color:${trendColor(up.trend)};">${up.trend || '--'}</b></div>
+      </div></div>`;
+  }
+  // ---- C1 (v2.11.127c): 每档持仓归因（较前日）----
+  const oaRows = Array.isArray(oa.rows) ? oa.rows : [];
+  let oiAttrHtml = '';
+  if (oaRows.length) {
+    const dcell = (d, v) => {
+      const dv = Number(d);
+      const txt = (d == null || isNaN(dv)) ? '--' : ((dv > 0 ? '↑ +' : (dv < 0 ? '↓ -' : '')) + Math.abs(dv).toLocaleString());
+      const col = (d == null || isNaN(dv)) ? '#888' : (dv > 0 ? '#ef5350' : (dv < 0 ? '#26a69a' : '#aaa'));
+      return `<td style="color:${col};text-align:right;padding:2px 5px;border-bottom:1px solid #242430;">${txt}</td>`;
+    };
+    const body = oaRows.map(r => `<tr>
+      <td style="color:#eee;padding:2px 5px;border-bottom:1px solid #242430;">${num(r.strike)}</td>
+      <td style="color:#ccc;text-align:right;padding:2px 5px;border-bottom:1px solid #242430;">${r.put_now != null ? Number(r.put_now).toLocaleString() : '--'}</td>
+      ${dcell(r.put_delta)}
+      <td style="color:#ccc;text-align:right;padding:2px 5px;border-bottom:1px solid #242430;">${r.call_now != null ? Number(r.call_now).toLocaleString() : '--'}</td>
+      ${dcell(r.call_delta)}
+    </tr>`).join('');
+    oiAttrHtml = `<div style="margin-top:6px;">
+      <div style="color:#ffd700;font-size:11px;font-weight:bold;margin-bottom:3px;">每档持仓归因（较前日，${oa.n_matched || oaRows.length} 档匹配）</div>
+      ${oa.mp_attribution ? `<div style="color:#d0d0d0;font-size:11px;line-height:1.6;margin-bottom:3px;">${escHtml(oa.mp_attribution)}</div>` : ''}
+      <details><summary style="cursor:pointer;color:#8fb3d9;font-size:10px;">展开每档明细（Put/Call 现持仓 + 较前日增减）</summary>
+        <table style="width:100%;border-collapse:collapse;font-size:10px;background:#12121b;border:1px solid #2a2a36;margin-top:3px;">
+          <thead><tr>
+            <th style="color:#aaa;text-align:left;padding:2px 5px;border-bottom:1px solid #333;font-weight:500;">档位</th>
+            <th style="color:#aaa;text-align:right;padding:2px 5px;border-bottom:1px solid #333;font-weight:500;">Put现</th>
+            <th style="color:#aaa;text-align:right;padding:2px 5px;border-bottom:1px solid #333;font-weight:500;">Put Δ</th>
+            <th style="color:#aaa;text-align:right;padding:2px 5px;border-bottom:1px solid #333;font-weight:500;">Call现</th>
+            <th style="color:#aaa;text-align:right;padding:2px 5px;border-bottom:1px solid #333;font-weight:500;">Call Δ</th>
+          </tr></thead><tbody>${body}</tbody></table></details></div>`;
+  }
+  // ---- C1 (v2.11.127c): 三方印证（斜率 × Skew × PCR）----
+  const ccSig = Array.isArray(cc.signals) ? cc.signals : [];
+  let ccHtml = '';
+  if (ccSig.length) {
+    const leanColor = (l) => l === '空' ? '#ef5350' : (l === '多' ? '#26a69a' : '#aaa');
+    const sigRows = ccSig.map(s => `<tr>
+      <td style="color:#ccc;padding:2px 6px;border-bottom:1px solid #242430;">${escHtml(s.dim)}</td>
+      <td style="color:#eee;padding:2px 6px;border-bottom:1px solid #242430;">${escHtml(s.value)}</td>
+      <td style="color:${leanColor(s.lean)};padding:2px 6px;border-bottom:1px solid #242430;font-weight:bold;">${escHtml(s.lean)}</td>
+    </tr>`).join('');
+    const vtxt = cc.verdict || '';
+    const vColor = /共振偏空/.test(vtxt) ? '#ef5350' : (/共振偏多/.test(vtxt) ? '#26a69a' : (/背离/.test(vtxt) ? '#ffa726' : '#aaa'));
+    ccHtml = `<div style="margin-top:6px;">
+      <div style="color:#ffd700;font-size:11px;font-weight:bold;margin-bottom:3px;">三方印证（斜率 × Skew × PCR）</div>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;background:#12121b;border:1px solid #2a2a36;">
+        <thead><tr><th style="color:#aaa;text-align:left;padding:2px 6px;border-bottom:1px solid #333;font-weight:500;">维度</th><th style="color:#aaa;text-align:left;padding:2px 6px;border-bottom:1px solid #333;font-weight:500;">值</th><th style="color:#aaa;text-align:left;padding:2px 6px;border-bottom:1px solid #333;font-weight:500;">倾向</th></tr></thead>
+        <tbody>${sigRows}</tbody></table>
+      <div style="color:${vColor};font-size:11px;font-weight:bold;margin-top:3px;">结论: ${escHtml(vtxt || '--')}</div>
+    </div>`;
+  }
   return `<div style="margin-top:6px;">
         <div style="color:#ccc;font-size:11px;line-height:1.75;">
           <div>· 曲线几何: MP <b style="color:#eee;">${num(c.max_pain)}</b>（前日 ${num(c.max_pain_prev)}，${escHtml(c.mp_migration || '—')}）</div>
@@ -2364,6 +2434,9 @@ function _painStructureDetail(ps) {
           ${wallTable('上方 Call 墙 Top5', om.call_wall)}
         </div>
         <div style="color:#ccc;font-size:11px;margin-top:6px;">· 持仓比 PCR: <b style="color:#eee;">${om.pcr != null ? Number(om.pcr).toFixed(3) : '--'}</b>（前日 ${om.pcr_prev != null ? Number(om.pcr_prev).toFixed(3) : '--'}，Δ ${om.pcr_delta != null ? (om.pcr_delta > 0 ? '+' : '') + Number(om.pcr_delta).toFixed(3) : '--'}） · ${escHtml(om.migration_dir || '')}</div>
+        ${ccHtml}
+        ${slopeChangeHtml}
+        ${oiAttrHtml}
         ${riskHtml}
   </div>`;
 }
@@ -2373,7 +2446,7 @@ function renderPainStructureBlock(ps) {
   if (!ps || typeof ps !== 'object') return '';
   const P = _painStructureParts(ps);
   return `<div style="margin:10px 0 12px 0;border:1px solid #3a3a4d;border-radius:6px;background:#191922;padding:8px 10px;">
-    <div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:4px;">🎯 痛点结构研判 <span style="color:#777;font-size:10px;font-weight:400;">（斜率口径 v2.11.127）</span></div>
+    <div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:4px;">🎯 痛点结构研判 <span style="color:#777;font-size:10px;font-weight:400;">（斜率口径 v2.11.127c）</span></div>
     <div style="color:#e0e0e0;font-size:12px;line-height:1.6;">${escHtml(P.headline)}</div>
     <div style="color:#9fb4c9;font-size:11px;line-height:1.55;margin-top:2px;">${escHtml(ps.verdict || '')}</div>
     <details style="margin-top:6px;">
@@ -3661,11 +3734,12 @@ document.getElementById('dailyMetricModal').addEventListener('click', function (
 
 </script>
 <!-- 变更记录（仅内部留存，不显示在页面）：
+     ▸ v2.11.127c: 「痛点结构研判」增补 C1 三层(纯新增字段, 不改动任何既有算法输出) —— ① 斜率较前日变化量(slope_change: 前日 vs 现值比值 Δ / 形态切换 / 上下方变陡变缓) ② 每档持仓归因(oi_attribution: 32 档 Put/Call 现持仓 + 较前日增减 + MP 归因一句话) ③ 三方印证(cross_check: 斜率 × Skew × PCR 倾向矩阵 + 共振/背离结论)。前日斜率由前一交易日收盘简报经 production compute_pain_slope 重算(不依赖 L1 结构性为 0 的 slope_prev)。
      ▸ v2.11.127: 研报新增「痛点结构研判」维度(斜率口径) —— 合并 Max Pain 迁移/平底检测 + Pain 斜率(形态×位置×GEX方向) + 持仓分布变化(下方 Put 墙 / 上方 Call 墙 Top5 + PCR 变化) 为 section1.pain_structure, 前端在决策层下方以「🎯 痛点结构研判」可折叠块渲染; 纯新增字段, 不改动任何既有算法输出。
      ▸ v2.11.126: 前次基准 9:00 切换闸门修复: _get_expected_baseline_date() 在节后首交易日 9:00 前沿用假期基准(9/29), 9:00 起才切到节前最后交易日(9/30), 修掉 00:00 午夜提前切换。
      ▸ 前端版本脚注只保留版本号, changelog 移入本注释。
      ▸ v2.11.125: ① 前次基准侧读层 T 标定(前次基准 IV × 该日收盘报告自身 k, 仅读层, 磁盘 JSON 不动) ② 非交易日禁写(休市日不写 close_state.json/eod_state.json/区间快照, 不落盘 daily_close_report)。
      ▸ v2.11.123: 只读层日历标定。 -->
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.127</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.127c</div>
 </body>
 </html>
