@@ -2370,6 +2370,27 @@ function _painStructureDetail(ps) {
         <div>· 上方(up): ${up.prev != null ? Number(up.prev).toLocaleString() : '--'} → ${up.now != null ? Number(up.now).toLocaleString() : '--'} <b style="color:${trendColor(up.trend)};">${up.trend || '--'}</b></div>
       </div></div>`;
   }
+  // ---- C1+ (v2.11.127d): 斜率变化研判（变化理由 + 价格含义）----
+  const imp = sc.impact || {};
+  let impactHtml = '';
+  if (imp.text || imp.structure || (imp.down && imp.down.text) || (imp.up && imp.up.text)) {
+    const sideLine = (label, o, color) => {
+      if (!o || !o.text) return '';
+      const w = (Array.isArray(o.window) && o.window.length)
+        ? ` <span style="color:#777;font-size:10px;">[窗 ${o.window[0]}–${o.window[o.window.length - 1]}]</span>` : '';
+      return `<div>· <b style="color:${color};">${label}</b>: ${escHtml(o.text)}${w}</div>`;
+    };
+    impactHtml = `<div style="margin-top:6px;border-left:3px solid #ffa726;padding-left:8px;">
+      <div style="color:#ffd700;font-size:11px;font-weight:bold;margin-bottom:3px;">斜率变化研判（变化理由 + 价格含义）</div>
+      <div style="color:#e0e0e0;font-size:11px;line-height:1.7;">
+        ${imp.structure ? `<div>· <b>结构</b>: ${escHtml(imp.structure)}</div>` : ''}
+        ${sideLine('下方(down)', imp.down, '#ef5350')}
+        ${sideLine('上方(up)', imp.up, '#26a69a')}
+        ${imp.implication ? `<div>· <b>价格含义</b>: <b style="color:#ffa726;">${escHtml(imp.implication)}</b></div>` : ''}
+      </div>
+      ${imp.basis ? `<div style="color:#666;font-size:10px;margin-top:2px;">口径: ${escHtml(imp.basis)}</div>` : ''}
+    </div>`;
+  }
   // ---- C1 (v2.11.127c): 每档持仓归因（较前日）----
   const oaRows = Array.isArray(oa.rows) ? oa.rows : [];
   let oiAttrHtml = '';
@@ -2436,6 +2457,7 @@ function _painStructureDetail(ps) {
         <div style="color:#ccc;font-size:11px;margin-top:6px;">· 持仓比 PCR: <b style="color:#eee;">${om.pcr != null ? Number(om.pcr).toFixed(3) : '--'}</b>（前日 ${om.pcr_prev != null ? Number(om.pcr_prev).toFixed(3) : '--'}，Δ ${om.pcr_delta != null ? (om.pcr_delta > 0 ? '+' : '') + Number(om.pcr_delta).toFixed(3) : '--'}） · ${escHtml(om.migration_dir || '')}</div>
         ${ccHtml}
         ${slopeChangeHtml}
+        ${impactHtml}
         ${oiAttrHtml}
         ${riskHtml}
   </div>`;
@@ -2446,7 +2468,7 @@ function renderPainStructureBlock(ps) {
   if (!ps || typeof ps !== 'object') return '';
   const P = _painStructureParts(ps);
   return `<div style="margin:10px 0 12px 0;border:1px solid #3a3a4d;border-radius:6px;background:#191922;padding:8px 10px;">
-    <div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:4px;">🎯 痛点结构研判 <span style="color:#777;font-size:10px;font-weight:400;">（斜率口径 v2.11.127c）</span></div>
+    <div style="color:#ffd700;font-size:12px;font-weight:bold;margin-bottom:4px;">🎯 痛点结构研判 <span style="color:#777;font-size:10px;font-weight:400;">（斜率口径 v2.11.127d）</span></div>
     <div style="color:#e0e0e0;font-size:12px;line-height:1.6;">${escHtml(P.headline)}</div>
     <div style="color:#9fb4c9;font-size:11px;line-height:1.55;margin-top:2px;">${escHtml(ps.verdict || '')}</div>
     <details style="margin-top:6px;">
@@ -3734,12 +3756,13 @@ document.getElementById('dailyMetricModal').addEventListener('click', function (
 
 </script>
 <!-- 变更记录（仅内部留存，不显示在页面）：
+     ▸ v2.11.127d: 「斜率较前日」增补『变化理由 + 价格含义』(slope_change.impact, 纯新增) —— ① 结构句(比值Δ/形态切换) ② 上/下方斜率增减归因(now-MP 锚定 ±5 窗两日同档 pain 对比 + 窗内 OI 净变动 top3, 与 compute_pain_slope 同源) ③ 价格含义(下行/上行自强化对比, 结构术语非方向预测)。不改动任何既有算法输出。
      ▸ v2.11.127c: 「痛点结构研判」增补 C1 三层(纯新增字段, 不改动任何既有算法输出) —— ① 斜率较前日变化量(slope_change: 前日 vs 现值比值 Δ / 形态切换 / 上下方变陡变缓) ② 每档持仓归因(oi_attribution: 32 档 Put/Call 现持仓 + 较前日增减 + MP 归因一句话) ③ 三方印证(cross_check: 斜率 × Skew × PCR 倾向矩阵 + 共振/背离结论)。前日斜率由前一交易日收盘简报经 production compute_pain_slope 重算(不依赖 L1 结构性为 0 的 slope_prev)。
      ▸ v2.11.127: 研报新增「痛点结构研判」维度(斜率口径) —— 合并 Max Pain 迁移/平底检测 + Pain 斜率(形态×位置×GEX方向) + 持仓分布变化(下方 Put 墙 / 上方 Call 墙 Top5 + PCR 变化) 为 section1.pain_structure, 前端在决策层下方以「🎯 痛点结构研判」可折叠块渲染; 纯新增字段, 不改动任何既有算法输出。
      ▸ v2.11.126: 前次基准 9:00 切换闸门修复: _get_expected_baseline_date() 在节后首交易日 9:00 前沿用假期基准(9/29), 9:00 起才切到节前最后交易日(9/30), 修掉 00:00 午夜提前切换。
      ▸ 前端版本脚注只保留版本号, changelog 移入本注释。
      ▸ v2.11.125: ① 前次基准侧读层 T 标定(前次基准 IV × 该日收盘报告自身 k, 仅读层, 磁盘 JSON 不动) ② 非交易日禁写(休市日不写 close_state.json/eod_state.json/区间快照, 不落盘 daily_close_report)。
      ▸ v2.11.123: 只读层日历标定。 -->
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.127c</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.127d</div>
 </body>
 </html>

@@ -2235,9 +2235,14 @@ def build_pain_structure_analysis(report: Dict) -> Dict:
       slope_change{prev_date, now{}, prev{}, ratio_delta, regime_changed, one_side_trend{}, note}
       oi_attribution{prev_date, n_matched, rows[], put/call_top_add/cut[], mp_attribution}
       cross_check{skew{}, pcr{}, signals[], verdict, note}
+      --- v2.11.127d (C1+ 纯新增) ---
+      slope_change.impact{basis, structure, down{}, up{}, implication, text}
+        口径: now-MP 锚定 ±5 窗两日同档 pain 逐档对比 + 窗内 OI 净变动 top3 (与
+        compute_pain_slope 同源)。归因=端点 pain 差(数学精确) + 主因档 OI 变动;
+        含义=结构术语(加速器增强/减弱), 不写死方向词。全部纯新增, 不改既有算法。
     """
     out: Dict = {
-        'version': 'v2.11.127c',
+        'version': 'v2.11.127d',
         'source': '斜率口径 (pain curve geometry + decision_layer L1)',
         'curve': {}, 'slope': {}, 'oi_migration': {},
         'hedge_mechanism': '', 'verdict': '', 'risk_points': [],
@@ -2454,6 +2459,115 @@ def build_pain_structure_analysis(report: Dict) -> Dict:
     except Exception as _e:
         print(f"[pain_structure] 每档归因表计算失败: {_e}")
     out['oi_attribution'] = _oi_attr
+
+    # ---------- C1+(v2.11.127d): 斜率变化『归因 + 价格含义』(纯新增) ----------
+    # 口径(自定, 相对较优): now-MP 锚定 ±5 窗, 两日同档 pain 逐档对比, 与生产
+    #   compute_pain_slope 同源 → 隔离"同一批档位的 pain 变化", 才是斜率变化的真因。
+    #   归因 = 端点 pain 差(数学精确, 因 2 点线性斜率 Δslope=(ΔP_last−ΔP_first)/span)
+    #          + 窗内 OI 净变动 top3(业务定名"哪几档在加/减仓")
+    #   含义 = 结构术语(加速器增强/减弱), 不写死"偏空/偏多"(避免与既有 direction 口径冲突)
+    _impact: Dict = {'basis': '', 'structure': '', 'down': {}, 'up': {},
+                     'implication': '', 'text': ''}
+    try:
+        _ic = _slope_change or {}
+        if _ic.get('prev') and _ic.get('now') and pain_curve:
+            from judge_state import SLOPE_WINDOW as _SLW
+            _now_pm = {float(p['strike']): float(p['pain']) for p in pain_curve
+                       if p.get('strike') is not None and p.get('pain') is not None}
+            _prev_pc_i = list(((_prev_report or {}).get('gex') or {}).get('pain_curve') or [])
+            _prev_pm = {float(p['strike']): float(p['pain']) for p in _prev_pc_i
+                        if p.get('strike') is not None and p.get('pain') is not None}
+            _sstrikes = sorted(_now_pm.keys())
+            _rowmap = {r['strike']: r for r in (_oi_attr.get('rows') or [])}
+            if mp is not None and len(_sstrikes) >= 2:
+                _mpx = min(range(len(_sstrikes)), key=lambda i: abs(_sstrikes[i] - float(mp)))
+
+                def _side_attr(side: int):
+                    if side < 0:
+                        seg = _sstrikes[max(0, _mpx - _SLW):_mpx]
+                        oik = 'put'
+                    else:
+                        seg = _sstrikes[_mpx + 1:_mpx + 1 + _SLW]
+                        oik = 'call'
+                    if len(seg) < 2:
+                        return None
+                    _pd = []
+                    for _s in seg:
+                        if _s in _now_pm and _s in _prev_pm:
+                            _pd.append({'strike': _s, 'd_pain': round(_now_pm[_s] - _prev_pm[_s], 0)})
+                    _mv = []
+                    for _s in seg:
+                        _r = _rowmap.get(_s) or {}
+                        _dk = _r.get(oik + '_delta')
+                        if _dk is not None:
+                            _mv.append({'strike': _s, 'd_oi': int(_dk)})
+                    _mv.sort(key=lambda x: abs(x['d_oi']), reverse=True)
+                    _f, _l = seg[0], seg[-1]
+                    _df = round(_now_pm[_f] - _prev_pm[_f], 0) if (_f in _now_pm and _f in _prev_pm) else None
+                    _dl = round(_now_pm[_l] - _prev_pm[_l], 0) if (_l in _now_pm and _l in _prev_pm) else None
+                    return {'side': ('down' if side < 0 else 'up'), 'oi_side': oik,
+                            'window': [int(round(x)) for x in seg],
+                            'endpoint_first': {'strike': _f, 'd_pain': _df},
+                            'endpoint_last': {'strike': _l, 'd_pain': _dl},
+                            'pain_deltas': _pd, 'top_movers': _mv[:3]}
+                _da = _side_attr(-1)
+                _ua = _side_attr(+1)
+
+                # (1) 结构句: 比值 + 形态切换
+                _rp_, _rn_ = _ic['prev'].get('ratio'), _ic['now'].get('ratio')
+                _rg_p, _rg_n = _ic['prev'].get('regime'), _ic['now'].get('regime')
+                _struct = ''
+                if _rp_ is not None and _rn_ is not None:
+                    _struct = f"比值 {_rp_}→{_rn_}"
+                    if _rg_p != _rg_n:
+                        _struct += f"（{_rg_p}→{_rg_n}）"
+                _impact['structure'] = _struct
+
+                _trend_d = ((_ic.get('one_side_trend') or {}).get('down') or {}).get('trend')
+                _trend_u = ((_ic.get('one_side_trend') or {}).get('up') or {}).get('trend')
+
+                def _side_text(sa, trend, cn):
+                    if not sa:
+                        return ''
+                    _mv = sa.get('top_movers') or []
+                    _mvtxt = ('主因 ' + sa['oi_side'].capitalize() + ' OI 变动 '
+                              + '/'.join(f"{int(m['strike'])}{m['d_oi']:+d}" for m in _mv)) if _mv else ''
+                    if trend == '变陡':
+                        _sem = ('下方 Put 墙增厚 → 跌破 MP 后卖盘自强化增强（下跌加速器↑）' if cn == '下方'
+                                else '上方 Call 墙增厚 → 突破 MP 后买盘自强化增强（上涨加速器↑）')
+                    elif trend == '变缓':
+                        _sem = ('下方 Put 墙减薄 → 下跌加速器↓' if cn == '下方'
+                                else '上方 Call 墙减薄 → 上涨加速器↓')
+                    else:
+                        _sem = '两侧力度基本持平'
+                    return f"{cn} 斜率{trend or '持平'}: {_sem}" + (f"；{_mvtxt}" if _mvtxt else '')
+
+                if _da:
+                    _impact['down'] = {**_da, 'text': _side_text(_da, _trend_d, '下方')}
+                if _ua:
+                    _impact['up'] = {**_ua, 'text': _side_text(_ua, _trend_u, '上方')}
+
+                # (2) 价格含义 (结构术语, 非方向预测)
+                if _trend_d == '变陡' and _trend_u == '变缓':
+                    _imp = '下方加速器增强 + 上方托力减弱 → 下行自强化 > 上行自强化；跌破 MP 后加速风险上升，上方突破燃料不足'
+                elif _trend_d == '变缓' and _trend_u == '变陡':
+                    _imp = '上方加速器增强 + 下方托力减弱 → 上行自强化占优；突破 MP 后加速概率上升'
+                elif _trend_d == '变陡' and _trend_u == '变陡':
+                    _imp = '双向加速器同增强 → 突破任一侧均加速，方向选择成本高'
+                elif _trend_d == '变缓' and _trend_u == '变缓':
+                    _imp = '双向加速器同减弱 → 波动收敛，区间/钉住倾向'
+                elif _trend_d and _trend_u:
+                    _imp = f"结构调整（{_trend_d}/{_trend_u}），方向优势未明显偏向单侧"
+                else:
+                    _imp = ''
+                _impact['implication'] = _imp
+                _impact['text'] = '；'.join([x for x in [_impact['structure'], _imp] if x])
+                _impact['basis'] = (f"now-MP({mp}) 锚定 ±{_SLW} 窗两日同档 pain 对比 + 窗内 OI 净变动 "
+                                    f"(与 compute_pain_slope 同源)；结构术语非方向预测")
+    except Exception as _e:
+        print(f"[pain_structure] 斜率变化研判计算失败: {_e}")
+    _slope_change['impact'] = _impact
+    out['slope_change'] = _slope_change
 
     # ---------- C1(v2.11.127c): 三方印证 (斜率 × Skew × PCR) ----------
     _cc: Dict = {'skew': {}, 'pcr': {}, 'signals': [], 'verdict': '', 'note': ''}
