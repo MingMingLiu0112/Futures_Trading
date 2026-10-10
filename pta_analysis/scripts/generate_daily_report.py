@@ -2473,32 +2473,51 @@ def build_pain_structure_analysis(report: Dict) -> Dict:
                 _mpx = min(range(len(_sstrikes)), key=lambda i: abs(_sstrikes[i] - float(mp)))
 
                 def _side_attr(side: int):
-                    if side < 0:
-                        seg = _sstrikes[max(0, _mpx - _SLW):_mpx]
-                        oik = 'put'
-                    else:
-                        seg = _sstrikes[_mpx + 1:_mpx + 1 + _SLW]
-                        oik = 'call'
+                    # v2.11.130: 跨界双边 OI 归因（旧版仅取同侧单边, 漏掉跨界半边）。
+                    # 口径: dPain/dS = Σ_{K<S}Call − Σ_{K>S}Put
+                    #   上方斜率 ∝  dPain/dS = 下方Call − 上方Put
+                    #   下方斜率 ∝ −dPain/dS = 上方Put − 下方Call
+                    # 两侧斜率同源, 均读『下方Call − 上方Put』净变动, 仅差符号 →
+                    #   movers 必须跨界双边: 下方窗取 Call + 上方窗取 Put。
+                    _dn_seg = _sstrikes[max(0, _mpx - _SLW):_mpx]        # MP 下方窗
+                    _up_seg = _sstrikes[_mpx + 1:_mpx + 1 + _SLW]        # MP 上方窗
+                    seg = _dn_seg if side < 0 else _up_seg               # pain 端点采样窗
                     if len(seg) < 2:
                         return None
                     _pd = []
                     for _s in seg:
                         if _s in _now_pm and _s in _prev_pm:
                             _pd.append({'strike': _s, 'd_pain': round(_now_pm[_s] - _prev_pm[_s], 0)})
+                    # 跨界双边 movers: 下方 Call(<=MP) + 上方 Put(>MP)
                     _mv = []
-                    for _s in seg:
+                    _sgn_call = 1 if side > 0 else -1   # Call 下方加仓 → 推升上方斜率 / 压低下方斜率
+                    for _s in _dn_seg:
                         _r = _rowmap.get(_s) or {}
-                        _dk = _r.get(oik + '_delta')
+                        _dk = _r.get('call_delta')
                         if _dk is not None:
-                            _mv.append({'strike': _s, 'd_oi': int(_dk)})
-                    _mv.sort(key=lambda x: abs(x['d_oi']), reverse=True)
+                            _dk = int(_dk)
+                            _mv.append({'strike': _s, 'side_key': 'call', 'zone': '下方',
+                                        'd_oi': _dk, 'contrib': _sgn_call * _dk})
+                    _sgn_put = 1 if side < 0 else -1    # Put 上方加仓 → 推升下方斜率 / 压低上方斜率
+                    for _s in _up_seg:
+                        _r = _rowmap.get(_s) or {}
+                        _dk = _r.get('put_delta')
+                        if _dk is not None:
+                            _dk = int(_dk)
+                            _mv.append({'strike': _s, 'side_key': 'put', 'zone': '上方',
+                                        'd_oi': _dk, 'contrib': _sgn_put * _dk})
+                    _mv.sort(key=lambda x: abs(x['contrib']), reverse=True)
+                    _net = sum(m['contrib'] for m in _mv)
                     _f, _l = seg[0], seg[-1]
                     _df = round(_now_pm[_f] - _prev_pm[_f], 0) if (_f in _now_pm and _f in _prev_pm) else None
                     _dl = round(_now_pm[_l] - _prev_pm[_l], 0) if (_l in _now_pm and _l in _prev_pm) else None
-                    return {'side': ('down' if side < 0 else 'up'), 'oi_side': oik,
+                    return {'side': ('down' if side < 0 else 'up'), 'oi_side': 'cross',
                             'window': [int(round(x)) for x in seg],
+                            'down_window': [int(round(x)) for x in _dn_seg],
+                            'up_window': [int(round(x)) for x in _up_seg],
                             'endpoint_first': {'strike': _f, 'd_pain': _df},
                             'endpoint_last': {'strike': _l, 'd_pain': _dl},
+                            'net_contrib': _net,
                             'pain_deltas': _pd, 'top_movers': _mv[:3]}
                 _da = _side_attr(-1)
                 _ua = _side_attr(+1)
@@ -2520,17 +2539,23 @@ def build_pain_structure_analysis(report: Dict) -> Dict:
                     if not sa:
                         return ''
                     _mv = sa.get('top_movers') or []
-                    _mvtxt = ('主因 ' + sa['oi_side'].capitalize() + ' OI 变动 '
-                              + '/'.join(f"{int(m['strike'])}{m['d_oi']:+d}" for m in _mv)) if _mv else ''
+                    # v2.11.130: 跨界双边 movers → 标注 zone(下方/上方) + 侧(call/put)
+                    _mvtxt = ('主因 ' + ' ＋ '.join(
+                        f"{m.get('zone', '')}{m['side_key'].capitalize()} {int(m['strike'])}{m['d_oi']:+d}"
+                        for m in _mv)) if _mv else ''
                     if trend == '变陡':
-                        _sem = ('下方 Put 墙增厚 → 跌破 MP 后卖盘自强化增强（下跌加速器↑）' if cn == '下方'
-                                else '上方 Call 墙增厚 → 突破 MP 后买盘自强化增强（上涨加速器↑）')
+                        _sem = ('下方 Put 墙增厚 / 下方 Call 减仓 → 跌破 MP 后卖盘自强化增强（下跌加速器↑）' if cn == '下方'
+                                else '上方 Call 墙增厚 / 上方 Put 减仓 → 突破 MP 后买盘自强化增强（上涨加速器↑）')
                     elif trend == '变缓':
-                        _sem = ('下方 Put 墙减薄 → 下跌加速器↓' if cn == '下方'
-                                else '上方 Call 墙减薄 → 上涨加速器↓')
+                        _sem = ('下方 Put 墙减薄 / 下方 Call 增仓 → 下跌加速器↓' if cn == '下方'
+                                else '上方 Call 墙减薄 / 上方 Put 增仓 → 上涨加速器↓')
                     else:
                         _sem = '两侧力度基本持平'
-                    return f"{cn} 斜率{trend or '持平'}: {_sem}" + (f"；{_mvtxt}" if _mvtxt else '')
+                    _netxt = ''
+                    _nv = sa.get('net_contrib')
+                    if _nv and _mv:
+                        _netxt = f"；净{_nv:+d} 带动{cn}斜率{trend or '持平'}"
+                    return f"{cn} 斜率{trend or '持平'}: {_sem}" + (f"；{_mvtxt}" if _mvtxt else '') + _netxt
 
                 if _da:
                     _impact['down'] = {**_da, 'text': _side_text(_da, _trend_d, '下方')}
@@ -2552,8 +2577,8 @@ def build_pain_structure_analysis(report: Dict) -> Dict:
                     _imp = ''
                 _impact['implication'] = _imp
                 _impact['text'] = '；'.join([x for x in [_impact['structure'], _imp] if x])
-                _impact['basis'] = (f"now-MP({mp}) 锚定 ±{_SLW} 窗两日同档 pain 对比 + 窗内 OI 净变动 "
-                                    f"(与 compute_pain_slope 同源)；结构术语非方向预测")
+                _impact['basis'] = (f"now-MP({mp}) 锚定 ±{_SLW} 窗两日同档 pain 对比 + 跨界双边 OI 净变动 "
+                                    f"(下方Call − 上方Put, 与 compute_pain_slope 同源)；结构术语非方向预测")
     except Exception as _e:
         print(f"[pain_structure] 斜率变化研判计算失败: {_e}")
     _slope_change['impact'] = _impact
