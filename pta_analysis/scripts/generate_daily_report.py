@@ -286,21 +286,11 @@ def load_macro_input() -> Dict:
     """
     manual = _read_json_dict(MANUAL_MACRO_INPUT_PATH)
     auto = _read_json_dict(AUTO_MACRO_INPUT_PATH)
-    if manual and auto and AUTO_MACRO_OVERRIDE_STALE_MANUAL and _auto_macro_has_content(auto):
-        if _auto_macro_is_newer(manual, auto):
-            auto = _tag_auto_source(auto)
-            auto['superseded_manual'] = {
-                'as_of_date': manual.get('as_of_date'),
-                'source': manual.get('source'),
-                'updated_at': manual.get('updated_at'),
-                # 2026-09-23: 用户原文在此留档 —— 自动接管≠静默丢弃，快讯区仍以「留档」形式展示可追溯
-                'summary': manual.get('summary'),
-                'text': manual.get('text'),
-                'core_takeaway': manual.get('core_takeaway'),
-            }
-            # 自动抓取结构性拿不到的字段回退人工文本（逐项注明来源，避免面板空白/丢用户数据）
-            auto = _fill_gaps_from_manual(auto, manual)
-            return auto
+    # ---- v2.11.128 (2026-10-10 用户拍板): 宏观基本面自动抓取管线停用 → 人工文本唯一来源 ----
+    # 原 A方案「谁新用谁」(auto_macro_input.json 接管、标「自动抓取·待人工核对」) 已废弃,
+    # 与 web_app_integrated.py 的 08:30 钩子同步停用(见该文件 v2.11.128 注释)。
+    # 现语义: 只要存在人工文本 manual_macro_input.json, 一律以其为准(不再被自动抓取覆盖);
+    # auto 仅在人工文本缺失时作最后兜底(旧数据兼容), 正常情况下永不生效。
     if manual:
         return manual
     if auto:
