@@ -1544,6 +1544,11 @@ def _get_expected_baseline_date(now_dt):
         # 节假日/周末：节前最后交易日的 cb 还没生效（要等节后首日 9:00）→ 再往前一个交易日
         last_td = _find_last_trading_day_before(today)
         if last_td:
+            # v2.11.131 修复: 区分"普通周末" vs "节前无夜盘日"（避免周日多退一天）。
+            #   - 上周五若有夜盘 → 21:00 已切到周五 15:00 → 周末前次基准 = 周五
+            #   - 节前最后交易日无夜盘（如 9/30 国庆前夜）→ 其 cb 要等节后首日 9:00 才生效 → 再退一天
+            if _has_pta_night_session(last_td):
+                return last_td
             return _find_last_trading_day_before(last_td)
         return None
 
@@ -4062,11 +4067,16 @@ def _build_daily_metrics_series():
         _k = kmap.get(d, 1.0)
         _skew = _dm_snum((slot.get('svi_params') or {}).get('skew'))
         _atm = _dm_iv_pct((slot.get('svi_params') or {}).get('atm_vol'))
+        _curv = _dm_snum((slot.get('svi_params') or {}).get('curvature'))
         if _k != 1.0:
             if _skew is not None:
                 _skew = round(_skew * _k, 4)
             if _atm is not None:
                 _atm = round(_atm * _k, 2)
+            # curvature 与 skew 同为 d*/dk 在 ATM 处的 d²w/dk²/(2√(atm_var·T)) 形态
+            # → 与 skew/atm_iv 一样 ∝ 1/√T, 套同一日历标定 k(保持曲线内部口径一致)
+            if _curv is not None:
+                _curv = round(_curv * _k, 2)
         snap[d] = {
             'slot': s,
             'pcr_oi': round(op / oc, 4) if oc else None,
@@ -4074,6 +4084,8 @@ def _build_daily_metrics_series():
             'skew': _skew,
             # v2.11.120: ATM 隐波 —— 与页面「ATM 隐波」卡同口径(SVI atm_vol), 转成 %(页面显示口径)
             'atm_iv': _atm,
+            # v2.11.131: 曲率 —— 与页面「曲率 Curvature」卡同口径(SVI curvature, 同刻度)
+            'curvature': _curv,
             'atm_strike': _dm_snum(slot.get('atm_strike')),
             'F': _dm_snum(slot.get('futures_price')),
             'mp': _dm_snum(slot.get('max_pain')),
@@ -4121,11 +4133,17 @@ def _build_daily_metrics_series():
         _k = kmap.get(d, 1.0)
         _skew = _dm_snum(svi.get('skew'))
         _atm_iv = _dm_iv_pct_or(svi.get('atm_vol'), ia.get('atm_vol'))
+        # 曲率: 优先 SVI curvature(与页面卡同口径), 退回报告 iv_analysis.curvature
+        _curv = _dm_snum(svi.get('curvature'))
+        if _curv is None:
+            _curv = _dm_snum(ia.get('curvature'))
         if _k != 1.0:
             if _skew is not None:
                 _skew = round(_skew * _k, 4)
             if _atm_iv is not None:
                 _atm_iv = round(_atm_iv * _k, 2)
+            if _curv is not None:
+                _curv = round(_curv * _k, 2)
         rep[d] = {
             'pcr_oi': _dm_snum(gx.get('pcr')),
             'gex_dir': gx.get('gex_direction'),
@@ -4133,6 +4151,8 @@ def _build_daily_metrics_series():
             'skew': _skew,
             # v2.11.120: ATM 隐波(%): 优先 SVI atm_vol(与页面卡同口径), 退回报告 iv_analysis.atm_vol(本身即 %)
             'atm_iv': _atm_iv,
+            # v2.11.131: 曲率 —— 与页面「曲率 Curvature」卡同口径(SVI curvature)
+            'curvature': _curv,
             'atm_strike': _dm_snum((r.get('iv_curve') or {}).get('atm_strike')),
             'F': _dm_snum(gx.get('futures_price')),
             'mp': mp,
@@ -4155,6 +4175,7 @@ def _build_daily_metrics_series():
     out = {
         'atm_iv': [], 'atm_strike': [],
         'pcr_oi': [], 'pcr_vol': [], 'skew': [], 'net_gex': [], 'gex_dir': [],
+        'curvature': [],
         'max_pain': [], 'slope_down': [], 'slope_up': [],
         'fuel_down': [], 'fuel_up': [], 'slope_ratio': [],
     }
@@ -4165,6 +4186,7 @@ def _build_daily_metrics_series():
         pv = S.get('pcr_vol')          # 成交PCR 仅快照可得(reports 无 vol 分档)
         sk = R.get('skew') if R.get('skew') is not None else S.get('skew')
         av = R.get('atm_iv') if R.get('atm_iv') is not None else S.get('atm_iv')
+        cv = R.get('curvature') if R.get('curvature') is not None else S.get('curvature')
         ast = R.get('atm_strike') if R.get('atm_strike') is not None else S.get('atm_strike')
         dn, up = R.get('slope_down'), R.get('slope_up')
         fd = abs(dn) if dn is not None else None          # 左侧燃料 = |slope_down| (对齐前端 downResist)
@@ -4176,6 +4198,7 @@ def _build_daily_metrics_series():
         out['pcr_vol'].append(pv)
         out['skew'].append(sk)
         out['atm_iv'].append(av)
+        out['curvature'].append(cv)
         out['atm_strike'].append(ast)
         out['net_gex'].append(R.get('net_gex'))
         out['gex_dir'].append(R.get('gex_dir'))
