@@ -398,8 +398,8 @@
     <div class="metric-value" id="mShape" style="color:#aaffaa;">--</div>
     <div class="metric-sub" id="mShapeSub">smooth均值变化（非ATM）</div>
   </div>
-  <div class="metric-box">
-    <div class="metric-name">曲率 Curvature</div>
+  <div class="metric-box" onclick="openDailyMetricModal('curvature')" title="点击查看日频走势（自框架最早记录起）" style="cursor:pointer;">
+    <div class="metric-name">曲率 Curvature <span style="font-size:9px; color:#666;">📈</span></div>
     <div class="metric-value" id="mCurvature" style="color:#aaffaa;">--</div>
     <div class="metric-sub" id="mCurvSub">微笑弯曲程度</div>
   </div>
@@ -3534,6 +3534,17 @@ const DAILY_METRIC_DEFS = {
       { y: -0.05, text: '-0.05 Put偏斜', color: '#00d4ff', dash: true }
     ]
   },
+  curvature: {
+    title: '曲率 Curvature · 日频走势',
+    hint: 'SVI 微笑在 ATM 附近的二阶凸性（15:00 收盘槽）· 越大 = 微笑越弯 / 尾部风险溢价越高 · 与页面「曲率 Curvature」卡同口径 · 纵轴固定上限 100（到期日 T→0 的尖峰截顶）',
+    yname: 'Curvature',
+    yMax: 100,
+    lines: [{ key: 'curvature', name: '曲率', color: '#aaffaa' }],
+    guides: [
+      { y: 10, text: '10 适中', color: '#666', dash: true },
+      { y: 30, text: '30 陡峭', color: '#ff6b9d', dash: true }
+    ]
+  },
   pain_slope: {
     title: 'Pain 斜率 · 日频走势（双侧燃料 + 不对称比）',
     hint: '左侧 = Put 端阻力（slope_down 绝对值）/ 右侧 = Call 端阻力（slope_up），窗口 ±5 档；不对称比 = 大/小（1.2 略不对称 / 1.5 一边主导 / 2.5 强不对称）',
@@ -3643,6 +3654,12 @@ function _buildDailyMetricOption(def, data) {
       axisLabel: { color: '#aaa', fontSize: 10 },
       splitLine: { show: false }
     });
+  }
+
+  if (def.yMax != null) {
+    // v2.11.131: 纵轴固定上限 —— 防止到期日 T→0 的曲率尖峰把正常区间压扁
+    yAxis[0].max = def.yMax;
+    yAxis[0].min = 0;
   }
 
   const opt = {
@@ -3776,6 +3793,7 @@ document.getElementById('dailyMetricModal').addEventListener('click', function (
 
 </script>
 <!-- 变更记录（仅内部留存，不显示在页面）：
+     ▸ v2.11.131: ① 前次基准跨端一致修复: _get_expected_baseline_date() 末尾增加「上一交易日有夜盘 → 不回退」闸门(_has_pta_night_session), 修掉周日在非交易分支下被多回退一天 (/alert_data 与 /curve 显示 10/08 而 /status 显示 10/09)。② 「曲率 Curvature」指标卡新增日频走势弹窗(与卡片同源 svi_params.curvature, 同口径同单位)。③ 曲率日频弹窗纵轴固定上限 100(yMax): 到期日 T→0 使 curvature=d²w/dk²/(2·√(atm_var·T)) 被 1/T 放大百倍(6/11=4789 / 8/12=835 / 9/11=3691), 线性轴下正常区间(中位 9.2)被压扁; 固定上限后引导线「10 适中」(灰) / 「30 陡峭」(红粉 #ff6b9d) 回归可读位置, 超限尖峰截顶。不改动任何既有算法输出与口径。
      ▸ v2.11.130: 痛点结构研判·斜率归因升级 —— (A) 后端 OI 归因由「同侧半窗」改为「跨界双边」(_side_attr: 下方斜率 ∝ 上方Put−下方Call; 上方斜率 ∝ 下方Call−上方Put, top movers 跨界取样, 附 net_contrib) (B) 前端「斜率变化研判」块由折叠明细提升到先屏可见(与 headline 平级)，抽为 _slopeImpactHtml 复用。不改动 compute_pain_slope 等既有算法输出。
      ▸ v2.11.127d: 「斜率较前日」增补『变化理由 + 价格含义』(slope_change.impact, 纯新增) —— ① 结构句(比值Δ/形态切换) ② 上/下方斜率增减归因(now-MP 锚定 ±5 窗两日同档 pain 对比 + 窗内 OI 净变动 top3, 与 compute_pain_slope 同源) ③ 价格含义(下行/上行自强化对比, 结构术语非方向预测)。不改动任何既有算法输出。
      ▸ v2.11.127c: 「痛点结构研判」增补 C1 三层(纯新增字段, 不改动任何既有算法输出) —— ① 斜率较前日变化量(slope_change: 前日 vs 现值比值 Δ / 形态切换 / 上下方变陡变缓) ② 每档持仓归因(oi_attribution: 32 档 Put/Call 现持仓 + 较前日增减 + MP 归因一句话) ③ 三方印证(cross_check: 斜率 × Skew × PCR 倾向矩阵 + 共振/背离结论)。前日斜率由前一交易日收盘简报经 production compute_pain_slope 重算(不依赖 L1 结构性为 0 的 slope_prev)。
@@ -3784,6 +3802,6 @@ document.getElementById('dailyMetricModal').addEventListener('click', function (
      ▸ 前端版本脚注只保留版本号, changelog 移入本注释。
      ▸ v2.11.125: ① 前次基准侧读层 T 标定(前次基准 IV × 该日收盘报告自身 k, 仅读层, 磁盘 JSON 不动) ② 非交易日禁写(休市日不写 close_state.json/eod_state.json/区间快照, 不落盘 daily_close_report)。
      ▸ v2.11.123: 只读层日历标定。 -->
-<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.130</div>
+<div class="version" style="position:fixed;bottom:2px;right:8px;color:#555;font-size:9px;z-index:1;">v2.11.131</div>
 </body>
 </html>
